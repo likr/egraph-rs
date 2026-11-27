@@ -1,27 +1,24 @@
-//! Core SGD constructors, schedule helpers, and manifold dispatch helpers.
+//! Core SGD constructors, schedule helpers, and polymorphic trait implementations.
 
 use egraph::{core as egraph_core, layout as egraph_layout};
-use egraph_core::CoreError;
 use egraph_layout::{SgdScheduleConfig, SgdScheduleKind, SgdSolver, StreamingNegativeConfig};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
-use crate::array_extract::{extract_f64_1d, extract_f64_2d};
+use crate::array_extract::extract_f64_1d;
 use crate::csr_graph::PyCsrGraph;
 use crate::ffi_convert::{
-    ScalarDtype, StrictF64, StrictU64, StrictUsize, core_error_to_py, extract_u32_1d,
-    normalize_enum_key, solver_status_str,
+    ScalarDtype, StrictF64, StrictU64, StrictUsize, core_error_to_py, extract_coords_any,
+    extract_u32_1d, normalize_enum_key,
 };
-use crate::manifold::{
-    ExtractedManifold, PyManifoldLayout2d, extract_manifold_for_solver, write_back_manifold,
-};
-use crate::solver_common::{
-    DualIterativeSolver, SolverAction, impl_dual_solver, vec_f64_to_f32_checked,
-};
+use crate::solver_common::{impl_dual_solver, vec_f64_to_f32_checked};
 
+use super::layout_dispatch::{impl_dual_manifold_solver, impl_dual_nd_solver};
 use super::sgd::PySgdSolver;
 
 impl_dual_solver!(SgdInner, SgdSolver);
+impl_dual_nd_solver!(SgdInner, SgdSolver);
+impl_dual_manifold_solver!(SgdInner, SgdSolver);
 
 impl SgdInner {
     pub(super) fn num_nodes(&self) -> usize {
@@ -51,6 +48,13 @@ impl SgdInner {
             Self::F32(s) => s.current_eta(),
         }
     }
+
+    pub(super) fn supports_manifold(&self) -> bool {
+        match self {
+            Self::F64(s) => s.supports_manifold(),
+            Self::F32(s) => s.supports_manifold(),
+        }
+    }
 }
 
 pub(super) fn parse_sgd_schedule_kind(raw: &str) -> Result<SgdScheduleKind, String> {
@@ -68,16 +72,18 @@ pub(super) fn parse_sgd_schedule_kind(raw: &str) -> Result<SgdScheduleKind, Stri
 }
 
 pub(super) fn build_schedule_config(
-    t_max: usize,
+    iterations: usize,
     eps: f64,
     schedule: &str,
     step_scale: f64,
+    max_mu: Option<f64>,
 ) -> PyResult<SgdScheduleConfig> {
     let kind = parse_sgd_schedule_kind(schedule).map_err(PyValueError::new_err)?;
-    Ok(SgdScheduleConfig::new(t_max)
+    Ok(SgdScheduleConfig::new(iterations)
         .with_eps(eps)
         .with_kind(kind)
-        .with_step_scale(step_scale))
+        .with_step_scale(step_scale)
+        .with_max_mu(max_mu))
 }
 
 pub(super) fn default_inv_sq_weights(dists: &[f64]) -> Vec<f64> {
@@ -93,35 +99,6 @@ pub(super) fn default_inv_sq_weights(dists: &[f64]) -> Vec<f64> {
         .collect()
 }
 
-pub(super) fn execute_manifold_action(
-    inner: &mut SgdInner,
-    py: Python<'_>,
-    layout: &Bound<'_, PyManifoldLayout2d>,
-    action: SolverAction,
-) -> PyResult<&'static str> {
-    let target_dtype = inner.dtype();
-    let mut extracted = extract_manifold_for_solver(layout, target_dtype)?;
-    let status = py
-        .detach(|| match (inner, &mut extracted) {
-            (SgdInner::F64(s), ExtractedManifold::F64(m, _)) => match action {
-                SolverAction::Step => s.step_manifold(m),
-                SolverAction::RunSteps(steps) => s.run_steps_manifold(m, steps),
-                SolverAction::Run => s.run_manifold(m),
-            },
-            (SgdInner::F32(s), ExtractedManifold::F32(m, _)) => match action {
-                SolverAction::Step => s.step_manifold(m),
-                SolverAction::RunSteps(steps) => s.run_steps_manifold(m, steps),
-                SolverAction::Run => s.run_manifold(m),
-            },
-            _ => Err(CoreError::invalid_input(
-                "internal solver manifold dtype mismatch",
-            )),
-        })
-        .map_err(core_error_to_py)?;
-    write_back_manifold(layout, extracted)?;
-    Ok(solver_status_str(status))
-}
-
 #[allow(clippy::too_many_arguments)]
 pub(super) fn build_from_pairs(
     py: Python<'_>,
@@ -132,14 +109,21 @@ pub(super) fn build_from_pairs(
     dji: Option<&Bound<'_, PyAny>>,
     wij: Option<&Bound<'_, PyAny>>,
     wji: Option<&Bound<'_, PyAny>>,
-    t_max: StrictUsize,
+    iterations: StrictUsize,
     eps: StrictF64,
     schedule: &str,
     step_scale: StrictF64,
+    max_mu: Option<StrictF64>,
     seed: StrictU64,
     dtype: ScalarDtype,
 ) -> PyResult<PySgdSolver> {
-    let sched = build_schedule_config(t_max.0, eps.0, schedule, step_scale.0)?;
+    let sched = build_schedule_config(
+        iterations.0,
+        eps.0,
+        schedule,
+        step_scale.0,
+        max_mu.map(|v| v.0),
+    )?;
     let src_u32 = extract_u32_1d(src, "src")?;
     let tgt_u32 = extract_u32_1d(tgt, "tgt")?;
     let dij_f64 = extract_f64_1d(dij, "dij")?;
@@ -215,14 +199,21 @@ pub(super) fn build_from_pairs_with_hinges(
     hinge_dji: Option<&Bound<'_, PyAny>>,
     hinge_wij: Option<&Bound<'_, PyAny>>,
     hinge_wji: Option<&Bound<'_, PyAny>>,
-    t_max: StrictUsize,
+    iterations: StrictUsize,
     eps: StrictF64,
     schedule: &str,
     step_scale: StrictF64,
+    max_mu: Option<StrictF64>,
     seed: StrictU64,
     dtype: ScalarDtype,
 ) -> PyResult<PySgdSolver> {
-    let sched = build_schedule_config(t_max.0, eps.0, schedule, step_scale.0)?;
+    let sched = build_schedule_config(
+        iterations.0,
+        eps.0,
+        schedule,
+        step_scale.0,
+        max_mu.map(|v| v.0),
+    )?;
     let s_src = extract_u32_1d(spring_src, "spring_src")?;
     let s_tgt = extract_u32_1d(spring_tgt, "spring_tgt")?;
     let s_dij = extract_f64_1d(spring_dij, "spring_dij")?;
@@ -319,19 +310,26 @@ pub(super) fn build_from_pairs_with_hinges(
 pub(super) fn build_full(
     py: Python<'_>,
     graph: &PyCsrGraph,
-    t_max: StrictUsize,
+    iterations: StrictUsize,
     eps: StrictF64,
     schedule: &str,
     step_scale: StrictF64,
+    max_mu: Option<StrictF64>,
     seed: StrictU64,
     dtype: ScalarDtype,
 ) -> PyResult<PySgdSolver> {
-    let sched = build_schedule_config(t_max.0, eps.0, schedule, step_scale.0)?;
+    let sched = build_schedule_config(
+        iterations.0,
+        eps.0,
+        schedule,
+        step_scale.0,
+        max_mu.map(|v| v.0),
+    )?;
     let g = graph.inner();
     let inner = py
         .detach(|| match dtype {
-            ScalarDtype::F64 => SgdSolver::<f64>::full(g, sched, seed.0).map(SgdInner::F64),
-            ScalarDtype::F32 => SgdSolver::<f32>::full(g, sched, seed.0).map(SgdInner::F32),
+            ScalarDtype::F64 => SgdSolver::<f64>::full(&*g, sched, seed.0).map(SgdInner::F64),
+            ScalarDtype::F32 => SgdSolver::<f32>::full(&*g, sched, seed.0).map(SgdInner::F32),
         })
         .map_err(core_error_to_py)?;
     Ok(PySgdSolver::from_inner(inner))
@@ -342,23 +340,28 @@ pub(super) fn build_random_pair(
     py: Python<'_>,
     graph: &PyCsrGraph,
     pairs_per_node: StrictUsize,
-    t_max: StrictUsize,
+    iterations: StrictUsize,
     eps: StrictF64,
     schedule: &str,
     step_scale: StrictF64,
+    max_mu: Option<StrictF64>,
     seed: StrictU64,
     dtype: ScalarDtype,
 ) -> PyResult<PySgdSolver> {
-    let sched = build_schedule_config(t_max.0, eps.0, schedule, step_scale.0)?;
+    let sched = build_schedule_config(
+        iterations.0,
+        eps.0,
+        schedule,
+        step_scale.0,
+        max_mu.map(|v| v.0),
+    )?;
     let g = graph.inner();
     let inner = py
         .detach(|| match dtype {
-            ScalarDtype::F64 => {
-                SgdSolver::<f64>::random_pair(g, pairs_per_node.0, sched, seed.0).map(SgdInner::F64)
-            }
-            ScalarDtype::F32 => {
-                SgdSolver::<f32>::random_pair(g, pairs_per_node.0, sched, seed.0).map(SgdInner::F32)
-            }
+            ScalarDtype::F64 => SgdSolver::<f64>::random_pair(&*g, pairs_per_node.0, sched, seed.0)
+                .map(SgdInner::F64),
+            ScalarDtype::F32 => SgdSolver::<f32>::random_pair(&*g, pairs_per_node.0, sched, seed.0)
+                .map(SgdInner::F32),
         })
         .map_err(core_error_to_py)?;
     Ok(PySgdSolver::from_inner(inner))
@@ -371,15 +374,22 @@ pub(super) fn build_omega(
     embedding: &Bound<'_, PyAny>,
     k: StrictUsize,
     min_dist: StrictF64,
-    t_max: StrictUsize,
+    iterations: StrictUsize,
     eps: StrictF64,
     schedule: &str,
     step_scale: StrictF64,
+    max_mu: Option<StrictF64>,
     seed: StrictU64,
     dtype: ScalarDtype,
 ) -> PyResult<PySgdSolver> {
-    let sched = build_schedule_config(t_max.0, eps.0, schedule, step_scale.0)?;
-    let (emb_flat, nrows, dims) = extract_f64_2d(embedding, "embedding")?;
+    let sched = build_schedule_config(
+        iterations.0,
+        eps.0,
+        schedule,
+        step_scale.0,
+        max_mu.map(|v| v.0),
+    )?;
+    let (emb_flat, nrows, dims) = extract_coords_any(embedding, "embedding")?;
     let g = graph.inner();
     if nrows != g.num_nodes() {
         return Err(PyValueError::new_err(format!(
@@ -390,11 +400,11 @@ pub(super) fn build_omega(
     let inner = py
         .detach(|| match dtype {
             ScalarDtype::F64 => {
-                SgdSolver::<f64>::omega(g, &emb_flat, dims, k.0, min_dist.0, sched, seed.0)
+                SgdSolver::<f64>::omega(&*g, &emb_flat, dims, k.0, min_dist.0, sched, seed.0)
                     .map(SgdInner::F64)
             }
             ScalarDtype::F32 => {
-                SgdSolver::<f32>::omega(g, &emb_flat, dims, k.0, min_dist.0, sched, seed.0)
+                SgdSolver::<f32>::omega(&*g, &emb_flat, dims, k.0, min_dist.0, sched, seed.0)
                     .map(SgdInner::F32)
             }
         })
@@ -410,14 +420,21 @@ pub(super) fn build_streaming_negatives(
     target_distance: StrictF64,
     weight: StrictF64,
     hinge_only: bool,
-    t_max: StrictUsize,
+    iterations: StrictUsize,
     eps: StrictF64,
     schedule: &str,
     step_scale: StrictF64,
+    max_mu: Option<StrictF64>,
     seed: StrictU64,
     dtype: ScalarDtype,
 ) -> PyResult<PySgdSolver> {
-    let sched = build_schedule_config(t_max.0, eps.0, schedule, step_scale.0)?;
+    let sched = build_schedule_config(
+        iterations.0,
+        eps.0,
+        schedule,
+        step_scale.0,
+        max_mu.map(|v| v.0),
+    )?;
     let neg_cfg = StreamingNegativeConfig {
         negatives_per_node: negatives_per_node.0,
         target_distance: target_distance.0,
@@ -427,13 +444,14 @@ pub(super) fn build_streaming_negatives(
     let g = graph.inner();
     let inner = py
         .detach(|| match dtype {
-            ScalarDtype::F64 => {
-                SgdSolver::<f64>::streaming_negatives(g, neg_cfg, sched, seed.0).map(SgdInner::F64)
-            }
-            ScalarDtype::F32 => {
-                SgdSolver::<f32>::streaming_negatives(g, neg_cfg, sched, seed.0).map(SgdInner::F32)
-            }
+            ScalarDtype::F64 => SgdSolver::<f64>::streaming_negatives(&*g, neg_cfg, sched, seed.0)
+                .map(SgdInner::F64),
+            ScalarDtype::F32 => SgdSolver::<f32>::streaming_negatives(&*g, neg_cfg, sched, seed.0)
+                .map(SgdInner::F32),
         })
         .map_err(core_error_to_py)?;
     Ok(PySgdSolver::from_inner(inner))
 }
+
+#[allow(dead_code)]
+fn _check_core(_: egraph_core::CoreError) {}

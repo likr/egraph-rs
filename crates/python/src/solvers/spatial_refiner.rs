@@ -64,7 +64,7 @@ impl PySpatialIntruderRefiner {
     #[pyo3(
         signature = (
             graph,
-            rounds = StrictUsize(4),
+            iterations = StrictUsize(4),
             k_cap = StrictUsize(32),
             margin_scale = StrictF64(1.2),
             w_anchor = StrictF64(1.0),
@@ -72,7 +72,7 @@ impl PySpatialIntruderRefiner {
             w_fp = StrictF64(0.2),
             fn_shrink = StrictF64(0.88),
             round_decay = StrictF64(0.75),
-            t_max = StrictUsize(20),
+            sgd_iterations = StrictUsize(20),
             eps = StrictF64(0.05),
             hinge_fp = true,
             seed = StrictU64(42),
@@ -84,12 +84,12 @@ impl PySpatialIntruderRefiner {
             w_sep = StrictF64(0.0),
             dtype = ScalarDtype::F64
         ),
-        text_signature = "(graph, rounds=4, k_cap=32, margin_scale=1.2, w_anchor=1.0, w_fn=0.0, w_fp=0.2, fn_shrink=0.88, round_decay=0.75, t_max=20, eps=0.05, hinge_fp=True, seed=42, *, w_anchor2=0.0, k_cap_decay=1.0, k_cap_min=1, min_sep_ratio=0.0, w_sep=0.0, dtype='float64')"
+        text_signature = "(graph, iterations=4, k_cap=32, margin_scale=1.2, w_anchor=1.0, w_fn=0.0, w_fp=0.2, fn_shrink=0.88, round_decay=0.75, sgd_iterations=20, eps=0.05, hinge_fp=True, seed=42, *, w_anchor2=0.0, k_cap_decay=1.0, k_cap_min=1, min_sep_ratio=0.0, w_sep=0.0, dtype='float64')"
     )]
     fn new(
         py: Python<'_>,
         graph: &PyCsrGraph,
-        rounds: StrictUsize,
+        iterations: StrictUsize,
         k_cap: StrictUsize,
         margin_scale: StrictF64,
         w_anchor: StrictF64,
@@ -97,7 +97,7 @@ impl PySpatialIntruderRefiner {
         w_fp: StrictF64,
         fn_shrink: StrictF64,
         round_decay: StrictF64,
-        t_max: StrictUsize,
+        sgd_iterations: StrictUsize,
         eps: StrictF64,
         hinge_fp: bool,
         seed: StrictU64,
@@ -109,7 +109,7 @@ impl PySpatialIntruderRefiner {
         dtype: ScalarDtype,
     ) -> PyResult<Self> {
         let cfg = SpatialRefinerConfig {
-            iterations: rounds.0,
+            iterations: iterations.0,
             k_cap: k_cap.0,
             margin_scale: margin_scale.0,
             w_anchor: w_anchor.0,
@@ -120,7 +120,7 @@ impl PySpatialIntruderRefiner {
             round_decay: round_decay.0,
             k_cap_decay: k_cap_decay.0,
             k_cap_min: k_cap_min.0,
-            sgd_iterations: t_max.0,
+            sgd_iterations: sgd_iterations.0,
             eps: eps.0,
             hinge_fp,
             min_sep_ratio: min_sep_ratio.0,
@@ -131,10 +131,10 @@ impl PySpatialIntruderRefiner {
         let inner = py
             .detach(|| match dtype {
                 ScalarDtype::F64 => {
-                    SpatialIntruderRefiner::<f64>::new(g, cfg).map(RefinerInner::F64)
+                    SpatialIntruderRefiner::<f64>::new(&*g, cfg).map(RefinerInner::F64)
                 }
                 ScalarDtype::F32 => {
-                    SpatialIntruderRefiner::<f32>::new(g, cfg).map(RefinerInner::F32)
+                    SpatialIntruderRefiner::<f32>::new(&*g, cfg).map(RefinerInner::F32)
                 }
             })
             .map_err(core_error_to_py)?;

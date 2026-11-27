@@ -6,12 +6,12 @@ use egraph_spatial::{
     DensityFieldKernel, ScreenedPoissonConfig, ScreenedPoissonField2d, ScreenedPoissonOutput,
     ScreenedPoissonStats,
 };
-use numpy::PyArray1;
+use numpy::ndarray::Array2;
+use numpy::{PyArray1, PyArray2};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
-use crate::array_extract::extract_f64_1d;
 use crate::ffi_convert::{
     ScalarDtype, StrictF64, StrictUsize, core_error_to_py, normalize_enum_key,
 };
@@ -134,7 +134,7 @@ impl PyScreenedPoissonField2d {
         signature = (
             *,
             kernel = "screened_poisson",
-            grid_size = StrictUsize(2048),
+            grid_size = StrictUsize(512),
             padding_factor = StrictUsize(2),
             margin_ratio = StrictF64(0.1),
             sigma_ratio = StrictF64(0.015),
@@ -146,7 +146,7 @@ impl PyScreenedPoissonField2d {
             exact_adjoint = true,
             dtype = ScalarDtype::F64
         ),
-        text_signature = "(*, kernel='screened_poisson', grid_size=2048, padding_factor=2, margin_ratio=0.1, sigma_ratio=0.015, sigma=None, screening_length_ratio=0.2, kappa=None, rho_max_factor=4.0, rho_max=None, exact_adjoint=True, dtype='float64')"
+        text_signature = "(*, kernel='screened_poisson', grid_size=512, padding_factor=2, margin_ratio=0.1, sigma_ratio=0.015, sigma=None, screening_length_ratio=0.2, kappa=None, rho_max_factor=4.0, rho_max=None, exact_adjoint=True, dtype='float64')"
     )]
     fn new(
         py: Python<'_>,
@@ -222,22 +222,21 @@ impl PyScreenedPoissonField2d {
         screened_poisson_output_to_dict(py, out)
     }
 
-    /// Evaluate unilateral density energy and descent forces inside explicit `bounds = [min_x, max_x, min_y, max_y]`.
-    #[pyo3(signature = (layout, bounds), text_signature = "($self, layout, bounds)")]
+    /// Evaluate unilateral density energy and descent forces inside explicit bounds `(min_x, min_y, max_x, max_y)`.
+    #[pyo3(
+        signature = (layout, min_x, min_y, max_x, max_y),
+        text_signature = "($self, layout, min_x, min_y, max_x, max_y)"
+    )]
     fn evaluate_in_bounds(
         &mut self,
         py: Python<'_>,
         layout: &PyLayout2d,
-        bounds: &Bound<'_, PyAny>,
+        min_x: StrictF64,
+        min_y: StrictF64,
+        max_x: StrictF64,
+        max_y: StrictF64,
     ) -> PyResult<Py<PyDict>> {
-        let bvec = extract_f64_1d(bounds, "bounds")?;
-        if bvec.len() != 4 {
-            return Err(PyValueError::new_err(format!(
-                "bounds must contain exactly 4 elements [min_x, max_x, min_y, max_y], got {}",
-                bvec.len()
-            )));
-        }
-        let b_arr = [bvec[0], bvec[1], bvec[2], bvec[3]];
+        let b_arr = [min_x.0, min_y.0, max_x.0, max_y.0];
         let out = match (&mut self.inner, layout.inner()) {
             (ScreenedPoissonFieldInner::F64(field), Layout2dInner::F64(buf)) => {
                 let soa = buf.to_layout2d();
@@ -266,6 +265,40 @@ impl PyScreenedPoissonField2d {
             }
         };
         screened_poisson_output_to_dict(py, out)
+    }
+
+    /// Return the `(G, G)` empirical density grid from the most recent non-empty evaluation, or `None`.
+    #[pyo3(text_signature = "($self)")]
+    fn density_grid<'py>(&self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyAny>>> {
+        match &self.inner {
+            ScreenedPoissonFieldInner::F64(f) => match f.density_grid() {
+                Some(grid) => {
+                    let dim = f.density_grid_dim();
+                    let arr = Array2::from_shape_vec((dim, dim), grid.to_vec())
+                        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+                    Ok(Some(PyArray2::from_owned_array(py, arr).into_any()))
+                }
+                None => Ok(None),
+            },
+            ScreenedPoissonFieldInner::F32(f) => match f.density_grid() {
+                Some(grid) => {
+                    let dim = f.density_grid_dim();
+                    let arr = Array2::from_shape_vec((dim, dim), grid.to_vec())
+                        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+                    Ok(Some(PyArray2::from_owned_array(py, arr).into_any()))
+                }
+                None => Ok(None),
+            },
+        }
+    }
+
+    /// Interior grid dimension `G` of the populated `density_grid` (`0` before evaluation).
+    #[getter]
+    fn density_grid_dim(&self) -> usize {
+        match &self.inner {
+            ScreenedPoissonFieldInner::F64(f) => f.density_grid_dim(),
+            ScreenedPoissonFieldInner::F32(f) => f.density_grid_dim(),
+        }
     }
 
     /// Return total heap bytes allocated by the internal `f32` FFT grids and bitmasks.

@@ -95,7 +95,7 @@ impl PyScreenedPoissonRefiner {
             num_nodes,
             *,
             kernel = "screened_poisson",
-            grid_size = StrictUsize(2048),
+            grid_size = StrictUsize(512),
             padding_factor = StrictUsize(2),
             margin_ratio = StrictF64(0.1),
             sigma_ratio = StrictF64(0.015),
@@ -116,7 +116,7 @@ impl PyScreenedPoissonRefiner {
             seed = StrictU64(42),
             dtype = ScalarDtype::F64
         ),
-        text_signature = "(num_nodes, *, kernel='screened_poisson', grid_size=2048, padding_factor=2, margin_ratio=0.1, sigma_ratio=0.015, sigma=None, screening_length_ratio=0.2, kappa=None, rho_max_factor=4.0, rho_max=None, exact_adjoint=True, iterations=20, step_size=0.25, momentum=0.5, max_step_ratio=0.05, anchor_weight=0.0, gamma_tether=0.0, recenter=True, energy_tol=1e-12, seed=42, dtype='float64')"
+        text_signature = "(num_nodes, *, kernel='screened_poisson', grid_size=512, padding_factor=2, margin_ratio=0.1, sigma_ratio=0.015, sigma=None, screening_length_ratio=0.2, kappa=None, rho_max_factor=4.0, rho_max=None, exact_adjoint=True, iterations=20, step_size=0.25, momentum=0.5, max_step_ratio=0.05, anchor_weight=0.0, gamma_tether=0.0, recenter=True, energy_tol=1e-12, seed=42, dtype='float64')"
     )]
     fn new(
         py: Python<'_>,
@@ -187,7 +187,7 @@ impl PyScreenedPoissonRefiner {
             graph,
             *,
             kernel = "screened_poisson",
-            grid_size = StrictUsize(2048),
+            grid_size = StrictUsize(512),
             padding_factor = StrictUsize(2),
             margin_ratio = StrictF64(0.1),
             sigma_ratio = StrictF64(0.015),
@@ -208,7 +208,7 @@ impl PyScreenedPoissonRefiner {
             seed = StrictU64(42),
             dtype = ScalarDtype::F64
         ),
-        text_signature = "(graph, *, kernel='screened_poisson', grid_size=2048, padding_factor=2, margin_ratio=0.1, sigma_ratio=0.015, sigma=None, screening_length_ratio=0.2, kappa=None, rho_max_factor=4.0, rho_max=None, exact_adjoint=True, iterations=20, step_size=0.25, momentum=0.5, max_step_ratio=0.05, anchor_weight=0.0, gamma_tether=0.0, recenter=True, energy_tol=1e-12, seed=42, dtype='float64')"
+        text_signature = "(graph, *, kernel='screened_poisson', grid_size=512, padding_factor=2, margin_ratio=0.1, sigma_ratio=0.015, sigma=None, screening_length_ratio=0.2, kappa=None, rho_max_factor=4.0, rho_max=None, exact_adjoint=True, iterations=20, step_size=0.25, momentum=0.5, max_step_ratio=0.05, anchor_weight=0.0, gamma_tether=0.0, recenter=True, energy_tol=1e-12, seed=42, dtype='float64')"
     )]
     fn from_graph(
         py: Python<'_>,
@@ -260,9 +260,9 @@ impl PyScreenedPoissonRefiner {
         let g = graph.inner();
         let inner = py
             .detach(|| match dtype {
-                ScalarDtype::F64 => ScreenedPoissonRefiner::<f64>::with_graph(g, cfg)
+                ScalarDtype::F64 => ScreenedPoissonRefiner::<f64>::with_graph(&*g, cfg)
                     .map(ScreenedPoissonRefinerInner::F64),
-                ScalarDtype::F32 => ScreenedPoissonRefiner::<f32>::with_graph(g, cfg)
+                ScalarDtype::F32 => ScreenedPoissonRefiner::<f32>::with_graph(&*g, cfg)
                     .map(ScreenedPoissonRefinerInner::F32),
             })
             .map_err(core_error_to_py)?;

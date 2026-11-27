@@ -14,8 +14,11 @@ use crate::ffi_convert::{
     solver_status_str,
 };
 use crate::layout_buffers::{PyLayout2d, dispatch_layout2d};
-use crate::solver_common::{
-    DualIterativeSolver, SolverAction, execute_solver_action, impl_dual_solver,
+use crate::solver_common::{DualIterativeSolver, SolverAction, impl_dual_solver};
+
+use super::layout_dispatch::{
+    execute_any_layout_action, execute_euclid_action, impl_dual_manifold_solver,
+    impl_dual_nd_solver,
 };
 
 pub(super) fn parse_linlog_repulsion(raw: &str) -> Result<LinLogRepulsion, String> {
@@ -40,7 +43,10 @@ pub(super) fn parse_fr_backend(raw: &str) -> Result<FrBackend, String> {
 }
 
 impl_dual_solver!(LinLogInner, LinLogSolver);
+impl_dual_nd_solver!(LinLogInner, LinLogSolver);
 impl_dual_solver!(FrInner, FruchtermanReingoldSolver);
+impl_dual_nd_solver!(FrInner, FruchtermanReingoldSolver);
+impl_dual_manifold_solver!(FrInner, FruchtermanReingoldSolver);
 
 /// Cooperative Noack (2007/2009) LinLog and generalized `(a, r)`-PolyLog layout solver.
 ///
@@ -106,17 +112,17 @@ impl PyLinLogSolver {
         let g = graph.inner();
         let inner = py
             .detach(|| match dtype {
-                ScalarDtype::F64 => LinLogSolver::<f64>::new(g, cfg).map(LinLogInner::F64),
-                ScalarDtype::F32 => LinLogSolver::<f32>::new(g, cfg).map(LinLogInner::F32),
+                ScalarDtype::F64 => LinLogSolver::<f64>::new(&*g, cfg).map(LinLogInner::F64),
+                ScalarDtype::F32 => LinLogSolver::<f32>::new(&*g, cfg).map(LinLogInner::F32),
             })
             .map_err(core_error_to_py)?;
         Ok(Self { inner })
     }
 
-    /// Execute one LinLog iteration in place on `layout` while releasing the GIL.
+    /// Execute one LinLog iteration in place on `layout` (`Layout2d | LayoutNd`).
     #[pyo3(signature = (layout), text_signature = "($self, layout)")]
-    fn step(&mut self, py: Python<'_>, layout: &Bound<'_, PyLayout2d>) -> PyResult<&'static str> {
-        execute_solver_action(&mut self.inner, py, layout, SolverAction::Step)
+    fn step(&mut self, py: Python<'_>, layout: &Bound<'_, PyAny>) -> PyResult<&'static str> {
+        execute_euclid_action(&mut self.inner, py, layout, SolverAction::Step)
     }
 
     /// Execute up to `steps` LinLog iterations in place on `layout` while releasing the GIL.
@@ -124,16 +130,16 @@ impl PyLinLogSolver {
     fn run_steps(
         &mut self,
         py: Python<'_>,
-        layout: &Bound<'_, PyLayout2d>,
+        layout: &Bound<'_, PyAny>,
         steps: StrictUsize,
     ) -> PyResult<&'static str> {
-        execute_solver_action(&mut self.inner, py, layout, SolverAction::RunSteps(steps.0))
+        execute_euclid_action(&mut self.inner, py, layout, SolverAction::RunSteps(steps.0))
     }
 
     /// Run LinLog optimization to completion in place on `layout` while releasing the GIL.
     #[pyo3(signature = (layout), text_signature = "($self, layout)")]
-    fn run(&mut self, py: Python<'_>, layout: &Bound<'_, PyLayout2d>) -> PyResult<&'static str> {
-        execute_solver_action(&mut self.inner, py, layout, SolverAction::Run)
+    fn run(&mut self, py: Python<'_>, layout: &Bound<'_, PyAny>) -> PyResult<&'static str> {
+        execute_euclid_action(&mut self.inner, py, layout, SolverAction::Run)
     }
 
     /// Evaluate the exact Noack (2009) `(a, r)`-LinLog energy of `layout` while releasing the GIL.
@@ -264,17 +270,21 @@ impl PyFruchtermanReingoldSolver {
         let g = graph.inner();
         let inner = py
             .detach(|| match dtype {
-                ScalarDtype::F64 => FruchtermanReingoldSolver::<f64>::new(g, cfg).map(FrInner::F64),
-                ScalarDtype::F32 => FruchtermanReingoldSolver::<f32>::new(g, cfg).map(FrInner::F32),
+                ScalarDtype::F64 => {
+                    FruchtermanReingoldSolver::<f64>::new(&*g, cfg).map(FrInner::F64)
+                }
+                ScalarDtype::F32 => {
+                    FruchtermanReingoldSolver::<f32>::new(&*g, cfg).map(FrInner::F32)
+                }
             })
             .map_err(core_error_to_py)?;
         Ok(Self { inner })
     }
 
-    /// Execute one Fruchterman-Reingold iteration in place on `layout` while releasing the GIL.
+    /// Execute one Fruchterman-Reingold iteration in place on `layout` (`Layout2d | LayoutNd | ManifoldLayout2d`).
     #[pyo3(signature = (layout), text_signature = "($self, layout)")]
-    fn step(&mut self, py: Python<'_>, layout: &Bound<'_, PyLayout2d>) -> PyResult<&'static str> {
-        execute_solver_action(&mut self.inner, py, layout, SolverAction::Step)
+    fn step(&mut self, py: Python<'_>, layout: &Bound<'_, PyAny>) -> PyResult<&'static str> {
+        execute_any_layout_action(&mut self.inner, py, layout, SolverAction::Step)
     }
 
     /// Execute up to `steps` Fruchterman-Reingold iterations in place on `layout` while releasing the GIL.
@@ -282,16 +292,16 @@ impl PyFruchtermanReingoldSolver {
     fn run_steps(
         &mut self,
         py: Python<'_>,
-        layout: &Bound<'_, PyLayout2d>,
+        layout: &Bound<'_, PyAny>,
         steps: StrictUsize,
     ) -> PyResult<&'static str> {
-        execute_solver_action(&mut self.inner, py, layout, SolverAction::RunSteps(steps.0))
+        execute_any_layout_action(&mut self.inner, py, layout, SolverAction::RunSteps(steps.0))
     }
 
     /// Run Fruchterman-Reingold to completion in place on `layout` while releasing the GIL.
     #[pyo3(signature = (layout), text_signature = "($self, layout)")]
-    fn run(&mut self, py: Python<'_>, layout: &Bound<'_, PyLayout2d>) -> PyResult<&'static str> {
-        execute_solver_action(&mut self.inner, py, layout, SolverAction::Run)
+    fn run(&mut self, py: Python<'_>, layout: &Bound<'_, PyAny>) -> PyResult<&'static str> {
+        execute_any_layout_action(&mut self.inner, py, layout, SolverAction::Run)
     }
 
     /// Current solver status (`"initialized"`, `"running"`, `"converged"`, or `"completed"`).

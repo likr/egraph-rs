@@ -59,9 +59,10 @@ fn backbone_result_to_py_dict(py: Python<'_>, res: BackboneResult) -> PyResult<P
         *,
         retain_ratio = StrictF64(0.2),
         umst_weight_scale = StrictF64(1.0),
-        non_backbone_weight_scale = StrictF64(0.0)
+        non_backbone_weight_scale = StrictF64(0.0),
+        use_weights = true
     ),
-    text_signature = "(graph, *, retain_ratio=0.2, umst_weight_scale=1.0, non_backbone_weight_scale=0.0)"
+    text_signature = "(graph, *, retain_ratio=0.2, umst_weight_scale=1.0, non_backbone_weight_scale=0.0, use_weights=True)"
 )]
 fn extract_quadrilateral_backbone(
     py: Python<'_>,
@@ -69,17 +70,19 @@ fn extract_quadrilateral_backbone(
     retain_ratio: StrictF64,
     umst_weight_scale: StrictF64,
     non_backbone_weight_scale: StrictF64,
+    use_weights: bool,
 ) -> PyResult<Py<PyDict>> {
     let cfg = BackboneConfig {
         retain_ratio: retain_ratio.0,
         umst_weight_scale: umst_weight_scale.0,
         non_backbone_weight_scale: non_backbone_weight_scale.0,
+        use_weights,
         ..BackboneConfig::default()
     };
     cfg.validate().map_err(core_error_to_py)?;
     let g = graph.inner();
     let res = py
-        .detach(|| layout_extract_quadrilateral_backbone(g, &cfg))
+        .detach(|| layout_extract_quadrilateral_backbone(&*g, &cfg))
         .map_err(core_error_to_py)?;
     backbone_result_to_py_dict(py, res)
 }
@@ -105,12 +108,13 @@ impl PyBackboneSolver {
             retain_ratio = StrictF64(0.2),
             umst_weight_scale = StrictF64(1.0),
             non_backbone_weight_scale = StrictF64(0.0),
+            use_weights = true,
             layout_mode = "stress",
             iterations = StrictUsize(100),
             seed = StrictU64(42),
             dtype = ScalarDtype::F64
         ),
-        text_signature = "(graph, *, retain_ratio=0.2, umst_weight_scale=1.0, non_backbone_weight_scale=0.0, layout_mode='stress', iterations=100, seed=42, dtype='float64')"
+        text_signature = "(graph, *, retain_ratio=0.2, umst_weight_scale=1.0, non_backbone_weight_scale=0.0, use_weights=True, layout_mode='stress', iterations=100, seed=42, dtype='float64')"
     )]
     fn new(
         py: Python<'_>,
@@ -118,6 +122,7 @@ impl PyBackboneSolver {
         retain_ratio: StrictF64,
         umst_weight_scale: StrictF64,
         non_backbone_weight_scale: StrictF64,
+        use_weights: bool,
         layout_mode: &str,
         iterations: StrictUsize,
         seed: StrictU64,
@@ -128,17 +133,17 @@ impl PyBackboneSolver {
             retain_ratio: retain_ratio.0,
             umst_weight_scale: umst_weight_scale.0,
             non_backbone_weight_scale: non_backbone_weight_scale.0,
+            use_weights,
             layout_mode: mode,
             iterations: iterations.0,
             seed: seed.0,
-            ..BackboneConfig::default()
         };
         cfg.validate().map_err(core_error_to_py)?;
         let g = graph.inner();
         let inner = py
             .detach(|| match dtype {
-                ScalarDtype::F64 => BackboneSolver::<f64>::new(g, cfg).map(BackboneInner::F64),
-                ScalarDtype::F32 => BackboneSolver::<f32>::new(g, cfg).map(BackboneInner::F32),
+                ScalarDtype::F64 => BackboneSolver::<f64>::new(&*g, cfg).map(BackboneInner::F64),
+                ScalarDtype::F32 => BackboneSolver::<f32>::new(&*g, cfg).map(BackboneInner::F32),
             })
             .map_err(core_error_to_py)?;
         Ok(Self { inner })

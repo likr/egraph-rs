@@ -12,6 +12,7 @@ mod group_in_a_box;
 mod gumap;
 mod ib_umap;
 mod ib_umap_builders;
+mod layout_dispatch;
 mod overlap_prism_pfs;
 mod overlap_tree_forbid;
 mod screened_poisson_field;
@@ -21,6 +22,7 @@ mod sgd;
 mod sgd_barrier;
 mod sgd_baselines;
 mod sgd_core;
+mod sgd_dispatch;
 mod sgd_pacmap;
 mod spatial_refiner;
 mod stress_kamada;
@@ -29,6 +31,7 @@ mod t_fdp;
 mod tsnet;
 mod tsnet_builders;
 mod tsnet_config;
+mod yifan_hu;
 
 #[cfg(test)]
 mod tests;
@@ -38,7 +41,7 @@ use pyo3::prelude::*;
 use edge_bundling::PyFdebSolver;
 use force_baselines::{PyGemSolver, PySelLayoutSolver};
 use force_classic::{PyFruchtermanReingoldSolver, PyLinLogSolver};
-use force_multilevel::{PyForceAtlas2Solver, PyYifanHuSolver};
+use force_multilevel::PyForceAtlas2Solver;
 use gumap::PyGuMapSolver;
 use ib_umap::PyIbUmapSolver;
 use overlap_prism_pfs::{PyPfsPrimeOverlapRemoval, PyPrismOverlapRemoval};
@@ -52,10 +55,12 @@ use stress_kamada::{PyKamadaKawaiSolver, PyStressMajorizationSolver};
 use stress_multilevel::{PyGripSolver, PyMaxentStressSolver};
 use t_fdp::PyTFdpSolver;
 use tsnet::PyTsNetSolver;
+use yifan_hu::PyYifanHuSolver;
 
 /// Register cooperative layout solver, overlap removal, and edge bundling bindings on `egraph._core`.
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyTsNetSolver>()?;
+    tsnet_config::register(m)?;
     m.add_class::<PySgdSolver>()?;
     m.add_class::<PyGuMapSolver>()?;
     m.add_class::<PySpatialIntruderRefiner>()?;

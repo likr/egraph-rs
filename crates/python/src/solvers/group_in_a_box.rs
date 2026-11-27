@@ -87,13 +87,13 @@ pub struct PyGroupInABoxSolver {
 
 #[pymethods]
 impl PyGroupInABoxSolver {
-    /// Construct a `GroupInABoxSolver` from `graph` and per-node `cluster_labels`.
+    /// Construct a `GroupInABoxSolver` from `graph` and per-node `labels`.
     #[new]
     #[allow(clippy::too_many_arguments)]
     #[pyo3(
         signature = (
             graph,
-            cluster_labels,
+            labels,
             *,
             box_mode = "treemap",
             intra_mode = "fr",
@@ -102,16 +102,17 @@ impl PyGroupInABoxSolver {
             box_padding = StrictF64(0.05),
             intra_iterations = StrictUsize(100),
             fd_iterations = StrictUsize(100),
+            fit_bounds = true,
             cluster_weights = None,
             seed = StrictU64(42),
             dtype = ScalarDtype::F64
         ),
-        text_signature = "(graph, cluster_labels, *, box_mode='treemap', intra_mode='fr', total_width=100.0, total_height=100.0, box_padding=0.05, intra_iterations=100, fd_iterations=100, cluster_weights=None, seed=42, dtype='float64')"
+        text_signature = "(graph, labels, *, box_mode='treemap', intra_mode='fr', total_width=100.0, total_height=100.0, box_padding=0.05, intra_iterations=100, fd_iterations=100, fit_bounds=True, cluster_weights=None, seed=42, dtype='float64')"
     )]
     fn new(
         py: Python<'_>,
         graph: &PyCsrGraph,
-        cluster_labels: &Bound<'_, PyAny>,
+        labels: &Bound<'_, PyAny>,
         box_mode: &str,
         intra_mode: &str,
         total_width: StrictF64,
@@ -119,13 +120,14 @@ impl PyGroupInABoxSolver {
         box_padding: StrictF64,
         intra_iterations: StrictUsize,
         fd_iterations: StrictUsize,
+        fit_bounds: bool,
         cluster_weights: Option<&Bound<'_, PyAny>>,
         seed: StrictU64,
         dtype: ScalarDtype,
     ) -> PyResult<Self> {
         let parsed_box = parse_gib_box_mode(box_mode).map_err(PyValueError::new_err)?;
         let parsed_intra = parse_gib_intra_mode(intra_mode).map_err(PyValueError::new_err)?;
-        let labels = extract_u32_1d(cluster_labels, "cluster_labels")?;
+        let labels_vec = extract_u32_1d(labels, "labels")?;
         let cw_opt = extract_optional_weights_1d(cluster_weights, "cluster_weights")?;
         let cfg = GroupInABoxConfig {
             box_mode: parsed_box,
@@ -135,26 +137,26 @@ impl PyGroupInABoxSolver {
             box_padding: box_padding.0,
             intra_iterations: intra_iterations.0,
             fd_iterations: fd_iterations.0,
+            fit_bounds,
             seed: seed.0,
-            ..GroupInABoxConfig::default()
         };
         cfg.validate().map_err(core_error_to_py)?;
         let g = graph.inner();
         let inner = py
             .detach(|| match (dtype, cw_opt) {
                 (ScalarDtype::F64, Some(cw)) => {
-                    GroupInABoxSolver::<f64>::with_cluster_weights(g, labels, cw, cfg)
+                    GroupInABoxSolver::<f64>::with_cluster_weights(&*g, labels_vec, cw, cfg)
                         .map(GroupInABoxInner::F64)
                 }
                 (ScalarDtype::F32, Some(cw)) => {
-                    GroupInABoxSolver::<f32>::with_cluster_weights(g, labels, cw, cfg)
+                    GroupInABoxSolver::<f32>::with_cluster_weights(&*g, labels_vec, cw, cfg)
                         .map(GroupInABoxInner::F32)
                 }
                 (ScalarDtype::F64, None) => {
-                    GroupInABoxSolver::<f64>::new(g, labels, cfg).map(GroupInABoxInner::F64)
+                    GroupInABoxSolver::<f64>::new(&*g, labels_vec, cfg).map(GroupInABoxInner::F64)
                 }
                 (ScalarDtype::F32, None) => {
-                    GroupInABoxSolver::<f32>::new(g, labels, cfg).map(GroupInABoxInner::F32)
+                    GroupInABoxSolver::<f32>::new(&*g, labels_vec, cfg).map(GroupInABoxInner::F32)
                 }
             })
             .map_err(core_error_to_py)?;

@@ -86,14 +86,21 @@ pub(super) fn build_sparse_barrier_from_landmarks(
     num_pivots: StrictUsize,
     core_pivots: bool,
     degree_weight_beta: StrictF64,
-    t_max: StrictUsize,
+    iterations: StrictUsize,
     eps: StrictF64,
     schedule: &str,
     step_scale: StrictF64,
+    max_mu: Option<StrictF64>,
     seed: StrictU64,
     dtype: ScalarDtype,
 ) -> PyResult<PySgdSolver> {
-    let sched = build_schedule_config(t_max.0, eps.0, schedule, step_scale.0)?;
+    let sched = build_schedule_config(
+        iterations.0,
+        eps.0,
+        schedule,
+        step_scale.0,
+        max_mu.map(|v| v.0),
+    )?;
     let sym = parse_barrier_symmetry(barrier_sym).map_err(PyValueError::new_err)?;
     let pivots_vec = match pivots {
         Some(obj) if !obj.is_none() => Some(extract_u32_1d(obj, "pivots")?),
@@ -121,14 +128,20 @@ pub(super) fn build_sparse_barrier_from_landmarks(
     let lm = landmarks.inner();
     let (inner, b_stats) = py
         .detach(|| match dtype {
-            ScalarDtype::F64 => {
-                SgdSolver::<f64>::sparse_barrier_from_landmarks(g, lm, pivots_vec.as_deref(), &cfg)
-                    .map(|(s, st)| (SgdInner::F64(s), st))
-            }
-            ScalarDtype::F32 => {
-                SgdSolver::<f32>::sparse_barrier_from_landmarks(g, lm, pivots_vec.as_deref(), &cfg)
-                    .map(|(s, st)| (SgdInner::F32(s), st))
-            }
+            ScalarDtype::F64 => SgdSolver::<f64>::sparse_barrier_from_landmarks(
+                &*g,
+                lm,
+                pivots_vec.as_deref(),
+                &cfg,
+            )
+            .map(|(s, st)| (SgdInner::F64(s), st)),
+            ScalarDtype::F32 => SgdSolver::<f32>::sparse_barrier_from_landmarks(
+                &*g,
+                lm,
+                pivots_vec.as_deref(),
+                &cfg,
+            )
+            .map(|(s, st)| (SgdInner::F32(s), st)),
         })
         .map_err(core_error_to_py)?;
     Ok(PySgdSolver::with_stats(inner, Some(b_stats), None))
@@ -164,14 +177,21 @@ pub(super) fn build_sparse_barrier_dog(
     num_pivots: StrictUsize,
     core_pivots: bool,
     degree_weight_beta: StrictF64,
-    t_max: StrictUsize,
+    iterations: StrictUsize,
     eps: StrictF64,
     schedule: &str,
     step_scale: StrictF64,
+    max_mu: Option<StrictF64>,
     seed: StrictU64,
     dtype: ScalarDtype,
 ) -> PyResult<PySgdSolver> {
-    let sched = build_schedule_config(t_max.0, eps.0, schedule, step_scale.0)?;
+    let sched = build_schedule_config(
+        iterations.0,
+        eps.0,
+        schedule,
+        step_scale.0,
+        max_mu.map(|v| v.0),
+    )?;
     let sym = parse_barrier_symmetry(barrier_sym).map_err(PyValueError::new_err)?;
     let dog_cfg = DogVaradhanConfig {
         t1: t1.map(|v| v.0),
@@ -210,9 +230,9 @@ pub(super) fn build_sparse_barrier_dog(
     let g = graph.inner();
     let (inner, b_stats, d_stats) = py
         .detach(|| match dtype {
-            ScalarDtype::F64 => SgdSolver::<f64>::sparse_barrier_dog(g, &dog_cfg, &barrier_cfg)
+            ScalarDtype::F64 => SgdSolver::<f64>::sparse_barrier_dog(&*g, &dog_cfg, &barrier_cfg)
                 .map(|(s, b, d)| (SgdInner::F64(s), b, d)),
-            ScalarDtype::F32 => SgdSolver::<f32>::sparse_barrier_dog(g, &dog_cfg, &barrier_cfg)
+            ScalarDtype::F32 => SgdSolver::<f32>::sparse_barrier_dog(&*g, &dog_cfg, &barrier_cfg)
                 .map(|(s, b, d)| (SgdInner::F32(s), b, d)),
         })
         .map_err(core_error_to_py)?;

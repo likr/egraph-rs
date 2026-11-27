@@ -81,8 +81,8 @@ impl PySfcLayoutSolver {
         let g = graph.inner();
         let inner = py
             .detach(|| match dtype {
-                ScalarDtype::F64 => SfcLayoutSolver::<f64>::new(g, cfg).map(SfcLayoutInner::F64),
-                ScalarDtype::F32 => SfcLayoutSolver::<f32>::new(g, cfg).map(SfcLayoutInner::F32),
+                ScalarDtype::F64 => SfcLayoutSolver::<f64>::new(&*g, cfg).map(SfcLayoutInner::F64),
+                ScalarDtype::F32 => SfcLayoutSolver::<f32>::new(&*g, cfg).map(SfcLayoutInner::F32),
             })
             .map_err(core_error_to_py)?;
         Ok(Self { inner })

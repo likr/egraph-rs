@@ -47,8 +47,8 @@ pub(super) fn build_snap_t_fdp_solver(
     let g = graph.inner();
     let inner = py
         .detach(|| match dtype {
-            ScalarDtype::F64 => SgdSolver::<f64>::snap_t_fdp(g, cfg).map(SgdInner::F64),
-            ScalarDtype::F32 => SgdSolver::<f32>::snap_t_fdp(g, cfg).map(SgdInner::F32),
+            ScalarDtype::F64 => SgdSolver::<f64>::snap_t_fdp(&*g, cfg).map(SgdInner::F64),
+            ScalarDtype::F32 => SgdSolver::<f32>::snap_t_fdp(&*g, cfg).map(SgdInner::F32),
         })
         .map_err(core_error_to_py)?;
     Ok(PySgdSolver::from_inner(inner))
@@ -61,9 +61,7 @@ pub(super) fn build_pacmap_graph_solver(
     n_neighbors: StrictUsize,
     mn_ratio: StrictF64,
     fp_ratio: StrictF64,
-    phase1_iters: StrictUsize,
-    phase2_iters: StrictUsize,
-    phase3_iters: StrictUsize,
+    phase_iterations: (StrictUsize, StrictUsize, StrictUsize),
     learning_rate: StrictF64,
     keep_all_1hop: bool,
     max_1hop_per_node: Option<StrictUsize>,
@@ -77,7 +75,11 @@ pub(super) fn build_pacmap_graph_solver(
         n_neighbors: n_neighbors.0,
         mn_ratio: mn_ratio.0,
         fp_ratio: fp_ratio.0,
-        phase_iterations: [phase1_iters.0, phase2_iters.0, phase3_iters.0],
+        phase_iterations: [
+            phase_iterations.0.0,
+            phase_iterations.1.0,
+            phase_iterations.2.0,
+        ],
         learning_rate: learning_rate.0,
         seed: seed.0,
         keep_all_1hop,
@@ -90,26 +92,24 @@ pub(super) fn build_pacmap_graph_solver(
     let inner = match landmarks {
         None => py
             .detach(|| match dtype {
-                ScalarDtype::F64 => SgdSolver::<f64>::pacmap_graph(g, cfg).map(SgdInner::F64),
-                ScalarDtype::F32 => SgdSolver::<f32>::pacmap_graph(g, cfg).map(SgdInner::F32),
+                ScalarDtype::F64 => SgdSolver::<f64>::pacmap_graph(&*g, cfg).map(SgdInner::F64),
+                ScalarDtype::F32 => SgdSolver::<f32>::pacmap_graph(&*g, cfg).map(SgdInner::F32),
             })
             .map_err(core_error_to_py)?,
         Some(obj) if obj.is_none() => py
             .detach(|| match dtype {
-                ScalarDtype::F64 => SgdSolver::<f64>::pacmap_graph(g, cfg).map(SgdInner::F64),
-                ScalarDtype::F32 => SgdSolver::<f32>::pacmap_graph(g, cfg).map(SgdInner::F32),
+                ScalarDtype::F64 => SgdSolver::<f64>::pacmap_graph(&*g, cfg).map(SgdInner::F64),
+                ScalarDtype::F32 => SgdSolver::<f32>::pacmap_graph(&*g, cfg).map(SgdInner::F32),
             })
             .map_err(core_error_to_py)?,
         Some(obj) => {
             if let Ok(lm_ref) = obj.extract::<PyRef<'_, PyDogVaradhanLandmarks>>() {
                 let lm = lm_ref.inner();
                 py.detach(|| match dtype {
-                    ScalarDtype::F64 => {
-                        SgdSolver::<f64>::pacmap_graph_with_landmarks(g, lm, cfg).map(SgdInner::F64)
-                    }
-                    ScalarDtype::F32 => {
-                        SgdSolver::<f32>::pacmap_graph_with_landmarks(g, lm, cfg).map(SgdInner::F32)
-                    }
+                    ScalarDtype::F64 => SgdSolver::<f64>::pacmap_graph_with_landmarks(&*g, lm, cfg)
+                        .map(SgdInner::F64),
+                    ScalarDtype::F32 => SgdSolver::<f32>::pacmap_graph_with_landmarks(&*g, lm, cfg)
+                        .map(SgdInner::F32),
                 })
                 .map_err(core_error_to_py)?
             } else {
@@ -121,14 +121,14 @@ pub(super) fn build_pacmap_graph_solver(
                     )));
                 }
                 py.detach(|| match dtype {
-                    ScalarDtype::F64 => {
-                        SgdSolver::<f64>::pacmap_graph_with_landmark_distances(g, &flat, ncols, cfg)
-                            .map(SgdInner::F64)
-                    }
-                    ScalarDtype::F32 => {
-                        SgdSolver::<f32>::pacmap_graph_with_landmark_distances(g, &flat, ncols, cfg)
-                            .map(SgdInner::F32)
-                    }
+                    ScalarDtype::F64 => SgdSolver::<f64>::pacmap_graph_with_landmark_distances(
+                        &*g, &flat, ncols, cfg,
+                    )
+                    .map(SgdInner::F64),
+                    ScalarDtype::F32 => SgdSolver::<f32>::pacmap_graph_with_landmark_distances(
+                        &*g, &flat, ncols, cfg,
+                    )
+                    .map(SgdInner::F32),
                 })
                 .map_err(core_error_to_py)?
             }
@@ -141,7 +141,7 @@ pub(super) fn build_pacmap_graph_solver(
 pub(super) fn build_sgd2_solver(
     py: Python<'_>,
     graph: &PyCsrGraph,
-    t_max: StrictUsize,
+    iterations: StrictUsize,
     eps: StrictF64,
     step_scale: StrictF64,
     batch_size: StrictUsize,
@@ -150,7 +150,7 @@ pub(super) fn build_sgd2_solver(
     dtype: ScalarDtype,
 ) -> PyResult<PySgdSolver> {
     let cfg = Sgd2Config {
-        iterations: t_max.0,
+        iterations: iterations.0,
         eps: eps.0,
         step_scale: step_scale.0,
         batch_size: batch_size.0,
@@ -161,8 +161,8 @@ pub(super) fn build_sgd2_solver(
     let g = graph.inner();
     let inner = py
         .detach(|| match dtype {
-            ScalarDtype::F64 => SgdSolver::<f64>::sgd2(g, cfg).map(SgdInner::F64),
-            ScalarDtype::F32 => SgdSolver::<f32>::sgd2(g, cfg).map(SgdInner::F32),
+            ScalarDtype::F64 => SgdSolver::<f64>::sgd2(&*g, cfg).map(SgdInner::F64),
+            ScalarDtype::F32 => SgdSolver::<f32>::sgd2(&*g, cfg).map(SgdInner::F32),
         })
         .map_err(core_error_to_py)?;
     Ok(PySgdSolver::from_inner(inner))

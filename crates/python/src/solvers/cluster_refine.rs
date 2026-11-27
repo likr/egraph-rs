@@ -1,7 +1,6 @@
 //! Cluster-faithful layout refiner (`ClusterRefineSolver`, `refine_cluster_layout`) bindings.
 
-use egraph::{core as egraph_core, layout as egraph_layout};
-use egraph_core::CsrGraph;
+use egraph::layout as egraph_layout;
 use egraph_layout::{
     ClusterRefineConfig, ClusterRefineMethod, ClusterRefineSolver,
     refine_cluster_layout as layout_refine_cluster_layout,
@@ -42,43 +41,43 @@ pub struct PyClusterRefineSolver {
 
 #[pymethods]
 impl PyClusterRefineSolver {
-    /// Construct a `ClusterRefineSolver` from per-node `cluster_labels`.
+    /// Construct a `ClusterRefineSolver` from per-node `labels`.
     #[new]
     #[allow(clippy::too_many_arguments)]
     #[pyo3(
         signature = (
-            cluster_labels,
+            labels,
             *,
             method = "kmeans",
-            max_rounds = StrictUsize(10),
+            max_iterations = StrictUsize(10),
             kmeans_n_init = StrictUsize(5),
-            kmeans_max_iters = StrictUsize(100),
+            kmeans_max_iterations = StrictUsize(100),
             shift_step = StrictF64(1.0),
             margin = StrictF64(0.1),
             seed = StrictU64(42),
             dtype = ScalarDtype::F64
         ),
-        text_signature = "(cluster_labels, *, method='kmeans', max_rounds=10, kmeans_n_init=5, kmeans_max_iters=100, shift_step=1.0, margin=0.1, seed=42, dtype='float64')"
+        text_signature = "(labels, *, method='kmeans', max_iterations=10, kmeans_n_init=5, kmeans_max_iterations=100, shift_step=1.0, margin=0.1, seed=42, dtype='float64')"
     )]
     fn new(
         py: Python<'_>,
-        cluster_labels: &Bound<'_, PyAny>,
+        labels: &Bound<'_, PyAny>,
         method: &str,
-        max_rounds: StrictUsize,
+        max_iterations: StrictUsize,
         kmeans_n_init: StrictUsize,
-        kmeans_max_iters: StrictUsize,
+        kmeans_max_iterations: StrictUsize,
         shift_step: StrictF64,
         margin: StrictF64,
         seed: StrictU64,
         dtype: ScalarDtype,
     ) -> PyResult<Self> {
         let parsed_method = parse_cluster_refine_method(method).map_err(PyValueError::new_err)?;
-        let labels = extract_u32_1d(cluster_labels, "cluster_labels")?;
+        let labels_vec = extract_u32_1d(labels, "labels")?;
         let cfg = ClusterRefineConfig {
             method: parsed_method,
-            max_iterations: max_rounds.0,
+            max_iterations: max_iterations.0,
             kmeans_n_init: kmeans_n_init.0,
-            kmeans_max_iters: kmeans_max_iters.0,
+            kmeans_max_iters: kmeans_max_iterations.0,
             shift_step: shift_step.0,
             margin: margin.0,
             seed: seed.0,
@@ -87,10 +86,10 @@ impl PyClusterRefineSolver {
         let inner = py
             .detach(|| match dtype {
                 ScalarDtype::F64 => {
-                    ClusterRefineSolver::<f64>::new(labels, cfg).map(ClusterRefineInner::F64)
+                    ClusterRefineSolver::<f64>::new(labels_vec, cfg).map(ClusterRefineInner::F64)
                 }
                 ScalarDtype::F32 => {
-                    ClusterRefineSolver::<f32>::new(labels, cfg).map(ClusterRefineInner::F32)
+                    ClusterRefineSolver::<f32>::new(labels_vec, cfg).map(ClusterRefineInner::F32)
                 }
             })
             .map_err(core_error_to_py)?;
@@ -103,39 +102,39 @@ impl PyClusterRefineSolver {
     #[pyo3(
         signature = (
             graph,
-            cluster_labels,
+            labels,
             *,
             method = "kmeans",
-            max_rounds = StrictUsize(10),
+            max_iterations = StrictUsize(10),
             kmeans_n_init = StrictUsize(5),
-            kmeans_max_iters = StrictUsize(100),
+            kmeans_max_iterations = StrictUsize(100),
             shift_step = StrictF64(1.0),
             margin = StrictF64(0.1),
             seed = StrictU64(42),
             dtype = ScalarDtype::F64
         ),
-        text_signature = "(graph, cluster_labels, *, method='kmeans', max_rounds=10, kmeans_n_init=5, kmeans_max_iters=100, shift_step=1.0, margin=0.1, seed=42, dtype='float64')"
+        text_signature = "(graph, labels, *, method='kmeans', max_iterations=10, kmeans_n_init=5, kmeans_max_iterations=100, shift_step=1.0, margin=0.1, seed=42, dtype='float64')"
     )]
     fn from_graph(
         py: Python<'_>,
         graph: &PyCsrGraph,
-        cluster_labels: &Bound<'_, PyAny>,
+        labels: &Bound<'_, PyAny>,
         method: &str,
-        max_rounds: StrictUsize,
+        max_iterations: StrictUsize,
         kmeans_n_init: StrictUsize,
-        kmeans_max_iters: StrictUsize,
+        kmeans_max_iterations: StrictUsize,
         shift_step: StrictF64,
         margin: StrictF64,
         seed: StrictU64,
         dtype: ScalarDtype,
     ) -> PyResult<Self> {
         let parsed_method = parse_cluster_refine_method(method).map_err(PyValueError::new_err)?;
-        let labels = extract_u32_1d(cluster_labels, "cluster_labels")?;
+        let labels_vec = extract_u32_1d(labels, "labels")?;
         let cfg = ClusterRefineConfig {
             method: parsed_method,
-            max_iterations: max_rounds.0,
+            max_iterations: max_iterations.0,
             kmeans_n_init: kmeans_n_init.0,
-            kmeans_max_iters: kmeans_max_iters.0,
+            kmeans_max_iters: kmeans_max_iterations.0,
             shift_step: shift_step.0,
             margin: margin.0,
             seed: seed.0,
@@ -144,9 +143,9 @@ impl PyClusterRefineSolver {
         let g = graph.inner();
         let inner = py
             .detach(|| match dtype {
-                ScalarDtype::F64 => ClusterRefineSolver::<f64>::from_graph(g, labels, cfg)
+                ScalarDtype::F64 => ClusterRefineSolver::<f64>::from_graph(&*g, labels_vec, cfg)
                     .map(ClusterRefineInner::F64),
-                ScalarDtype::F32 => ClusterRefineSolver::<f32>::from_graph(g, labels, cfg)
+                ScalarDtype::F32 => ClusterRefineSolver::<f32>::from_graph(&*g, labels_vec, cfg)
                     .map(ClusterRefineInner::F32),
             })
             .map_err(core_error_to_py)?;
@@ -256,37 +255,39 @@ impl PyClusterRefineSolver {
 #[pyo3(
     signature = (
         layout,
-        cluster_labels,
+        labels,
         *,
+        graph = None,
         method = "kmeans",
-        max_rounds = StrictUsize(10),
+        max_iterations = StrictUsize(10),
         kmeans_n_init = StrictUsize(5),
-        kmeans_max_iters = StrictUsize(100),
+        kmeans_max_iterations = StrictUsize(100),
         shift_step = StrictF64(1.0),
         margin = StrictF64(0.1),
         seed = StrictU64(42)
     ),
-    text_signature = "(layout, cluster_labels, *, method='kmeans', max_rounds=10, kmeans_n_init=5, kmeans_max_iters=100, shift_step=1.0, margin=0.1, seed=42)"
+    text_signature = "(layout, labels, *, graph=None, method='kmeans', max_iterations=10, kmeans_n_init=5, kmeans_max_iterations=100, shift_step=1.0, margin=0.1, seed=42)"
 )]
 fn refine_cluster_layout(
     py: Python<'_>,
     layout: &Bound<'_, PyLayout2d>,
-    cluster_labels: &Bound<'_, PyAny>,
+    labels: &Bound<'_, PyAny>,
+    graph: Option<&PyCsrGraph>,
     method: &str,
-    max_rounds: StrictUsize,
+    max_iterations: StrictUsize,
     kmeans_n_init: StrictUsize,
-    kmeans_max_iters: StrictUsize,
+    kmeans_max_iterations: StrictUsize,
     shift_step: StrictF64,
     margin: StrictF64,
     seed: StrictU64,
 ) -> PyResult<usize> {
     let parsed_method = parse_cluster_refine_method(method).map_err(PyValueError::new_err)?;
-    let labels = extract_u32_1d(cluster_labels, "cluster_labels")?;
+    let labels_vec = extract_u32_1d(labels, "labels")?;
     let cfg = ClusterRefineConfig {
         method: parsed_method,
-        max_iterations: max_rounds.0,
+        max_iterations: max_iterations.0,
         kmeans_n_init: kmeans_n_init.0,
-        kmeans_max_iters: kmeans_max_iters.0,
+        kmeans_max_iters: kmeans_max_iterations.0,
         shift_step: shift_step.0,
         margin: margin.0,
         seed: seed.0,
@@ -297,12 +298,14 @@ fn refine_cluster_layout(
         Layout2dInner::F32(_) => ScalarDtype::F32,
     };
     let mut soa = extract_solver_layout(layout, target_dtype)?;
+    let g_cow = graph.map(PyCsrGraph::inner);
+    let g_ref = g_cow.as_deref();
     let total_moved = match &mut soa {
         SolverLayout::F64(l64) => py
-            .detach(|| layout_refine_cluster_layout(l64, &labels, None::<&CsrGraph<f64>>, &cfg))
+            .detach(|| layout_refine_cluster_layout(l64, &labels_vec, g_ref, &cfg))
             .map_err(core_error_to_py)?,
         SolverLayout::F32(l32) => py
-            .detach(|| layout_refine_cluster_layout(l32, &labels, None::<&CsrGraph<f64>>, &cfg))
+            .detach(|| layout_refine_cluster_layout(l32, &labels_vec, g_ref, &cfg))
             .map_err(core_error_to_py)?,
     };
     write_back_solver_layout(layout, &soa)?;

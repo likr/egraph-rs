@@ -35,6 +35,8 @@ impl_dual_solver!(ForbidInner, ForbidOverlapRemoval);
 /// Cooperative Nachmanson et al. (2016) GTree proximity-MST node overlap removal solver.
 ///
 /// Supports both `"float64"` and `"float32"` `Layout2d` while releasing the Python GIL.
+/// When `compact_t_max` is provided, it must satisfy `compact_t_max > 1.0` (`None` disables
+/// compact per-step expansion capping; values `<= 1.0` raise `ValueError`).
 #[pyclass(name = "GTreeOverlapRemoval", module = "egraph._core")]
 pub struct PyGTreeOverlapRemoval {
     inner: GTreeInner,

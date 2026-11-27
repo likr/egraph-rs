@@ -294,10 +294,10 @@ fn coarse_backbone_init(
     let out = py
         .detach(|| match dtype {
             ScalarDtype::F64 => {
-                layout_coarse_backbone_init::<f64, f64>(g, &cfg).map(CoarseBackboneOut::F64)
+                layout_coarse_backbone_init::<f64, f64>(&*g, &cfg).map(CoarseBackboneOut::F64)
             }
             ScalarDtype::F32 => {
-                layout_coarse_backbone_init::<f64, f32>(g, &cfg).map(CoarseBackboneOut::F32)
+                layout_coarse_backbone_init::<f64, f32>(&*g, &cfg).map(CoarseBackboneOut::F32)
             }
         })
         .map_err(core_error_to_py)?;
@@ -311,9 +311,7 @@ pub(super) fn build_pacmap_graph_with_backbone(
     n_neighbors: StrictUsize,
     mn_ratio: StrictF64,
     fp_ratio: StrictF64,
-    phase1_iters: StrictUsize,
-    phase2_iters: StrictUsize,
-    phase3_iters: StrictUsize,
+    phase_iterations: (StrictUsize, StrictUsize, StrictUsize),
     learning_rate: StrictF64,
     keep_all_1hop: bool,
     max_1hop_per_node: Option<StrictUsize>,
@@ -352,7 +350,11 @@ pub(super) fn build_pacmap_graph_with_backbone(
         n_neighbors: n_neighbors.0,
         mn_ratio: mn_ratio.0,
         fp_ratio: fp_ratio.0,
-        phase_iterations: [phase1_iters.0, phase2_iters.0, phase3_iters.0],
+        phase_iterations: [
+            phase_iterations.0.0,
+            phase_iterations.1.0,
+            phase_iterations.2.0,
+        ],
         learning_rate: learning_rate.0,
         seed: seed.0,
         keep_all_1hop,
@@ -395,7 +397,7 @@ pub(super) fn build_pacmap_graph_with_backbone(
     match dtype {
         ScalarDtype::F64 => {
             let (solver, init_layout, bb) = py
-                .detach(|| SgdSolver::<f64>::pacmap_graph_with_backbone(g, pm_cfg, &bb_cfg))
+                .detach(|| SgdSolver::<f64>::pacmap_graph_with_backbone(&*g, pm_cfg, &bb_cfg))
                 .map_err(core_error_to_py)?;
             Ok((
                 PySgdSolver::from_inner(SgdInner::F64(solver)),
@@ -405,7 +407,7 @@ pub(super) fn build_pacmap_graph_with_backbone(
         }
         ScalarDtype::F32 => {
             let (solver, init_layout, bb) = py
-                .detach(|| SgdSolver::<f32>::pacmap_graph_with_backbone(g, pm_cfg, &bb_cfg))
+                .detach(|| SgdSolver::<f32>::pacmap_graph_with_backbone(&*g, pm_cfg, &bb_cfg))
                 .map_err(core_error_to_py)?;
             Ok((
                 PySgdSolver::from_inner(SgdInner::F32(solver)),

@@ -8,6 +8,7 @@ use egraph_neighborhood::KnnGraph;
 use egraph_spatial::{IbFftConfig, InterpolationOrder};
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
+use pyo3::types::PyDict;
 
 use crate::csr_graph::PyCsrGraph;
 use crate::ffi_convert::{
@@ -51,6 +52,29 @@ impl FieldLayoutInner {
         }
     }
 
+    pub(super) fn last_fft_stats_dict<'py>(
+        &self,
+        py: Python<'py>,
+    ) -> PyResult<Option<Bound<'py, PyDict>>> {
+        let stats = match self {
+            Self::F64(s) => s.last_fft_stats(),
+            Self::F32(s) => s.last_fft_stats(),
+        };
+        match stats {
+            Some(st) => {
+                let d = PyDict::new(py);
+                d.set_item("particle_forward_ffts", st.particle_forward_ffts)?;
+                d.set_item("kernel_forward_ffts", st.kernel_forward_ffts)?;
+                d.set_item("inverse_ffts", st.inverse_ffts)?;
+                d.set_item("total_fft_2d_calls", st.total_fft_2d_calls)?;
+                d.set_item("nx", st.nx)?;
+                d.set_item("ny", st.ny)?;
+                Ok(Some(d))
+            }
+            None => Ok(None),
+        }
+    }
+
     pub(super) fn ab(&self) -> Option<(f64, f64)> {
         match self {
             Self::F64(s) => s.ab(),
@@ -71,24 +95,24 @@ pub(super) fn parse_field_backend(raw: &str) -> Result<FieldRepulsionBackend, St
 }
 
 pub(super) fn build_ibfft_config(
-    ibfft_order: usize,
-    ibfft_intervals: usize,
-    ibfft_min_grid_dim: usize,
-    ibfft_max_grid_dim: usize,
+    interpolation_order: usize,
+    intervals: usize,
+    min_grid_dim: usize,
+    max_grid_dim: usize,
 ) -> PyResult<IbFftConfig> {
-    let order = InterpolationOrder::from_order(ibfft_order).map_err(core_error_to_py)?;
+    let order = InterpolationOrder::from_order(interpolation_order).map_err(core_error_to_py)?;
     Ok(IbFftConfig {
         order,
-        intervals: ibfft_intervals,
-        min_grid_dim: ibfft_min_grid_dim,
-        max_grid_dim: ibfft_max_grid_dim,
+        intervals,
+        min_grid_dim,
+        max_grid_dim,
     })
 }
 
 #[allow(clippy::too_many_arguments)]
-fn build_t_fdp_config(
+pub(super) fn build_t_fdp_config(
     backend: &str,
-    total_iterations: usize,
+    iterations: usize,
     learning_rate: f64,
     momentum: f64,
     theta: f64,
@@ -97,22 +121,17 @@ fn build_t_fdp_config(
     rho_start: f64,
     rho_end: f64,
     rho_power: f64,
-    ibfft_order: usize,
-    ibfft_intervals: usize,
-    ibfft_min_grid_dim: usize,
-    ibfft_max_grid_dim: usize,
+    interpolation_order: usize,
+    intervals: usize,
+    min_grid_dim: usize,
+    max_grid_dim: usize,
     seed: u64,
 ) -> PyResult<TFdpConfig> {
     let parsed_backend = parse_field_backend(backend).map_err(PyValueError::new_err)?;
-    let ibfft = build_ibfft_config(
-        ibfft_order,
-        ibfft_intervals,
-        ibfft_min_grid_dim,
-        ibfft_max_grid_dim,
-    )?;
+    let ibfft = build_ibfft_config(interpolation_order, intervals, min_grid_dim, max_grid_dim)?;
     let cfg = TFdpConfig {
         backend: parsed_backend,
-        iterations: total_iterations,
+        iterations,
         learning_rate,
         momentum,
         theta,
@@ -149,7 +168,7 @@ impl PyTFdpSolver {
             graph,
             *,
             backend = "ibfft",
-            total_iterations = StrictUsize(200),
+            iterations = StrictUsize(200),
             learning_rate = StrictF64(1.0),
             momentum = StrictF64(0.8),
             theta = StrictF64(0.5),
@@ -158,20 +177,20 @@ impl PyTFdpSolver {
             rho_start = StrictF64(1.0),
             rho_end = StrictF64(0.1),
             rho_power = StrictF64(1.0),
-            ibfft_order = StrictUsize(1),
-            ibfft_intervals = StrictUsize(25),
-            ibfft_min_grid_dim = StrictUsize(64),
-            ibfft_max_grid_dim = StrictUsize(512),
+            interpolation_order = StrictUsize(1),
+            intervals = StrictUsize(25),
+            min_grid_dim = StrictUsize(64),
+            max_grid_dim = StrictUsize(512),
             seed = StrictU64(42),
             dtype = ScalarDtype::F64
         ),
-        text_signature = "(graph, *, backend='ibfft', total_iterations=200, learning_rate=1.0, momentum=0.8, theta=0.5, alpha=1.0, gamma=1.0, rho_start=1.0, rho_end=0.1, rho_power=1.0, ibfft_order=1, ibfft_intervals=25, ibfft_min_grid_dim=64, ibfft_max_grid_dim=512, seed=42, dtype='float64')"
+        text_signature = "(graph, *, backend='ibfft', iterations=200, learning_rate=1.0, momentum=0.8, theta=0.5, alpha=1.0, gamma=1.0, rho_start=1.0, rho_end=0.1, rho_power=1.0, interpolation_order=1, intervals=25, min_grid_dim=64, max_grid_dim=512, seed=42, dtype='float64')"
     )]
     fn new(
         py: Python<'_>,
         graph: &PyCsrGraph,
         backend: &str,
-        total_iterations: StrictUsize,
+        iterations: StrictUsize,
         learning_rate: StrictF64,
         momentum: StrictF64,
         theta: StrictF64,
@@ -180,16 +199,16 @@ impl PyTFdpSolver {
         rho_start: StrictF64,
         rho_end: StrictF64,
         rho_power: StrictF64,
-        ibfft_order: StrictUsize,
-        ibfft_intervals: StrictUsize,
-        ibfft_min_grid_dim: StrictUsize,
-        ibfft_max_grid_dim: StrictUsize,
+        interpolation_order: StrictUsize,
+        intervals: StrictUsize,
+        min_grid_dim: StrictUsize,
+        max_grid_dim: StrictUsize,
         seed: StrictU64,
         dtype: ScalarDtype,
     ) -> PyResult<Self> {
         let cfg = build_t_fdp_config(
             backend,
-            total_iterations.0,
+            iterations.0,
             learning_rate.0,
             momentum.0,
             theta.0,
@@ -198,20 +217,20 @@ impl PyTFdpSolver {
             rho_start.0,
             rho_end.0,
             rho_power.0,
-            ibfft_order.0,
-            ibfft_intervals.0,
-            ibfft_min_grid_dim.0,
-            ibfft_max_grid_dim.0,
+            interpolation_order.0,
+            intervals.0,
+            min_grid_dim.0,
+            max_grid_dim.0,
             seed.0,
         )?;
         let g = graph.inner();
         let inner = py
             .detach(|| match dtype {
                 ScalarDtype::F64 => {
-                    FieldLayoutSolver::<f64>::t_fdp(g, cfg).map(FieldLayoutInner::F64)
+                    FieldLayoutSolver::<f64>::t_fdp(&*g, cfg).map(FieldLayoutInner::F64)
                 }
                 ScalarDtype::F32 => {
-                    FieldLayoutSolver::<f32>::t_fdp(g, cfg).map(FieldLayoutInner::F32)
+                    FieldLayoutSolver::<f32>::t_fdp(&*g, cfg).map(FieldLayoutInner::F32)
                 }
             })
             .map_err(core_error_to_py)?;
@@ -228,7 +247,7 @@ impl PyTFdpSolver {
             weights = None,
             *,
             backend = "ibfft",
-            total_iterations = StrictUsize(200),
+            iterations = StrictUsize(200),
             learning_rate = StrictF64(1.0),
             momentum = StrictF64(0.8),
             theta = StrictF64(0.5),
@@ -237,14 +256,14 @@ impl PyTFdpSolver {
             rho_start = StrictF64(1.0),
             rho_end = StrictF64(0.1),
             rho_power = StrictF64(1.0),
-            ibfft_order = StrictUsize(1),
-            ibfft_intervals = StrictUsize(25),
-            ibfft_min_grid_dim = StrictUsize(64),
-            ibfft_max_grid_dim = StrictUsize(512),
+            interpolation_order = StrictUsize(1),
+            intervals = StrictUsize(25),
+            min_grid_dim = StrictUsize(64),
+            max_grid_dim = StrictUsize(512),
             seed = StrictU64(42),
             dtype = ScalarDtype::F64
         ),
-        text_signature = "(knn_or_indptr, indices=None, weights=None, *, backend='ibfft', total_iterations=200, learning_rate=1.0, momentum=0.8, theta=0.5, alpha=1.0, gamma=1.0, rho_start=1.0, rho_end=0.1, rho_power=1.0, ibfft_order=1, ibfft_intervals=25, ibfft_min_grid_dim=64, ibfft_max_grid_dim=512, seed=42, dtype='float64')"
+        text_signature = "(knn_or_indptr, indices=None, weights=None, *, backend='ibfft', iterations=200, learning_rate=1.0, momentum=0.8, theta=0.5, alpha=1.0, gamma=1.0, rho_start=1.0, rho_end=0.1, rho_power=1.0, interpolation_order=1, intervals=25, min_grid_dim=64, max_grid_dim=512, seed=42, dtype='float64')"
     )]
     fn from_knn(
         py: Python<'_>,
@@ -252,7 +271,7 @@ impl PyTFdpSolver {
         indices: Option<&Bound<'_, PyAny>>,
         weights: Option<&Bound<'_, PyAny>>,
         backend: &str,
-        total_iterations: StrictUsize,
+        iterations: StrictUsize,
         learning_rate: StrictF64,
         momentum: StrictF64,
         theta: StrictF64,
@@ -261,16 +280,16 @@ impl PyTFdpSolver {
         rho_start: StrictF64,
         rho_end: StrictF64,
         rho_power: StrictF64,
-        ibfft_order: StrictUsize,
-        ibfft_intervals: StrictUsize,
-        ibfft_min_grid_dim: StrictUsize,
-        ibfft_max_grid_dim: StrictUsize,
+        interpolation_order: StrictUsize,
+        intervals: StrictUsize,
+        min_grid_dim: StrictUsize,
+        max_grid_dim: StrictUsize,
         seed: StrictU64,
         dtype: ScalarDtype,
     ) -> PyResult<Self> {
         let cfg = build_t_fdp_config(
             backend,
-            total_iterations.0,
+            iterations.0,
             learning_rate.0,
             momentum.0,
             theta.0,
@@ -279,10 +298,10 @@ impl PyTFdpSolver {
             rho_start.0,
             rho_end.0,
             rho_power.0,
-            ibfft_order.0,
-            ibfft_intervals.0,
-            ibfft_min_grid_dim.0,
-            ibfft_max_grid_dim.0,
+            interpolation_order.0,
+            intervals.0,
+            min_grid_dim.0,
+            max_grid_dim.0,
             seed.0,
         )?;
 
@@ -361,6 +380,11 @@ impl PyTFdpSolver {
         execute_solver_action(&mut self.inner, py, layout, SolverAction::Run)
     }
 
+    /// Return telemetry counters from the most recent IbFFT step, or `None`.
+    fn last_fft_stats<'py>(&self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyDict>>> {
+        self.inner.last_fft_stats_dict(py)
+    }
+
     /// Current solver status (`"initialized"`, `"running"`, `"converged"`, or `"completed"`).
     #[getter]
     fn status(&self) -> &'static str {
@@ -415,7 +439,6 @@ impl PyTFdpSolver {
         self.inner.total_fft_2d_calls()
     }
 
-    /// Return a concise string representation of the `TFdpSolver`.
     fn __repr__(&self) -> String {
         format!(
             "TFdpSolver(num_nodes={}, status='{}', iteration={}/{}, dtype='{}')",

@@ -9,11 +9,11 @@ use pyo3::types::PyDict;
 use crate::csr_graph::PyCsrGraph;
 use crate::ffi_convert::{ScalarDtype, StrictF64, StrictU64, StrictUsize, solver_status_str};
 use crate::layout_buffers::PyLayout2d;
-use crate::manifold::PyManifoldLayout2d;
 use crate::neighborhood::PyDogVaradhanLandmarks;
-use crate::solver_common::{DualIterativeSolver, SolverAction, execute_solver_action};
+use crate::solver_common::{DualIterativeSolver, SolverAction};
 
 use super::coarse_backbone::build_pacmap_graph_with_backbone;
+use super::layout_dispatch::execute_any_layout_action;
 use super::sgd_barrier::{
     build_sparse_barrier_dog, build_sparse_barrier_from_landmarks, dog_stats_to_py_dict,
     sparse_barrier_stats_to_py_dict,
@@ -24,12 +24,16 @@ use super::sgd_baselines::{
 };
 use super::sgd_core::{
     SgdInner, build_from_pairs, build_from_pairs_with_hinges, build_full, build_omega,
-    build_random_pair, build_streaming_negatives, execute_manifold_action,
+    build_random_pair, build_streaming_negatives,
+};
+use super::sgd_dispatch::{
+    build_from_packed_symmetric, execute_reset_schedule, execute_schedule_window,
 };
 use super::sgd_pacmap::{build_pacmap_graph_solver, build_sgd2_solver, build_snap_t_fdp_solver};
 
 /// Cooperative SoA Stochastic Gradient Descent (SGD) layout solver supporting 3-tier Sparse Barrier
-/// SGD, streaming non-edge negative sampling, Euclidean `Layout2d`, and non-Euclidean `ManifoldLayout2d`.
+/// SGD, streaming non-edge negative sampling, Euclidean `Layout2d` / `LayoutNd`, and non-Euclidean
+/// `ManifoldLayout2d`.
 #[pyclass(name = "SgdSolver", module = "egraph._core")]
 pub struct PySgdSolver {
     inner: SgdInner,
@@ -65,23 +69,8 @@ impl PySgdSolver {
     #[staticmethod]
     #[allow(clippy::too_many_arguments)]
     #[pyo3(
-        signature = (
-            num_nodes,
-            src,
-            tgt,
-            dij,
-            dji = None,
-            wij = None,
-            wji = None,
-            *,
-            t_max = StrictUsize(60),
-            eps = StrictF64(0.01),
-            schedule = "exponential",
-            step_scale = StrictF64(1.0),
-            seed = StrictU64(42),
-            dtype = ScalarDtype::F64
-        ),
-        text_signature = "(num_nodes, src, tgt, dij, dji=None, wij=None, wji=None, *, t_max=60, eps=0.01, schedule='exponential', step_scale=1.0, seed=42, dtype='float64')"
+        signature = (num_nodes, src, tgt, dij, *, dji = None, wij = None, wji = None, iterations = StrictUsize(60), eps = StrictF64(0.01), schedule = "exponential", step_scale = StrictF64(1.0), max_mu = None, seed = StrictU64(42), dtype = ScalarDtype::F64),
+        text_signature = "(num_nodes, src, tgt, dij, *, dji=None, wij=None, wji=None, iterations=60, eps=0.01, schedule='exponential', step_scale=1.0, max_mu=None, seed=42, dtype='float64')"
     )]
     fn from_pairs(
         py: Python<'_>,
@@ -92,46 +81,26 @@ impl PySgdSolver {
         dji: Option<&Bound<'_, PyAny>>,
         wij: Option<&Bound<'_, PyAny>>,
         wji: Option<&Bound<'_, PyAny>>,
-        t_max: StrictUsize,
+        iterations: StrictUsize,
         eps: StrictF64,
         schedule: &str,
         step_scale: StrictF64,
+        max_mu: Option<StrictF64>,
         seed: StrictU64,
         dtype: ScalarDtype,
     ) -> PyResult<Self> {
         build_from_pairs(
-            py, num_nodes, src, tgt, dij, dji, wij, wji, t_max, eps, schedule, step_scale, seed,
-            dtype,
+            py, num_nodes, src, tgt, dij, dji, wij, wji, iterations, eps, schedule, step_scale,
+            max_mu, seed, dtype,
         )
     }
 
-    /// Construct an `SgdSolver` combining flat SoA two-sided spring pairs and one-sided hinge repulsion pairs.
+    /// Construct an `SgdSolver` combining flat SoA spring pairs and one-sided hinge repulsion pairs.
     #[staticmethod]
     #[allow(clippy::too_many_arguments)]
     #[pyo3(
-        signature = (
-            num_nodes,
-            spring_src,
-            spring_tgt,
-            spring_dij,
-            hinge_src,
-            hinge_tgt,
-            hinge_dij,
-            *,
-            spring_dji = None,
-            spring_wij = None,
-            spring_wji = None,
-            hinge_dji = None,
-            hinge_wij = None,
-            hinge_wji = None,
-            t_max = StrictUsize(60),
-            eps = StrictF64(0.01),
-            schedule = "exponential",
-            step_scale = StrictF64(1.0),
-            seed = StrictU64(42),
-            dtype = ScalarDtype::F64
-        ),
-        text_signature = "(num_nodes, spring_src, spring_tgt, spring_dij, hinge_src, hinge_tgt, hinge_dij, *, spring_dji=None, spring_wij=None, spring_wji=None, hinge_dji=None, hinge_wij=None, hinge_wji=None, t_max=60, eps=0.01, schedule='exponential', step_scale=1.0, seed=42, dtype='float64')"
+        signature = (num_nodes, spring_src, spring_tgt, spring_dij, hinge_src, hinge_tgt, hinge_dij, *, spring_dji = None, spring_wij = None, spring_wji = None, hinge_dji = None, hinge_wij = None, hinge_wji = None, iterations = StrictUsize(60), eps = StrictF64(0.01), schedule = "exponential", step_scale = StrictF64(1.0), max_mu = None, seed = StrictU64(42), dtype = ScalarDtype::F64),
+        text_signature = "(num_nodes, spring_src, spring_tgt, spring_dij, hinge_src, hinge_tgt, hinge_dij, *, spring_dji=None, spring_wij=None, spring_wji=None, hinge_dji=None, hinge_wij=None, hinge_wji=None, iterations=60, eps=0.01, schedule='exponential', step_scale=1.0, max_mu=None, seed=42, dtype='float64')"
     )]
     fn from_pairs_with_hinges(
         py: Python<'_>,
@@ -148,71 +117,79 @@ impl PySgdSolver {
         hinge_dji: Option<&Bound<'_, PyAny>>,
         hinge_wij: Option<&Bound<'_, PyAny>>,
         hinge_wji: Option<&Bound<'_, PyAny>>,
-        t_max: StrictUsize,
+        iterations: StrictUsize,
         eps: StrictF64,
         schedule: &str,
         step_scale: StrictF64,
+        max_mu: Option<StrictF64>,
         seed: StrictU64,
         dtype: ScalarDtype,
     ) -> PyResult<Self> {
         build_from_pairs_with_hinges(
             py, num_nodes, spring_src, spring_tgt, spring_dij, spring_dji, spring_wij, spring_wji,
-            hinge_src, hinge_tgt, hinge_dij, hinge_dji, hinge_wij, hinge_wji, t_max, eps, schedule,
-            step_scale, seed, dtype,
+            hinge_src, hinge_tgt, hinge_dij, hinge_dji, hinge_wij, hinge_wji, iterations, eps,
+            schedule, step_scale, max_mu, seed, dtype,
         )
     }
 
-    /// Construct a full all-pairs shortest-path `SgdSolver` from `CsrGraph`.
+    /// Construct an `SgdSolver` from pre-packed symmetric spring/hinge arrays.
     #[staticmethod]
     #[allow(clippy::too_many_arguments)]
     #[pyo3(
-        signature = (graph, *, t_max = StrictUsize(60), eps = StrictF64(0.01), schedule = "exponential", step_scale = StrictF64(1.0), seed = StrictU64(42), dtype = ScalarDtype::F64),
-        text_signature = "(graph, *, t_max=60, eps=0.01, schedule='exponential', step_scale=1.0, seed=42, dtype='float64')"
+        signature = (num_nodes, src, tgt, dists, weights, is_hinge, *, iterations = StrictUsize(60), eps = StrictF64(0.01), schedule = "exponential", step_scale = StrictF64(1.0), max_mu = None, seed = StrictU64(42), dtype = ScalarDtype::F64),
+        text_signature = "(num_nodes, src, tgt, dists, weights, is_hinge, *, iterations=60, eps=0.01, schedule='exponential', step_scale=1.0, max_mu=None, seed=42, dtype='float64')"
+    )]
+    fn from_packed_symmetric(
+        py: Python<'_>,
+        num_nodes: StrictUsize,
+        src: &Bound<'_, PyAny>,
+        tgt: &Bound<'_, PyAny>,
+        dists: &Bound<'_, PyAny>,
+        weights: &Bound<'_, PyAny>,
+        is_hinge: &Bound<'_, PyAny>,
+        iterations: StrictUsize,
+        eps: StrictF64,
+        schedule: &str,
+        step_scale: StrictF64,
+        max_mu: Option<StrictF64>,
+        seed: StrictU64,
+        dtype: ScalarDtype,
+    ) -> PyResult<Self> {
+        build_from_packed_symmetric(
+            py, num_nodes, src, tgt, dists, weights, is_hinge, iterations, eps, schedule,
+            step_scale, max_mu, seed, dtype,
+        )
+    }
+
+    /// Construct a full-APSP stress `SgdSolver` directly from a `CsrGraph`.
+    #[staticmethod]
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(
+        signature = (graph, *, iterations = StrictUsize(60), eps = StrictF64(0.01), schedule = "exponential", step_scale = StrictF64(1.0), max_mu = None, seed = StrictU64(42), dtype = ScalarDtype::F64),
+        text_signature = "(graph, *, iterations=60, eps=0.01, schedule='exponential', step_scale=1.0, max_mu=None, seed=42, dtype='float64')"
     )]
     fn full(
         py: Python<'_>,
         graph: &PyCsrGraph,
-        t_max: StrictUsize,
+        iterations: StrictUsize,
         eps: StrictF64,
         schedule: &str,
         step_scale: StrictF64,
+        max_mu: Option<StrictF64>,
         seed: StrictU64,
         dtype: ScalarDtype,
     ) -> PyResult<Self> {
-        build_full(py, graph, t_max, eps, schedule, step_scale, seed, dtype)
+        build_full(
+            py, graph, iterations, eps, schedule, step_scale, max_mu, seed, dtype,
+        )
     }
 
-    /// Construct a Track B 3-tier Sparse Barrier `SgdSolver` directly from precomputed `DogVaradhanLandmarks`.
+    /// Construct a 3-tier Sparse Barrier `SgdSolver` from precomputed `DogVaradhanLandmarks`.
     #[staticmethod]
     #[allow(clippy::too_many_arguments)]
     #[pyo3(
-        signature = (
-            graph,
-            landmarks,
-            pivots = None,
-            *,
-            max_2hop_per_node = StrictUsize(32),
-            hinge_repulsion = true,
-            delta_rel = StrictF64(0.25),
-            barrier_sym = "sym_max",
-            omega_1 = StrictF64(1.0),
-            omega_2 = StrictF64(1.0),
-            gamma_non2 = StrictF64(1.0),
-            ht_repulsion = true,
-            min_ratio = StrictF64(0.5),
-            eps_dist = StrictF64(1e-6),
-            neg_per_node = None,
-            num_pivots = StrictUsize(50),
-            core_pivots = true,
-            degree_weight_beta = StrictF64(0.0),
-            t_max = StrictUsize(60),
-            eps = StrictF64(0.01),
-            schedule = "exponential",
-            step_scale = StrictF64(1.0),
-            seed = StrictU64(42),
-            dtype = ScalarDtype::F64
-        ),
-        text_signature = "(graph, landmarks, pivots=None, *, max_2hop_per_node=32, hinge_repulsion=True, delta_rel=0.25, barrier_sym='sym_max', omega_1=1.0, omega_2=1.0, gamma_non2=1.0, ht_repulsion=True, min_ratio=0.5, eps_dist=1e-6, neg_per_node=None, num_pivots=50, core_pivots=True, degree_weight_beta=0.0, t_max=60, eps=0.01, schedule='exponential', step_scale=1.0, seed=42, dtype='float64')"
+        signature = (graph, landmarks, pivots = None, *, max_2hop_per_node = StrictUsize(32), hinge_repulsion = true, delta_rel = StrictF64(0.25), barrier_sym = "sym_max", omega_1 = StrictF64(1.0), omega_2 = StrictF64(1.0), gamma_non2 = StrictF64(1.0), ht_repulsion = true, min_ratio = StrictF64(0.5), eps_dist = StrictF64(1e-6), neg_per_node = None, num_pivots = StrictUsize(50), core_pivots = true, degree_weight_beta = StrictF64(0.0), iterations = StrictUsize(60), eps = StrictF64(0.01), schedule = "exponential", step_scale = StrictF64(1.0), max_mu = None, seed = StrictU64(42), dtype = ScalarDtype::F64),
+        text_signature = "(graph, landmarks, pivots=None, *, max_2hop_per_node=32, hinge_repulsion=True, delta_rel=0.25, barrier_sym='sym_max', omega_1=1.0, omega_2=1.0, gamma_non2=1.0, ht_repulsion=True, min_ratio=0.5, eps_dist=1e-6, neg_per_node=None, num_pivots=50, core_pivots=True, degree_weight_beta=0.0, iterations=60, eps=0.01, schedule='exponential', step_scale=1.0, max_mu=None, seed=42, dtype='float64')"
     )]
     fn sparse_barrier_from_landmarks(
         py: Python<'_>,
@@ -233,10 +210,11 @@ impl PySgdSolver {
         num_pivots: StrictUsize,
         core_pivots: bool,
         degree_weight_beta: StrictF64,
-        t_max: StrictUsize,
+        iterations: StrictUsize,
         eps: StrictF64,
         schedule: &str,
         step_scale: StrictF64,
+        max_mu: Option<StrictF64>,
         seed: StrictU64,
         dtype: ScalarDtype,
     ) -> PyResult<Self> {
@@ -259,56 +237,22 @@ impl PySgdSolver {
             num_pivots,
             core_pivots,
             degree_weight_beta,
-            t_max,
+            iterations,
             eps,
             schedule,
             step_scale,
+            max_mu,
             seed,
             dtype,
         )
     }
 
-    /// Compute regularized Chebyshev DoG Varadhan landmarks and build a Track B 3-tier Sparse Barrier `SgdSolver`.
+    /// Construct a 3-tier Sparse Barrier `SgdSolver` with integrated Regularized Chebyshev DoG landmarks.
     #[staticmethod]
     #[allow(clippy::too_many_arguments)]
     #[pyo3(
-        signature = (
-            graph,
-            *,
-            degree = None,
-            num_landmarks = StrictUsize(64),
-            degree_normalize = true,
-            p_exp = StrictF64(0.5),
-            eps_psd = StrictF64(1e-4),
-            t_coarse = StrictF64(48.0),
-            t1 = None,
-            t2 = None,
-            alpha = None,
-            beta_floor = None,
-            min_degree = StrictUsize(2),
-            jl_dim = StrictUsize(64),
-            max_2hop_per_node = StrictUsize(32),
-            hinge_repulsion = true,
-            delta_rel = StrictF64(0.25),
-            barrier_sym = "sym_max",
-            omega_1 = StrictF64(1.0),
-            omega_2 = StrictF64(1.0),
-            gamma_non2 = StrictF64(1.0),
-            ht_repulsion = true,
-            min_ratio = StrictF64(0.5),
-            eps_dist = StrictF64(1e-6),
-            neg_per_node = None,
-            num_pivots = StrictUsize(50),
-            core_pivots = true,
-            degree_weight_beta = StrictF64(0.0),
-            t_max = StrictUsize(60),
-            eps = StrictF64(0.01),
-            schedule = "exponential",
-            step_scale = StrictF64(1.0),
-            seed = StrictU64(42),
-            dtype = ScalarDtype::F64
-        ),
-        text_signature = "(graph, *, degree=None, num_landmarks=64, degree_normalize=True, p_exp=0.5, eps_psd=1e-4, t_coarse=48.0, t1=None, t2=None, alpha=None, beta_floor=None, min_degree=2, jl_dim=64, max_2hop_per_node=32, hinge_repulsion=True, delta_rel=0.25, barrier_sym='sym_max', omega_1=1.0, omega_2=1.0, gamma_non2=1.0, ht_repulsion=True, min_ratio=0.5, eps_dist=1e-6, neg_per_node=None, num_pivots=50, core_pivots=True, degree_weight_beta=0.0, t_max=60, eps=0.01, schedule='exponential', step_scale=1.0, seed=42, dtype='float64')"
+        signature = (graph, *, degree = None, num_landmarks = StrictUsize(64), degree_normalize = true, p_exp = StrictF64(0.5), eps_psd = StrictF64(1e-4), t_coarse = StrictF64(48.0), t1 = None, t2 = None, alpha = None, beta_floor = None, min_degree = StrictUsize(2), jl_dim = StrictUsize(64), max_2hop_per_node = StrictUsize(32), hinge_repulsion = true, delta_rel = StrictF64(0.25), barrier_sym = "sym_max", omega_1 = StrictF64(1.0), omega_2 = StrictF64(1.0), gamma_non2 = StrictF64(1.0), ht_repulsion = true, min_ratio = StrictF64(0.5), eps_dist = StrictF64(1e-6), neg_per_node = None, num_pivots = StrictUsize(50), core_pivots = true, degree_weight_beta = StrictF64(0.0), iterations = StrictUsize(60), eps = StrictF64(0.01), schedule = "exponential", step_scale = StrictF64(1.0), max_mu = None, seed = StrictU64(42), dtype = ScalarDtype::F64),
+        text_signature = "(graph, *, degree=None, num_landmarks=64, degree_normalize=True, p_exp=0.5, eps_psd=1e-4, t_coarse=48.0, t1=None, t2=None, alpha=None, beta_floor=None, min_degree=2, jl_dim=64, max_2hop_per_node=32, hinge_repulsion=True, delta_rel=0.25, barrier_sym='sym_max', omega_1=1.0, omega_2=1.0, gamma_non2=1.0, ht_repulsion=True, min_ratio=0.5, eps_dist=1e-6, neg_per_node=None, num_pivots=50, core_pivots=True, degree_weight_beta=0.0, iterations=60, eps=0.01, schedule='exponential', step_scale=1.0, max_mu=None, seed=42, dtype='float64')"
     )]
     fn sparse_barrier_dog(
         py: Python<'_>,
@@ -339,10 +283,11 @@ impl PySgdSolver {
         num_pivots: StrictUsize,
         core_pivots: bool,
         degree_weight_beta: StrictF64,
-        t_max: StrictUsize,
+        iterations: StrictUsize,
         eps: StrictF64,
         schedule: &str,
         step_scale: StrictF64,
+        max_mu: Option<StrictF64>,
         seed: StrictU64,
         dtype: ScalarDtype,
     ) -> PyResult<Self> {
@@ -375,30 +320,32 @@ impl PySgdSolver {
             num_pivots,
             core_pivots,
             degree_weight_beta,
-            t_max,
+            iterations,
             eps,
             schedule,
             step_scale,
+            max_mu,
             seed,
             dtype,
         )
     }
 
-    /// Construct a random-pair sparse `SgdSolver` using exact shortest-path distances.
+    /// Construct a random-pair sparse stress `SgdSolver` directly from a `CsrGraph`.
     #[staticmethod]
     #[allow(clippy::too_many_arguments)]
     #[pyo3(
-        signature = (graph, pairs_per_node = StrictUsize(30), *, t_max = StrictUsize(60), eps = StrictF64(0.01), schedule = "exponential", step_scale = StrictF64(1.0), seed = StrictU64(42), dtype = ScalarDtype::F64),
-        text_signature = "(graph, pairs_per_node=30, *, t_max=60, eps=0.01, schedule='exponential', step_scale=1.0, seed=42, dtype='float64')"
+        signature = (graph, pairs_per_node = StrictUsize(30), *, iterations = StrictUsize(60), eps = StrictF64(0.01), schedule = "exponential", step_scale = StrictF64(1.0), max_mu = None, seed = StrictU64(42), dtype = ScalarDtype::F64),
+        text_signature = "(graph, pairs_per_node=30, *, iterations=60, eps=0.01, schedule='exponential', step_scale=1.0, max_mu=None, seed=42, dtype='float64')"
     )]
     fn random_pair(
         py: Python<'_>,
         graph: &PyCsrGraph,
         pairs_per_node: StrictUsize,
-        t_max: StrictUsize,
+        iterations: StrictUsize,
         eps: StrictF64,
         schedule: &str,
         step_scale: StrictF64,
+        max_mu: Option<StrictF64>,
         seed: StrictU64,
         dtype: ScalarDtype,
     ) -> PyResult<Self> {
@@ -406,21 +353,22 @@ impl PySgdSolver {
             py,
             graph,
             pairs_per_node,
-            t_max,
+            iterations,
             eps,
             schedule,
             step_scale,
+            max_mu,
             seed,
             dtype,
         )
     }
 
-    /// Construct an Omega `SgdSolver` using Euclidean distances in a precomputed `(N, D)` embedding.
+    /// Construct an `omega` sparse stress `SgdSolver` combining graph edges with k-NN pairs in `embedding`.
     #[staticmethod]
     #[allow(clippy::too_many_arguments)]
     #[pyo3(
-        signature = (graph, embedding, k = StrictUsize(30), min_dist = StrictF64(1e-3), *, t_max = StrictUsize(60), eps = StrictF64(0.01), schedule = "exponential", step_scale = StrictF64(1.0), seed = StrictU64(42), dtype = ScalarDtype::F64),
-        text_signature = "(graph, embedding, k=30, min_dist=1e-3, *, t_max=60, eps=0.01, schedule='exponential', step_scale=1.0, seed=42, dtype='float64')"
+        signature = (graph, embedding, k = StrictUsize(30), min_dist = StrictF64(1e-3), *, iterations = StrictUsize(60), eps = StrictF64(0.01), schedule = "exponential", step_scale = StrictF64(1.0), max_mu = None, seed = StrictU64(42), dtype = ScalarDtype::F64),
+        text_signature = "(graph, embedding, k=30, min_dist=0.001, *, iterations=60, eps=0.01, schedule='exponential', step_scale=1.0, max_mu=None, seed=42, dtype='float64')"
     )]
     fn omega(
         py: Python<'_>,
@@ -428,37 +376,26 @@ impl PySgdSolver {
         embedding: &Bound<'_, PyAny>,
         k: StrictUsize,
         min_dist: StrictF64,
-        t_max: StrictUsize,
+        iterations: StrictUsize,
         eps: StrictF64,
         schedule: &str,
         step_scale: StrictF64,
+        max_mu: Option<StrictF64>,
         seed: StrictU64,
         dtype: ScalarDtype,
     ) -> PyResult<Self> {
         build_omega(
-            py, graph, embedding, k, min_dist, t_max, eps, schedule, step_scale, seed, dtype,
+            py, graph, embedding, k, min_dist, iterations, eps, schedule, step_scale, max_mu, seed,
+            dtype,
         )
     }
 
-    /// Construct a minimal-RAM `SgdSolver` storing only 1-hop edges and sampling negatives on-the-fly.
+    /// Construct a minimal-RAM `SgdSolver` storing only 1-hop edges and streaming non-edge negatives.
     #[staticmethod]
     #[allow(clippy::too_many_arguments)]
     #[pyo3(
-        signature = (
-            graph,
-            *,
-            negatives_per_node = StrictUsize(5),
-            target_distance = StrictF64(2.0),
-            weight = StrictF64(0.25),
-            hinge_only = true,
-            t_max = StrictUsize(60),
-            eps = StrictF64(0.01),
-            schedule = "exponential",
-            step_scale = StrictF64(1.0),
-            seed = StrictU64(42),
-            dtype = ScalarDtype::F64
-        ),
-        text_signature = "(graph, *, negatives_per_node=5, target_distance=2.0, weight=0.25, hinge_only=True, t_max=60, eps=0.01, schedule='exponential', step_scale=1.0, seed=42, dtype='float64')"
+        signature = (graph, *, negatives_per_node = StrictUsize(5), target_distance = StrictF64(2.0), weight = StrictF64(0.25), hinge_only = true, iterations = StrictUsize(60), eps = StrictF64(0.01), schedule = "exponential", step_scale = StrictF64(1.0), max_mu = None, seed = StrictU64(42), dtype = ScalarDtype::F64),
+        text_signature = "(graph, *, negatives_per_node=5, target_distance=2.0, weight=0.25, hinge_only=True, iterations=60, eps=0.01, schedule='exponential', step_scale=1.0, max_mu=None, seed=42, dtype='float64')"
     )]
     fn streaming_negatives(
         py: Python<'_>,
@@ -467,10 +404,11 @@ impl PySgdSolver {
         target_distance: StrictF64,
         weight: StrictF64,
         hinge_only: bool,
-        t_max: StrictUsize,
+        iterations: StrictUsize,
         eps: StrictF64,
         schedule: &str,
         step_scale: StrictF64,
+        max_mu: Option<StrictF64>,
         seed: StrictU64,
         dtype: ScalarDtype,
     ) -> PyResult<Self> {
@@ -481,35 +419,21 @@ impl PySgdSolver {
             target_distance,
             weight,
             hinge_only,
-            t_max,
+            iterations,
             eps,
             schedule,
             step_scale,
+            max_mu,
             seed,
             dtype,
         )
     }
 
-    /// Construct a compact-memory edge-incident negative sampling `SNAP-tFDP` `SgdSolver`.
+    /// Construct a compact-memory edge-incident negative-sampling `SNAP-tFDP` `SgdSolver`.
     #[staticmethod]
     #[allow(clippy::too_many_arguments)]
     #[pyo3(
-        signature = (
-            graph,
-            *,
-            iterations = StrictUsize(200),
-            negatives_per_edge = StrictUsize(3),
-            learning_rate = StrictF64(1.0),
-            alpha = StrictF64(1.0),
-            repulsion_scale = StrictF64(1.0),
-            rho_start = StrictF64(1.0),
-            rho_end = StrictF64(0.1),
-            rho_power = StrictF64(1.0),
-            degree_beta = StrictF64(0.0),
-            bounded_attraction = true,
-            seed = StrictU64(42),
-            dtype = ScalarDtype::F64
-        ),
+        signature = (graph, *, iterations = StrictUsize(200), negatives_per_edge = StrictUsize(3), learning_rate = StrictF64(1.0), alpha = StrictF64(1.0), repulsion_scale = StrictF64(1.0), rho_start = StrictF64(1.0), rho_end = StrictF64(0.1), rho_power = StrictF64(1.0), degree_beta = StrictF64(0.0), bounded_attraction = true, seed = StrictU64(42), dtype = ScalarDtype::F64),
         text_signature = "(graph, *, iterations=200, negatives_per_edge=3, learning_rate=1.0, alpha=1.0, repulsion_scale=1.0, rho_start=1.0, rho_end=0.1, rho_power=1.0, degree_beta=0.0, bounded_attraction=True, seed=42, dtype='float64')"
     )]
     fn snap_t_fdp(
@@ -550,25 +474,8 @@ impl PySgdSolver {
     #[staticmethod]
     #[allow(clippy::too_many_arguments)]
     #[pyo3(
-        signature = (
-            graph,
-            *,
-            n_neighbors = StrictUsize(10),
-            mn_ratio = StrictF64(0.5),
-            fp_ratio = StrictF64(2.0),
-            phase1_iters = StrictUsize(100),
-            phase2_iters = StrictUsize(100),
-            phase3_iters = StrictUsize(250),
-            learning_rate = StrictF64(1.0),
-            keep_all_1hop = false,
-            max_1hop_per_node = None,
-            degree_weight_beta = StrictF64(0.0),
-            num_landmarks = StrictUsize(16),
-            landmarks = None,
-            seed = StrictU64(42),
-            dtype = ScalarDtype::F64
-        ),
-        text_signature = "(graph, *, n_neighbors=10, mn_ratio=0.5, fp_ratio=2.0, phase1_iters=100, phase2_iters=100, phase3_iters=250, learning_rate=1.0, keep_all_1hop=False, max_1hop_per_node=None, degree_weight_beta=0.0, num_landmarks=16, landmarks=None, seed=42, dtype='float64')"
+        signature = (graph, *, n_neighbors = StrictUsize(10), mn_ratio = StrictF64(0.5), fp_ratio = StrictF64(2.0), phase_iterations = (StrictUsize(100), StrictUsize(100), StrictUsize(250)), learning_rate = StrictF64(1.0), keep_all_1hop = false, max_1hop_per_node = None, degree_weight_beta = StrictF64(0.0), num_landmarks = StrictUsize(16), landmarks = None, seed = StrictU64(42), dtype = ScalarDtype::F64),
+        text_signature = "(graph, *, n_neighbors=10, mn_ratio=0.5, fp_ratio=2.0, phase_iterations=(100, 100, 250), learning_rate=1.0, keep_all_1hop=False, max_1hop_per_node=None, degree_weight_beta=0.0, num_landmarks=16, landmarks=None, seed=42, dtype='float64')"
     )]
     fn pacmap_graph(
         py: Python<'_>,
@@ -576,9 +483,7 @@ impl PySgdSolver {
         n_neighbors: StrictUsize,
         mn_ratio: StrictF64,
         fp_ratio: StrictF64,
-        phase1_iters: StrictUsize,
-        phase2_iters: StrictUsize,
-        phase3_iters: StrictUsize,
+        phase_iterations: (StrictUsize, StrictUsize, StrictUsize),
         learning_rate: StrictF64,
         keep_all_1hop: bool,
         max_1hop_per_node: Option<StrictUsize>,
@@ -594,9 +499,7 @@ impl PySgdSolver {
             n_neighbors,
             mn_ratio,
             fp_ratio,
-            phase1_iters,
-            phase2_iters,
-            phase3_iters,
+            phase_iterations,
             learning_rate,
             keep_all_1hop,
             max_1hop_per_node,
@@ -612,25 +515,8 @@ impl PySgdSolver {
     #[staticmethod]
     #[allow(clippy::too_many_arguments)]
     #[pyo3(
-        signature = (
-            graph,
-            landmarks,
-            *,
-            n_neighbors = StrictUsize(10),
-            mn_ratio = StrictF64(0.5),
-            fp_ratio = StrictF64(2.0),
-            phase1_iters = StrictUsize(100),
-            phase2_iters = StrictUsize(100),
-            phase3_iters = StrictUsize(250),
-            learning_rate = StrictF64(1.0),
-            keep_all_1hop = false,
-            max_1hop_per_node = None,
-            degree_weight_beta = StrictF64(0.0),
-            num_landmarks = StrictUsize(16),
-            seed = StrictU64(42),
-            dtype = ScalarDtype::F64
-        ),
-        text_signature = "(graph, landmarks, *, n_neighbors=10, mn_ratio=0.5, fp_ratio=2.0, phase1_iters=100, phase2_iters=100, phase3_iters=250, learning_rate=1.0, keep_all_1hop=False, max_1hop_per_node=None, degree_weight_beta=0.0, num_landmarks=16, seed=42, dtype='float64')"
+        signature = (graph, landmarks, *, n_neighbors = StrictUsize(10), mn_ratio = StrictF64(0.5), fp_ratio = StrictF64(2.0), phase_iterations = (StrictUsize(100), StrictUsize(100), StrictUsize(250)), learning_rate = StrictF64(1.0), keep_all_1hop = false, max_1hop_per_node = None, degree_weight_beta = StrictF64(0.0), num_landmarks = StrictUsize(16), seed = StrictU64(42), dtype = ScalarDtype::F64),
+        text_signature = "(graph, landmarks, *, n_neighbors=10, mn_ratio=0.5, fp_ratio=2.0, phase_iterations=(100, 100, 250), learning_rate=1.0, keep_all_1hop=False, max_1hop_per_node=None, degree_weight_beta=0.0, num_landmarks=16, seed=42, dtype='float64')"
     )]
     fn pacmap_graph_with_landmarks(
         py: Python<'_>,
@@ -639,9 +525,7 @@ impl PySgdSolver {
         n_neighbors: StrictUsize,
         mn_ratio: StrictF64,
         fp_ratio: StrictF64,
-        phase1_iters: StrictUsize,
-        phase2_iters: StrictUsize,
-        phase3_iters: StrictUsize,
+        phase_iterations: (StrictUsize, StrictUsize, StrictUsize),
         learning_rate: StrictF64,
         keep_all_1hop: bool,
         max_1hop_per_node: Option<StrictUsize>,
@@ -656,9 +540,7 @@ impl PySgdSolver {
             n_neighbors,
             mn_ratio,
             fp_ratio,
-            phase1_iters,
-            phase2_iters,
-            phase3_iters,
+            phase_iterations,
             learning_rate,
             keep_all_1hop,
             max_1hop_per_node,
@@ -670,56 +552,12 @@ impl PySgdSolver {
         )
     }
 
-    /// Construct a 3-tier `PaCMAP-Graph` solver coupled with a coarse Louvain area-reserved
-    /// backbone initialization and `num_landmarks`-BFS Mid-Near (`MN`) landmarks, returning
-    /// `(solver, initial_layout, backbone_dict)`.
+    /// Construct a 3-tier `PaCMAP-Graph` solver coupled with a coarse Louvain area-reserved backbone.
     #[staticmethod]
     #[allow(clippy::too_many_arguments)]
     #[pyo3(
-        signature = (
-            graph,
-            *,
-            n_neighbors = StrictUsize(10),
-            mn_ratio = StrictF64(0.5),
-            fp_ratio = StrictF64(2.0),
-            phase1_iters = StrictUsize(100),
-            phase2_iters = StrictUsize(100),
-            phase3_iters = StrictUsize(250),
-            learning_rate = StrictF64(1.0),
-            keep_all_1hop = false,
-            max_1hop_per_node = None,
-            degree_weight_beta = StrictF64(0.0),
-            num_landmarks = StrictUsize(16),
-            max_coarse_nodes = StrictUsize(10_000),
-            resolution = StrictF64(1.0),
-            resolution_decay = StrictF64(0.5),
-            max_passes = StrictUsize(100),
-            min_modularity_gain = StrictF64(1e-7),
-            max_outer_rounds = StrictUsize(16),
-            edge_length_mode = "conductance_inverse",
-            distance_backend = "rhgh",
-            alpha = StrictF64(0.75),
-            c0 = StrictF64(0.5),
-            kappa = StrictF64(1.0),
-            gamma_w = StrictF64(0.5),
-            gamma_m = StrictF64(0.5),
-            mu_ov = StrictF64(1.0),
-            m_gap = StrictF64(0.1),
-            coarse_pivots = StrictUsize(64),
-            coarse_neg_per_node = StrictUsize(16),
-            coarse_t_max = StrictUsize(80),
-            rhgh_gamma = None,
-            rhgh_p = None,
-            rcf_steps = StrictUsize(2),
-            rcf_eta = StrictF64(0.2),
-            jitter_scale = StrictF64(0.5),
-            gamma_tether = StrictF64(0.5),
-            target_std = Some(StrictF64(1.0)),
-            robust_quantile = StrictF64(0.95),
-            seed = StrictU64(42),
-            dtype = ScalarDtype::F64
-        ),
-        text_signature = "(graph, *, n_neighbors=10, mn_ratio=0.5, fp_ratio=2.0, phase1_iters=100, phase2_iters=100, phase3_iters=250, learning_rate=1.0, keep_all_1hop=False, max_1hop_per_node=None, degree_weight_beta=0.0, num_landmarks=16, max_coarse_nodes=10000, resolution=1.0, resolution_decay=0.5, max_passes=100, min_modularity_gain=1e-7, max_outer_rounds=16, edge_length_mode='conductance_inverse', distance_backend='rhgh', alpha=0.75, c0=0.5, kappa=1.0, gamma_w=0.5, gamma_m=0.5, mu_ov=1.0, m_gap=0.1, coarse_pivots=64, coarse_neg_per_node=16, coarse_t_max=80, rhgh_gamma=None, rhgh_p=None, rcf_steps=2, rcf_eta=0.2, jitter_scale=0.5, gamma_tether=0.5, target_std=1.0, robust_quantile=0.95, seed=42, dtype='float64')"
+        signature = (graph, *, n_neighbors = StrictUsize(10), mn_ratio = StrictF64(0.5), fp_ratio = StrictF64(2.0), phase_iterations = (StrictUsize(100), StrictUsize(100), StrictUsize(250)), learning_rate = StrictF64(1.0), keep_all_1hop = false, max_1hop_per_node = None, degree_weight_beta = StrictF64(0.0), num_landmarks = StrictUsize(16), max_coarse_nodes = StrictUsize(10_000), resolution = StrictF64(1.0), resolution_decay = StrictF64(0.5), max_passes = StrictUsize(100), min_modularity_gain = StrictF64(1e-7), max_outer_rounds = StrictUsize(16), edge_length_mode = "conductance_inverse", distance_backend = "rhgh", alpha = StrictF64(0.75), c0 = StrictF64(0.5), kappa = StrictF64(1.0), gamma_w = StrictF64(0.5), gamma_m = StrictF64(0.5), mu_ov = StrictF64(1.0), m_gap = StrictF64(0.1), coarse_pivots = StrictUsize(64), coarse_neg_per_node = StrictUsize(16), coarse_t_max = StrictUsize(80), rhgh_gamma = None, rhgh_p = None, rcf_steps = StrictUsize(2), rcf_eta = StrictF64(0.2), jitter_scale = StrictF64(0.5), gamma_tether = StrictF64(0.5), target_std = Some(StrictF64(1.0)), robust_quantile = StrictF64(0.95), seed = StrictU64(42), dtype = ScalarDtype::F64),
+        text_signature = "(graph, *, n_neighbors=10, mn_ratio=0.5, fp_ratio=2.0, phase_iterations=(100, 100, 250), learning_rate=1.0, keep_all_1hop=False, max_1hop_per_node=None, degree_weight_beta=0.0, num_landmarks=16, max_coarse_nodes=10000, resolution=1.0, resolution_decay=0.5, max_passes=100, min_modularity_gain=1e-7, max_outer_rounds=16, edge_length_mode='conductance_inverse', distance_backend='rhgh', alpha=0.75, c0=0.5, kappa=1.0, gamma_w=0.5, gamma_m=0.5, mu_ov=1.0, m_gap=0.1, coarse_pivots=64, coarse_neg_per_node=16, coarse_t_max=80, rhgh_gamma=None, rhgh_p=None, rcf_steps=2, rcf_eta=0.2, jitter_scale=0.5, gamma_tether=0.5, target_std=1.0, robust_quantile=0.95, seed=42, dtype='float64')"
     )]
     fn pacmap_graph_with_backbone(
         py: Python<'_>,
@@ -727,9 +565,7 @@ impl PySgdSolver {
         n_neighbors: StrictUsize,
         mn_ratio: StrictF64,
         fp_ratio: StrictF64,
-        phase1_iters: StrictUsize,
-        phase2_iters: StrictUsize,
-        phase3_iters: StrictUsize,
+        phase_iterations: (StrictUsize, StrictUsize, StrictUsize),
         learning_rate: StrictF64,
         keep_all_1hop: bool,
         max_1hop_per_node: Option<StrictUsize>,
@@ -770,9 +606,7 @@ impl PySgdSolver {
             n_neighbors,
             mn_ratio,
             fp_ratio,
-            phase1_iters,
-            phase2_iters,
-            phase3_iters,
+            phase_iterations,
             learning_rate,
             keep_all_1hop,
             max_1hop_per_node,
@@ -809,31 +643,17 @@ impl PySgdSolver {
         )
     }
 
-    /// Construct a doubly-stochastic mini-batch diagonal-preconditioned stress SGD `SgdSolver`
-    /// using `SgdScheduleKind::Squared`.
-    ///
-    /// Note: This implements diagonal-preconditioned mini-batch stress SGD and is distinct
-    /// from Ahmed et al. (2021) multi-criteria `(SGD)^2`.
+    /// Construct a doubly-stochastic mini-batch diagonal-preconditioned stress SGD `SgdSolver` (distinct from Ahmed et al. 2021 multi-criteria `(SGD)^2`).
     #[staticmethod]
     #[allow(clippy::too_many_arguments)]
     #[pyo3(
-        signature = (
-            graph,
-            *,
-            t_max = StrictUsize(60),
-            eps = StrictF64(0.01),
-            step_scale = StrictF64(1.0),
-            batch_size = StrictUsize(4096),
-            damping = StrictF64(1e-4),
-            seed = StrictU64(42),
-            dtype = ScalarDtype::F64
-        ),
-        text_signature = "(graph, *, t_max=60, eps=0.01, step_scale=1.0, batch_size=4096, damping=1e-4, seed=42, dtype='float64')"
+        signature = (graph, *, iterations = StrictUsize(60), eps = StrictF64(0.01), step_scale = StrictF64(1.0), batch_size = StrictUsize(4096), damping = StrictF64(1e-4), seed = StrictU64(42), dtype = ScalarDtype::F64),
+        text_signature = "(graph, *, iterations=60, eps=0.01, step_scale=1.0, batch_size=4096, damping=1e-4, seed=42, dtype='float64')"
     )]
     fn sgd2(
         py: Python<'_>,
         graph: &PyCsrGraph,
-        t_max: StrictUsize,
+        iterations: StrictUsize,
         eps: StrictF64,
         step_scale: StrictF64,
         batch_size: StrictUsize,
@@ -842,26 +662,15 @@ impl PySgdSolver {
         dtype: ScalarDtype,
     ) -> PyResult<Self> {
         build_sgd2_solver(
-            py, graph, t_max, eps, step_scale, batch_size, damping, seed, dtype,
+            py, graph, iterations, eps, step_scale, batch_size, damping, seed, dtype,
         )
     }
 
-    /// Construct an Ortmann et al. (2016) Sparse Stress `SgdSolver` from a `CsrGraph`.
+    /// Construct an Ortmann et al. (2016) pivot-seeded sparse stress `SgdSolver` from a `CsrGraph`.
     #[staticmethod]
     #[allow(clippy::too_many_arguments)]
     #[pyo3(
-        signature = (
-            graph,
-            *,
-            num_pivots = StrictUsize(100),
-            pivot_strategy = "kmeans_sp",
-            iterations = StrictUsize(200),
-            eta_max = None,
-            eta_min = None,
-            eps = StrictF64(0.1),
-            seed = StrictU64(42),
-            dtype = ScalarDtype::F64
-        ),
+        signature = (graph, *, num_pivots = StrictUsize(100), pivot_strategy = "kmeans_sp", iterations = StrictUsize(200), eta_max = None, eta_min = None, eps = StrictF64(0.1), seed = StrictU64(42), dtype = ScalarDtype::F64),
         text_signature = "(graph, *, num_pivots=100, pivot_strategy='kmeans_sp', iterations=200, eta_max=None, eta_min=None, eps=0.1, seed=42, dtype='float64')"
     )]
     fn ortmann_sparse_stress(
@@ -894,18 +703,7 @@ impl PySgdSolver {
     #[staticmethod]
     #[allow(clippy::too_many_arguments)]
     #[pyo3(
-        signature = (
-            graph,
-            *,
-            iterations = StrictUsize(200),
-            negative_samples = StrictUsize(5),
-            gamma = StrictF64(7.0),
-            initial_lr = StrictF64(1.0),
-            min_lr = StrictF64(1e-4),
-            degree_exponent = StrictF64(0.75),
-            seed = StrictU64(42),
-            dtype = ScalarDtype::F64
-        ),
+        signature = (graph, *, iterations = StrictUsize(200), negative_samples = StrictUsize(5), gamma = StrictF64(7.0), initial_lr = StrictF64(1.0), min_lr = StrictF64(1e-4), degree_exponent = StrictF64(0.75), seed = StrictU64(42), dtype = ScalarDtype::F64),
         text_signature = "(graph, *, iterations=200, negative_samples=5, gamma=7.0, initial_lr=1.0, min_lr=1e-4, degree_exponent=0.75, seed=42, dtype='float64')"
     )]
     fn largevis(
@@ -934,25 +732,11 @@ impl PySgdSolver {
         )
     }
 
-    /// Construct a Zhu et al. (2020) multilevel negative-sampling `DRGraph` `SgdSolver` from a `CsrGraph`.
+    /// Construct a Zhu et al. (2020) multilevel negative-sampling `DRGraph` `SgdSolver`.
     #[staticmethod]
     #[allow(clippy::too_many_arguments)]
     #[pyo3(
-        signature = (
-            graph,
-            *,
-            k_order = StrictUsize(1),
-            negative_samples = StrictUsize(5),
-            b = StrictF64(2.0),
-            gamma_coarse = StrictF64(0.01),
-            gamma_fine = StrictF64(0.1),
-            coarsen_stop_ratio = StrictF64(0.8),
-            iterations = StrictUsize(400),
-            initial_lr = StrictF64(1.0),
-            min_lr = StrictF64(1e-4),
-            seed = StrictU64(42),
-            dtype = ScalarDtype::F64
-        ),
+        signature = (graph, *, k_order = StrictUsize(1), negative_samples = StrictUsize(5), b = StrictF64(2.0), gamma_coarse = StrictF64(0.01), gamma_fine = StrictF64(0.1), coarsen_stop_ratio = StrictF64(0.8), iterations = StrictUsize(400), initial_lr = StrictF64(1.0), min_lr = StrictF64(1e-4), seed = StrictU64(42), dtype = ScalarDtype::F64),
         text_signature = "(graph, *, k_order=1, negative_samples=5, b=2.0, gamma_coarse=0.01, gamma_fine=0.1, coarsen_stop_ratio=0.8, iterations=400, initial_lr=1.0, min_lr=1e-4, seed=42, dtype='float64')"
     )]
     fn drgraph(
@@ -987,23 +771,11 @@ impl PySgdSolver {
         )
     }
 
-    /// Construct a Bohm et al. (2025) `Graph-CNE` contrastive neighbor embedding `SgdSolver` from a `CsrGraph`.
+    /// Construct a Bohm et al. (2025) `Graph-CNE` contrastive neighbor embedding `SgdSolver`.
     #[staticmethod]
     #[allow(clippy::too_many_arguments)]
     #[pyo3(
-        signature = (
-            graph,
-            *,
-            objective = "infonce",
-            negative_samples = StrictUsize(5),
-            iterations = StrictUsize(400),
-            initial_lr = StrictF64(1.0),
-            min_lr = StrictF64(1e-4),
-            repulsion_weight = StrictF64(1.0),
-            row_normalize = true,
-            seed = StrictU64(42),
-            dtype = ScalarDtype::F64
-        ),
+        signature = (graph, *, objective = "infonce", negative_samples = StrictUsize(5), iterations = StrictUsize(400), initial_lr = StrictF64(1.0), min_lr = StrictF64(1e-4), repulsion_weight = StrictF64(1.0), row_normalize = true, seed = StrictU64(42), dtype = ScalarDtype::F64),
         text_signature = "(graph, *, objective='infonce', negative_samples=5, iterations=400, initial_lr=1.0, min_lr=1e-4, repulsion_weight=1.0, row_normalize=True, seed=42, dtype='float64')"
     )]
     fn graph_cne(
@@ -1034,61 +806,67 @@ impl PySgdSolver {
         )
     }
 
-    /// Execute one Euclidean SGD iteration in place on `layout` while releasing the GIL.
+    /// Execute one SGD iteration in place on `layout` (`Layout2d | LayoutNd | ManifoldLayout2d`).
     #[pyo3(signature = (layout), text_signature = "($self, layout)")]
-    fn step(&mut self, py: Python<'_>, layout: &Bound<'_, PyLayout2d>) -> PyResult<&'static str> {
-        execute_solver_action(&mut self.inner, py, layout, SolverAction::Step)
+    fn step(&mut self, py: Python<'_>, layout: &Bound<'_, PyAny>) -> PyResult<&'static str> {
+        execute_any_layout_action(&mut self.inner, py, layout, SolverAction::Step)
     }
 
-    /// Execute up to `steps` Euclidean SGD iterations in place on `layout` while releasing the GIL.
+    /// Execute up to `steps` SGD iterations in place on `layout` (`Layout2d | LayoutNd | ManifoldLayout2d`).
     #[pyo3(signature = (layout, steps), text_signature = "($self, layout, steps)")]
     fn run_steps(
         &mut self,
         py: Python<'_>,
-        layout: &Bound<'_, PyLayout2d>,
+        layout: &Bound<'_, PyAny>,
         steps: StrictUsize,
     ) -> PyResult<&'static str> {
-        execute_solver_action(&mut self.inner, py, layout, SolverAction::RunSteps(steps.0))
+        execute_any_layout_action(&mut self.inner, py, layout, SolverAction::RunSteps(steps.0))
     }
 
-    /// Run Euclidean SGD to completion in place on `layout` while releasing the GIL.
+    /// Run SGD to completion in place on `layout` (`Layout2d | LayoutNd | ManifoldLayout2d`).
     #[pyo3(signature = (layout), text_signature = "($self, layout)")]
-    fn run(&mut self, py: Python<'_>, layout: &Bound<'_, PyLayout2d>) -> PyResult<&'static str> {
-        execute_solver_action(&mut self.inner, py, layout, SolverAction::Run)
+    fn run(&mut self, py: Python<'_>, layout: &Bound<'_, PyAny>) -> PyResult<&'static str> {
+        execute_any_layout_action(&mut self.inner, py, layout, SolverAction::Run)
     }
 
-    /// Execute one non-Euclidean manifold SGD iteration in place on `layout` while releasing the GIL.
-    #[pyo3(signature = (layout), text_signature = "($self, layout)")]
-    fn step_manifold(
+    /// Reset the SGD learning-rate schedule and PRNG seed while retaining prebuilt pair buffers.
+    #[pyo3(
+        signature = (*, iterations = StrictUsize(60), eps = StrictF64(0.01), schedule = "exponential", step_scale = StrictF64(1.0), max_mu = None, seed = StrictU64(42)),
+        text_signature = "($self, *, iterations=60, eps=0.01, schedule='exponential', step_scale=1.0, max_mu=None, seed=42)"
+    )]
+    fn reset_schedule(
+        &mut self,
+        iterations: StrictUsize,
+        eps: StrictF64,
+        schedule: &str,
+        step_scale: StrictF64,
+        max_mu: Option<StrictF64>,
+        seed: StrictU64,
+    ) -> PyResult<()> {
+        execute_reset_schedule(
+            &mut self.inner,
+            iterations,
+            eps,
+            schedule,
+            step_scale,
+            max_mu,
+            seed,
+        )
+    }
+
+    /// Execute `count` iterations starting at `start_iter` on a `Layout2d` or `ManifoldLayout2d`.
+    #[pyo3(signature = (layout, start_iter, count), text_signature = "($self, layout, start_iter, count)")]
+    fn run_schedule_window(
         &mut self,
         py: Python<'_>,
-        layout: &Bound<'_, PyManifoldLayout2d>,
+        layout: &Bound<'_, PyAny>,
+        start_iter: StrictUsize,
+        count: StrictUsize,
     ) -> PyResult<&'static str> {
-        execute_manifold_action(&mut self.inner, py, layout, SolverAction::Step)
+        execute_schedule_window(&mut self.inner, py, layout, start_iter, count)
     }
 
-    /// Execute up to `steps` non-Euclidean manifold SGD iterations in place on `layout` while releasing the GIL.
-    #[pyo3(signature = (layout, steps), text_signature = "($self, layout, steps)")]
-    fn run_steps_manifold(
-        &mut self,
-        py: Python<'_>,
-        layout: &Bound<'_, PyManifoldLayout2d>,
-        steps: StrictUsize,
-    ) -> PyResult<&'static str> {
-        execute_manifold_action(&mut self.inner, py, layout, SolverAction::RunSteps(steps.0))
-    }
-
-    /// Run non-Euclidean manifold SGD to completion in place on `layout` while releasing the GIL.
-    #[pyo3(signature = (layout), text_signature = "($self, layout)")]
-    fn run_manifold(
-        &mut self,
-        py: Python<'_>,
-        layout: &Bound<'_, PyManifoldLayout2d>,
-    ) -> PyResult<&'static str> {
-        execute_manifold_action(&mut self.inner, py, layout, SolverAction::Run)
-    }
-
-    /// Return Sparse Barrier construction diagnostics as a dict, or `None` for non-barrier constructors.
+    /// Return Sparse Barrier construction diagnostics as a dict, or `None`.
     fn stats(&self, py: Python<'_>) -> PyResult<Option<Py<PyDict>>> {
         self.barrier_stats
             .as_ref()
@@ -1096,7 +874,7 @@ impl PySgdSolver {
             .transpose()
     }
 
-    /// Return regularized DoG Varadhan landmark diagnostics as a dict when built via `sparse_barrier_dog`, or `None`.
+    /// Return regularized DoG Varadhan landmark diagnostics as a dict, or `None`.
     fn dog_stats(&self, py: Python<'_>) -> PyResult<Option<Py<PyDict>>> {
         self.dog_stats
             .as_ref()
@@ -1116,7 +894,7 @@ impl PySgdSolver {
         self.inner.solver_iteration()
     }
 
-    /// Scheduled total number of iterations (`t_max`).
+    /// Scheduled total number of iterations (`iterations`).
     #[getter]
     fn total_iterations(&self) -> usize {
         self.inner.solver_total_iterations()
@@ -1126,6 +904,12 @@ impl PySgdSolver {
     #[getter]
     fn is_finished(&self) -> bool {
         self.inner.solver_status().is_finished()
+    }
+
+    /// Whether this solver supports non-Euclidean `ManifoldLayout2d` stepping.
+    #[getter]
+    fn supports_manifold(&self) -> bool {
+        self.inner.supports_manifold()
     }
 
     /// Expected number of vertices in the layout.
@@ -1158,7 +942,6 @@ impl PySgdSolver {
         self.inner.dtype().as_str()
     }
 
-    /// Return a concise string representation of the `SgdSolver`.
     fn __repr__(&self) -> String {
         format!(
             "SgdSolver(num_nodes={}, springs={}, hinges={}, status='{}', iteration={}/{}, dtype='{}')",

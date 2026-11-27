@@ -1,36 +1,17 @@
-//! Cluster separation, cluster validity index, Sprawlter-NN, and NOR metric bindings.
+//! Partition agreement, 2D density consistency, Sprawlter-NN, and NOR metric bindings.
 
 use egraph::metrics as egraph_metrics;
-use egraph_metrics::{NorMetrics, PartitionAgreement};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
 use crate::array_extract::extract_f64_1d;
 use crate::csr_graph::PyCsrGraph;
-use crate::ffi_convert::{StrictF64, StrictU64, StrictUsize, core_error_to_py, extract_u32_1d};
+use crate::ffi_convert::{StrictF64, StrictUsize, core_error_to_py, extract_u32_1d};
 use crate::layout_buffers::{Layout2dInner, PyLayout2d, dispatch_layout2d, layout_f32_to_f64};
 use crate::solver_common::vec_f64_to_f32_checked;
 
-fn partition_agreement_to_py_dict(py: Python<'_>, pa: PartitionAgreement) -> PyResult<Py<PyDict>> {
-    let dict = PyDict::new(py);
-    dict.set_item("ari", pa.ari)?;
-    dict.set_item("ami", pa.ami)?;
-    dict.set_item("homogeneity", pa.homogeneity)?;
-    dict.set_item("completeness", pa.completeness)?;
-    dict.set_item("v_measure", pa.v_measure)?;
-    dict.set_item("fmi", pa.fmi)?;
-    Ok(dict.unbind())
-}
-
-fn nor_metrics_to_py_dict(py: Python<'_>, nor: NorMetrics) -> PyResult<Py<PyDict>> {
-    let dict = PyDict::new(py);
-    dict.set_item("oo_nni", nor.oo_nni)?;
-    dict.set_item("sp_ch_a", nor.sp_ch_a)?;
-    dict.set_item("gs_bb_iar", nor.gs_bb_iar)?;
-    dict.set_item("nm_dm_imse", nor.nm_dm_imse)?;
-    dict.set_item("el_rsd", nor.el_rsd)?;
-    Ok(dict.unbind())
-}
+use super::cluster_baselines_nd;
+use super::nd_manifold_helpers::{nor_metrics_to_py_dict, partition_agreement_to_py_dict};
 
 /// Compute partition agreement metrics (`ari`, `ami`, `homogeneity`, `completeness`, `v_measure`, `fmi`).
 ///
@@ -51,87 +32,6 @@ fn partition_agreement(
         .detach(|| egraph_metrics::partition_agreement(&lt, &lp))
         .map_err(core_error_to_py)?;
     partition_agreement_to_py_dict(py, pa)
-}
-
-/// Compute K-Means++ Cluster Quality (`CQ-kmeans`) partition agreement on `layout`.
-///
-/// Releases the Python GIL during computation.
-#[pyfunction]
-#[pyo3(
-    signature = (layout, community_labels, *, n_init = StrictUsize(5), max_iters = StrictUsize(100), seed = StrictU64(42)),
-    text_signature = "(layout, community_labels, *, n_init=5, max_iters=100, seed=42)"
-)]
-fn cq_kmeans(
-    py: Python<'_>,
-    layout: &PyLayout2d,
-    community_labels: &Bound<'_, PyAny>,
-    n_init: StrictUsize,
-    max_iters: StrictUsize,
-    seed: StrictU64,
-) -> PyResult<Py<PyDict>> {
-    let labels = extract_u32_1d(community_labels, "community_labels")?;
-    let ni = n_init.0;
-    let mi = max_iters.0;
-    let s = seed.0;
-    let pa = dispatch_layout2d!(py, layout, |soa| {
-        egraph_metrics::cq_kmeans(&soa, &labels, ni, mi, s)
-    })?;
-    partition_agreement_to_py_dict(py, pa)
-}
-
-/// Compute average-linkage HAC Cluster Quality (`CQ-HAC`) partition agreement on `layout`.
-///
-/// Releases the Python GIL during computation.
-#[pyfunction]
-#[pyo3(
-    signature = (layout, community_labels),
-    text_signature = "(layout, community_labels)"
-)]
-fn cq_hac(
-    py: Python<'_>,
-    layout: &PyLayout2d,
-    community_labels: &Bound<'_, PyAny>,
-) -> PyResult<Py<PyDict>> {
-    let labels = extract_u32_1d(community_labels, "community_labels")?;
-    let pa = dispatch_layout2d!(py, layout, |soa| egraph_metrics::cq_hac(&soa, &labels))?;
-    partition_agreement_to_py_dict(py, pa)
-}
-
-/// Compute Distance Consistency (`DSC`) in `[0.0, 1.0]` for `layout` and discrete `labels`.
-///
-/// Releases the Python GIL during computation.
-#[pyfunction]
-#[pyo3(signature = (layout, labels), text_signature = "(layout, labels)")]
-fn distance_consistency(
-    py: Python<'_>,
-    layout: &PyLayout2d,
-    labels: &Bound<'_, PyAny>,
-) -> PyResult<f64> {
-    let lbl = extract_u32_1d(labels, "labels")?;
-    dispatch_layout2d!(py, layout, |soa| {
-        egraph_metrics::distance_consistency(&soa, &lbl)
-    })
-}
-
-/// Compute Distribution Consistency (`DC`) in `[0.0, 1.0]` on a `grid_size x grid_size` grid.
-///
-/// Releases the Python GIL during computation.
-#[pyfunction]
-#[pyo3(
-    signature = (layout, labels, grid_size = StrictUsize(20)),
-    text_signature = "(layout, labels, grid_size=20)"
-)]
-fn distribution_consistency(
-    py: Python<'_>,
-    layout: &PyLayout2d,
-    labels: &Bound<'_, PyAny>,
-    grid_size: StrictUsize,
-) -> PyResult<f64> {
-    let lbl = extract_u32_1d(labels, "labels")?;
-    let gs = grid_size.0;
-    dispatch_layout2d!(py, layout, |soa| {
-        egraph_metrics::distribution_consistency(&soa, &lbl, gs)
-    })
 }
 
 /// Compute Class Density Measure and 2D Histogram Density Measure `(cdm, hdm)` in `[0.0, 1.0]`.
@@ -157,151 +57,24 @@ fn class_density_measure(
     })
 }
 
-/// Compute SepMe $k$-NN Graph DIR CPT (`sepme_knng`) in `[0.0, 1.0]`.
+/// Compute 3x3 Moore-smoothed 2D Histogram Density Measure (`2D-HDM`) in `[0.0, 1.0]`.
 ///
 /// Releases the Python GIL during computation.
 #[pyfunction]
 #[pyo3(
-    signature = (layout, labels, k = StrictUsize(2)),
-    text_signature = "(layout, labels, k=2)"
+    signature = (layout, labels, *, grid_size = StrictUsize(64)),
+    text_signature = "(layout, labels, *, grid_size=64)"
 )]
-fn sepme_knng(
+fn histogram_density_measure(
     py: Python<'_>,
     layout: &PyLayout2d,
     labels: &Bound<'_, PyAny>,
-    k: StrictUsize,
+    grid_size: StrictUsize,
 ) -> PyResult<f64> {
     let lbl = extract_u32_1d(labels, "labels")?;
-    let kv = k.0;
-    dispatch_layout2d!(py, layout, |soa| egraph_metrics::sepme_knng(&soa, &lbl, kv))
-}
-
-/// Compute SepMe Relative Neighborhood Graph DIR CPT (`sepme_rng`) in `[0.0, 1.0]`.
-///
-/// Releases the Python GIL during computation.
-#[pyfunction]
-#[pyo3(signature = (layout, labels), text_signature = "(layout, labels)")]
-fn sepme_rng(py: Python<'_>, layout: &PyLayout2d, labels: &Bound<'_, PyAny>) -> PyResult<f64> {
-    let lbl = extract_u32_1d(labels, "labels")?;
-    dispatch_layout2d!(py, layout, |soa| egraph_metrics::sepme_rng(&soa, &lbl))
-}
-
-/// Compute SepMe Gabriel Graph DIR CPT (`sepme_gab`) in `[0.0, 1.0]`.
-///
-/// Releases the Python GIL during computation.
-#[pyfunction]
-#[pyo3(signature = (layout, labels), text_signature = "(layout, labels)")]
-fn sepme_gab(py: Python<'_>, layout: &PyLayout2d, labels: &Bound<'_, PyAny>) -> PyResult<f64> {
-    let lbl = extract_u32_1d(labels, "labels")?;
-    dispatch_layout2d!(py, layout, |soa| egraph_metrics::sepme_gab(&soa, &lbl))
-}
-
-/// Compute SepMe $\gamma$-Observable Neighbor Graph DIR CPT (`sepme_gong`) in `[0.0, 1.0]`.
-///
-/// Releases the Python GIL during computation.
-#[pyfunction]
-#[pyo3(
-    signature = (layout, labels, gamma = StrictF64(0.35)),
-    text_signature = "(layout, labels, gamma=0.35)"
-)]
-fn sepme_gong(
-    py: Python<'_>,
-    layout: &PyLayout2d,
-    labels: &Bound<'_, PyAny>,
-    gamma: StrictF64,
-) -> PyResult<f64> {
-    let lbl = extract_u32_1d(labels, "labels")?;
-    let g = gamma.0;
-    dispatch_layout2d!(py, layout, |soa| egraph_metrics::sepme_gong(&soa, &lbl, g))
-}
-
-/// Compute Neighborhood Hit (`M_NH`) in `[0.0, 1.0]` over each node's `k` nearest neighbors.
-///
-/// Releases the Python GIL during computation.
-#[pyfunction]
-#[pyo3(
-    signature = (layout, labels, k = StrictUsize(7)),
-    text_signature = "(layout, labels, k=7)"
-)]
-fn neighborhood_hit(
-    py: Python<'_>,
-    layout: &PyLayout2d,
-    labels: &Bound<'_, PyAny>,
-    k: StrictUsize,
-) -> PyResult<f64> {
-    let lbl = extract_u32_1d(labels, "labels")?;
-    let kv = k.0;
+    let gs = grid_size.0;
     dispatch_layout2d!(py, layout, |soa| {
-        egraph_metrics::neighborhood_hit(&soa, &lbl, kv)
-    })
-}
-
-/// Compute mean Silhouette coefficient in `[-1.0, 1.0]` for `layout` and `labels`.
-///
-/// Releases the Python GIL during computation.
-#[pyfunction]
-#[pyo3(signature = (layout, labels), text_signature = "(layout, labels)")]
-fn silhouette_score(
-    py: Python<'_>,
-    layout: &PyLayout2d,
-    labels: &Bound<'_, PyAny>,
-) -> PyResult<f64> {
-    let lbl = extract_u32_1d(labels, "labels")?;
-    dispatch_layout2d!(py, layout, |soa| {
-        egraph_metrics::silhouette_score(&soa, &lbl)
-    })
-}
-
-/// Compute Calinski-Harabasz Index (`>= 0.0`) for `layout` and `labels`.
-///
-/// Releases the Python GIL during computation.
-#[pyfunction]
-#[pyo3(signature = (layout, labels), text_signature = "(layout, labels)")]
-fn calinski_harabasz_score(
-    py: Python<'_>,
-    layout: &PyLayout2d,
-    labels: &Bound<'_, PyAny>,
-) -> PyResult<f64> {
-    let lbl = extract_u32_1d(labels, "labels")?;
-    dispatch_layout2d!(py, layout, |soa| {
-        egraph_metrics::calinski_harabasz_score(&soa, &lbl)
-    })
-}
-
-/// Compute Davies-Bouldin Index (`>= 0.0`, lower is better) for `layout` and `labels`.
-///
-/// Releases the Python GIL during computation.
-#[pyfunction]
-#[pyo3(signature = (layout, labels), text_signature = "(layout, labels)")]
-fn davies_bouldin_score(
-    py: Python<'_>,
-    layout: &PyLayout2d,
-    labels: &Bound<'_, PyAny>,
-) -> PyResult<f64> {
-    let lbl = extract_u32_1d(labels, "labels")?;
-    dispatch_layout2d!(py, layout, |soa| {
-        egraph_metrics::davies_bouldin_score(&soa, &lbl)
-    })
-}
-
-/// Compute Pairwise Distance-Overlap Error (`PDOE`) in `[0.0, 1.0]` using `num_bins` histogram bins.
-///
-/// Releases the Python GIL during computation.
-#[pyfunction]
-#[pyo3(
-    signature = (layout, labels, num_bins = StrictUsize(100)),
-    text_signature = "(layout, labels, num_bins=100)"
-)]
-fn pairwise_distance_overlap_error(
-    py: Python<'_>,
-    layout: &PyLayout2d,
-    labels: &Bound<'_, PyAny>,
-    num_bins: StrictUsize,
-) -> PyResult<f64> {
-    let lbl = extract_u32_1d(labels, "labels")?;
-    let bins = num_bins.0;
-    dispatch_layout2d!(py, layout, |soa| {
-        egraph_metrics::pairwise_distance_overlap_error(&soa, &lbl, bins)
+        egraph_metrics::histogram_density_measure(&soa, &lbl, gs)
     })
 }
 
@@ -350,6 +123,19 @@ fn sprawlter_nn(
     }
 }
 
+/// Compute Sprawlter-NN composite overlap clutter measure using uniform per-node radii.
+///
+/// Equivalent to `sprawlter_nn(layout, radii)`. Releases the Python GIL during computation.
+#[pyfunction]
+#[pyo3(signature = (layout, radii), text_signature = "(layout, radii)")]
+fn sprawlter_nn_radii(
+    py: Python<'_>,
+    layout: &PyLayout2d,
+    radii: &Bound<'_, PyAny>,
+) -> PyResult<f64> {
+    sprawlter_nn(py, layout, radii, None)
+}
+
 /// Compute Chen et al. (2020) Node Overlap Removal (NOR) 5-metric evaluation summary.
 ///
 /// Returns a dict with keys `"oo_nni"`, `"sp_ch_a"`, `"gs_bb_iar"`, `"nm_dm_imse"`, and
@@ -374,8 +160,8 @@ fn nor_metrics(
         (Layout2dInner::F64(orig), Layout2dInner::F64(adj)) => {
             let o = orig.to_layout2d();
             let a = adj.to_layout2d();
-            py.detach(|| match g_opt {
-                Some(g) => egraph_metrics::nor_metrics(g, &o, &a, &hw_f64, &hh_f64),
+            py.detach(|| match g_opt.as_ref() {
+                Some(g) => egraph_metrics::nor_metrics(&**g, &o, &a, &hw_f64, &hh_f64),
                 None => egraph_metrics::nor_metrics_without_graph(&o, &a, &hw_f64, &hh_f64),
             })
             .map_err(core_error_to_py)?
@@ -385,8 +171,8 @@ fn nor_metrics(
             let hh_f32 = vec_f64_to_f32_checked(&hh_f64, "half_heights")?;
             let o = orig.to_layout2d();
             let a = adj.to_layout2d();
-            py.detach(|| match g_opt {
-                Some(g) => egraph_metrics::nor_metrics(g, &o, &a, &hw_f32, &hh_f32),
+            py.detach(|| match g_opt.as_ref() {
+                Some(g) => egraph_metrics::nor_metrics(&**g, &o, &a, &hw_f32, &hh_f32),
                 None => egraph_metrics::nor_metrics_without_graph(&o, &a, &hw_f32, &hh_f32),
             })
             .map_err(core_error_to_py)?
@@ -394,8 +180,8 @@ fn nor_metrics(
         (Layout2dInner::F64(orig), Layout2dInner::F32(adj)) => {
             let o = orig.to_layout2d();
             let a = layout_f32_to_f64(&adj.to_layout2d());
-            py.detach(|| match g_opt {
-                Some(g) => egraph_metrics::nor_metrics(g, &o, &a, &hw_f64, &hh_f64),
+            py.detach(|| match g_opt.as_ref() {
+                Some(g) => egraph_metrics::nor_metrics(&**g, &o, &a, &hw_f64, &hh_f64),
                 None => egraph_metrics::nor_metrics_without_graph(&o, &a, &hw_f64, &hh_f64),
             })
             .map_err(core_error_to_py)?
@@ -403,8 +189,8 @@ fn nor_metrics(
         (Layout2dInner::F32(orig), Layout2dInner::F64(adj)) => {
             let o = layout_f32_to_f64(&orig.to_layout2d());
             let a = adj.to_layout2d();
-            py.detach(|| match g_opt {
-                Some(g) => egraph_metrics::nor_metrics(g, &o, &a, &hw_f64, &hh_f64),
+            py.detach(|| match g_opt.as_ref() {
+                Some(g) => egraph_metrics::nor_metrics(&**g, &o, &a, &hw_f64, &hh_f64),
                 None => egraph_metrics::nor_metrics_without_graph(&o, &a, &hw_f64, &hh_f64),
             })
             .map_err(core_error_to_py)?
@@ -414,22 +200,12 @@ fn nor_metrics(
 }
 
 pub(super) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    cluster_baselines_nd::register(m)?;
     m.add_function(wrap_pyfunction!(partition_agreement, m)?)?;
-    m.add_function(wrap_pyfunction!(cq_kmeans, m)?)?;
-    m.add_function(wrap_pyfunction!(cq_hac, m)?)?;
-    m.add_function(wrap_pyfunction!(distance_consistency, m)?)?;
-    m.add_function(wrap_pyfunction!(distribution_consistency, m)?)?;
     m.add_function(wrap_pyfunction!(class_density_measure, m)?)?;
-    m.add_function(wrap_pyfunction!(sepme_knng, m)?)?;
-    m.add_function(wrap_pyfunction!(sepme_rng, m)?)?;
-    m.add_function(wrap_pyfunction!(sepme_gab, m)?)?;
-    m.add_function(wrap_pyfunction!(sepme_gong, m)?)?;
-    m.add_function(wrap_pyfunction!(neighborhood_hit, m)?)?;
-    m.add_function(wrap_pyfunction!(silhouette_score, m)?)?;
-    m.add_function(wrap_pyfunction!(calinski_harabasz_score, m)?)?;
-    m.add_function(wrap_pyfunction!(davies_bouldin_score, m)?)?;
-    m.add_function(wrap_pyfunction!(pairwise_distance_overlap_error, m)?)?;
+    m.add_function(wrap_pyfunction!(histogram_density_measure, m)?)?;
     m.add_function(wrap_pyfunction!(sprawlter_nn, m)?)?;
+    m.add_function(wrap_pyfunction!(sprawlter_nn_radii, m)?)?;
     m.add_function(wrap_pyfunction!(nor_metrics, m)?)?;
     Ok(())
 }

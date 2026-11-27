@@ -93,6 +93,12 @@ fn test_cluster_baseline_metric_target_aliases() {
         ),
         ("pdoe", MetricTarget::PairwiseDistanceOverlapError),
         ("sprawlter_nn", MetricTarget::SprawlterNn),
+        ("geodesic_distortion", MetricTarget::GeodesicDistortion),
+        ("crossing_edges", MetricTarget::CrossingEdges),
+        ("torus_crossing_number", MetricTarget::TorusCrossingNumber),
+        ("crossing_edges_torus", MetricTarget::CrossingEdgesTorus),
+        ("prism_distortion", MetricTarget::PrismDistortion),
+        ("nor_metrics", MetricTarget::NorMetrics),
     ];
     for (raw, expected) in cases {
         assert_eq!(parse_metric_target(raw).unwrap(), expected, "raw={raw}");

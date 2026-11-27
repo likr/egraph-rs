@@ -13,7 +13,10 @@ use crate::solver_common::{
     DualIterativeSolver, SolverAction, execute_solver_action, impl_dual_solver,
 };
 
+use super::layout_dispatch::{execute_euclid_action, impl_dual_nd_solver};
+
 impl_dual_solver!(MaxentStressInner, MaxentStressSolver);
+impl_dual_nd_solver!(MaxentStressInner, MaxentStressSolver);
 impl_dual_solver!(GripInner, GripSolver);
 
 /// Cooperative Gansner et al. (2013) Maxent-Stress layout solver.
@@ -90,20 +93,20 @@ impl PyMaxentStressSolver {
         let inner = py
             .detach(|| match dtype {
                 ScalarDtype::F64 => {
-                    MaxentStressSolver::<f64>::new(g, cfg).map(MaxentStressInner::F64)
+                    MaxentStressSolver::<f64>::new(&*g, cfg).map(MaxentStressInner::F64)
                 }
                 ScalarDtype::F32 => {
-                    MaxentStressSolver::<f32>::new(g, cfg).map(MaxentStressInner::F32)
+                    MaxentStressSolver::<f32>::new(&*g, cfg).map(MaxentStressInner::F32)
                 }
             })
             .map_err(core_error_to_py)?;
         Ok(Self { inner })
     }
 
-    /// Execute one Maxent-Stress majorization step in place on `layout` while releasing the GIL.
+    /// Execute one Maxent-Stress majorization step in place on `layout` (`Layout2d | LayoutNd`).
     #[pyo3(signature = (layout), text_signature = "($self, layout)")]
-    fn step(&mut self, py: Python<'_>, layout: &Bound<'_, PyLayout2d>) -> PyResult<&'static str> {
-        execute_solver_action(&mut self.inner, py, layout, SolverAction::Step)
+    fn step(&mut self, py: Python<'_>, layout: &Bound<'_, PyAny>) -> PyResult<&'static str> {
+        execute_euclid_action(&mut self.inner, py, layout, SolverAction::Step)
     }
 
     /// Execute up to `steps` Maxent-Stress majorization steps in place on `layout` while releasing the GIL.
@@ -111,16 +114,16 @@ impl PyMaxentStressSolver {
     fn run_steps(
         &mut self,
         py: Python<'_>,
-        layout: &Bound<'_, PyLayout2d>,
+        layout: &Bound<'_, PyAny>,
         steps: StrictUsize,
     ) -> PyResult<&'static str> {
-        execute_solver_action(&mut self.inner, py, layout, SolverAction::RunSteps(steps.0))
+        execute_euclid_action(&mut self.inner, py, layout, SolverAction::RunSteps(steps.0))
     }
 
     /// Run Maxent-Stress optimization to completion in place on `layout` while releasing the GIL.
     #[pyo3(signature = (layout), text_signature = "($self, layout)")]
-    fn run(&mut self, py: Python<'_>, layout: &Bound<'_, PyLayout2d>) -> PyResult<&'static str> {
-        execute_solver_action(&mut self.inner, py, layout, SolverAction::Run)
+    fn run(&mut self, py: Python<'_>, layout: &Bound<'_, PyAny>) -> PyResult<&'static str> {
+        execute_euclid_action(&mut self.inner, py, layout, SolverAction::Run)
     }
 
     /// Current annealing repulsion weight `alpha`.
@@ -253,8 +256,8 @@ impl PyGripSolver {
         let g = graph.inner();
         let inner = py
             .detach(|| match dtype {
-                ScalarDtype::F64 => GripSolver::<f64>::new(g, cfg).map(GripInner::F64),
-                ScalarDtype::F32 => GripSolver::<f32>::new(g, cfg).map(GripInner::F32),
+                ScalarDtype::F64 => GripSolver::<f64>::new(&*g, cfg).map(GripInner::F64),
+                ScalarDtype::F32 => GripSolver::<f32>::new(&*g, cfg).map(GripInner::F32),
             })
             .map_err(core_error_to_py)?;
         Ok(Self { inner })

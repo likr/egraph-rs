@@ -17,7 +17,7 @@ use super::t_fdp::{FieldLayoutInner, build_ibfft_config, parse_field_backend};
 #[allow(clippy::too_many_arguments)]
 fn build_ib_umap_config(
     backend: &str,
-    n_epochs: usize,
+    iterations: usize,
     learning_rate: f64,
     min_dist: f64,
     spread: f64,
@@ -27,22 +27,17 @@ fn build_ib_umap_config(
     tau_scale: f64,
     hub_damping: bool,
     theta: f64,
-    ibfft_order: usize,
-    ibfft_intervals: usize,
-    ibfft_min_grid_dim: usize,
-    ibfft_max_grid_dim: usize,
+    interpolation_order: usize,
+    intervals: usize,
+    min_grid_dim: usize,
+    max_grid_dim: usize,
     seed: u64,
 ) -> PyResult<IbUmapConfig> {
     let parsed_backend = parse_field_backend(backend).map_err(PyValueError::new_err)?;
-    let ibfft = build_ibfft_config(
-        ibfft_order,
-        ibfft_intervals,
-        ibfft_min_grid_dim,
-        ibfft_max_grid_dim,
-    )?;
+    let ibfft = build_ibfft_config(interpolation_order, intervals, min_grid_dim, max_grid_dim)?;
     let cfg = IbUmapConfig {
         backend: parsed_backend,
-        iterations: n_epochs,
+        iterations,
         learning_rate,
         min_dist,
         spread,
@@ -77,7 +72,7 @@ pub(super) fn build_ib_umap_new(
     alpha: Option<StrictF64>,
     beta_floor: Option<StrictF64>,
     backend: &str,
-    n_epochs: StrictUsize,
+    iterations: StrictUsize,
     learning_rate: StrictF64,
     min_dist: StrictF64,
     spread: StrictF64,
@@ -87,16 +82,16 @@ pub(super) fn build_ib_umap_new(
     tau_scale: StrictF64,
     hub_damping: bool,
     theta: StrictF64,
-    ibfft_order: StrictUsize,
-    ibfft_intervals: StrictUsize,
-    ibfft_min_grid_dim: StrictUsize,
-    ibfft_max_grid_dim: StrictUsize,
+    interpolation_order: StrictUsize,
+    intervals: StrictUsize,
+    min_grid_dim: StrictUsize,
+    max_grid_dim: StrictUsize,
     seed: StrictU64,
     dtype: ScalarDtype,
 ) -> PyResult<FieldLayoutInner> {
     let cfg = build_ib_umap_config(
         backend,
-        n_epochs.0,
+        iterations.0,
         learning_rate.0,
         min_dist.0,
         spread.0,
@@ -106,10 +101,10 @@ pub(super) fn build_ib_umap_new(
         tau_scale.0,
         hub_damping,
         theta.0,
-        ibfft_order.0,
-        ibfft_intervals.0,
-        ibfft_min_grid_dim.0,
-        ibfft_max_grid_dim.0,
+        interpolation_order.0,
+        intervals.0,
+        min_grid_dim.0,
+        max_grid_dim.0,
         seed.0,
     )?;
     let dog_cfg = DogVaradhanConfig {
@@ -131,11 +126,11 @@ pub(super) fn build_ib_umap_new(
     let g = graph.inner();
     py.detach(|| match dtype {
         ScalarDtype::F64 => {
-            FieldLayoutSolver::<f64>::ib_umap(g, max_2hop_per_node.0, &dog_cfg, cfg)
+            FieldLayoutSolver::<f64>::ib_umap(&*g, max_2hop_per_node.0, &dog_cfg, cfg)
                 .map(FieldLayoutInner::F64)
         }
         ScalarDtype::F32 => {
-            FieldLayoutSolver::<f32>::ib_umap(g, max_2hop_per_node.0, &dog_cfg, cfg)
+            FieldLayoutSolver::<f32>::ib_umap(&*g, max_2hop_per_node.0, &dog_cfg, cfg)
                 .map(FieldLayoutInner::F32)
         }
     })
@@ -149,7 +144,7 @@ pub(super) fn build_ib_umap_from_landmarks(
     landmarks: &PyDogVaradhanLandmarks,
     max_2hop_per_node: StrictUsize,
     backend: &str,
-    n_epochs: StrictUsize,
+    iterations: StrictUsize,
     learning_rate: StrictF64,
     min_dist: StrictF64,
     spread: StrictF64,
@@ -159,16 +154,16 @@ pub(super) fn build_ib_umap_from_landmarks(
     tau_scale: StrictF64,
     hub_damping: bool,
     theta: StrictF64,
-    ibfft_order: StrictUsize,
-    ibfft_intervals: StrictUsize,
-    ibfft_min_grid_dim: StrictUsize,
-    ibfft_max_grid_dim: StrictUsize,
+    interpolation_order: StrictUsize,
+    intervals: StrictUsize,
+    min_grid_dim: StrictUsize,
+    max_grid_dim: StrictUsize,
     seed: StrictU64,
     dtype: ScalarDtype,
 ) -> PyResult<FieldLayoutInner> {
     let cfg = build_ib_umap_config(
         backend,
-        n_epochs.0,
+        iterations.0,
         learning_rate.0,
         min_dist.0,
         spread.0,
@@ -178,21 +173,21 @@ pub(super) fn build_ib_umap_from_landmarks(
         tau_scale.0,
         hub_damping,
         theta.0,
-        ibfft_order.0,
-        ibfft_intervals.0,
-        ibfft_min_grid_dim.0,
-        ibfft_max_grid_dim.0,
+        interpolation_order.0,
+        intervals.0,
+        min_grid_dim.0,
+        max_grid_dim.0,
         seed.0,
     )?;
     let g = graph.inner();
     let lm = landmarks.inner();
     py.detach(|| match dtype {
         ScalarDtype::F64 => {
-            FieldLayoutSolver::<f64>::ib_umap_from_landmarks(g, lm, max_2hop_per_node.0, cfg)
+            FieldLayoutSolver::<f64>::ib_umap_from_landmarks(&*g, lm, max_2hop_per_node.0, cfg)
                 .map(FieldLayoutInner::F64)
         }
         ScalarDtype::F32 => {
-            FieldLayoutSolver::<f32>::ib_umap_from_landmarks(g, lm, max_2hop_per_node.0, cfg)
+            FieldLayoutSolver::<f32>::ib_umap_from_landmarks(&*g, lm, max_2hop_per_node.0, cfg)
                 .map(FieldLayoutInner::F32)
         }
     })
@@ -204,9 +199,9 @@ pub(super) fn build_ib_umap_from_knn(
     py: Python<'_>,
     knn: &PyKnnGraph,
     sigma_iters: StrictUsize,
-    sigma_tol: StrictF64,
+    sigma_tolerance: StrictF64,
     backend: &str,
-    n_epochs: StrictUsize,
+    iterations: StrictUsize,
     learning_rate: StrictF64,
     min_dist: StrictF64,
     spread: StrictF64,
@@ -216,16 +211,16 @@ pub(super) fn build_ib_umap_from_knn(
     tau_scale: StrictF64,
     hub_damping: bool,
     theta: StrictF64,
-    ibfft_order: StrictUsize,
-    ibfft_intervals: StrictUsize,
-    ibfft_min_grid_dim: StrictUsize,
-    ibfft_max_grid_dim: StrictUsize,
+    interpolation_order: StrictUsize,
+    intervals: StrictUsize,
+    min_grid_dim: StrictUsize,
+    max_grid_dim: StrictUsize,
     seed: StrictU64,
     dtype: ScalarDtype,
 ) -> PyResult<FieldLayoutInner> {
     let cfg = build_ib_umap_config(
         backend,
-        n_epochs.0,
+        iterations.0,
         learning_rate.0,
         min_dist.0,
         spread.0,
@@ -235,22 +230,28 @@ pub(super) fn build_ib_umap_from_knn(
         tau_scale.0,
         hub_damping,
         theta.0,
-        ibfft_order.0,
-        ibfft_intervals.0,
-        ibfft_min_grid_dim.0,
-        ibfft_max_grid_dim.0,
+        interpolation_order.0,
+        intervals.0,
+        min_grid_dim.0,
+        max_grid_dim.0,
         seed.0,
     )?;
     let knn_ref = knn.inner();
     py.detach(|| match dtype {
-        ScalarDtype::F64 => {
-            FieldLayoutSolver::<f64>::ib_umap_from_knn(knn_ref, sigma_iters.0, sigma_tol.0, cfg)
-                .map(FieldLayoutInner::F64)
-        }
-        ScalarDtype::F32 => {
-            FieldLayoutSolver::<f32>::ib_umap_from_knn(knn_ref, sigma_iters.0, sigma_tol.0, cfg)
-                .map(FieldLayoutInner::F32)
-        }
+        ScalarDtype::F64 => FieldLayoutSolver::<f64>::ib_umap_from_knn(
+            knn_ref,
+            sigma_iters.0,
+            sigma_tolerance.0,
+            cfg,
+        )
+        .map(FieldLayoutInner::F64),
+        ScalarDtype::F32 => FieldLayoutSolver::<f32>::ib_umap_from_knn(
+            knn_ref,
+            sigma_iters.0,
+            sigma_tolerance.0,
+            cfg,
+        )
+        .map(FieldLayoutInner::F32),
     })
     .map_err(core_error_to_py)
 }
@@ -261,7 +262,7 @@ pub(super) fn build_ib_umap_from_fuzzy_set(
     probs: &PySparseProbabilities,
     degrees: Option<&Bound<'_, PyAny>>,
     backend: &str,
-    n_epochs: StrictUsize,
+    iterations: StrictUsize,
     learning_rate: StrictF64,
     min_dist: StrictF64,
     spread: StrictF64,
@@ -271,16 +272,16 @@ pub(super) fn build_ib_umap_from_fuzzy_set(
     tau_scale: StrictF64,
     hub_damping: bool,
     theta: StrictF64,
-    ibfft_order: StrictUsize,
-    ibfft_intervals: StrictUsize,
-    ibfft_min_grid_dim: StrictUsize,
-    ibfft_max_grid_dim: StrictUsize,
+    interpolation_order: StrictUsize,
+    intervals: StrictUsize,
+    min_grid_dim: StrictUsize,
+    max_grid_dim: StrictUsize,
     seed: StrictU64,
     dtype: ScalarDtype,
 ) -> PyResult<FieldLayoutInner> {
     let cfg = build_ib_umap_config(
         backend,
-        n_epochs.0,
+        iterations.0,
         learning_rate.0,
         min_dist.0,
         spread.0,
@@ -290,10 +291,10 @@ pub(super) fn build_ib_umap_from_fuzzy_set(
         tau_scale.0,
         hub_damping,
         theta.0,
-        ibfft_order.0,
-        ibfft_intervals.0,
-        ibfft_min_grid_dim.0,
-        ibfft_max_grid_dim.0,
+        interpolation_order.0,
+        intervals.0,
+        min_grid_dim.0,
+        max_grid_dim.0,
         seed.0,
     )?;
     let degs_opt = match degrees {

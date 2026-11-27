@@ -64,8 +64,12 @@ pub(super) fn build_ortmann_sparse_stress_solver(
     let g = graph.inner();
     let inner = py
         .detach(|| match dtype {
-            ScalarDtype::F64 => SgdSolver::<f64>::ortmann_sparse_stress(g, cfg).map(SgdInner::F64),
-            ScalarDtype::F32 => SgdSolver::<f32>::ortmann_sparse_stress(g, cfg).map(SgdInner::F32),
+            ScalarDtype::F64 => {
+                SgdSolver::<f64>::ortmann_sparse_stress(&*g, cfg).map(SgdInner::F64)
+            }
+            ScalarDtype::F32 => {
+                SgdSolver::<f32>::ortmann_sparse_stress(&*g, cfg).map(SgdInner::F32)
+            }
         })
         .map_err(core_error_to_py)?;
     Ok(PySgdSolver::from_inner(inner))
@@ -97,8 +101,8 @@ pub(super) fn build_largevis_solver(
     let g = graph.inner();
     let inner = py
         .detach(|| match dtype {
-            ScalarDtype::F64 => SgdSolver::<f64>::largevis(g, cfg).map(SgdInner::F64),
-            ScalarDtype::F32 => SgdSolver::<f32>::largevis(g, cfg).map(SgdInner::F32),
+            ScalarDtype::F64 => SgdSolver::<f64>::largevis(&*g, cfg).map(SgdInner::F64),
+            ScalarDtype::F32 => SgdSolver::<f32>::largevis(&*g, cfg).map(SgdInner::F32),
         })
         .map_err(core_error_to_py)?;
     Ok(PySgdSolver::from_inner(inner))
@@ -136,8 +140,8 @@ pub(super) fn build_drgraph_solver(
     let g = graph.inner();
     let inner = py
         .detach(|| match dtype {
-            ScalarDtype::F64 => SgdSolver::<f64>::drgraph(g, cfg).map(SgdInner::F64),
-            ScalarDtype::F32 => SgdSolver::<f32>::drgraph(g, cfg).map(SgdInner::F32),
+            ScalarDtype::F64 => SgdSolver::<f64>::drgraph(&*g, cfg).map(SgdInner::F64),
+            ScalarDtype::F32 => SgdSolver::<f32>::drgraph(&*g, cfg).map(SgdInner::F32),
         })
         .map_err(core_error_to_py)?;
     Ok(PySgdSolver::from_inner(inner))
@@ -172,8 +176,8 @@ pub(super) fn build_graph_cne_solver(
     let g = graph.inner();
     let inner = py
         .detach(|| match dtype {
-            ScalarDtype::F64 => SgdSolver::<f64>::graph_cne(g, cfg).map(SgdInner::F64),
-            ScalarDtype::F32 => SgdSolver::<f32>::graph_cne(g, cfg).map(SgdInner::F32),
+            ScalarDtype::F64 => SgdSolver::<f64>::graph_cne(&*g, cfg).map(SgdInner::F64),
+            ScalarDtype::F32 => SgdSolver::<f32>::graph_cne(&*g, cfg).map(SgdInner::F32),
         })
         .map_err(core_error_to_py)?;
     Ok(PySgdSolver::from_inner(inner))
