@@ -2,6 +2,7 @@ mod util;
 
 use egraph_wasm::csr_graph::JsCsrGraph;
 use egraph_wasm::layout_buffers::JsLayout2d;
+use egraph_wasm::manifold::JsManifoldLayout2d;
 use egraph_wasm::metrics_crossings::{
     js_angular_resolution, js_aspect_ratio, js_crosslessness, js_edge_angle, js_layout_degeneracy,
     js_minimum_angle, js_minimum_angle_summary, js_node_resolution, js_sampled_crossing_number,
@@ -16,6 +17,9 @@ use egraph_wasm::metrics_functions::{
 use egraph_wasm::metrics_geometry::{
     js_adjusted_patch_nig, js_adjusted_patch_nig_multiscale, js_ideal_edge_lengths,
     js_prism_distortion,
+};
+use egraph_wasm::metrics_nd_manifold::{
+    js_gabriel_graph_edges_manifold, js_relative_neighborhood_edges_manifold,
 };
 use egraph_wasm::metrics_non_euclidean_crossings::js_torus_crossing_number_2d as js_torus_crossing_number;
 use egraph_wasm::metrics_rta::{
@@ -339,4 +343,21 @@ fn crosslessness_directed_reciprocal_regression() {
         js_sampled_crosslessness(&g_dir4, &l_dir4, Some(100.0), Some(42.0)).unwrap(),
         0.0
     );
+}
+
+#[wasm_bindgen_test]
+fn gabriel_and_relative_neighborhood_edges_manifold() {
+    for kind in [
+        "hyperbolic_poincare",
+        "hyperbolic_lorentz",
+        "spherical",
+        "torus_2d",
+    ] {
+        let ml = JsManifoldLayout2d::init(kind, 8.0, Some(42.0), Some(0.35)).unwrap();
+        let gg = js_gabriel_graph_edges_manifold(&ml).unwrap();
+        let rng = js_relative_neighborhood_edges_manifold(&ml).unwrap();
+        assert!(!gg.is_empty() && gg.len().is_multiple_of(2));
+        assert!(!rng.is_empty() && rng.len().is_multiple_of(2));
+        assert!(rng.len() <= gg.len());
+    }
 }

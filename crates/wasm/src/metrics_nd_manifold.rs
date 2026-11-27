@@ -8,12 +8,13 @@ use crate::manifold::JsManifoldLayout2d;
 use crate::metrics_crossings::JsLayoutDegeneracy;
 use crate::metrics_summaries::JsStressEvaluation;
 use egraph::metrics::{
-    gabriel_graph_edges_nd, gabriel_graph_preservation_manifold, gabriel_graph_preservation_nd,
-    gabriel_graph_property_manifold, gabriel_graph_property_nd, ideal_edge_lengths_manifold,
-    ideal_edge_lengths_nd, ideal_edge_lengths_with_unit_manifold, ideal_edge_lengths_with_unit_nd,
-    layout_degeneracy_manifold, layout_degeneracy_nd, neighborhood_preservation_1hop_manifold,
-    neighborhood_preservation_1hop_nd, neighborhood_preservation_2hop_manifold,
-    neighborhood_preservation_2hop_nd, node_resolution_manifold, node_resolution_nd,
+    gabriel_graph_edges_manifold, gabriel_graph_edges_nd, gabriel_graph_preservation_manifold,
+    gabriel_graph_preservation_nd, gabriel_graph_property_manifold, gabriel_graph_property_nd,
+    ideal_edge_lengths_manifold, ideal_edge_lengths_nd, ideal_edge_lengths_with_unit_manifold,
+    ideal_edge_lengths_with_unit_nd, layout_degeneracy_manifold, layout_degeneracy_nd,
+    neighborhood_preservation_1hop_manifold, neighborhood_preservation_1hop_nd,
+    neighborhood_preservation_2hop_manifold, neighborhood_preservation_2hop_nd,
+    node_resolution_manifold, node_resolution_nd, relative_neighborhood_edges_manifold,
     relative_neighborhood_edges_nd, relative_neighborhood_preservation_manifold,
     relative_neighborhood_preservation_nd, sampled_neighborhood_preservation_1hop_manifold,
     sampled_neighborhood_preservation_1hop_nd, sampled_neighborhood_preservation_2hop_manifold,
@@ -311,9 +312,33 @@ pub fn js_gabriel_graph_edges_nd(layout: &JsLayoutNd) -> Result<Vec<u32>, JsErro
     Ok(flat)
 }
 
+#[wasm_bindgen(js_name = _gabrielGraphEdgesManifold)]
+pub fn js_gabriel_graph_edges_manifold(layout: &JsManifoldLayout2d) -> Result<Vec<u32>, JsError> {
+    let edges = gabriel_graph_edges_manifold(layout.inner()).map_err(core_err_to_js)?;
+    let mut flat = Vec::with_capacity(edges.len() * 2);
+    for (u, v) in edges {
+        flat.push(u);
+        flat.push(v);
+    }
+    Ok(flat)
+}
+
 #[wasm_bindgen(js_name = _relativeNeighborhoodEdgesNd)]
 pub fn js_relative_neighborhood_edges_nd(layout: &JsLayoutNd) -> Result<Vec<u32>, JsError> {
     let edges = relative_neighborhood_edges_nd(layout.inner()).map_err(core_err_to_js)?;
+    let mut flat = Vec::with_capacity(edges.len() * 2);
+    for (u, v) in edges {
+        flat.push(u);
+        flat.push(v);
+    }
+    Ok(flat)
+}
+
+#[wasm_bindgen(js_name = _relativeNeighborhoodEdgesManifold)]
+pub fn js_relative_neighborhood_edges_manifold(
+    layout: &JsManifoldLayout2d,
+) -> Result<Vec<u32>, JsError> {
+    let edges = relative_neighborhood_edges_manifold(layout.inner()).map_err(core_err_to_js)?;
     let mut flat = Vec::with_capacity(edges.len() * 2);
     for (u, v) in edges {
         flat.push(u);

@@ -7,6 +7,7 @@ export function runMetricsLayoutAndSpatialSmoke({ eg, webPkg }) {
     CsrGraph,
     Layout2d,
     LayoutDegeneracy,
+    ManifoldLayout2d,
     MetricReport,
     MinimumAngleSummary,
     PrismDistortion,
@@ -21,6 +22,7 @@ export function runMetricsLayoutAndSpatialSmoke({ eg, webPkg }) {
     drngPreservation,
     edgeAngle,
     evaluateMetrics,
+    gabrielGraphEdges,
     gabrielGraphProperty,
     idealEdgeLengths,
     landmarkStratifiedRta,
@@ -33,6 +35,7 @@ export function runMetricsLayoutAndSpatialSmoke({ eg, webPkg }) {
     neighborhoodPreservation2Hop,
     nodeResolution,
     prismDistortion,
+    relativeNeighborhoodEdges,
     sampledCrossingNumber,
     sampledCrosslessness,
     sampledNp1,
@@ -154,6 +157,21 @@ export function runMetricsLayoutAndSpatialSmoke({ eg, webPkg }) {
   assert(torusCrossingNumber(torusGraph, torusLayout) >= 1);
   torusGraph.free();
   torusLayout.free();
+
+  // Gabriel & Relative Neighborhood edges across ManifoldLayout2d variants
+  for (const kind of ["hyperbolic_poincare", "hyperbolic_lorentz", "spherical", "torus_2d"]) {
+    const ml = ManifoldLayout2d.init(kind, 8, 42, 0.35);
+    const ggMani = gabrielGraphEdges(ml);
+    const rngMani = relativeNeighborhoodEdges(ml);
+    const ggWeb = webPkg.gabrielGraphEdges(ml);
+    const rngWeb = webPkg.relativeNeighborhoodEdges(ml);
+    assert(ggMani instanceof Uint32Array && ggMani.length > 0 && ggMani.length % 2 === 0);
+    assert(rngMani instanceof Uint32Array && rngMani.length > 0 && rngMani.length % 2 === 0);
+    assert.deepEqual(Array.from(ggWeb), Array.from(ggMani));
+    assert.deepEqual(Array.from(rngWeb), Array.from(rngMani));
+    assert(rngMani.length <= ggMani.length);
+    ml.free();
+  }
 
   assert(Math.abs(neighborhoodPreservation1Hop(grid, gridLayout) - 1.0) < 1e-6);
   assert(Math.abs(neighborhoodPreservation2Hop(grid, gridLayout) - 1.0) < 1e-6);
