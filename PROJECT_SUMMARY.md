@@ -1,6 +1,6 @@
 # `egraph-rs` Project Overview
 
-This document provides an overview of the `egraph-rs` v6 workspace architecture (`6.0.0-alpha.8`) across Native Rust, Python (`abi3-py310`), WebAssembly/TypeScript (pure ESM), and the `egraph-cli` binary.
+This document provides an overview of the `egraph-rs` v6 workspace architecture (`6.0.0-alpha.9`) across Native Rust, Python (`abi3-py310`), WebAssembly/TypeScript (pure ESM), and the `egraph-cli` binary.
 
 ## Project Structure
 

@@ -10,13 +10,13 @@ The easiest way to install egraph is using pip:
 
 .. code-block:: bash
 
-    pip install --pre "egraph==6.0.0a8"
+    pip install --pre "egraph==6.0.0a9"
 
 To include optional interoperability and visualization dependencies (SciPy, NetworkX, igraph, matplotlib):
 
 .. code-block:: bash
 
-    pip install --pre "egraph[interop,viz]==6.0.0a8"
+    pip install --pre "egraph[interop,viz]==6.0.0a9"
 
 Requirements
 ------------

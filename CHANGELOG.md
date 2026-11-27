@@ -5,6 +5,36 @@ All notable changes to `egraph-rs` (`egraph` on PyPI and npm) will be documented
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [6.0.0-alpha.9] - 2026-11-27
+
+### Added
+
+- **3D & $N$-Dimensional Layout Engine (`egraph-spatial-trees`, `egraph-layout*`, `egraph-metrics*`, Python, WASM, CLI)**:
+  - Added `ArenaOctree3d` (3D Barnes–Hut), `DynamicKdTree`, `LayoutNd` (`.dims`, `copy()`, `get()`, `set()`, `normalize_std()`), `evaluate_metrics_nd`, and **11 $N$-D-capable solvers** (`SgdSolver`, `TsNetSolver`, `GuMapSolver`, `StressMajorizationSolver`, `KamadaKawaiSolver`, `MaxentStressSolver`, `FruchtermanReingoldSolver`, `LinLogSolver`, `ForceAtlas2Solver`, `YifanHuSolver`, `FdebSolver`).
+- **Non-Euclidean Manifold Engine (`egraph-core`, `egraph-spatial-crossings`, `egraph-layout*`, `egraph-metrics*`, Python, WASM, CLI)**:
+  - Added `ManifoldKind::HyperbolicLorentz` (`"hyperbolic_lorentz"` + `to_poincare_layout()`), physical `ManifoldMetric` (`scale`, `aspect`, `set_scale()`, `set_aspect()`, `set_torus_extents()`, `rescale_geodesic()`), **6 manifold solvers** (`SgdSolver`, `TsNetSolver`, `GuMapSolver`, `StressMajorizationSolver`, `KamadaKawaiSolver`, `FruchtermanReingoldSolver`), `geodesic_distortion`, exact spherical/hyperbolic/torus geodesic crossings (`crossing_edges_torus`, `crossing_edges_spherical`, `crossing_edges_hyperbolic`), `torus_spectral_phase_init`, `torus_auto_pan`, `torus_edge_segments`, `torus_layout_edge_segments`, and `SgdSolver.reset_schedule` / `run_schedule_window`.
+- **Unified Metrics & Zero-Copy Cluster Result Classes (`egraph-metrics`, `egraph-clustering`, Python, WASM)**:
+  - Added typed `MetricReport` returned by `evaluate_metrics` / `evaluateMetrics` across 2D, $N$-D, and manifold spaces (`to_dict(include_none=False)` / `toRecord()`).
+  - Replaced raw tuple/dict clustering returns with 5 typed zero-copy Result classes: `LouvainResult`, `LeidenResult`, `KMeansResult`, `LabelPropagationResult`, and `SpectralClusteringResult`.
+- **Neighborhood, Solvers, Decluttering, Interop & Datasets**:
+  - Added `TsNetBackend::Auto` (`"auto"`, `.resolved_backend`), `TwoStepRandomWalk` mode in `TsNetSolver.from_graph_row_normalized`, `TsNetStage` + `TsNetSolver.from_probabilities_with_stages`, `SgdSolver.from_packed_symmetric`, `TwinDeclutterer` / `declutter_twins_2d`, `transitive_reduction`, `symmetric_eigen_jacobi`, `DijkstraWorkspace` (`dijkstra_single_source`, `all_pairs_dijkstra`), `CsrGraph` inspection helpers (`__len__`, `edges()`, `has_edge()`, `edge_weight()`, `is_connected()`, `weight_dtype`), `egraph.interop.to_igraph` & expanded `to_networkx(layout=...)`, `list_datasets` / `dataset_catalog` / `dataset_info` + 7 synthetic graph generators, and `egraph-cli` subcommands/flags (`tsnet-rn`, `twin-declutter`, `--dims`, `--manifold`).
+- **Documentation, Tutorials & Release Build Profiles**:
+  - Completed 251/251 Sphinx API coverage with doctests, updated `docs/MIGRATION_V6.md`, added 9 Google Colab tutorial notebooks (`notebooks/01..09_*.ipynb`), and added `[profile.dist-release]` (`lto = "thin"`, `codegen-units = 1`) in `Cargo.toml` for published release wheels.
+
+### Changed
+
+- **Cross-Target Clean-Break Unification**: Standardized fixed-iteration solvers on `iterations`, convergent solvers on `max_iterations`, multi-stage solvers on structured names (`stage_iterations`, `phase_iterations`, `steps_per_cycle`), clustering/metric arguments on `labels`, stochastic defaults on `seed = 42`, decoupled `FdebSolver(graph)`, and polymorphic `IterativeSolver::step` / `run_steps` / `run` and WASM `runProgressive` across `Layout2d`, `LayoutNd`, and `ManifoldLayout2d`.
+- **Safer & Smarter Defaults**: Set `ForbidOverlapRemoval` default to `"sparse_forbid"`, `GemSolver` default `max_iterations = min(4 * N, 400)`, `TsNetSolver` `"fft"` defaults to `interpolation_order = 3` and `learning_rate_divisor = 3.0`, `ScreenedPoissonField2d` default `grid_size = 512`, `EffectiveResistanceConfig` defaults to `exact_max_nodes = 256` and `jl_dim = 128`, and `SgdSolver` default `max_mu = None`.
+- **Verification Performance**: Split `[profile.release]` to parallel `lto = false` for fast local/CI checks (reserving LTO + single CGU for `[profile.dist-release]` and `[profile.wasm-release]`) and batched `scripts/verify.sh --rust` feature matrices.
+
+### Fixed
+
+- **Numerical & Cross-Target Precision Hardening**: Stabilized Euclidean and torus sweep-line crossings across full finite `f64` exponents, hardened Lorentz distance/log/exp/midpoint across extreme scales and high ratios (`lorentz_scaled_cross` 2-FMA scaling, single-step subnormal `scale_pow2`, `[1, 2) * f64::MAX` multiplication order in `lorentz_exp_map`, subnormal continuity, and `wasm32` software-FMA parity), guarded `TwinDeclutterer` against large-coordinate overflow, locked layout kind/dims across `SgdSolver` and `GuMapSolver`, and ensured `npm ci --prefix crates/wasm` installs `tsc` before `node_esm_smoke.mjs` in CI and release pipelines.
+
+### Removed
+
+- **Legacy v5 Workspace & Compatibility Shims**: Removed all 18 legacy `petgraph-*` crates and `--features legacy` shims (`45 -> 27` clean v6 crates), `*_v6` suffixes, legacy `SgdSolver.{step,run_steps,run}_manifold` methods, and `remove_cycle`.
+
 ## [6.0.0-alpha.8] - 2026-11-26
 
 ### Added

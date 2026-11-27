@@ -4,7 +4,7 @@
 
 `egraph-rs` is a high-performance graph drawing and layout library targeting **Native Rust, Python (PyO3), and WebAssembly (`wasm-bindgen` / TypeScript)** equally as first-class targets.
 
-- **Active Release Plan**: See [`docs/V6_RELEASE_PLAN.md`](../docs/V6_RELEASE_PLAN.md) and [`docs/V6_ALPHA9_REMEDIATION_PLAN.md`](../docs/V6_ALPHA9_REMEDIATION_PLAN.md). Architectural redesign (**Step 0 + M0–M6**) shipped through **`v6.0.0-alpha.8`**, and subsequent `v6` consolidation removed all 18 legacy `petgraph-*` crates and `--features legacy` shims—leaving a clean **27-crate** legacy-free workspace with unified `IterativeSolver<S, L>`, 3D/N-D (`ArenaOctree3d`), and non-Euclidean manifold engines.
+- **Active Release Plan**: See [`docs/V6_RELEASE_PLAN.md`](../docs/V6_RELEASE_PLAN.md) and [`docs/V6_ALPHA9_REMEDIATION_PLAN.md`](../docs/V6_ALPHA9_REMEDIATION_PLAN.md). Architectural redesign (**Step 0 + M0–M6**) shipped through **`v6.0.0-alpha.9`** (`6.0.0a9` on PyPI / `6.0.0-alpha.9 --tag next` on npm), removing all 18 legacy `petgraph-*` crates and `--features legacy` shims—leaving a clean **27-crate** legacy-free workspace with unified `IterativeSolver<S, L>`, 3D/N-D (`ArenaOctree3d`), and non-Euclidean manifold engines.
 - **Paired Research & Benchmark Repo**: `/Users/likr/diffusion-kernel-experiments` provides empirically validated algorithms (Track A Pure 1+2-Hop Adaptive Fit-tsNET, Track B $O(|E|)$ Regularized Chebyshev DoG + 3-Tier Sparse Barrier SGD / GuMap + 2D Spatial Intruder Refinement) and regression benchmarks (`suite30`, `tsnet_ref5`, `drgraph` up to 4M nodes).
 
 ---

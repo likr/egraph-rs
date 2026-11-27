@@ -1,7 +1,7 @@
 Migrating to egraph v6
 ======================
 
-``egraph`` v6 (``6.0.0a8``) introduces a clean-break, strictly single-threaded, zero-copy architecture across Native Rust, Python, and WebAssembly.
+``egraph`` v6 (``6.0.0a9``) introduces a clean-break, strictly single-threaded, zero-copy architecture across Native Rust, Python, and WebAssembly.
 
 For the full side-by-side Python and WebAssembly/TypeScript before/after guide—including the ``alpha.8 -> alpha.9`` clean-break remediation summary—see ``docs/MIGRATION_V6.md`` in the repository (`MIGRATION_V6.md on GitHub <https://github.com/likr/egraph-rs/blob/master/docs/MIGRATION_V6.md>`_).
 

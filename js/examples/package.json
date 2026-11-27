@@ -1,6 +1,6 @@
 {
   "name": "examples",
-  "version": "6.0.0-alpha.8",
+  "version": "6.0.0-alpha.9",
   "description": "Interactive browser examples for egraph v6 WebAssembly layouts.",
   "type": "module",
   "scripts": {

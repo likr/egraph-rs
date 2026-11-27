@@ -1,4 +1,4 @@
-# Migrating to `egraph` v6 (`v6.0.0-alpha.8`)
+# Migrating to `egraph` v6 (`v6.0.0-alpha.9`)
 
 `egraph` v6 is a clean architectural redesign across Native Rust, Python (`egraph`), and WebAssembly/TypeScript (`egraph`), targeting strictly single-threaded, deterministic pure CPU execution with zero-copy CSR/SoA data buffers and 100% cross-target parity.
 
@@ -8,7 +8,7 @@ For background on the v6 architecture, see [the v6 release plan](V6_RELEASE_PLAN
 
 ## Summary of Breaking Changes
 
-| Area | Legacy (`v5` / `v6-alpha.0..3`) | `egraph` v6 (`v6.0.0-alpha.8`) |
+| Area | Legacy (`v5` / `v6-alpha.0..3`) | `egraph` v6 (`v6.0.0-alpha.9`) |
 |---|---|---|
 | **Graph representation** | `Graph` / `DiGraph` storing `Py<PyAny>` or `JsValue` payloads | `CsrGraph` (`u32` CSR indices + numeric weights) + host-side metadata arrays + `egraph.interop` |
 | **Coordinate buffers** | `DrawingEuclidean2d` / `DrawingHyperbolic2d` / `DrawingSpherical2d` / `DrawingTorus2d` | `Layout2d` (zero-copy `coords(copy=False)` / `coordsView()`), `LayoutNd`, `ManifoldLayout2d` |
@@ -383,7 +383,7 @@ await runProgressive(
 
 ## Upgrading from `v6.0.0-alpha.8` to `v6.0.0-alpha.9` (Clean-Break Remediation)
 
-Between `alpha.8` and the `alpha.9` remediation baseline, all cross-target API inconsistencies across Rust, Python, WebAssembly, and `egraph-cli` were resolved with clean breaks (keeping package manifests at `6.0.0-alpha.8` / `6.0.0a8` until the release gate).
+Between `alpha.8` and `6.0.0-alpha.9` (`6.0.0a9`), all cross-target API inconsistencies across Rust, Python, WebAssembly, and `egraph-cli` were resolved with clean breaks.
 
 ### 1. Legacy v5 Crate & Feature Removal
 
