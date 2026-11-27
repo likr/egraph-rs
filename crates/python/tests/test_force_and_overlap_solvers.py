@@ -212,6 +212,11 @@ class TestForceAndOverlapSolvers(unittest.TestCase):
         )
 
     def test_gtree_and_forbid_overlap_removal(self) -> None:
+        sig_fb = inspect.signature(eg.ForbidOverlapRemoval)
+        self.assertEqual(sig_fb.parameters["variant"].default, "sparse_forbid")
+        sig_fb_rad = inspect.signature(eg.ForbidOverlapRemoval.from_radii)
+        self.assertEqual(sig_fb_rad.parameters["variant"].default, "sparse_forbid")
+
         n = 12
         rng = np.random.default_rng(77)
         coords = rng.uniform(-0.3, 0.3, size=(n, 2)).astype(np.float64)
@@ -260,6 +265,30 @@ class TestForceAndOverlapSolvers(unittest.TestCase):
             l_rad = eg.Layout2d.from_coords(_to_float_array(coords, dtype_str))
             fb_rad.run(l_rad)
             self.assertEqual(fb_rad.last_overlap_count, 0)
+
+        # Verify N=80 > sparse_k=30 default behavior matches sparse_forbid and diverges from forbid
+        coords80 = np.random.default_rng(123).uniform(-0.3, 0.3, size=(80, 2)).astype(np.float64)
+        hw80 = np.full(80, 0.25, dtype=np.float64)
+        hh80 = np.full(80, 0.25, dtype=np.float64)
+        for dtype_str in ("float64", "float32"):
+            c80 = _to_float_array(coords80, dtype_str)
+            l_def = eg.Layout2d.from_coords(c80)
+            l_sp = eg.Layout2d.from_coords(c80)
+            l_fb = eg.Layout2d.from_coords(c80)
+            eg.ForbidOverlapRemoval(hw80, hh80, dtype=dtype_str).step(l_def)
+            eg.ForbidOverlapRemoval(hw80, hh80, variant="sparse_forbid", dtype=dtype_str).step(l_sp)
+            eg.ForbidOverlapRemoval(hw80, hh80, variant="forbid", dtype=dtype_str).step(l_fb)
+            np.testing.assert_array_equal(l_def.coords(copy=True), l_sp.coords(copy=True))
+            self.assertFalse(np.allclose(l_def.coords(copy=True), l_fb.coords(copy=True)))
+
+            lr_def = eg.Layout2d.from_coords(c80)
+            lr_sp = eg.Layout2d.from_coords(c80)
+            lr_fb = eg.Layout2d.from_coords(c80)
+            eg.ForbidOverlapRemoval.from_radii(hw80, dtype=dtype_str).step(lr_def)
+            eg.ForbidOverlapRemoval.from_radii(hw80, variant="sparse_forbid", dtype=dtype_str).step(lr_sp)
+            eg.ForbidOverlapRemoval.from_radii(hw80, variant="forbid", dtype=dtype_str).step(lr_fb)
+            np.testing.assert_array_equal(lr_def.coords(copy=True), lr_sp.coords(copy=True))
+            self.assertFalse(np.allclose(lr_def.coords(copy=True), lr_fb.coords(copy=True)))
 
         self.assert_no_panic_raises(
             (ValueError,), lambda: eg.GTreeOverlapRemoval([1.0, 1.0], [1.0])

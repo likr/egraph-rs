@@ -253,7 +253,7 @@ impl PyForbidOverlapRemoval {
             half_widths,
             half_heights,
             *,
-            variant = "forbid",
+            variant = "sparse_forbid",
             max_scale_iters = StrictUsize(20),
             sgd_iterations = StrictUsize(30),
             sparse_k = StrictUsize(30),
@@ -263,7 +263,7 @@ impl PyForbidOverlapRemoval {
             seed = StrictU64(42),
             dtype = ScalarDtype::F64
         ),
-        text_signature = "(half_widths, half_heights, *, variant='forbid', max_scale_iters=20, sgd_iterations=30, sparse_k=30, overlap_weight_k=1.0, scale_step=0.1, padding=0.0, seed=42, dtype='float64')"
+        text_signature = "(half_widths, half_heights, *, variant='sparse_forbid', max_scale_iters=20, sgd_iterations=30, sparse_k=30, overlap_weight_k=1.0, scale_step=0.1, padding=0.0, seed=42, dtype='float64')"
     )]
     fn new(
         py: Python<'_>,
@@ -318,7 +318,7 @@ impl PyForbidOverlapRemoval {
         signature = (
             radii,
             *,
-            variant = "forbid",
+            variant = "sparse_forbid",
             max_scale_iters = StrictUsize(20),
             sgd_iterations = StrictUsize(30),
             sparse_k = StrictUsize(30),
@@ -328,7 +328,7 @@ impl PyForbidOverlapRemoval {
             seed = StrictU64(42),
             dtype = ScalarDtype::F64
         ),
-        text_signature = "(radii, *, variant='forbid', max_scale_iters=20, sgd_iterations=30, sparse_k=30, overlap_weight_k=1.0, scale_step=0.1, padding=0.0, seed=42, dtype='float64')"
+        text_signature = "(radii, *, variant='sparse_forbid', max_scale_iters=20, sgd_iterations=30, sparse_k=30, overlap_weight_k=1.0, scale_step=0.1, padding=0.0, seed=42, dtype='float64')"
     )]
     fn from_radii(
         py: Python<'_>,

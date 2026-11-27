@@ -66,6 +66,7 @@ class TestGumapRefinerAndStressSolvers(unittest.TestCase):
 
     def test_gumap_solver_all_constructors_and_step_vs_run(self) -> None:
         for ctor in (
+            eg.GuMapSolver,
             eg.GuMapSolver.from_fuzzy_set,
             eg.GuMapSolver.from_knn,
             eg.GuMapSolver.from_graph_dog,
@@ -79,6 +80,14 @@ class TestGumapRefinerAndStressSolvers(unittest.TestCase):
         init_coords = _seeded_coords(n, seed=19, scale=1.0)
 
         for dtype_str, np_dtype in (("float64", np.float64), ("float32", np.float32)):
+            s_new_def = eg.GuMapSolver(barbell, iterations=15, dtype=dtype_str)
+            s_dog_def = eg.GuMapSolver.from_graph_dog(barbell, iterations=15, dtype=dtype_str)
+            l_new_def = eg.Layout2d.from_coords(init_coords.astype(np_dtype))
+            l_dog_def = eg.Layout2d.from_coords(init_coords.astype(np_dtype))
+            s_new_def.run(l_new_def)
+            s_dog_def.run(l_dog_def)
+            np.testing.assert_array_equal(l_new_def.coords(copy=True), l_dog_def.coords(copy=True))
+
             s_run = eg.GuMapSolver.from_graph_dog(
                 barbell, max_2hop_per_node=32, degree=20, num_landmarks=8, iterations=25, seed=42, dtype=dtype_str
             )

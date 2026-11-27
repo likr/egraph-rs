@@ -20,6 +20,18 @@ __all__ = [
 
 @final
 class SgdSolver:
+    def __new__(
+        cls,
+        graph: CsrGraph,
+        *,
+        iterations: int = 60,
+        eps: float = 0.01,
+        schedule: str = "exponential",
+        step_scale: float = 1.0,
+        max_mu: float | None = None,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> SgdSolver: ...
     @staticmethod
     def from_pairs(
         num_nodes: int,

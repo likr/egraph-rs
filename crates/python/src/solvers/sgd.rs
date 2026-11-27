@@ -65,6 +65,29 @@ impl PySgdSolver {
 
 #[pymethods]
 impl PySgdSolver {
+    /// Construct a full-APSP stress `SgdSolver` directly from a `CsrGraph`.
+    #[new]
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(
+        signature = (graph, *, iterations = StrictUsize(60), eps = StrictF64(0.01), schedule = "exponential", step_scale = StrictF64(1.0), max_mu = None, seed = StrictU64(42), dtype = ScalarDtype::F64),
+        text_signature = "(graph, *, iterations=60, eps=0.01, schedule='exponential', step_scale=1.0, max_mu=None, seed=42, dtype='float64')"
+    )]
+    fn new(
+        py: Python<'_>,
+        graph: &PyCsrGraph,
+        iterations: StrictUsize,
+        eps: StrictF64,
+        schedule: &str,
+        step_scale: StrictF64,
+        max_mu: Option<StrictF64>,
+        seed: StrictU64,
+        dtype: ScalarDtype,
+    ) -> PyResult<Self> {
+        build_full(
+            py, graph, iterations, eps, schedule, step_scale, max_mu, seed, dtype,
+        )
+    }
+
     /// Construct an `SgdSolver` from flat SoA two-sided spring arrays.
     #[staticmethod]
     #[allow(clippy::too_many_arguments)]

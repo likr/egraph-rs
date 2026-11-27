@@ -161,7 +161,7 @@ impl PyGemSolver {
         self.inner.solver_iteration()
     }
 
-    /// Maximum number of GEM rounds (`max_rounds` or `4 * max(1, N)`).
+    /// Maximum number of GEM iterations (`max_iterations` or `min(4 * N, 400)`).
     #[getter]
     fn total_iterations(&self) -> usize {
         self.inner.solver_total_iterations()

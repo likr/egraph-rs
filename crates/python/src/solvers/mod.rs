@@ -10,6 +10,7 @@ mod force_classic;
 mod force_multilevel;
 mod group_in_a_box;
 mod gumap;
+mod gumap_builders;
 mod ib_umap;
 mod ib_umap_builders;
 mod layout_dispatch;

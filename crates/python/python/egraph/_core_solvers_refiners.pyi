@@ -25,7 +25,7 @@ class ForbidOverlapRemoval:
         half_widths: _WeightArrayLike,
         half_heights: _WeightArrayLike,
         *,
-        variant: str = "forbid",
+        variant: str = "sparse_forbid",
         max_scale_iters: int = 20,
         sgd_iterations: int = 30,
         sparse_k: int = 30,
@@ -39,7 +39,7 @@ class ForbidOverlapRemoval:
     def from_radii(
         radii: _WeightArrayLike,
         *,
-        variant: str = "forbid",
+        variant: str = "sparse_forbid",
         max_scale_iters: int = 20,
         sgd_iterations: int = 30,
         sparse_k: int = 30,

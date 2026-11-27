@@ -90,20 +90,80 @@ class TestTsNetAndSgdSolvers(unittest.TestCase):
                 np.testing.assert_array_equal(view_run, l_run.coords(copy=True))
                 np.testing.assert_array_equal(l_run.coords(copy=True), l_step.coords(copy=True))
 
-        # Verify default learning_rate=None and jacobi_precondition=True across all 5 TsNetSolver constructors
+        # Verify default learning_rate=None, jacobi_precondition=True, stage_iterations=None across all TsNetSolver constructors
         for ctor in (
+            eg.TsNetSolver,
             eg.TsNetSolver.pure_2hop,
             eg.TsNetSolver.from_knn,
             eg.TsNetSolver.from_probabilities,
             eg.TsNetSolver.from_graph_partial_bfs,
             eg.TsNetSolver.from_graph_row_normalized,
         ):
-            self.assertIsNone(inspect.signature(ctor).parameters["learning_rate"].default)
-            self.assertIs(inspect.signature(ctor).parameters["jacobi_precondition"].default, True)
+            params = inspect.signature(ctor).parameters
+            self.assertIsNone(params["learning_rate"].default)
+            self.assertIs(params["jacobi_precondition"].default, True)
+            self.assertIsNone(params["stage_iterations"].default)
 
-        # from_knn (per-node & scalar perplexity), from_probabilities, and from_graph_row_normalized
+        # Verify TsNetSolver(g) __new__ matches pure_2hop and stage_iterations overrides across all constructors
         knn, _, _ = eg.build_pure_2hop_knn(g)
         perps = eg.compute_nodewise_2hop_perplexities(g)
+        probs = eg.compute_knn_probabilities(knn, perps)
+        for dtype_str, np_dtype in (("float64", np.float64), ("float32", np.float32)):
+            s_new_def = eg.TsNetSolver(g, dtype=dtype_str)
+            s_pure_def = eg.TsNetSolver.pure_2hop(g, dtype=dtype_str)
+            self.assertEqual(s_new_def.total_iterations, s_pure_def.total_iterations)
+            l_new = eg.Layout2d.from_coords(init_coords.astype(np_dtype))
+            l_pure = eg.Layout2d.from_coords(init_coords.astype(np_dtype))
+            s_new_def.step(l_new)
+            s_pure_def.step(l_pure)
+            np.testing.assert_array_equal(l_new.coords(copy=True), l_pure.coords(copy=True))
+
+            si_tuple = (2, 3, 2)
+            si_list = [2, 3, 2]
+            stage_pairs: list[tuple[eg.TsNetSolver, eg.TsNetSolver]] = [
+                (
+                    eg.TsNetSolver(g, backend="exact", stage_iterations=si_tuple, dtype=dtype_str),
+                    eg.TsNetSolver.pure_2hop(g, backend="exact", iterations_stage1=2, iterations_stage2=3, iterations_stage3=2, dtype=dtype_str),
+                ),
+                (
+                    eg.TsNetSolver.pure_2hop(g, backend="exact", stage_iterations=si_list, dtype=dtype_str),
+                    eg.TsNetSolver.pure_2hop(g, backend="exact", iterations_stage1=2, iterations_stage2=3, iterations_stage3=2, dtype=dtype_str),
+                ),
+                (
+                    eg.TsNetSolver.from_knn(knn, perps, backend="exact", stage_iterations=si_tuple, dtype=dtype_str),
+                    eg.TsNetSolver.from_knn(knn, perps, backend="exact", iterations_stage1=2, iterations_stage2=3, iterations_stage3=2, dtype=dtype_str),
+                ),
+                (
+                    eg.TsNetSolver.from_probabilities(probs, backend="exact", stage_iterations=si_list, dtype=dtype_str),
+                    eg.TsNetSolver.from_probabilities(probs, backend="exact", iterations_stage1=2, iterations_stage2=3, iterations_stage3=2, dtype=dtype_str),
+                ),
+                (
+                    eg.TsNetSolver.from_graph_partial_bfs(g, 8, 6.0, backend="exact", stage_iterations=si_tuple, dtype=dtype_str),
+                    eg.TsNetSolver.from_graph_partial_bfs(g, 8, 6.0, backend="exact", iterations_stage1=2, iterations_stage2=3, iterations_stage3=2, dtype=dtype_str),
+                ),
+                (
+                    eg.TsNetSolver.from_graph_row_normalized(g, backend="exact", stage_iterations=si_list, dtype=dtype_str),
+                    eg.TsNetSolver.from_graph_row_normalized(g, backend="exact", iterations_stage1=2, iterations_stage2=3, iterations_stage3=2, dtype=dtype_str),
+                ),
+            ]
+            for s_si, s_exp in stage_pairs:
+                self.assertEqual(s_si.total_iterations, 7)
+                l_si = eg.Layout2d.from_coords(init_coords.astype(np_dtype))
+                l_exp = eg.Layout2d.from_coords(init_coords.astype(np_dtype))
+                s_si.run(l_si)
+                s_exp.run(l_exp)
+                np.testing.assert_array_equal(l_si.coords(copy=True), l_exp.coords(copy=True))
+
+        for bad_si_val in ((), (2, 2), (1, 2, 3, 4), (0, 2, 2), (-1, 2, 2), np.ones((3, 1), dtype=np.int64)):
+            self.assert_no_panic_raises(
+                (ValueError,), lambda v=bad_si_val: eg.TsNetSolver(g, stage_iterations=v)  # type: ignore[misc]
+            )
+        for bad_si_type in ((True, 2, 2), (1.5, 2, 2), "123", {0: 1, 1: 2, 2: 3}, 123):
+            self.assert_no_panic_raises(
+                (TypeError,), lambda v=bad_si_type: eg.TsNetSolver(g, stage_iterations=v)  # type: ignore[misc]
+            )
+
+        # from_knn (per-node & scalar perplexity), from_probabilities, and from_graph_row_normalized
         s_knn_vec = eg.TsNetSolver.from_knn(knn, perps, backend="fit", iterations_stage1=2, iterations_stage2=2, iterations_stage3=2)
         s_knn_scalar = eg.TsNetSolver.from_knn(knn, 8.0, backend="bh", iterations_stage1=2, iterations_stage2=2, iterations_stage3=2)
         probs = eg.compute_knn_probabilities(knn, perps)
@@ -310,9 +370,19 @@ class TestTsNetAndSgdSolvers(unittest.TestCase):
         self.assertEqual(sh_kw.num_springs, 1)
         self.assertEqual(sh_kw.num_hinges, 1)
 
-        # 2. full, sparse_barrier_dog, sparse_barrier_from_landmarks, random_pair, omega, streaming_negatives
+        # 2. __new__, full, sparse_barrier_dog, sparse_barrier_from_landmarks, random_pair, omega, streaming_negatives
         lm = eg.compute_regularized_dog_varadhan_landmarks(g, degree=20, num_landmarks=8, seed=42)
         emb = eg.chebyshev_dog_jl_embedding(g, degree=20, jl_dim=8, seed=42)
+
+        for dtype_str, np_dtype in (("float64", np.float64), ("float32", np.float32)):
+            s_new = eg.SgdSolver(g, dtype=dtype_str)
+            s_full_def = eg.SgdSolver.full(g, dtype=dtype_str)
+            self.assertEqual(s_new.total_iterations, 60)
+            l_new = eg.Layout2d.from_coords(init_coords.astype(np_dtype))
+            l_full_def = eg.Layout2d.from_coords(init_coords.astype(np_dtype))
+            s_new.run(l_new)
+            s_full_def.run(l_full_def)
+            np.testing.assert_array_equal(l_new.coords(copy=True), l_full_def.coords(copy=True))
 
         s_full = eg.SgdSolver.full(g, iterations=15, seed=42)
         s_dog = eg.SgdSolver.sparse_barrier_dog(

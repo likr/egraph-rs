@@ -169,7 +169,7 @@ impl PyClusterRefineSolver {
         execute_solver_action(&mut self.inner, py, layout, SolverAction::RunSteps(steps.0))
     }
 
-    /// Run cluster refinement until convergence or `max_rounds` in place on `layout`.
+    /// Run cluster refinement until convergence or `max_iterations` in place on `layout`.
     #[pyo3(signature = (layout), text_signature = "($self, layout)")]
     fn run(&mut self, py: Python<'_>, layout: &Bound<'_, PyLayout2d>) -> PyResult<&'static str> {
         execute_solver_action(&mut self.inner, py, layout, SolverAction::Run)

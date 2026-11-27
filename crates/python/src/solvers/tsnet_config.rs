@@ -6,11 +6,15 @@ use egraph::{
 use egraph_layout::{TsNetBackend, TsNetConfig, TsNetSolver, TsNetStage};
 use egraph_neighborhood::{SymmetrizationMode, TwoHopSamplingMode};
 use egraph_spatial::{IbFftConfig, InterpolationOrder};
-use pyo3::exceptions::PyValueError;
+use numpy::{PyUntypedArray, PyUntypedArrayMethods};
+use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
-use crate::ffi_convert::{StrictF64, StrictUsize, core_error_to_py, normalize_enum_key};
+use crate::ffi_convert::{
+    StrictF64, StrictUsize, core_error_to_py, extract_non_negative_usize,
+    is_non_sequence_container, normalize_enum_key,
+};
 use crate::solver_common::impl_dual_solver;
 
 use super::layout_dispatch::{impl_dual_manifold_solver, impl_dual_nd_solver};
@@ -188,6 +192,66 @@ pub(super) fn parse_tsnet_sampling_mode(raw: &str) -> Result<TwoHopSamplingMode,
     }
 }
 
+pub(super) struct TsNetStageOpts<'a, 'py> {
+    pub(super) iterations_stage1: usize,
+    pub(super) iterations_stage2: usize,
+    pub(super) iterations_stage3: usize,
+    pub(super) stage_iterations: Option<&'a Bound<'py, PyAny>>,
+    pub(super) exaggeration: f64,
+    pub(super) lambda_c_stage1: f64,
+    pub(super) lambda_c_stage2: f64,
+    pub(super) lambda_c_stage3: f64,
+    pub(super) lambda_r_stage3: f64,
+    pub(super) learning_rate: Option<f64>,
+    pub(super) learning_rate_divisor: f64,
+    pub(super) jacobi_precondition: bool,
+    pub(super) momentum: f64,
+    pub(super) epsilon_r: f64,
+    pub(super) theta: f64,
+    pub(super) intervals: usize,
+    pub(super) interpolation_order: usize,
+    pub(super) min_grid_dim: usize,
+    pub(super) max_grid_dim: usize,
+    pub(super) seed: u64,
+}
+
+pub(super) fn parse_stage_iterations(obj: &Bound<'_, PyAny>) -> PyResult<[usize; 3]> {
+    if is_non_sequence_container(obj) {
+        return Err(PyTypeError::new_err(
+            "stage_iterations must be a sequence of 3 positive integers",
+        ));
+    }
+    if let Ok(arr) = obj.cast::<PyUntypedArray>()
+        && arr.ndim() != 1
+    {
+        return Err(PyValueError::new_err(format!(
+            "stage_iterations must be a 1D sequence of 3 positive integers, got {}D",
+            arr.ndim()
+        )));
+    }
+    let iter = obj.try_iter().map_err(|_| {
+        PyTypeError::new_err("stage_iterations must be a sequence of 3 positive integers")
+    })?;
+    let mut vals = Vec::with_capacity(3);
+    for item_res in iter {
+        let item = item_res?;
+        let val = extract_non_negative_usize(&item, "stage_iterations entry")?;
+        if val == 0 {
+            return Err(PyValueError::new_err(
+                "stage_iterations entries must be positive (>= 1)",
+            ));
+        }
+        vals.push(val);
+    }
+    if vals.len() != 3 {
+        return Err(PyValueError::new_err(format!(
+            "stage_iterations must have length 3, got {}",
+            vals.len()
+        )));
+    }
+    Ok([vals[0], vals[1], vals[2]])
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn build_tsnet_config(
     backend: &str,
@@ -198,28 +262,19 @@ pub(super) fn build_tsnet_config(
     sigma_iters: usize,
     sigma_tolerance: f64,
     row_normalize: bool,
-    iterations_stage1: usize,
-    iterations_stage2: usize,
-    iterations_stage3: usize,
-    exaggeration: f64,
-    lambda_c_stage1: f64,
-    lambda_c_stage2: f64,
-    lambda_c_stage3: f64,
-    lambda_r_stage3: f64,
-    learning_rate: Option<f64>,
-    learning_rate_divisor: f64,
-    jacobi_precondition: bool,
-    momentum: f64,
-    epsilon_r: f64,
-    theta: f64,
-    intervals: usize,
-    interpolation_order: usize,
-    min_grid_dim: usize,
-    max_grid_dim: usize,
-    seed: u64,
+    opts: TsNetStageOpts<'_, '_>,
 ) -> PyResult<TsNetConfig> {
     let parsed_backend = parse_tsnet_backend(backend).map_err(PyValueError::new_err)?;
-    let order = InterpolationOrder::from_order(interpolation_order).map_err(core_error_to_py)?;
+    let order =
+        InterpolationOrder::from_order(opts.interpolation_order).map_err(core_error_to_py)?;
+    let stage_iterations = match opts.stage_iterations {
+        Some(obj) if !obj.is_none() => parse_stage_iterations(obj)?,
+        _ => [
+            opts.iterations_stage1,
+            opts.iterations_stage2,
+            opts.iterations_stage3,
+        ],
+    };
     let cfg = TsNetConfig {
         backend: parsed_backend,
         perplexity_c,
@@ -233,25 +288,25 @@ pub(super) fn build_tsnet_config(
         } else {
             SymmetrizationMode::StandardTsne
         },
-        stage_iterations: [iterations_stage1, iterations_stage2, iterations_stage3],
-        exaggeration,
-        lambda_c_stage1,
-        lambda_c_stage2,
-        lambda_c_stage3,
-        lambda_r_stage3,
-        learning_rate,
-        learning_rate_divisor,
-        jacobi_precondition,
-        momentum,
-        epsilon_r,
-        theta,
+        stage_iterations,
+        exaggeration: opts.exaggeration,
+        lambda_c_stage1: opts.lambda_c_stage1,
+        lambda_c_stage2: opts.lambda_c_stage2,
+        lambda_c_stage3: opts.lambda_c_stage3,
+        lambda_r_stage3: opts.lambda_r_stage3,
+        learning_rate: opts.learning_rate,
+        learning_rate_divisor: opts.learning_rate_divisor,
+        jacobi_precondition: opts.jacobi_precondition,
+        momentum: opts.momentum,
+        epsilon_r: opts.epsilon_r,
+        theta: opts.theta,
         ibfft: IbFftConfig {
             order,
-            intervals,
-            min_grid_dim,
-            max_grid_dim,
+            intervals: opts.intervals,
+            min_grid_dim: opts.min_grid_dim,
+            max_grid_dim: opts.max_grid_dim,
         },
-        seed,
+        seed: opts.seed,
     };
     cfg.validate().map_err(core_error_to_py)?;
     Ok(cfg)
