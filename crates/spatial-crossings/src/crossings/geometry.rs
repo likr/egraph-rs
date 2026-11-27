@@ -46,7 +46,16 @@ impl Seg {
         let slope = if is_vertical {
             0.0
         } else {
-            (y2 - y1) / (x2 - x1)
+            let dy = y2 - y1;
+            let dx = x2 - x1;
+            let s = dy / dx;
+            if s.is_finite() && s.abs() <= 1e290 {
+                s
+            } else if dy == 0.0 {
+                0.0
+            } else {
+                dy.signum() * dx.signum() * 1e290
+            }
         };
         Self {
             id,
@@ -83,8 +92,16 @@ impl Seg {
         let slope = if is_vertical {
             0.0
         } else {
-            let s = dd_div(p1.y.delta_dd(p2.y), p1.x.delta_dd(p2.x)).to_f64();
-            if s.is_finite() { s } else { s.signum() * 1e290 }
+            let dy = p1.y.delta_dd(p2.y);
+            let dx = p1.x.delta_dd(p2.x);
+            let s = dd_div(dy, dx).to_f64();
+            if s.is_finite() && s.abs() <= 1e290 {
+                s
+            } else if dy.is_zero() {
+                0.0
+            } else {
+                (dy.hi.signum() * dx.hi.signum()) * 1e290
+            }
         };
         Self {
             id,

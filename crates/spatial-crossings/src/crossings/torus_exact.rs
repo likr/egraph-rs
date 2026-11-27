@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 
-use super::double_double::{Dd, dd_add, dd_div, dd_mul, dd_sub};
+use super::double_double::{Dd, dd_add, dd_div, dd_mul, dd_neg, dd_sub};
 use super::exact_limbs::{ExactFactor, exact_collinear_in_box, exact_deg2_sign, exact_deg3_sign};
 pub(super) use super::shifted_coords::{ShiftedF64, ShiftedPt, ShiftedSeg};
 
@@ -358,25 +358,41 @@ pub(super) fn dd_intersection_xy(
     let d_s = s.hi.abs() * len_b;
     let d_v = v.hi.abs() * len_b;
 
+    let dd_is_finite =
+        |val: Dd| val.hi.is_finite() && val.lo.is_finite() && val.to_f64().is_finite();
+    let finite_or_far = |base: Dd, step: Dd| {
+        let sum = dd_add(base, step);
+        if dd_is_finite(sum) {
+            sum
+        } else {
+            let sign = if step.hi != 0.0 {
+                step.hi.signum()
+            } else {
+                base.hi.signum()
+            };
+            Dd::from_f64(sign * 1e300)
+        }
+    };
+
     let (xi, yi) = if d_t <= d_u && d_t <= d_s && d_t <= d_v {
         (
-            dd_add(a1.x.to_dd(), dd_mul(t, dxa)),
-            dd_add(a1.y.to_dd(), dd_mul(t, dya)),
+            finite_or_far(a1.x.to_dd(), dd_mul(t, dxa)),
+            finite_or_far(a1.y.to_dd(), dd_mul(t, dya)),
         )
     } else if d_u <= d_s && d_u <= d_v {
         (
-            dd_sub(a2.x.to_dd(), dd_mul(u, dxa)),
-            dd_sub(a2.y.to_dd(), dd_mul(u, dya)),
+            finite_or_far(a2.x.to_dd(), dd_mul(dd_neg(u), dxa)),
+            finite_or_far(a2.y.to_dd(), dd_mul(dd_neg(u), dya)),
         )
     } else if d_s <= d_v {
         (
-            dd_add(b1.x.to_dd(), dd_mul(s, dxb)),
-            dd_add(b1.y.to_dd(), dd_mul(s, dyb)),
+            finite_or_far(b1.x.to_dd(), dd_mul(s, dxb)),
+            finite_or_far(b1.y.to_dd(), dd_mul(s, dyb)),
         )
     } else {
         (
-            dd_sub(b2.x.to_dd(), dd_mul(v, dxb)),
-            dd_sub(b2.y.to_dd(), dd_mul(v, dyb)),
+            finite_or_far(b2.x.to_dd(), dd_mul(dd_neg(v), dxb)),
+            finite_or_far(b2.y.to_dd(), dd_mul(dd_neg(v), dyb)),
         )
     };
     Some((xi, yi))

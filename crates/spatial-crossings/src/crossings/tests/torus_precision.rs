@@ -2,12 +2,16 @@ use std::cmp::Ordering;
 
 use egraph_core::{CsrGraph, DeterministicRng, ManifoldKind, ManifoldLayout2d};
 
+use super::super::double_double::{Dd, dd_div, two_prod};
 use super::super::torus_clip::TORUS_MAX;
 use super::super::torus_exact::{
     ShiftedF64, ShiftedPt, cmp_slope_shifted, exact_intersection_in_torus_max_box,
     exact_intersection_in_unit_box, exact_xi_cmp, orient2d_shifted,
 };
-use super::super::{torus_crossing_edges, torus_crossing_number, torus_edge_segments};
+use super::super::{
+    torus_crossing_edges, torus_crossing_edges_from_edges, torus_crossing_number,
+    torus_edge_segments,
+};
 use super::helpers::{assert_torus_matches_oracle, assert_torus_pair_intersects};
 
 fn two_edge_graph() -> CsrGraph<f64> {
@@ -345,4 +349,142 @@ fn has_non_gap_copy(tor: &ManifoldLayout2d<f64>, e1: (u32, u32), e2: (u32, u32))
         }
     }
     false
+}
+
+#[test]
+fn test_double_double_extreme_exponents_stay_finite_and_accurate() {
+    let big = 2.0_f64.powi(1010);
+    let tiny_norm = 2.0_f64.powi(-1010);
+    let tiny_sub = f64::from_bits(16); // 2^-1070 subnormal (avoids powi(-1070) -> 1/Inf = 0)
+
+    // Extreme opposing exponents cancel to ~1.0 with full 106-bit accuracy.
+    let (p_hi, e_hi) = two_prod(big + 2.0_f64.powi(960), tiny_norm);
+    assert!(p_hi.is_finite() && e_hi.is_finite());
+    assert!((p_hi - 1.0).abs() <= 1e-14);
+
+    let (p_sub, e_sub) = two_prod(big, tiny_sub);
+    assert_eq!(p_sub, 2.0_f64.powi(-60));
+    assert_eq!(e_sub, 0.0);
+
+    let (p_under, e_under) = two_prod(tiny_norm, tiny_norm);
+    assert_eq!((p_under, e_under), (0.0, 0.0));
+
+    let (p_over, e_over) = two_prod(big, big);
+    assert!(p_over.is_infinite() && p_over.is_sign_positive() && e_over == 0.0);
+
+    // Extreme-ratio division never triggers Veltkamp NaN and clamps overflow cleanly.
+    let q_big = dd_div(Dd::ONE, Dd::from_f64(-tiny_norm));
+    assert_eq!(q_big.to_f64(), -big);
+    assert!(q_big.hi.is_finite() && q_big.lo.is_finite());
+
+    let q_sub = dd_div(Dd::from_f64(tiny_sub), Dd::from_f64(tiny_norm));
+    assert_eq!(q_sub.to_f64(), 2.0_f64.powi(-60));
+
+    let q_clamp_pos = dd_div(Dd::from_f64(big), Dd::from_f64(tiny_norm));
+    assert_eq!(q_clamp_pos.to_f64(), f64::MAX);
+
+    let q_clamp_neg = dd_div(Dd::from_f64(-big), Dd::from_f64(tiny_norm));
+    assert_eq!(q_clamp_neg.to_f64(), -f64::MAX);
+}
+
+#[test]
+fn test_extreme_vertical_normal_and_subnormal_torus_clipping_is_finite() {
+    let edges = [(0, 1), (2, 3)];
+    let g = two_edge_graph();
+    let half_eps = 0.5 * f64::EPSILON;
+
+    for t in [2.0_f64.powi(-1010), f64::from_bits(16)] {
+        let lay = ManifoldLayout2d::<f64>::from_xy(
+            ManifoldKind::Torus2d,
+            vec![
+                0.49999999999999994,
+                0.5000000000000001,
+                0.49999999999999994,
+                0.5000000000000001,
+            ],
+            vec![t, half_eps, t, 0.0],
+        )
+        .unwrap();
+        assert_eq!(torus_crossing_number(&g, &lay).unwrap(), 1);
+        let pairs = assert_torus_matches_oracle("extreme_vert_clip", &edges, &lay);
+        assert_eq!(pairs.len(), 1);
+        for &c in pairs[0].seg_a.iter().chain(pairs[0].seg_b.iter()) {
+            assert!(c.is_finite() && (0.0..1.0).contains(&c));
+        }
+        assert_torus_pair_intersects("extreme_vert_clip", &pairs[0]);
+    }
+}
+
+#[test]
+fn test_steep_normal_slope_clamp_preserves_sweep_parity_and_commutativity() {
+    let edges = [(0, 1), (2, 3), (1, 4)];
+    let rev_edges: Vec<(u32, u32)> = edges.iter().rev().map(|&(u, v)| (v, u)).collect();
+    let g = CsrGraph::<f64>::from_edges(5, &edges, None, false, false).unwrap();
+    let half_eps = 0.5 * f64::EPSILON;
+    let near_one = 1.0 - half_eps;
+
+    for t in [2.0_f64.powi(-998), 2.0_f64.powi(-1010), f64::from_bits(16)] {
+        let lay = ManifoldLayout2d::<f64>::from_xy(
+            ManifoldKind::Torus2d,
+            vec![t, 0.0, t, 0.0, half_eps],
+            vec![t, near_one, 0.5 - 2.0_f64.powi(-54), near_one, near_one],
+        )
+        .unwrap();
+        let cnt = torus_crossing_number(&g, &lay).unwrap();
+        let ge = torus_crossing_edges(&g, &lay).unwrap();
+        let ee = torus_crossing_edges_from_edges(&edges, &lay).unwrap();
+        let rev = torus_crossing_edges_from_edges(&rev_edges, &lay).unwrap();
+        assert_eq!(cnt, 2);
+        assert_eq!(ge.len(), 2);
+        assert_eq!(ee.len(), 2);
+        assert_eq!(rev.len(), 2);
+        let oracle = assert_torus_matches_oracle("steep_normal_slope", &edges, &lay);
+        assert_eq!(oracle.len(), 2);
+    }
+}
+
+#[test]
+fn test_steep_deep_exponent_randomized_torus_matrix() {
+    let pool = [
+        0.0,
+        f64::from_bits(16),
+        2.0_f64.powi(-1010),
+        2.0_f64.powi(-998),
+        0.5 * f64::EPSILON,
+        0.5 - 2.0_f64.powi(-54),
+        TORUS_MAX,
+    ];
+    for seed in 1..=40u64 {
+        let mut rng = DeterministicRng::from_seed_u64(910_000 + seed);
+        let n = 12usize;
+        let xs: Vec<f64> = (0..n)
+            .map(|_| pool[rng.gen_range_usize(pool.len())])
+            .collect();
+        let ys: Vec<f64> = (0..n)
+            .map(|_| pool[rng.gen_range_usize(pool.len())])
+            .collect();
+        let mut edges = Vec::new();
+        for _ in 0..22 {
+            let (u, v) = (rng.gen_range_usize(n) as u32, rng.gen_range_usize(n) as u32);
+            if u != v && !edges.contains(&(u.min(v), u.max(v))) {
+                edges.push((u.min(v), u.max(v)));
+            }
+        }
+        let g = CsrGraph::<f64>::from_edges(n, &edges, None, false, false).unwrap();
+        let lay = ManifoldLayout2d::<f64>::from_xy(ManifoldKind::Torus2d, xs, ys).unwrap();
+        let got = assert_torus_matches_oracle("steep_deep", &edges, &lay);
+        assert_eq!(torus_crossing_number(&g, &lay).unwrap(), got.len());
+        let rev: Vec<_> = edges.iter().rev().map(|&(u, v)| (v, u)).collect();
+        assert_eq!(
+            torus_crossing_edges_from_edges(&rev, &lay).unwrap().len(),
+            got.len()
+        );
+        for c in &got {
+            let ok = |v: &f64| v.is_finite() && (0.0..1.0).contains(v);
+            assert!(c.seg_a.iter().all(ok) && c.seg_b.iter().all(ok));
+            if has_non_gap_copy(&lay, edges[c.edge_a], edges[c.edge_b]) {
+                assert_torus_pair_intersects("steep_deep", c);
+            }
+        }
+    }
 }

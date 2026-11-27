@@ -24,7 +24,11 @@ pub(super) fn canon_zero(v: f64) -> f64 {
 
 #[inline]
 pub(super) fn clamp_unit(v: f64) -> f64 {
-    canon_zero(v.clamp(0.0, TORUS_MAX))
+    if !v.is_finite() {
+        if v == f64::INFINITY { TORUS_MAX } else { 0.0 }
+    } else {
+        canon_zero(v.clamp(0.0, TORUS_MAX))
+    }
 }
 
 #[inline]
@@ -52,7 +56,13 @@ pub(super) fn dd_unwrapped_delta(p0: f64, p1: f64, shift: i32) -> Dd {
 
 #[inline]
 fn clamp_dd_unit(v: Dd) -> Dd {
-    if dd_cmp(v, Dd::ZERO) == Ordering::Less {
+    if !v.to_f64().is_finite() {
+        if v.hi == f64::INFINITY {
+            Dd::ONE
+        } else {
+            Dd::ZERO
+        }
+    } else if dd_cmp(v, Dd::ZERO) == Ordering::Less {
         Dd::ZERO
     } else if dd_cmp(v, Dd::ONE) == Ordering::Greater {
         Dd::ONE
@@ -222,6 +232,18 @@ fn eval_other_at_bound(
     d_other: Dd,
     bound: f64,
 ) -> (f64, Dd) {
+    if d_axis.is_zero() {
+        let mid = dd_mul_f64(dd_add(a_other.to_dd(), b_other.to_dd()), 0.5);
+        let f = clamp_unit(mid.to_f64());
+        return (
+            f,
+            if mid.to_f64().is_finite() {
+                mid
+            } else {
+                Dd::from_f64(f)
+            },
+        );
+    }
     let da = a_axis.sub_f64_dd(bound);
     let db = b_axis.sub_f64_dd(bound);
     let val_dd = if da.hi.abs() <= db.hi.abs() {
@@ -231,7 +253,16 @@ fn eval_other_at_bound(
         let u = dd_div(db, d_axis);
         dd_sub(b_other.to_dd(), dd_mul(u, d_other))
     };
-    (clamp_unit(val_dd.to_f64()), val_dd)
+    let val_f64 = val_dd.to_f64();
+    if !val_f64.is_finite() {
+        let fallback = clamp_unit(if da.hi.abs() <= db.hi.abs() {
+            a_other.to_f64()
+        } else {
+            b_other.to_f64()
+        });
+        return (fallback, Dd::from_f64(fallback));
+    }
+    (clamp_unit(val_f64), val_dd)
 }
 
 #[inline]
@@ -298,20 +329,48 @@ pub(super) fn clip_shifted_seg_to_torus(
         (dd_neg(dy), q_bottom, ClipBound::Bottom),
         (dy, q_top, ClipBound::Top),
     ] {
-        if p.is_zero() {
-            if q.to_f64() < -1e-26 {
-                return None;
+        // Range-filter q/p against [0, 1] before dividing so dd_div only runs when 0 <= r <= 1.
+        match dd_cmp(p, Dd::ZERO) {
+            Ordering::Equal => {
+                if dd_cmp(q, Dd::ZERO) == Ordering::Less {
+                    return None;
+                }
             }
-        } else {
-            let r = dd_div(q, p);
-            if p.is_neg() {
+            Ordering::Less => {
+                if dd_cmp(q, Dd::ZERO) == Ordering::Greater {
+                    continue;
+                }
+                if dd_cmp(q, p) == Ordering::Less {
+                    return None;
+                }
+                let r = if dd_cmp(q, p) == Ordering::Equal {
+                    Dd::ONE
+                } else if q.is_zero() {
+                    Dd::ZERO
+                } else {
+                    clamp_dd_unit(dd_div(q, p))
+                };
                 if dd_cmp(r, t0) == Ordering::Greater {
                     t0 = r;
                     bound0 = bound;
                 }
-            } else if dd_cmp(r, t1) == Ordering::Less {
-                t1 = r;
-                bound1 = bound;
+            }
+            Ordering::Greater => {
+                if dd_cmp(q, Dd::ZERO) == Ordering::Less {
+                    return None;
+                }
+                if dd_cmp(q, p) != Ordering::Less {
+                    continue;
+                }
+                let r = if q.is_zero() {
+                    Dd::ZERO
+                } else {
+                    clamp_dd_unit(dd_div(q, p))
+                };
+                if dd_cmp(r, t1) == Ordering::Less {
+                    t1 = r;
+                    bound1 = bound;
+                }
             }
         }
     }
