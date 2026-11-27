@@ -156,27 +156,7 @@ pub fn leiden<W: Scalar>(graph: &CsrGraph<W>, config: &LeidenConfig) -> CoreResu
             "leiden requires an undirected graph",
         ));
     }
-    if config.max_passes == 0 {
-        return Err(CoreError::invalid_input("max_passes must be >= 1"));
-    }
-    if !config.resolution.is_finite() {
-        return Err(CoreError::non_finite("LeidenConfig::resolution"));
-    }
-    if config.resolution < 0.0 {
-        return Err(CoreError::invalid_input("resolution must be >= 0.0"));
-    }
-    if !config.randomness.is_finite() {
-        return Err(CoreError::non_finite("LeidenConfig::randomness"));
-    }
-    if config.randomness <= 0.0 {
-        return Err(CoreError::invalid_input("randomness must be > 0.0"));
-    }
-    if !config.min_quality_gain.is_finite() {
-        return Err(CoreError::non_finite("LeidenConfig::min_quality_gain"));
-    }
-    if config.min_quality_gain < 0.0 {
-        return Err(CoreError::invalid_input("min_quality_gain must be >= 0.0"));
-    }
+    config.validate()?;
 
     let n = graph.num_nodes();
     if n == 0 {
@@ -186,6 +166,7 @@ pub fn leiden<W: Scalar>(graph: &CsrGraph<W>, config: &LeidenConfig) -> CoreResu
             quality: 0.0,
             modularity: 0.0,
             passes: 0,
+            converged: true,
         });
     }
 
@@ -199,6 +180,7 @@ pub fn leiden<W: Scalar>(graph: &CsrGraph<W>, config: &LeidenConfig) -> CoreResu
             quality: 0.0,
             modularity: 0.0,
             passes: 0,
+            converged: true,
         });
     }
 
@@ -223,6 +205,7 @@ pub fn leiden<W: Scalar>(graph: &CsrGraph<W>, config: &LeidenConfig) -> CoreResu
     let mut passes = 0usize;
     let mut total_steps = 0usize;
     let mut outer_iter = 0usize;
+    let mut converged = false;
 
     while total_steps < config.max_passes {
         let outer_start_quality = best_quality;
@@ -303,6 +286,7 @@ pub fn leiden<W: Scalar>(graph: &CsrGraph<W>, config: &LeidenConfig) -> CoreResu
         }
 
         if best_quality - outer_start_quality <= config.min_quality_gain {
+            converged = true;
             break;
         }
         outer_iter += 1;
@@ -328,5 +312,6 @@ pub fn leiden<W: Scalar>(graph: &CsrGraph<W>, config: &LeidenConfig) -> CoreResu
         quality,
         modularity,
         passes,
+        converged,
     })
 }

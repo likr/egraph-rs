@@ -5,13 +5,15 @@ use std::collections::VecDeque;
 use egraph_core::{CoreError, CoreResult, CsrGraph, Scalar, VisitStamp};
 use egraph_linalg::smallest_sym_laplacian_eigenpairs;
 
+use crate::clusterer::{ClusterResult, CommunityDetector};
 use crate::kmeans::{KMeansConfig, kmeans_plus_plus};
 
 #[cfg(test)]
 mod tests;
 
-/// Configuration for [`spectral_clustering`].
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// Configuration for [`SpectralClustering`] and [`spectral_clustering`].
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SpectralClusteringConfig {
     /// Target number of clusters (`>= 1`). Clamped to `graph.num_nodes()` when `k > n`.
     pub k: usize,
@@ -40,7 +42,85 @@ impl Default for SpectralClusteringConfig {
     }
 }
 
-/// Output of [`spectral_clustering`].
+impl SpectralClusteringConfig {
+    /// Creates a new [`SpectralClusteringConfig`] initialized to [`Self::default`].
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets the target number of clusters `k`.
+    pub fn with_k(mut self, k: usize) -> Self {
+        self.k = k;
+        self
+    }
+
+    /// Sets the maximum Laplacian eigensolver iterations `max_eigen_iterations`.
+    pub fn with_max_eigen_iterations(mut self, max_eigen_iterations: usize) -> Self {
+        self.max_eigen_iterations = max_eigen_iterations;
+        self
+    }
+
+    /// Sets the Laplacian eigensolver convergence tolerance `eigen_tol`.
+    pub fn with_eigen_tol(mut self, eigen_tol: f64) -> Self {
+        self.eigen_tol = eigen_tol;
+        self
+    }
+
+    /// Sets the maximum K-Means++ Lloyd iterations `kmeans_max_iterations`.
+    pub fn with_kmeans_max_iterations(mut self, kmeans_max_iterations: usize) -> Self {
+        self.kmeans_max_iterations = kmeans_max_iterations;
+        self
+    }
+
+    /// Sets the K-Means++ convergence tolerance `kmeans_tol`.
+    pub fn with_kmeans_tol(mut self, kmeans_tol: f64) -> Self {
+        self.kmeans_tol = kmeans_tol;
+        self
+    }
+
+    /// Sets the deterministic PRNG seed `seed`.
+    pub fn with_seed(mut self, seed: u64) -> Self {
+        self.seed = seed;
+        self
+    }
+
+    /// Validates all spectral clustering hyperparameters.
+    pub fn validate(&self) -> CoreResult<()> {
+        if self.k == 0 {
+            return Err(CoreError::invalid_input("k must be >= 1"));
+        }
+        if self.max_eigen_iterations == 0 {
+            return Err(CoreError::invalid_input(
+                "max_eigen_iterations must be >= 1",
+            ));
+        }
+        if !self.eigen_tol.is_finite() {
+            return Err(CoreError::non_finite("SpectralClusteringConfig::eigen_tol"));
+        }
+        if self.eigen_tol <= 0.0 {
+            return Err(CoreError::invalid_input(
+                "eigen_tol must be strictly positive",
+            ));
+        }
+        if self.kmeans_max_iterations == 0 {
+            return Err(CoreError::invalid_input(
+                "kmeans_max_iterations must be >= 1",
+            ));
+        }
+        if !self.kmeans_tol.is_finite() {
+            return Err(CoreError::non_finite(
+                "SpectralClusteringConfig::kmeans_tol",
+            ));
+        }
+        if self.kmeans_tol < 0.0 {
+            return Err(CoreError::invalid_input("kmeans_tol must be >= 0.0"));
+        }
+        Ok(())
+    }
+}
+
+/// Output of [`SpectralClustering::run`] and [`spectral_clustering`].
+#[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SpectralClusteringResult {
     /// Canonical cluster assignment in `0..num_clusters` for each vertex.
@@ -49,6 +129,92 @@ pub struct SpectralClusteringResult {
     pub num_clusters: usize,
     /// Number of Lanczos thick-restart iterations executed (`0` when using dense fallback or trivial graphs).
     pub eigen_iterations: usize,
+    /// Whether the final K-Means++ step converged within `kmeans_tol`.
+    pub converged: bool,
+}
+
+impl From<SpectralClusteringResult> for ClusterResult {
+    fn from(res: SpectralClusteringResult) -> Self {
+        Self::new(
+            res.labels,
+            res.num_clusters,
+            None,
+            res.eigen_iterations,
+            res.converged,
+        )
+    }
+}
+
+/// Ng-Jordan-Weiss spectral community detector implementing [`CommunityDetector`].
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct SpectralClustering {
+    config: SpectralClusteringConfig,
+}
+
+impl SpectralClustering {
+    /// Creates a new [`SpectralClustering`] detector with the given configuration.
+    pub fn new(config: SpectralClusteringConfig) -> Self {
+        Self { config }
+    }
+
+    /// Returns a reference to the underlying [`SpectralClusteringConfig`].
+    #[inline]
+    pub fn config(&self) -> &SpectralClusteringConfig {
+        &self.config
+    }
+
+    /// Replaces the configuration with `config`.
+    pub fn with_config(mut self, config: SpectralClusteringConfig) -> Self {
+        self.config = config;
+        self
+    }
+
+    /// Sets the target number of clusters `k`.
+    pub fn with_k(mut self, k: usize) -> Self {
+        self.config.k = k;
+        self
+    }
+
+    /// Sets the maximum Laplacian eigensolver iterations `max_eigen_iterations`.
+    pub fn with_max_eigen_iterations(mut self, max_eigen_iterations: usize) -> Self {
+        self.config.max_eigen_iterations = max_eigen_iterations;
+        self
+    }
+
+    /// Sets the Laplacian eigensolver convergence tolerance `eigen_tol`.
+    pub fn with_eigen_tol(mut self, eigen_tol: f64) -> Self {
+        self.config.eigen_tol = eigen_tol;
+        self
+    }
+
+    /// Sets the maximum K-Means++ Lloyd iterations `kmeans_max_iterations`.
+    pub fn with_kmeans_max_iterations(mut self, kmeans_max_iterations: usize) -> Self {
+        self.config.kmeans_max_iterations = kmeans_max_iterations;
+        self
+    }
+
+    /// Sets the K-Means++ convergence tolerance `kmeans_tol`.
+    pub fn with_kmeans_tol(mut self, kmeans_tol: f64) -> Self {
+        self.config.kmeans_tol = kmeans_tol;
+        self
+    }
+
+    /// Sets the deterministic PRNG seed `seed`.
+    pub fn with_seed(mut self, seed: u64) -> Self {
+        self.config.seed = seed;
+        self
+    }
+
+    /// Runs Ng-Jordan-Weiss spectral clustering and returns [`SpectralClusteringResult`].
+    pub fn run<W: Scalar>(&self, graph: &CsrGraph<W>) -> CoreResult<SpectralClusteringResult> {
+        spectral_clustering(graph, &self.config)
+    }
+}
+
+impl<W: Scalar> CommunityDetector<W> for SpectralClustering {
+    fn detect(&self, graph: &CsrGraph<W>) -> CoreResult<ClusterResult> {
+        self.run(graph).map(Into::into)
+    }
 }
 
 /// Renumbers labels into canonical `0..c` in ascending order of first appearance and
@@ -209,35 +375,7 @@ pub fn spectral_clustering<W: Scalar>(
             "spectral_clustering requires an undirected graph",
         ));
     }
-    if config.k == 0 {
-        return Err(CoreError::invalid_input("k must be >= 1"));
-    }
-    if config.max_eigen_iterations == 0 {
-        return Err(CoreError::invalid_input(
-            "max_eigen_iterations must be >= 1",
-        ));
-    }
-    if !config.eigen_tol.is_finite() {
-        return Err(CoreError::non_finite("SpectralClusteringConfig::eigen_tol"));
-    }
-    if config.eigen_tol <= 0.0 {
-        return Err(CoreError::invalid_input(
-            "eigen_tol must be strictly positive",
-        ));
-    }
-    if config.kmeans_max_iterations == 0 {
-        return Err(CoreError::invalid_input(
-            "kmeans_max_iterations must be >= 1",
-        ));
-    }
-    if !config.kmeans_tol.is_finite() {
-        return Err(CoreError::non_finite(
-            "SpectralClusteringConfig::kmeans_tol",
-        ));
-    }
-    if config.kmeans_tol < 0.0 {
-        return Err(CoreError::invalid_input("kmeans_tol must be >= 0.0"));
-    }
+    config.validate()?;
 
     let n = graph.num_nodes();
     if n == 0 {
@@ -245,6 +383,7 @@ pub fn spectral_clustering<W: Scalar>(
             labels: Vec::new(),
             num_clusters: 0,
             eigen_iterations: 0,
+            converged: true,
         });
     }
     let effective_k = config.k.min(n);
@@ -253,6 +392,7 @@ pub fn spectral_clustering<W: Scalar>(
             labels: vec![0; n],
             num_clusters: 1,
             eigen_iterations: 0,
+            converged: true,
         });
     }
 
@@ -294,18 +434,19 @@ pub fn spectral_clustering<W: Scalar>(
         }
     }
 
-    let kmeans_cfg = KMeansConfig {
-        k: effective_k,
-        max_iterations: config.kmeans_max_iterations,
-        tol: config.kmeans_tol,
-        n_init: if effective_k <= 32 { 10 } else { 3 },
-        seed: config.seed,
-    };
-    let mut labels = kmeans_plus_plus(&row_norm_embed, n, n_cols, &kmeans_cfg)?.labels;
+    let kmeans_cfg = KMeansConfig::new()
+        .with_k(effective_k)
+        .with_max_iterations(config.kmeans_max_iterations)
+        .with_tol(config.kmeans_tol)
+        .with_n_init(if effective_k <= 32 { 10 } else { 3 })
+        .with_seed(config.seed);
+    let kmeans_res = kmeans_plus_plus(&row_norm_embed, n, n_cols, &kmeans_cfg)?;
+    let mut labels = kmeans_res.labels;
     let num_clusters = canonicalize_labels(&mut labels);
     Ok(SpectralClusteringResult {
         labels,
         num_clusters,
         eigen_iterations,
+        converged: kmeans_res.converged,
     })
 }

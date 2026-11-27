@@ -340,3 +340,32 @@ fn test_leiden_cpm_reports_standard_gamma_one_modularity() {
         assert!(res_mod_gamma.modularity > res_mod_gamma.quality + 1e-3);
     }
 }
+
+#[test]
+fn test_leiden_struct_builders_trait_and_convergence() {
+    use crate::clusterer::{ClusterResult, CommunityDetector};
+
+    let barbell = make_two_cliques_barbell(6);
+    let cfg = LeidenConfig::new()
+        .with_objective(LeidenObjective::Modularity)
+        .with_resolution(1.0)
+        .with_randomness(0.01)
+        .with_max_passes(100)
+        .with_min_quality_gain(1e-7)
+        .with_seed(42);
+    let alg = Leiden::new(cfg.clone()).with_seed(11);
+    assert_eq!(alg.config().seed, 11);
+
+    let full = alg.run(&barbell).unwrap();
+    assert!(full.converged);
+    let unified = alg.detect(&barbell).unwrap();
+    let converted: ClusterResult = full.clone().into();
+    assert_eq!(unified, converted);
+    assert_eq!(unified.quality(), Some(full.quality));
+    assert!(unified.converged());
+
+    // Exhausting max_passes = 1 on a graph that improves in pass 1 reports converged = false.
+    let ring = make_ring_of_cliques(8, 5);
+    let limited = Leiden::default().with_max_passes(1).run(&ring).unwrap();
+    assert!(!limited.converged);
+}

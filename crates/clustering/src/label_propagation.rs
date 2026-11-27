@@ -2,8 +2,11 @@
 
 use egraph_core::{CoreError, CoreResult, CsrGraph, DeterministicRng, Scalar, VisitStamp};
 
-/// Configuration for [`label_propagation`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+use crate::clusterer::{ClusterResult, CommunityDetector};
+
+/// Configuration for [`LabelPropagation`] and [`label_propagation`].
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LabelPropagationConfig {
     /// Maximum number of asynchronous propagation sweeps over all vertices.
     pub max_iterations: usize,
@@ -20,7 +23,35 @@ impl Default for LabelPropagationConfig {
     }
 }
 
-/// Output of [`label_propagation`].
+impl LabelPropagationConfig {
+    /// Creates a new [`LabelPropagationConfig`] initialized to [`Self::default`].
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets the maximum number of asynchronous propagation sweeps `max_iterations`.
+    pub fn with_max_iterations(mut self, max_iterations: usize) -> Self {
+        self.max_iterations = max_iterations;
+        self
+    }
+
+    /// Sets the deterministic PRNG seed `seed`.
+    pub fn with_seed(mut self, seed: u64) -> Self {
+        self.seed = seed;
+        self
+    }
+
+    /// Validates all Label Propagation hyperparameters.
+    pub fn validate(&self) -> CoreResult<()> {
+        if self.max_iterations == 0 {
+            return Err(CoreError::invalid_input("max_iterations must be >= 1"));
+        }
+        Ok(())
+    }
+}
+
+/// Output of [`LabelPropagation::run`] and [`label_propagation`].
+#[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LabelPropagationResult {
     /// Canonical community assignment in `0..num_communities` for each vertex.
@@ -31,6 +62,66 @@ pub struct LabelPropagationResult {
     pub iterations: usize,
     /// Whether propagation reached a fixed point (`!changed` on the final sweep).
     pub converged: bool,
+}
+
+impl From<LabelPropagationResult> for ClusterResult {
+    fn from(res: LabelPropagationResult) -> Self {
+        Self::new(
+            res.labels,
+            res.num_communities,
+            None,
+            res.iterations,
+            res.converged,
+        )
+    }
+}
+
+/// Asynchronous Label Propagation community detector implementing [`CommunityDetector`].
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct LabelPropagation {
+    config: LabelPropagationConfig,
+}
+
+impl LabelPropagation {
+    /// Creates a new [`LabelPropagation`] detector with the given configuration.
+    pub fn new(config: LabelPropagationConfig) -> Self {
+        Self { config }
+    }
+
+    /// Returns a reference to the underlying [`LabelPropagationConfig`].
+    #[inline]
+    pub fn config(&self) -> &LabelPropagationConfig {
+        &self.config
+    }
+
+    /// Replaces the configuration with `config`.
+    pub fn with_config(mut self, config: LabelPropagationConfig) -> Self {
+        self.config = config;
+        self
+    }
+
+    /// Sets the maximum number of asynchronous propagation sweeps `max_iterations`.
+    pub fn with_max_iterations(mut self, max_iterations: usize) -> Self {
+        self.config.max_iterations = max_iterations;
+        self
+    }
+
+    /// Sets the deterministic PRNG seed `seed`.
+    pub fn with_seed(mut self, seed: u64) -> Self {
+        self.config.seed = seed;
+        self
+    }
+
+    /// Runs asynchronous Label Propagation and returns the specialized [`LabelPropagationResult`].
+    pub fn run<W: Scalar>(&self, graph: &CsrGraph<W>) -> CoreResult<LabelPropagationResult> {
+        label_propagation(graph, &self.config)
+    }
+}
+
+impl<W: Scalar> CommunityDetector<W> for LabelPropagation {
+    fn detect(&self, graph: &CsrGraph<W>) -> CoreResult<ClusterResult> {
+        self.run(graph).map(Into::into)
+    }
 }
 
 /// Renumbers labels into canonical `0..c` order of first appearance by vertex index and
@@ -63,9 +154,7 @@ pub fn label_propagation<W: Scalar>(
             "label_propagation requires an undirected graph",
         ));
     }
-    if config.max_iterations == 0 {
-        return Err(CoreError::invalid_input("max_iterations must be >= 1"));
-    }
+    config.validate()?;
 
     if let Some(ws) = graph.weights() {
         for &w in ws {
@@ -327,5 +416,34 @@ mod tests {
             ),
             Err(CoreError::InvalidInput(_))
         ));
+    }
+
+    #[test]
+    fn test_label_propagation_struct_builders_and_trait() {
+        let mut edges = Vec::new();
+        for i in 0..4u32 {
+            for j in (i + 1)..4 {
+                edges.push((i, j));
+                edges.push((4 + i, 4 + j));
+            }
+        }
+        edges.push((3, 4));
+        let g = CsrGraph::<f32>::from_edges(8, &edges, None, false, false).unwrap();
+
+        let cfg = LabelPropagationConfig::new()
+            .with_max_iterations(50)
+            .with_seed(7);
+        let det = LabelPropagation::new(cfg).with_seed(42);
+        assert_eq!(det.config().max_iterations, 50);
+        assert_eq!(det.config().seed, 42);
+
+        let full = det.run(&g).unwrap();
+        let unified = det.detect(&g).unwrap();
+        let converted: ClusterResult = full.clone().into();
+        assert_eq!(unified, converted);
+        assert_eq!(unified.num_clusters(), 2);
+        assert_eq!(unified.quality(), None);
+        assert_eq!(unified.iterations(), full.iterations);
+        assert!(unified.converged());
     }
 }

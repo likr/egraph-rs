@@ -132,15 +132,14 @@ fn test_louvain_coarsen_hierarchy_and_disconnected_floor() {
     edges.extend([(4, 5), (9, 10), (14, 15)]);
     let g = CsrGraph::<f64>::from_edges(20, &edges, None, false, false).unwrap();
 
-    let cfg = CoarseLouvainConfig {
-        max_coarse_nodes: 3,
-        resolution: 1.0,
-        resolution_decay: 0.5,
-        max_passes: 50,
-        min_modularity_gain: 1e-7,
-        max_outer_rounds: 16,
-        seed: 42,
-    };
+    let cfg = CoarseLouvainConfig::new()
+        .with_max_coarse_nodes(3)
+        .with_resolution(1.0)
+        .with_resolution_decay(0.5)
+        .with_max_passes(50)
+        .with_min_modularity_gain(1e-7)
+        .with_max_outer_rounds(16)
+        .with_seed(42);
     let h1 = louvain_coarsen(&g, &cfg).unwrap();
     let h2 = louvain_coarsen(&g, &cfg).unwrap();
     assert_eq!(h1, h2);

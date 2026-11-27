@@ -161,3 +161,46 @@ fn test_louvain_directed_and_invalid_config_errors() {
         Err(CoreError::NonFiniteValue { .. })
     ));
 }
+
+#[test]
+fn test_louvain_struct_builders_trait_and_convergence() {
+    use crate::clusterer::{ClusterResult, CommunityDetector};
+
+    let barbell = make_two_cliques_barbell(6);
+    let cfg = LouvainConfig::new()
+        .with_max_passes(50)
+        .with_resolution(1.0)
+        .with_min_modularity_gain(1e-7)
+        .with_seed(7);
+    let alg = Louvain::new(cfg).with_seed(42);
+    assert_eq!(alg.config().max_passes, 50);
+    assert_eq!(alg.config().seed, 42);
+
+    let full = alg.run(&barbell).unwrap();
+    assert!(full.converged);
+    let unified = alg.detect(&barbell).unwrap();
+    let converted: ClusterResult = full.clone().into();
+    assert_eq!(unified, converted);
+    assert_eq!(unified.quality(), Some(full.modularity));
+    assert!(unified.converged());
+
+    // A ring of 8 cliques requires >1 pass when resolution is low, so max_passes = 1 does not converge.
+    let mut edges = Vec::new();
+    for c in 0..8u32 {
+        let base = c * 5;
+        for i in 0..5 {
+            for j in (i + 1)..5 {
+                edges.push((base + i, base + j));
+            }
+        }
+        let next_base = ((c + 1) % 8) * 5;
+        edges.push((base + 4, next_base));
+    }
+    let ring = CsrGraph::<f64>::from_edges(40, &edges, None, false, false).unwrap();
+    let limited = Louvain::default()
+        .with_max_passes(1)
+        .with_resolution(0.2)
+        .run(&ring)
+        .unwrap();
+    assert!(!limited.converged);
+}

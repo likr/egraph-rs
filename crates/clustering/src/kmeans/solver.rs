@@ -269,21 +269,7 @@ pub fn kmeans_plus_plus(
     if dims == 0 {
         return Err(CoreError::invalid_input("dims must be >= 1"));
     }
-    if config.k == 0 {
-        return Err(CoreError::invalid_input("k must be >= 1"));
-    }
-    if config.max_iterations == 0 {
-        return Err(CoreError::invalid_input("max_iterations must be >= 1"));
-    }
-    if config.n_init == 0 {
-        return Err(CoreError::invalid_input("n_init must be >= 1"));
-    }
-    if !config.tol.is_finite() {
-        return Err(CoreError::non_finite("KMeansConfig::tol"));
-    }
-    if config.tol < 0.0 {
-        return Err(CoreError::invalid_input("tol must be >= 0.0"));
-    }
+    config.validate()?;
     if n == 0 {
         return Err(CoreError::invalid_input("n must be >= 1"));
     }

@@ -18,23 +18,7 @@ pub fn louvain<W: Scalar>(
             "louvain requires an undirected graph",
         ));
     }
-    if config.max_passes == 0 {
-        return Err(CoreError::invalid_input("max_passes must be >= 1"));
-    }
-    if !config.resolution.is_finite() {
-        return Err(CoreError::non_finite("LouvainConfig::resolution"));
-    }
-    if config.resolution < 0.0 {
-        return Err(CoreError::invalid_input("resolution must be >= 0.0"));
-    }
-    if !config.min_modularity_gain.is_finite() {
-        return Err(CoreError::non_finite("LouvainConfig::min_modularity_gain"));
-    }
-    if config.min_modularity_gain < 0.0 {
-        return Err(CoreError::invalid_input(
-            "min_modularity_gain must be >= 0.0",
-        ));
-    }
+    config.validate()?;
 
     let n = graph.num_nodes();
     if n == 0 {
@@ -43,6 +27,7 @@ pub fn louvain<W: Scalar>(
             num_communities: 0,
             modularity: 0.0,
             passes: 0,
+            converged: true,
         });
     }
 
@@ -55,6 +40,7 @@ pub fn louvain<W: Scalar>(
             num_communities: n,
             modularity: 0.0,
             passes: 0,
+            converged: true,
         });
     }
 
@@ -64,10 +50,12 @@ pub fn louvain<W: Scalar>(
         let init_comm: Vec<u32> = (0..n as u32).collect();
         level.modularity(&init_comm, &level.degrees, config.resolution)
     };
+    let mut converged = false;
 
     for _pass in 0..config.max_passes {
         let nl = level.num_nodes;
         if nl <= 1 {
+            converged = true;
             break;
         }
 
@@ -162,11 +150,13 @@ pub fn louvain<W: Scalar>(
         }
 
         if !any_moved_in_pass {
+            converged = true;
             break;
         }
 
         let next_q = level.modularity(&comm, &sigma_tot, config.resolution);
         if next_q - current_q <= config.min_modularity_gain {
+            converged = true;
             break;
         }
         current_q = next_q;
@@ -178,9 +168,14 @@ pub fn louvain<W: Scalar>(
         }
 
         if num_new == nl {
+            converged = true;
             break;
         }
         level = level.aggregate(&comm, num_new);
+    }
+
+    if level.num_nodes <= 1 {
+        converged = true;
     }
 
     let num_communities = canonicalize_labels(&mut global_labels, n);
@@ -189,5 +184,6 @@ pub fn louvain<W: Scalar>(
         num_communities,
         modularity: current_q,
         passes,
+        converged,
     })
 }

@@ -1,7 +1,8 @@
 use egraph_core::{CoreError, CoreResult, CsrGraph};
 
 /// Configuration for multi-level Louvain coarsening up to a coarse-node budget.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CoarseLouvainConfig {
     /// Target upper bound on the number of coarsest super-nodes (`default: 10_000`).
     ///
@@ -39,6 +40,53 @@ impl Default for CoarseLouvainConfig {
 }
 
 impl CoarseLouvainConfig {
+    /// Creates a new [`CoarseLouvainConfig`] initialized to [`Self::default`].
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets the target upper bound `max_coarse_nodes` on the number of coarsest super-nodes.
+    pub fn with_max_coarse_nodes(mut self, max_coarse_nodes: usize) -> Self {
+        self.max_coarse_nodes = max_coarse_nodes;
+        self
+    }
+
+    /// Sets the initial Louvain modularity resolution `resolution`.
+    pub fn with_resolution(mut self, resolution: f64) -> Self {
+        self.resolution = resolution;
+        self
+    }
+
+    /// Sets the multiplicative resolution decay factor `resolution_decay`.
+    pub fn with_resolution_decay(mut self, resolution_decay: f64) -> Self {
+        self.resolution_decay = resolution_decay;
+        self
+    }
+
+    /// Sets the maximum number of inner Louvain passes `max_passes`.
+    pub fn with_max_passes(mut self, max_passes: usize) -> Self {
+        self.max_passes = max_passes;
+        self
+    }
+
+    /// Sets the minimum modularity gain threshold `min_modularity_gain`.
+    pub fn with_min_modularity_gain(mut self, min_modularity_gain: f64) -> Self {
+        self.min_modularity_gain = min_modularity_gain;
+        self
+    }
+
+    /// Sets the maximum number of outer Louvain contraction rounds `max_outer_rounds`.
+    pub fn with_max_outer_rounds(mut self, max_outer_rounds: usize) -> Self {
+        self.max_outer_rounds = max_outer_rounds;
+        self
+    }
+
+    /// Sets the deterministic PRNG seed `seed`.
+    pub fn with_seed(mut self, seed: u64) -> Self {
+        self.seed = seed;
+        self
+    }
+
     /// Validates all multi-level Louvain coarsening hyperparameters.
     pub fn validate(&self) -> CoreResult<()> {
         if self.max_coarse_nodes == 0 {
@@ -92,6 +140,7 @@ impl CoarseLouvainConfig {
 }
 
 /// Single contraction level recorded by [`louvain_coarsen`](super::louvain_coarsen).
+#[non_exhaustive]
 #[derive(Debug, Clone, PartialEq)]
 pub struct CoarsenedHierarchyLevel {
     /// Contracted super-graph produced at this round.
@@ -103,6 +152,7 @@ pub struct CoarsenedHierarchyLevel {
 }
 
 /// Multi-level Louvain coarsening hierarchy from fine (`levels[0]`) to coarsest (`coarsest`).
+#[non_exhaustive]
 #[derive(Debug, Clone, PartialEq)]
 pub struct CoarsenedHierarchy {
     /// Ordered outer contraction levels (`0..num_levels`).
@@ -112,6 +162,7 @@ pub struct CoarsenedHierarchy {
 }
 
 /// Result of contracting vertex clusters via [`coarsen_graph`](super::coarsen_graph).
+#[non_exhaustive]
 #[derive(Debug, Clone, PartialEq)]
 pub struct CoarsenedGraph {
     /// Weighted undirected super-graph over `0..num_clusters`.

@@ -11,5 +11,5 @@ mod solver;
 #[cfg(test)]
 mod tests;
 
-pub use config::{LeidenConfig, LeidenObjective, LeidenResult};
+pub use config::{Leiden, LeidenConfig, LeidenObjective, LeidenResult};
 pub use solver::leiden;

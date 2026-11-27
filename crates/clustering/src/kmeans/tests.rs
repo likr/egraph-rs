@@ -177,3 +177,35 @@ fn test_kmeans_validation_errors() {
         Err(CoreError::InvalidInput(_))
     ));
 }
+
+#[test]
+fn test_kmeans_struct_builders_and_clusterer_conversion() {
+    let pts = [
+        10.0, 10.0, 10.2, 9.8, 9.8, 10.1, // cluster 0
+        -10.0, -10.0, -9.9, -10.2, -10.1, -9.8, // cluster 1
+    ];
+    let cfg = KMeansConfig::new()
+        .with_k(2)
+        .with_max_iterations(50)
+        .with_tol(1e-6)
+        .with_n_init(3)
+        .with_seed(123);
+    let alg = KMeansPlusPlus::new(cfg.clone())
+        .with_max_iterations(100)
+        .with_tol(1e-4);
+    assert_eq!(alg.config().max_iterations, 100);
+    assert_eq!(alg.config().tol, 1e-4);
+
+    let full = alg.run(&pts, 6, 2).unwrap();
+    let direct = kmeans_plus_plus(&pts, 6, 2, alg.config()).unwrap();
+    assert_eq!(full, direct);
+
+    let unified = alg.cluster(&pts, 6, 2).unwrap();
+    let converted: ClusterResult = full.clone().into();
+    assert_eq!(unified, converted);
+    assert_eq!(unified.labels(), &full.labels[..]);
+    assert_eq!(unified.num_clusters(), 2);
+    assert_eq!(unified.quality(), Some(full.inertia));
+    assert_eq!(unified.iterations(), full.iterations);
+    assert_eq!(unified.converged(), full.converged);
+}

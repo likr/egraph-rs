@@ -196,3 +196,29 @@ fn test_spectral_degenerate_and_error_cases() {
         Err(CoreError::InvalidInput(_))
     ));
 }
+
+#[test]
+fn test_spectral_struct_builders_and_trait() {
+    use crate::clusterer::{ClusterResult, CommunityDetector};
+
+    let barbell = make_barbell(5);
+    let cfg = SpectralClusteringConfig::new()
+        .with_k(2)
+        .with_max_eigen_iterations(250)
+        .with_eigen_tol(1e-5)
+        .with_kmeans_max_iterations(80)
+        .with_kmeans_tol(1e-5)
+        .with_seed(42);
+    let alg = SpectralClustering::new(cfg).with_max_eigen_iterations(300);
+    assert_eq!(alg.config().max_eigen_iterations, 300);
+
+    let full = alg.run(&barbell).unwrap();
+    assert!(full.converged);
+    let unified = alg.detect(&barbell).unwrap();
+    let converted: ClusterResult = full.clone().into();
+    assert_eq!(unified, converted);
+    assert_eq!(unified.num_clusters(), 2);
+    assert_eq!(unified.quality(), None);
+    assert_eq!(unified.iterations(), full.eigen_iterations);
+    assert!(unified.converged());
+}
