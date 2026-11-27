@@ -4,7 +4,7 @@
 //! particle-grid forward 2D FFTs from `4` down to `2` and reduces total `fft_2d` calls per
 //! iteration from `10` (unfused) to `8` (or `5` when entropy is disabled).
 
-use egraph_core::{CoreError, CoreResult, Layout2d, Scalar};
+use egraph_core::{CoreError, CoreResult, EuclideanLayout, EuclideanStorageRef, Layout2d, Scalar};
 
 use crate::fft::Fft2dWorkspace;
 use crate::ibfft::{IbFft2d, IbFftGridSpec};
@@ -30,6 +30,8 @@ pub struct FitField2d<S: Scalar = f64> {
     h1: Vec<f64>,
     h2: Vec<f64>,
     h3: Vec<f64>,
+    scratch_x: Vec<S>,
+    scratch_y: Vec<S>,
     last_stats: FitFieldStats,
 }
 
@@ -43,7 +45,7 @@ impl<S: Scalar> FitField2d<S> {
     /// Constructs a new [`FitField2d`] workspace.
     pub fn new(config: FitFieldConfig) -> CoreResult<Self> {
         config.validate()?;
-        let ibfft = IbFft2d::new(config.ibfft)?;
+        let ibfft = IbFft2d::new(config.ibfft.clone())?;
         Ok(Self {
             config,
             ws: Fft2dWorkspace::new(),
@@ -55,19 +57,21 @@ impl<S: Scalar> FitField2d<S> {
             h1: Vec::new(),
             h2: Vec::new(),
             h3: Vec::new(),
+            scratch_x: Vec::new(),
+            scratch_y: Vec::new(),
             last_stats: FitFieldStats::default(),
         })
     }
 
     /// Returns the active [`FitFieldConfig`].
     #[inline]
-    pub fn config(&self) -> FitFieldConfig {
-        self.config
+    pub fn config(&self) -> &FitFieldConfig {
+        &self.config
     }
 
     /// Returns the adaptive FFT grid geometry computed by the most recent evaluation.
     #[inline]
-    pub fn grid_spec(&self) -> Option<IbFftGridSpec> {
+    pub fn grid_spec(&self) -> Option<&IbFftGridSpec> {
         self.ibfft.grid_spec()
     }
 
@@ -84,8 +88,8 @@ impl<S: Scalar> FitField2d<S> {
 
     /// Returns telemetry from the most recent [`FitField2d::evaluate`] call.
     #[inline]
-    pub fn last_stats(&self) -> FitFieldStats {
-        self.last_stats
+    pub fn last_stats(&self) -> &FitFieldStats {
+        &self.last_stats
     }
 
     /// Returns cumulative 2D FFT calls executed by the owned [`Fft2dWorkspace`].
@@ -107,6 +111,49 @@ impl<S: Scalar> FitField2d<S> {
         out: &mut FitFieldOutput<S>,
     ) -> CoreResult<()> {
         self.evaluate_xy(layout.x(), layout.y(), out)
+    }
+
+    /// [`EuclideanLayout`] variant of [`FitField2d::evaluate`].
+    ///
+    /// Uses zero-copy SoA slices for [`Layout2d`] and accepts 2D `LayoutNd`; fails fast with
+    /// [`CoreError::DimensionMismatch`] when `layout.dims() != 2`.
+    pub fn evaluate_euclidean<L: EuclideanLayout<Scalar = S> + ?Sized>(
+        &mut self,
+        layout: &L,
+        out: &mut FitFieldOutput<S>,
+    ) -> CoreResult<()> {
+        match layout.as_euclidean_storage() {
+            EuclideanStorageRef::Soa2d { x, y } => self.evaluate_xy(x, y, out),
+            EuclideanStorageRef::FlatNd {
+                coords,
+                num_nodes,
+                dims: 2,
+            } => {
+                let mut sx = std::mem::take(&mut self.scratch_x);
+                let mut sy = std::mem::take(&mut self.scratch_y);
+                let res = crate::deinterleave_flat_2d(
+                    coords,
+                    num_nodes,
+                    &mut sx,
+                    &mut sy,
+                    "FitField2d::evaluate_euclidean",
+                )
+                .and_then(|()| self.evaluate_xy(&sx, &sy, out));
+                self.scratch_x = sx;
+                self.scratch_y = sy;
+                res
+            }
+            EuclideanStorageRef::Soa3d { .. } => Err(CoreError::dimension_mismatch(
+                2,
+                3,
+                "FitField2d::evaluate_euclidean",
+            )),
+            EuclideanStorageRef::FlatNd { dims, .. } => Err(CoreError::dimension_mismatch(
+                2,
+                dims,
+                "FitField2d::evaluate_euclidean",
+            )),
+        }
     }
 
     /// Slice-based variant of [`FitField2d::evaluate`].
@@ -134,7 +181,11 @@ impl<S: Scalar> FitField2d<S> {
             return Ok(());
         }
 
-        let spec = self.ibfft.grid_spec().expect("spec must exist when n >= 2");
+        let spec = self
+            .ibfft
+            .grid_spec()
+            .cloned()
+            .expect("spec must exist when n >= 2");
         self.resize_potentials(n);
 
         // --- C1: Student-t KL repulsion (1 kernel FFT + 2 inverse FFTs) ---
@@ -163,7 +214,7 @@ impl<S: Scalar> FitField2d<S> {
             inverse_ffts: inv_ffts,
             total_fft_2d_calls: total_calls,
         };
-        out.stats = stats;
+        out.stats = stats.clone();
         self.last_stats = stats;
         Ok(())
     }

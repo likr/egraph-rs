@@ -68,7 +68,7 @@ fn test_ibfft_cubic_and_bounded_adaptive_grid_size() {
     }
     let layout = Layout2d::from_xy(xs, ys).unwrap();
     ibfft.prepare(&mut ws, &layout).unwrap();
-    let spec = ibfft.grid_spec().unwrap();
+    let spec = ibfft.grid_spec().unwrap().clone();
     assert_eq!(spec.nx, 512);
     assert_eq!(spec.ny, 512);
     assert_eq!(spec.effective_order, InterpolationOrder::Bilinear);
@@ -93,5 +93,94 @@ fn test_ibfft_cubic_and_bounded_adaptive_grid_size() {
     assert!(matches!(
         InterpolationOrder::from_order(2),
         Err(CoreError::InvalidInput(_))
+    ));
+}
+
+#[test]
+fn test_ibfft_euclidean_layout_entrypoints_and_config_builders() {
+    use egraph_core::{Layout3d, LayoutNd};
+
+    let cfg = IbFftConfig::default()
+        .with_order(InterpolationOrder::Cubic)
+        .with_intervals(30)
+        .with_min_grid_dim(32)
+        .with_max_grid_dim(256);
+    assert_eq!(cfg.order, InterpolationOrder::Cubic);
+    assert_eq!(cfg.intervals, 30);
+    assert_eq!(cfg.min_grid_dim, 32);
+    assert_eq!(cfg.max_grid_dim, 256);
+
+    let xs = vec![-1.2, -0.4, 0.2, 0.9, 1.5, -0.8];
+    let ys = vec![0.7, -0.9, 0.3, -0.2, 0.8, 1.2];
+    let l2 = Layout2d::from_xy(xs.clone(), ys.clone()).unwrap();
+    let mut flat = Vec::with_capacity(xs.len() * 2);
+    for (&x, &y) in xs.iter().zip(ys.iter()) {
+        flat.push(x);
+        flat.push(y);
+    }
+    let lnd2 = LayoutNd::from_flat(xs.len(), 2, &flat).unwrap();
+
+    let mut ws1 = Fft2dWorkspace::new();
+    let mut ib1 = IbFft2d::<f64>::new(cfg.clone()).unwrap();
+    let fwd1 = ib1.prepare(&mut ws1, &l2).unwrap();
+
+    let mut ws2 = Fft2dWorkspace::new();
+    let mut ib2 = IbFft2d::<f64>::new(cfg.clone()).unwrap();
+    let fwd2 = ib2.prepare_euclidean(&mut ws2, &l2).unwrap();
+
+    let mut ws3 = Fft2dWorkspace::new();
+    let mut ib3 = IbFft2d::<f64>::new(cfg).unwrap();
+    let fwd3 = ib3.prepare_euclidean(&mut ws3, &lnd2).unwrap();
+
+    assert_eq!(fwd1, fwd2);
+    assert_eq!(fwd1, fwd3);
+    assert_eq!(ib1.grid_spec(), ib2.grid_spec());
+    assert_eq!(ib1.grid_spec(), ib3.grid_spec());
+
+    let mut phi1 = vec![0.0; xs.len()];
+    let mut fx1 = vec![0.0; xs.len()];
+    let mut fy1 = vec![0.0; xs.len()];
+    ib1.evaluate_isotropic_kernel(
+        &mut ws1,
+        |d2| 1.0 / (1.0 + d2),
+        &mut phi1,
+        &mut fx1,
+        &mut fy1,
+    )
+    .unwrap();
+
+    let mut phi3 = vec![0.0; xs.len()];
+    let mut fx3 = vec![0.0; xs.len()];
+    let mut fy3 = vec![0.0; xs.len()];
+    ib3.evaluate_isotropic_kernel(
+        &mut ws3,
+        |d2| 1.0 / (1.0 + d2),
+        &mut phi3,
+        &mut fx3,
+        &mut fy3,
+    )
+    .unwrap();
+    assert_eq!(phi1, phi3);
+    assert_eq!(fx1, fx3);
+    assert_eq!(fy1, fy3);
+
+    // Non-2D Euclidean layouts fail fast with DimensionMismatch.
+    let l3 = Layout3d::<f64>::zeros(4);
+    assert!(matches!(
+        ib3.prepare_euclidean(&mut ws3, &l3),
+        Err(CoreError::DimensionMismatch {
+            expected: 2,
+            actual: 3,
+            ..
+        })
+    ));
+    let lnd4 = LayoutNd::<f64>::zeros(4, 4).unwrap();
+    assert!(matches!(
+        ib3.prepare_euclidean(&mut ws3, &lnd4),
+        Err(CoreError::DimensionMismatch {
+            expected: 2,
+            actual: 4,
+            ..
+        })
     ));
 }

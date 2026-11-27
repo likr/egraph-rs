@@ -1,6 +1,7 @@
 use egraph_core::{CoreError, CoreResult, Scalar};
 
 /// Frequency-domain Green's operator used in [`super::ScreenedPoissonField2d`].
+#[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum DensityFieldKernel {
     /// Long-range screened Poisson operator $\hat{G}(k) = (\|k\|^2 + \kappa_0^2)^{-1}$.
@@ -11,7 +12,8 @@ pub enum DensityFieldKernel {
 }
 
 /// Configuration for [`super::ScreenedPoissonField2d`].
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ScreenedPoissonConfig {
     /// Density kernel operator (`default: DensityFieldKernel::ScreenedPoisson`).
     pub kernel: DensityFieldKernel,
@@ -57,6 +59,72 @@ impl Default for ScreenedPoissonConfig {
 }
 
 impl ScreenedPoissonConfig {
+    /// Sets the frequency-domain Green's operator kernel.
+    pub fn with_kernel(mut self, kernel: DensityFieldKernel) -> Self {
+        self.kernel = kernel;
+        self
+    }
+
+    /// Sets the active interior grid resolution $G \times G$.
+    pub fn with_grid_size(mut self, grid_size: usize) -> Self {
+        self.grid_size = grid_size;
+        self
+    }
+
+    /// Sets the zero-padding multiplier (`1` or `2`).
+    pub fn with_padding_factor(mut self, padding_factor: usize) -> Self {
+        self.padding_factor = padding_factor;
+        self
+    }
+
+    /// Sets the relative border margin around the particle bounding box.
+    pub fn with_margin_ratio(mut self, margin_ratio: f64) -> Self {
+        self.margin_ratio = margin_ratio;
+        self
+    }
+
+    /// Sets the default Gaussian smoothing width $\sigma_0$ as a fraction of domain span.
+    pub fn with_sigma_ratio(mut self, sigma_ratio: f64) -> Self {
+        self.sigma_ratio = sigma_ratio;
+        self
+    }
+
+    /// Sets an optional explicit physical Gaussian smoothing width $\sigma_0 > 0$.
+    pub fn with_sigma(mut self, sigma: Option<f64>) -> Self {
+        self.sigma = sigma;
+        self
+    }
+
+    /// Sets the default screening length $\kappa_0^{-1}$ as a fraction of domain span.
+    pub fn with_screening_length_ratio(mut self, screening_length_ratio: f64) -> Self {
+        self.screening_length_ratio = screening_length_ratio;
+        self
+    }
+
+    /// Sets an optional explicit screening wavenumber $\kappa_0 > 0$.
+    pub fn with_kappa(mut self, kappa: Option<f64>) -> Self {
+        self.kappa = kappa;
+        self
+    }
+
+    /// Sets the default upper density cap multiplier relative to uniform domain density.
+    pub fn with_rho_max_factor(mut self, rho_max_factor: f64) -> Self {
+        self.rho_max_factor = rho_max_factor;
+        self
+    }
+
+    /// Sets an optional explicit density upper bound $\rho_{\max} \ge 0$.
+    pub fn with_rho_max(mut self, rho_max: Option<f64>) -> Self {
+        self.rho_max = rho_max;
+        self
+    }
+
+    /// Sets whether to apply the exact variational support mask before the adjoint convolution.
+    pub fn with_exact_adjoint(mut self, exact_adjoint: bool) -> Self {
+        self.exact_adjoint = exact_adjoint;
+        self
+    }
+
     /// Validates all field hyperparameters.
     pub fn validate(&self) -> CoreResult<()> {
         if self.grid_size < 16 || !self.grid_size.is_power_of_two() {
@@ -121,7 +189,8 @@ impl ScreenedPoissonConfig {
 }
 
 /// Diagnostic telemetry produced by [`super::ScreenedPoissonField2d::evaluate`].
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct ScreenedPoissonStats {
     /// Discrete Parseval variational energy $\mathcal{L}_{\mathrm{dens}}(X) \ge 0$.
     pub energy: f64,
@@ -148,6 +217,7 @@ pub struct ScreenedPoissonStats {
 }
 
 /// Reusable output buffers filled by [`super::ScreenedPoissonField2d::evaluate`].
+#[non_exhaustive]
 #[derive(Debug, Clone)]
 pub struct ScreenedPoissonOutput<S: Scalar = f64> {
     /// Descent force $x$-components $F_{i,x}^{\mathrm{dens}} = -\partial\mathcal{L}/\partial x_i$.

@@ -3,7 +3,8 @@ use egraph_core::{CoreError, CoreResult, Scalar};
 use crate::ibfft::{IbFftConfig, InterpolationOrder};
 
 /// Configuration for [`super::FitField2d`].
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq)]
 pub struct FitFieldConfig {
     /// Grid & interpolation configuration (`Bilinear` $p=1$ by default).
     pub ibfft: IbFftConfig,
@@ -35,15 +36,34 @@ impl FitFieldConfig {
         Ok(())
     }
 
-    /// Returns a copy with the requested interpolation order.
+    /// Sets the underlying [`IbFftConfig`].
+    pub fn with_ibfft(mut self, ibfft: IbFftConfig) -> Self {
+        self.ibfft = ibfft;
+        self
+    }
+
+    /// Sets the interpolation order inside `ibfft`.
     pub fn with_order(mut self, order: InterpolationOrder) -> Self {
         self.ibfft.order = order;
+        self
+    }
+
+    /// Sets the entropy softening constant $\varepsilon_r > 0$.
+    pub fn with_epsilon_r(mut self, epsilon_r: f64) -> Self {
+        self.epsilon_r = epsilon_r;
+        self
+    }
+
+    /// Sets whether to evaluate C2 entropy repulsion alongside C1 KL repulsion.
+    pub fn with_compute_entropy(mut self, compute_entropy: bool) -> Self {
+        self.compute_entropy = compute_entropy;
         self
     }
 }
 
 /// Telemetry counters recorded for each [`super::FitField2d::evaluate`] invocation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct FitFieldStats {
     /// Number of forward 2D FFTs executed on particle charge grids (`2` when `n >= 2`).
     pub particle_forward_ffts: u64,
@@ -56,6 +76,7 @@ pub struct FitFieldStats {
 }
 
 /// Reusable output buffers filled by [`super::FitField2d::evaluate`].
+#[non_exhaustive]
 #[derive(Debug, Clone)]
 pub struct FitFieldOutput<S: Scalar = f64> {
     /// Normalized C1 KL repulsive force $x$-components: $(1/Z) \sum_{j \neq i} (y_{i,x} - y_{j,x})/(1 + d_{ij}^2)^2$.

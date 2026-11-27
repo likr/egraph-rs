@@ -89,11 +89,8 @@ fn test_fit_field_fused_fft_call_counts_and_accuracy_bilinear_and_cubic() {
 #[test]
 fn test_fit_field_kl_only_uses_five_ffts_and_f32_supported() {
     let layout = Layout2d::from_xy(vec![0.0_f32, 1.0, -1.0], vec![0.5, -0.5, 0.2]).unwrap();
-    let mut field = FitField2d::<f32>::new(FitFieldConfig {
-        compute_entropy: false,
-        ..FitFieldConfig::default()
-    })
-    .unwrap();
+    let mut field =
+        FitField2d::<f32>::new(FitFieldConfig::default().with_compute_entropy(false)).unwrap();
     let mut out = FitFieldOutput::new();
 
     field.evaluate(&layout, &mut out).unwrap();
@@ -106,10 +103,7 @@ fn test_fit_field_kl_only_uses_five_ffts_and_f32_supported() {
 #[test]
 fn test_fit_field_validation_errors() {
     assert!(matches!(
-        FitField2d::<f64>::new(FitFieldConfig {
-            epsilon_r: 0.0,
-            ..FitFieldConfig::default()
-        }),
+        FitField2d::<f64>::new(FitFieldConfig::default().with_epsilon_r(0.0)),
         Err(CoreError::InvalidInput(_))
     ));
 
@@ -119,5 +113,71 @@ fn test_fit_field_validation_errors() {
     assert!(matches!(
         field.evaluate(&bad, &mut out),
         Err(CoreError::NonFiniteValue { .. })
+    ));
+}
+
+#[test]
+fn test_fit_field_euclidean_layout_and_builders() {
+    use crate::ibfft::IbFftConfig;
+    use egraph_core::{Layout3d, LayoutNd};
+
+    let ib_cfg = IbFftConfig::default().with_intervals(28);
+    let cfg = FitFieldConfig::default()
+        .with_ibfft(ib_cfg)
+        .with_order(InterpolationOrder::Cubic)
+        .with_epsilon_r(0.1)
+        .with_compute_entropy(true);
+    assert_eq!(cfg.ibfft.intervals, 28);
+    assert_eq!(cfg.ibfft.order, InterpolationOrder::Cubic);
+    assert_eq!(cfg.epsilon_r, 0.1);
+    assert!(cfg.compute_entropy);
+
+    let xs = vec![-1.5, -0.5, 0.5, 1.5, 0.0];
+    let ys = vec![0.2, -0.8, 1.1, -0.3, 0.4];
+    let l2 = Layout2d::from_xy(xs.clone(), ys.clone()).unwrap();
+    let mut flat = Vec::with_capacity(xs.len() * 2);
+    for (&x, &y) in xs.iter().zip(ys.iter()) {
+        flat.push(x);
+        flat.push(y);
+    }
+    let lnd2 = LayoutNd::from_flat(xs.len(), 2, &flat).unwrap();
+
+    let mut f_l2 = FitField2d::<f64>::new(cfg.clone()).unwrap();
+    let mut f_euc_2d = FitField2d::<f64>::new(cfg.clone()).unwrap();
+    let mut f_euc_nd = FitField2d::<f64>::new(cfg).unwrap();
+    let mut out1 = FitFieldOutput::new();
+    let mut out2 = FitFieldOutput::new();
+    let mut out3 = FitFieldOutput::new();
+
+    f_l2.evaluate(&l2, &mut out1).unwrap();
+    f_euc_2d.evaluate_euclidean(&l2, &mut out2).unwrap();
+    f_euc_nd.evaluate_euclidean(&lnd2, &mut out3).unwrap();
+
+    assert_eq!(out1.kl_repulsion_x, out2.kl_repulsion_x);
+    assert_eq!(out1.kl_repulsion_y, out2.kl_repulsion_y);
+    assert_eq!(out1.kl_repulsion_x, out3.kl_repulsion_x);
+    assert_eq!(out1.kl_repulsion_y, out3.kl_repulsion_y);
+    assert_eq!(out1.total_z, out3.total_z);
+    assert_eq!(f_l2.last_stats(), f_euc_nd.last_stats());
+    assert_eq!(f_l2.grid_spec(), f_euc_nd.grid_spec());
+    assert_eq!(f_l2.config(), f_euc_nd.config());
+
+    let l3 = Layout3d::<f64>::zeros(4);
+    assert!(matches!(
+        f_euc_nd.evaluate_euclidean(&l3, &mut out3),
+        Err(CoreError::DimensionMismatch {
+            expected: 2,
+            actual: 3,
+            ..
+        })
+    ));
+    let lnd1 = LayoutNd::<f64>::zeros(4, 1).unwrap();
+    assert!(matches!(
+        f_euc_nd.evaluate_euclidean(&lnd1, &mut out3),
+        Err(CoreError::DimensionMismatch {
+            expected: 2,
+            actual: 1,
+            ..
+        })
     ));
 }

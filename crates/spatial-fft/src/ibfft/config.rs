@@ -1,6 +1,7 @@
 use egraph_core::{CoreError, CoreResult};
 
 /// Polynomial interpolation order per grid axis in [`super::IbFft2d`].
+#[non_exhaustive]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Default)]
 pub enum InterpolationOrder {
     /// $p = 1$ bilinear interpolation (`2x2` stencil, non-negative weights, default).
@@ -42,7 +43,8 @@ impl InterpolationOrder {
 }
 
 /// Configuration for [`super::IbFft2d`] grid sizing and polynomial order.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq)]
 pub struct IbFftConfig {
     /// Interpolation order (`Bilinear` $p=1$ by default).
     pub order: InterpolationOrder,
@@ -69,6 +71,30 @@ impl Default for IbFftConfig {
 }
 
 impl IbFftConfig {
+    /// Sets the polynomial interpolation order per grid axis.
+    pub fn with_order(mut self, order: InterpolationOrder) -> Self {
+        self.order = order;
+        self
+    }
+
+    /// Sets the nominal interval count used to determine base grid resolution.
+    pub fn with_intervals(mut self, intervals: usize) -> Self {
+        self.intervals = intervals;
+        self
+    }
+
+    /// Sets the minimum interior grid resolution per axis.
+    pub fn with_min_grid_dim(mut self, min_grid_dim: usize) -> Self {
+        self.min_grid_dim = min_grid_dim;
+        self
+    }
+
+    /// Sets the maximum interior grid resolution per axis.
+    pub fn with_max_grid_dim(mut self, max_grid_dim: usize) -> Self {
+        self.max_grid_dim = max_grid_dim;
+        self
+    }
+
     /// Validates grid configuration parameters.
     pub fn validate(&self) -> CoreResult<()> {
         if self.intervals == 0 {
@@ -91,7 +117,8 @@ impl IbFftConfig {
 }
 
 /// Computed adaptive grid geometry for the current coordinate batch.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq)]
 pub struct IbFftGridSpec {
     pub center_x: f64,
     pub center_y: f64,

@@ -2,8 +2,10 @@
 name = "egraph-spatial-fft"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+description = "Single-threaded 2D FFT, interpolation-based FFT, and screened Poisson density-field kernels for egraph-rs"
 
 [dependencies]
 egraph-core.workspace = true

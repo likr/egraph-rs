@@ -198,20 +198,17 @@ fn test_pitfall2_plateau_expansion_screened_poisson_vs_single_gaussian() {
     let n = xs.len();
     let bounds = [-3.0, -3.0, 3.0, 3.0];
 
-    let sp_cfg = ScreenedPoissonConfig {
-        kernel: DensityFieldKernel::ScreenedPoisson,
-        grid_size: 256,
-        padding_factor: 2,
-        sigma: Some(0.08),
-        kappa: Some(0.8),
-        rho_max: Some(0.08),
-        exact_adjoint: true,
-        ..ScreenedPoissonConfig::default()
-    };
-    let sg_cfg = ScreenedPoissonConfig {
-        kernel: DensityFieldKernel::SingleGaussian,
-        ..sp_cfg
-    };
+    let sp_cfg = ScreenedPoissonConfig::default()
+        .with_kernel(DensityFieldKernel::ScreenedPoisson)
+        .with_grid_size(256)
+        .with_padding_factor(2)
+        .with_sigma(Some(0.08))
+        .with_kappa(Some(0.8))
+        .with_rho_max(Some(0.08))
+        .with_exact_adjoint(true);
+    let sg_cfg = sp_cfg
+        .clone()
+        .with_kernel(DensityFieldKernel::SingleGaussian);
 
     let mut sp_field = ScreenedPoissonField2d::<f64>::new(sp_cfg).unwrap();
     let mut sg_field = ScreenedPoissonField2d::<f64>::new(sg_cfg).unwrap();
@@ -327,4 +324,84 @@ fn test_density_grid_early_exit_f32_and_asymmetric_bounds_order() {
     assert!(field.density_grid().is_none());
     assert_eq!(field.density_grid_dim(), 0);
     assert!(out_bounds.density_grid().is_none());
+}
+
+#[test]
+fn test_screened_poisson_euclidean_entrypoints_and_builders() {
+    use egraph_core::{Layout3d, LayoutNd};
+
+    let cfg = ScreenedPoissonConfig::default()
+        .with_kernel(DensityFieldKernel::ScreenedPoisson)
+        .with_grid_size(64)
+        .with_padding_factor(2)
+        .with_margin_ratio(0.15)
+        .with_sigma_ratio(0.02)
+        .with_sigma(Some(0.25))
+        .with_screening_length_ratio(0.25)
+        .with_kappa(Some(0.5))
+        .with_rho_max_factor(2.5)
+        .with_rho_max(Some(0.05))
+        .with_exact_adjoint(false);
+    assert_eq!(cfg.grid_size, 64);
+    assert_eq!(cfg.margin_ratio, 0.15);
+    assert_eq!(cfg.sigma_ratio, 0.02);
+    assert_eq!(cfg.screening_length_ratio, 0.25);
+    assert_eq!(cfg.rho_max_factor, 2.5);
+    assert!(!cfg.exact_adjoint);
+
+    let xs = vec![-0.4, 0.1, -0.2, 0.3, 0.0, -0.1, 0.2, 0.05];
+    let ys = vec![0.3, -0.2, -0.1, 0.25, 0.15, 0.05, -0.3, 0.1];
+    let l2 = Layout2d::from_xy(xs.clone(), ys.clone()).unwrap();
+    let mut flat = Vec::with_capacity(xs.len() * 2);
+    for (&x, &y) in xs.iter().zip(ys.iter()) {
+        flat.push(x);
+        flat.push(y);
+    }
+    let lnd2 = LayoutNd::from_flat(xs.len(), 2, &flat).unwrap();
+
+    let mut f1 = ScreenedPoissonField2d::<f64>::new(cfg.clone()).unwrap();
+    let mut f2 = ScreenedPoissonField2d::<f64>::new(cfg.clone()).unwrap();
+    let mut f3 = ScreenedPoissonField2d::<f64>::new(cfg).unwrap();
+    let mut o1 = ScreenedPoissonOutput::new();
+    let mut o2 = ScreenedPoissonOutput::new();
+    let mut o3 = ScreenedPoissonOutput::new();
+
+    f1.evaluate(&l2, &mut o1).unwrap();
+    f2.evaluate_euclidean(&l2, &mut o2).unwrap();
+    f3.evaluate_euclidean(&lnd2, &mut o3).unwrap();
+    assert_eq!(o1.energy, o2.energy);
+    assert_eq!(o1.energy, o3.energy);
+    assert_eq!(o1.force_x, o2.force_x);
+    assert_eq!(o1.force_y, o2.force_y);
+    assert_eq!(o1.force_x, o3.force_x);
+    assert_eq!(o1.force_y, o3.force_y);
+
+    let bounds = [-2.0, -2.0, 2.0, 2.0];
+    f1.evaluate_in_bounds(&l2, bounds, &mut o1).unwrap();
+    f2.evaluate_euclidean_in_bounds(&l2, bounds, &mut o2)
+        .unwrap();
+    f3.evaluate_euclidean_in_bounds(&lnd2, bounds, &mut o3)
+        .unwrap();
+    assert_eq!(o1.energy, o3.energy);
+    assert_eq!(o1.force_x, o3.force_x);
+    assert_eq!(o1.force_y, o3.force_y);
+
+    let l3 = Layout3d::<f64>::zeros(4);
+    assert!(matches!(
+        f3.evaluate_euclidean(&l3, &mut o3),
+        Err(CoreError::DimensionMismatch {
+            expected: 2,
+            actual: 3,
+            ..
+        })
+    ));
+    let lnd3 = LayoutNd::<f64>::zeros(4, 3).unwrap();
+    assert!(matches!(
+        f3.evaluate_euclidean_in_bounds(&lnd3, bounds, &mut o3),
+        Err(CoreError::DimensionMismatch {
+            expected: 2,
+            actual: 3,
+            ..
+        })
+    ));
 }

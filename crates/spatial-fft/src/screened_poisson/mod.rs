@@ -7,7 +7,7 @@
 //! adjoint masking (`exact_adjoint: true`, default) via a compact `u64` excess bitmask as well as
 //! the single-solve unmasked formulation (`exact_adjoint: false`).
 
-use egraph_core::{CoreError, CoreResult, Layout2d, Scalar};
+use egraph_core::{CoreError, CoreResult, EuclideanLayout, EuclideanStorageRef, Layout2d, Scalar};
 
 use crate::fft_r2c::{Complex32, R2cFft2dWorkspaceF32};
 
@@ -34,6 +34,8 @@ pub struct ScreenedPoissonField2d<S: Scalar = f64> {
     ky_sq: Vec<f32>,
     gauss_x: Vec<f32>,
     gauss_y: Vec<f32>,
+    scratch_x: Vec<S>,
+    scratch_y: Vec<S>,
     _marker: std::marker::PhantomData<S>,
 }
 
@@ -61,14 +63,16 @@ impl<S: Scalar> ScreenedPoissonField2d<S> {
             ky_sq: vec![0.0; pad_dim],
             gauss_x: vec![0.0; stride],
             gauss_y: vec![0.0; pad_dim],
+            scratch_x: Vec::new(),
+            scratch_y: Vec::new(),
             _marker: std::marker::PhantomData,
         })
     }
 
     /// Returns the active [`ScreenedPoissonConfig`].
     #[inline]
-    pub fn config(&self) -> ScreenedPoissonConfig {
-        self.config
+    pub fn config(&self) -> &ScreenedPoissonConfig {
+        &self.config
     }
 
     /// Updates the field configuration, resizing internal `f32` workspaces only when grid dimensions change.
@@ -102,6 +106,7 @@ impl<S: Scalar> ScreenedPoissonField2d<S> {
                 + self.gauss_x.capacity()
                 + self.gauss_y.capacity())
                 * size_of::<f32>()
+            + (self.scratch_x.capacity() + self.scratch_y.capacity()) * size_of::<S>()
             + self.ws.workspace_memory_bytes()
     }
 
@@ -135,6 +140,49 @@ impl<S: Scalar> ScreenedPoissonField2d<S> {
         out: &mut ScreenedPoissonOutput<S>,
     ) -> CoreResult<()> {
         self.evaluate_xy(layout.x(), layout.y(), out)
+    }
+
+    /// [`EuclideanLayout`] variant of [`Self::evaluate`].
+    ///
+    /// Uses zero-copy SoA slices for [`Layout2d`] and accepts 2D `LayoutNd`; fails fast with
+    /// [`CoreError::DimensionMismatch`] when `layout.dims() != 2`.
+    pub fn evaluate_euclidean<L: EuclideanLayout<Scalar = S> + ?Sized>(
+        &mut self,
+        layout: &L,
+        out: &mut ScreenedPoissonOutput<S>,
+    ) -> CoreResult<()> {
+        match layout.as_euclidean_storage() {
+            EuclideanStorageRef::Soa2d { x, y } => self.evaluate_xy(x, y, out),
+            EuclideanStorageRef::FlatNd {
+                coords,
+                num_nodes,
+                dims: 2,
+            } => {
+                let mut sx = std::mem::take(&mut self.scratch_x);
+                let mut sy = std::mem::take(&mut self.scratch_y);
+                let res = crate::deinterleave_flat_2d(
+                    coords,
+                    num_nodes,
+                    &mut sx,
+                    &mut sy,
+                    "ScreenedPoissonField2d::evaluate_euclidean",
+                )
+                .and_then(|()| self.evaluate_xy(&sx, &sy, out));
+                self.scratch_x = sx;
+                self.scratch_y = sy;
+                res
+            }
+            EuclideanStorageRef::Soa3d { .. } => Err(CoreError::dimension_mismatch(
+                2,
+                3,
+                "ScreenedPoissonField2d::evaluate_euclidean",
+            )),
+            EuclideanStorageRef::FlatNd { dims, .. } => Err(CoreError::dimension_mismatch(
+                2,
+                dims,
+                "ScreenedPoissonField2d::evaluate_euclidean",
+            )),
+        }
     }
 
     /// Slice-based variant of [`Self::evaluate`].
@@ -182,6 +230,50 @@ impl<S: Scalar> ScreenedPoissonField2d<S> {
         out: &mut ScreenedPoissonOutput<S>,
     ) -> CoreResult<()> {
         self.evaluate_xy_in_bounds(layout.x(), layout.y(), bounds, out)
+    }
+
+    /// [`EuclideanLayout`] variant of [`Self::evaluate_in_bounds`].
+    ///
+    /// Uses zero-copy SoA slices for [`Layout2d`] and accepts 2D `LayoutNd`; fails fast with
+    /// [`CoreError::DimensionMismatch`] when `layout.dims() != 2`.
+    pub fn evaluate_euclidean_in_bounds<L: EuclideanLayout<Scalar = S> + ?Sized>(
+        &mut self,
+        layout: &L,
+        bounds: [f64; 4],
+        out: &mut ScreenedPoissonOutput<S>,
+    ) -> CoreResult<()> {
+        match layout.as_euclidean_storage() {
+            EuclideanStorageRef::Soa2d { x, y } => self.evaluate_xy_in_bounds(x, y, bounds, out),
+            EuclideanStorageRef::FlatNd {
+                coords,
+                num_nodes,
+                dims: 2,
+            } => {
+                let mut sx = std::mem::take(&mut self.scratch_x);
+                let mut sy = std::mem::take(&mut self.scratch_y);
+                let res = crate::deinterleave_flat_2d(
+                    coords,
+                    num_nodes,
+                    &mut sx,
+                    &mut sy,
+                    "ScreenedPoissonField2d::evaluate_euclidean_in_bounds",
+                )
+                .and_then(|()| self.evaluate_xy_in_bounds(&sx, &sy, bounds, out));
+                self.scratch_x = sx;
+                self.scratch_y = sy;
+                res
+            }
+            EuclideanStorageRef::Soa3d { .. } => Err(CoreError::dimension_mismatch(
+                2,
+                3,
+                "ScreenedPoissonField2d::evaluate_euclidean_in_bounds",
+            )),
+            EuclideanStorageRef::FlatNd { dims, .. } => Err(CoreError::dimension_mismatch(
+                2,
+                dims,
+                "ScreenedPoissonField2d::evaluate_euclidean_in_bounds",
+            )),
+        }
     }
 
     /// Slice-based variant of [`Self::evaluate_in_bounds`] expecting `bounds = [min_x, min_y, max_x, max_y]`.
@@ -298,8 +390,9 @@ impl<S: Scalar> ScreenedPoissonField2d<S> {
         out.density_grid.resize(self.density_grid.len(), S::ZERO);
         out.density_grid.copy_from_slice(&self.density_grid);
         out.energy = stats.energy;
+        let early_exit = stats.early_exit_no_excess;
         out.stats = stats;
-        if stats.early_exit_no_excess {
+        if early_exit {
             return Ok(());
         }
 

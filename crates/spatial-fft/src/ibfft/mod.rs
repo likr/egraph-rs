@@ -6,7 +6,7 @@
 
 use std::marker::PhantomData;
 
-use egraph_core::{CoreError, CoreResult, Layout2d, Scalar};
+use egraph_core::{CoreError, CoreResult, EuclideanLayout, EuclideanStorageRef, Layout2d, Scalar};
 
 use crate::fft::{Complex64, Fft2dWorkspace};
 
@@ -41,6 +41,8 @@ pub struct IbFft2d<S: Scalar = f64> {
     active_cursors: Vec<usize>,
     pub(crate) active_cells: Vec<DualCell>,
     pub(crate) binned: Vec<BinnedParticle>,
+    scratch_x: Vec<S>,
+    scratch_y: Vec<S>,
     _marker: PhantomData<S>,
 }
 
@@ -68,29 +70,28 @@ impl<S: Scalar> IbFft2d<S> {
             active_cursors: Vec::new(),
             active_cells: Vec::new(),
             binned: Vec::new(),
+            scratch_x: Vec::new(),
+            scratch_y: Vec::new(),
             _marker: PhantomData,
         })
     }
 
     /// Creates an [`IbFft2d`] workspace with default grid sizing and explicit [`InterpolationOrder`].
     pub fn with_order(order: InterpolationOrder) -> Self {
-        Self::new(IbFftConfig {
-            order,
-            ..IbFftConfig::default()
-        })
-        .expect("default IbFftConfig with valid order is valid")
+        Self::new(IbFftConfig::default().with_order(order))
+            .expect("default IbFftConfig with valid order is valid")
     }
 
     /// Returns the configuration of this interpolator.
     #[inline]
-    pub fn config(&self) -> IbFftConfig {
-        self.config
+    pub fn config(&self) -> &IbFftConfig {
+        &self.config
     }
 
     /// Returns the adaptive grid geometry computed by the most recent [`IbFft2d::prepare`].
     #[inline]
-    pub fn grid_spec(&self) -> Option<IbFftGridSpec> {
-        self.spec
+    pub fn grid_spec(&self) -> Option<&IbFftGridSpec> {
+        self.spec.as_ref()
     }
 
     /// Bins particles into `G_dual`, scatters `(1, qx, qy)` onto the zero-padded grid, and
@@ -99,6 +100,49 @@ impl<S: Scalar> IbFft2d<S> {
     /// Returns the number of forward 2D FFTs executed (`0` when `layout.len() < 2`, `2` otherwise).
     pub fn prepare(&mut self, ws: &mut Fft2dWorkspace, layout: &Layout2d<S>) -> CoreResult<u64> {
         self.prepare_xy(ws, layout.x(), layout.y())
+    }
+
+    /// [`EuclideanLayout`] variant of [`IbFft2d::prepare`].
+    ///
+    /// Uses zero-copy SoA slices for [`Layout2d`] and accepts 2D `LayoutNd`; fails fast with
+    /// [`CoreError::DimensionMismatch`] when `layout.dims() != 2`.
+    pub fn prepare_euclidean<L: EuclideanLayout<Scalar = S> + ?Sized>(
+        &mut self,
+        ws: &mut Fft2dWorkspace,
+        layout: &L,
+    ) -> CoreResult<u64> {
+        match layout.as_euclidean_storage() {
+            EuclideanStorageRef::Soa2d { x, y } => self.prepare_xy(ws, x, y),
+            EuclideanStorageRef::FlatNd {
+                coords,
+                num_nodes,
+                dims: 2,
+            } => {
+                let mut sx = std::mem::take(&mut self.scratch_x);
+                let mut sy = std::mem::take(&mut self.scratch_y);
+                let res = crate::deinterleave_flat_2d(
+                    coords,
+                    num_nodes,
+                    &mut sx,
+                    &mut sy,
+                    "IbFft2d::prepare_euclidean",
+                )
+                .and_then(|()| self.prepare_xy(ws, &sx, &sy));
+                self.scratch_x = sx;
+                self.scratch_y = sy;
+                res
+            }
+            EuclideanStorageRef::Soa3d { .. } => Err(CoreError::dimension_mismatch(
+                2,
+                3,
+                "IbFft2d::prepare_euclidean",
+            )),
+            EuclideanStorageRef::FlatNd { dims, .. } => Err(CoreError::dimension_mismatch(
+                2,
+                dims,
+                "IbFft2d::prepare_euclidean",
+            )),
+        }
     }
 
     /// Slice-based variant of [`IbFft2d::prepare`].
@@ -137,7 +181,6 @@ impl<S: Scalar> IbFft2d<S> {
         }
 
         let spec = IbFftGridSpec::from_bounds(min_x, max_x, min_y, max_y, &self.config);
-        self.spec = Some(spec);
 
         let pad_len = spec.pad_nx * spec.pad_ny;
         self.grid_1_fft.resize(pad_len, Complex64::ZERO);
@@ -149,6 +192,7 @@ impl<S: Scalar> IbFft2d<S> {
 
         self.bin_particles_g_dual(xs, ys, &spec);
         self.scatter_g_dual(&spec);
+        self.spec = Some(spec.clone());
 
         ws.fft_2d(&mut self.grid_1_fft, spec.pad_nx, spec.pad_ny, false)?;
         ws.fft_2d(&mut self.grid_xy_fft, spec.pad_nx, spec.pad_ny, false)?;
@@ -203,7 +247,10 @@ impl<S: Scalar> IbFft2d<S> {
             return Ok(());
         }
 
-        let spec = self.spec.expect("spec must exist when num_points >= 2");
+        let spec = self
+            .spec
+            .as_ref()
+            .expect("spec must exist when num_points >= 2");
         let pad_nx = spec.pad_nx;
         let pad_ny = spec.pad_ny;
 
