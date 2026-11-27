@@ -377,6 +377,24 @@ class TestNeighborAndSgdSolvers(unittest.TestCase):
             sq2.run(l_sq2)
             np.testing.assert_array_equal(l_sq1.coords(copy=True), l_sq2.coords(copy=True))
 
+        # SgdSolver.omega accepts Layout2d and LayoutNd, and rejects ManifoldLayout2d with TypeError
+        emb_2d = eg.Layout2d.from_coords(base)
+        emb_nd = eg.LayoutNd.init(n, 3, seed=42)
+        s_om_2d = eg.SgdSolver.omega(graph, emb_2d, k=4, iterations=4, seed=42)
+        s_om_nd = eg.SgdSolver.omega(graph, emb_nd, k=4, iterations=4, seed=42)
+        out_om_2d = eg.Layout2d.from_coords(base)
+        out_om_nd = eg.Layout2d.from_coords(base)
+        s_om_2d.run(out_om_2d)
+        s_om_nd.run(out_om_nd)
+        self.assertTrue(out_om_2d.is_all_finite())
+        self.assertTrue(out_om_nd.is_all_finite())
+
+        emb_mani = eg.ManifoldLayout2d.from_coords("hyperbolic_poincare", base * 0.2)
+        self.assert_no_panic_raises(
+            (TypeError,),
+            lambda: eg.SgdSolver.omega(graph, emb_mani, k=4, iterations=4, seed=42),  # type: ignore[arg-type]
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

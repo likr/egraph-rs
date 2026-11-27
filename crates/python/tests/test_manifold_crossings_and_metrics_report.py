@@ -214,6 +214,35 @@ class TestManifoldCrossingsAndMetricsReport(unittest.TestCase):
             )
             self.assertGreaterEqual(r_c8["rta"], 0.0)
 
+        # HyperbolicLorentz extreme-radius distance, geodesic_distortion, and Poincare boundary projection
+        d160 = eg.lorentz_distance(1e160, 0.0, 1.0, 0.0)
+        d200 = eg.lorentz_distance(1e200, 0.0, 1.0, 0.0)
+        self.assertTrue(math.isfinite(d160) and d160 > 300.0)
+        self.assertTrue(math.isfinite(d200) and d200 > 400.0)
+        px, py = eg.lorentz_to_poincare_point(1.5e308, 1.5e308)
+        self.assertGreater(px, 0.7)
+        self.assertGreater(py, 0.7)
+        self.assertAlmostEqual(math.hypot(px, py), 1.0 - 1e-5, places=10)
+
+        g_pair = eg.CsrGraph.from_edges(2, [(0, 1)], directed=False)
+        ml_extreme = eg.ManifoldLayout2d.from_coords(
+            "hyperbolic_lorentz",
+            np.array([[1e160, 0.0], [1.0, 0.0]], dtype=np.float64),
+        )
+        gd_extreme = eg.evaluate_metrics(g_pair, ml_extreme, ["geodesic_distortion"]).geodesic_distortion
+        assert gd_extreme is not None
+        self.assertTrue(math.isfinite(gd_extreme))
+        self.assertAlmostEqual(gd_extreme, d160 - 1.0, places=9)
+
+        ml_max = eg.ManifoldLayout2d.from_coords(
+            "hyperbolic_lorentz",
+            np.array([[1.5e308, 1.5e308], [-1.5e308, 0.0]], dtype=np.float64),
+        )
+        poinc_max = ml_max.to_poincare_layout()
+        coords_max = poinc_max.coords(copy=True)
+        self.assertAlmostEqual(float(np.hypot(coords_max[0, 0], coords_max[0, 1])), 1.0 - 1e-5, places=10)
+        self.assertAlmostEqual(float(coords_max[1, 0]), -(1.0 - 1e-5), places=10)
+
 
 if __name__ == "__main__":
     unittest.main()

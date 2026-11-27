@@ -208,6 +208,24 @@ class TestChebyshevMdsAndDeclutter(unittest.TestCase):
         self.assertEqual(km.dims, 2)
         self.assertEqual(len(labels_true), 12)
 
+        # TwinDeclutterer preserves finiteness on large-coordinate coincident and multi-cluster layouts
+        l_large_coincident = eg.Layout2d.from_coords(
+            np.full((4, 2), 1e308, dtype=np.float64)
+        )
+        td_large = eg.TwinDeclutterer(iterations=4, dtype="float64")
+        self.assertEqual(td_large.run(l_large_coincident), "converged")
+        self.assertTrue(l_large_coincident.is_all_finite())
+
+        l_large_multi = eg.Layout2d.from_coords(
+            np.array(
+                [[-1e308, -1e308], [-1e308, -1e308], [1e308, 1e308], [1e308, 1e308], [0.0, 0.0]],
+                dtype=np.float64,
+            )
+        )
+        td_multi = eg.TwinDeclutterer(iterations=4, dtype="float64")
+        self.assertIn(td_multi.run(l_large_multi), ("converged", "completed"))
+        self.assertTrue(l_large_multi.is_all_finite())
+
 
 if __name__ == "__main__":
     unittest.main()

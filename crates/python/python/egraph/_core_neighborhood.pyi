@@ -5,7 +5,7 @@ from typing import Any, final
 import numpy as np
 import numpy.typing as npt
 
-from ._core_core import CsrGraph
+from ._core_core import CsrGraph, Layout2d, LayoutNd
 from ._core_linalg import CsrMatrix
 from ._core_types import (
     _CoordArrayLike,
@@ -186,7 +186,7 @@ def build_gumap_12hop_priority_csr(
 
 def build_hybrid_adaptive_knn(
     graph: CsrGraph,
-    coords: _MatrixArrayLike,
+    coords: _MatrixArrayLike | Layout2d | LayoutNd,
     perplexities: _WeightArrayLike | float,
     *,
     k_factor: float = 3.0,
@@ -202,7 +202,7 @@ def build_pure_2hop_knn(
 ) -> tuple[KnnGraph, npt.NDArray[np.uint32], dict[str, Any]]: ...
 
 def build_rerank_knn(
-    coords: _CoordArrayLike,
+    coords: _CoordArrayLike | Layout2d | LayoutNd,
     k: int = 15,
     *,
     coarse_dim: int = 10,

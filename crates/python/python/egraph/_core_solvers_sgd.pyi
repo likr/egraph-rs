@@ -201,7 +201,7 @@ class SgdSolver:
     @staticmethod
     def omega(
         graph: CsrGraph,
-        embedding: _MatrixArrayLike | _AnyLayout,
+        embedding: _MatrixArrayLike | Layout2d | LayoutNd,
         k: int = 30,
         min_dist: float = 1e-3,
         *,

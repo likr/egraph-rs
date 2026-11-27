@@ -208,6 +208,21 @@ class TestNeighborhoodKnnAndLandmarks(unittest.TestCase):
             row_len = int(h_knn_ov.indptr()[i + 1] - h_knn_ov.indptr()[i])
             self.assertLessEqual(row_len, 6)
 
+        # Layout2d and LayoutNd inputs accepted directly by build_hybrid_adaptive_knn and build_rerank_knn
+        coords_2d = eg.Layout2d.from_coords(coords[:, :2])
+        coords_nd = eg.LayoutNd.from_coords(coords)
+        h_knn_2d, _ = eg.build_hybrid_adaptive_knn(g, coords_2d, 3.0, k=4, max_row_k=6)
+        h_knn_nd, _ = eg.build_hybrid_adaptive_knn(g, coords_nd, perps, k=4, max_row_k=6)
+        self.assertEqual(h_knn_2d.num_nodes, 13)
+        self.assertEqual(h_knn_nd.num_nodes, 13)
+        np.testing.assert_array_equal(h_knn_nd.indices(), h_knn_ov.indices())
+        r_knn_2d = eg.build_rerank_knn(coords_2d, k=4)
+        r_knn_nd = eg.build_rerank_knn(coords_nd, k=4)
+        r_knn_arr = eg.build_rerank_knn(coords, k=4)
+        self.assertEqual(r_knn_2d.num_nodes, 13)
+        self.assertEqual(r_knn_nd.num_nodes, 13)
+        np.testing.assert_array_equal(r_knn_nd.indices(), r_knn_arr.indices())
+
         # Partial BFS k-NN
         p_knn1 = eg.partial_bfs_knn(g, k=5, seed=42)
         p_knn2 = eg.partial_bfs_knn(g, k=5, seed=42)
