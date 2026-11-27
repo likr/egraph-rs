@@ -76,6 +76,27 @@ def run_cross_target_overlap_cluster_metrics_parity(
     l_fb_rad = eg.Layout2d.from_coords(ov_f32)
     fb_rad.run(l_fb_rad)
 
+    # N=80 > sparse_k=30: default ForbidOverlapRemoval matches sparse_forbid & WASM default and diverges from forbid
+    ov80_f32 = (np.array(make_asymmetric_coords(80, scale=0.3), dtype=np.float32)).astype(np.float32)
+    hw80_f32 = [0.25] * 80
+    hh80_f32 = [0.25] * 80
+    l_fb80_def = eg.Layout2d.from_coords(ov80_f32)
+    l_fb80_sp = eg.Layout2d.from_coords(ov80_f32)
+    l_fb80_full = eg.Layout2d.from_coords(ov80_f32)
+    l_fb80_x = eg.Layout2d.from_coords(ov80_f32)
+    eg.ForbidOverlapRemoval(hw80_f32, hh80_f32, dtype="float32").step(l_fb80_def)
+    eg.ForbidOverlapRemoval(hw80_f32, hh80_f32, variant="sparse_forbid", dtype="float32").step(l_fb80_sp)
+    eg.ForbidOverlapRemoval(hw80_f32, hh80_f32, variant="forbid", dtype="float32").step(l_fb80_full)
+    eg.ForbidOverlapRemoval(hw80_f32, hh80_f32, sgd_iterations=5, dtype="float32").step(l_fb80_x)
+    lr_fb80_def = eg.Layout2d.from_coords(ov80_f32)
+    lr_fb80_sp = eg.Layout2d.from_coords(ov80_f32)
+    lr_fb80_full = eg.Layout2d.from_coords(ov80_f32)
+    lr_fb80_x = eg.Layout2d.from_coords(ov80_f32)
+    eg.ForbidOverlapRemoval.from_radii(hw80_f32, dtype="float32").step(lr_fb80_def)
+    eg.ForbidOverlapRemoval.from_radii(hw80_f32, variant="sparse_forbid", dtype="float32").step(lr_fb80_sp)
+    eg.ForbidOverlapRemoval.from_radii(hw80_f32, variant="forbid", dtype="float32").step(lr_fb80_full)
+    eg.ForbidOverlapRemoval.from_radii(hw80_f32, sgd_iterations=5, dtype="float32").step(lr_fb80_x)
+
     # Cluster baselines & evaluate_metrics
     l_sep = eg.Layout2d.from_coords(sep_f32)
     l_ov = eg.Layout2d.from_coords(ov_f32)
@@ -147,6 +168,9 @@ def run_cross_target_overlap_cluster_metrics_parity(
         "pred_labels": pred_labels,
         "hw10": hw10_f32,
         "hh10": hh10_f32,
+        "ov80": [float(v) for v in ov80_f32.ravel()],
+        "hw80": hw80_f32,
+        "hh80": hh80_f32,
     }
 
     node_body = """
@@ -182,6 +206,22 @@ const fbRad = mod.ForbidOverlapRemoval.fromRadii(hw10, { variant: 'forbid', maxS
 const lFbRad = mod.Layout2d.fromCoords(ov);
 fbRad.run(lFbRad);
 
+const ov80 = new Float32Array(spec.ov80);
+const hw80 = new Float32Array(spec.hw80);
+const hh80 = new Float32Array(spec.hh80);
+const lFb80Def = mod.Layout2d.fromCoords(ov80);
+const lFb80Sp = mod.Layout2d.fromCoords(ov80);
+const lFb80Full = mod.Layout2d.fromCoords(ov80);
+const lFb80X = mod.Layout2d.fromCoords(ov80);
+const lFb80RadDef = mod.Layout2d.fromCoords(ov80);
+const lFb80RadX = mod.Layout2d.fromCoords(ov80);
+new mod.ForbidOverlapRemoval(hw80, hh80).step(lFb80Def);
+new mod.ForbidOverlapRemoval(hw80, hh80, { variant: 'sparse_forbid' }).step(lFb80Sp);
+new mod.ForbidOverlapRemoval(hw80, hh80, { variant: 'forbid' }).step(lFb80Full);
+new mod.ForbidOverlapRemoval(hw80, hh80, { sgdIterations: 5 }).step(lFb80X);
+mod.ForbidOverlapRemoval.fromRadii(hw80).step(lFb80RadDef);
+mod.ForbidOverlapRemoval.fromRadii(hw80, { sgdIterations: 5 }).step(lFb80RadX);
+
 const lSep = mod.Layout2d.fromCoords(sep);
 const lOv = mod.Layout2d.fromCoords(ov);
 const pa = mod.partitionAgreement(commLabels, predLabels);
@@ -214,6 +254,14 @@ const out = {
   },
   fb,
   fbRad: { coords: Array.from(lFbRad.coordsView()), ov: fbRad.lastOverlapCount },
+  fb80: {
+    defCoords: Array.from(lFb80Def.coordsView()),
+    spCoords: Array.from(lFb80Sp.coordsView()),
+    fullCoords: Array.from(lFb80Full.coordsView()),
+    xCoords: Array.from(lFb80X.coordsView()),
+    radDefCoords: Array.from(lFb80RadDef.coordsView()),
+    radXCoords: Array.from(lFb80RadX.coordsView()),
+  },
   cluster_metrics: {
     pa: pa.toRecord(), cqKm: cqKm.toRecord(), cqHac: cqHac.toRecord(),
     norG: norG.toRecord(), norNoG: norNoG.toRecord(), ev: evRep.toRecord(),
@@ -237,6 +285,7 @@ const out = {
 };
 
 evRep.free?.(); norNoG.free?.(); norG.free?.(); cdmRes.free?.(); cqHac.free?.(); cqKm.free?.(); pa.free?.();
+lFb80RadX.free?.(); lFb80RadDef.free?.(); lFb80X.free?.(); lFb80Full.free?.(); lFb80Sp.free?.(); lFb80Def.free?.();
 lOv.free?.(); lSep.free?.(); lFbRad.free?.(); fbRad.free?.(); lGtRad.free?.(); gtRad.free?.(); lGtBox.free?.(); gtBox.free?.(); gBb.free?.();
 
 console.log(JSON.stringify(out));
@@ -303,11 +352,27 @@ console.log(JSON.stringify(out));
     ):
         check_close(f"evaluate_metrics/cluster/{pk}", [ev_cluster_py[pk]], [cm["ev"][wk]], 1e-10, is_f32=False)
 
-    # Verify default ForbidOverlapRemoval matches sparse_forbid
-    fb_def_py = eg.ForbidOverlapRemoval(hw10_f32, hh10_f32, max_scale_iters=25, sgd_iterations=30, seed=42, dtype="float32")
-    l_fb_def = eg.Layout2d.from_coords(ov_f32)
-    fb_def_py.run(l_fb_def)
-    check_close("forbid/default_is_sparse_forbid", l_fb_def.coords(copy=True), fb_py["sparse_forbid"]["coords"], 1e-6)
+    # Verify default ForbidOverlapRemoval matches sparse_forbid & WASM default on N=80 > sparse_k=30
+    assert np.array_equal(l_fb80_def.coords(copy=True), l_fb80_sp.coords(copy=True)), (
+        "N=80 default ForbidOverlapRemoval must match variant='sparse_forbid'"
+    )
+    assert np.array_equal(lr_fb80_def.coords(copy=True), lr_fb80_sp.coords(copy=True)), (
+        "N=80 default ForbidOverlapRemoval.from_radii must match variant='sparse_forbid'"
+    )
+    assert np.array_equal(ws["fb80"]["defCoords"], ws["fb80"]["spCoords"]), (
+        "N=80 WASM default ForbidOverlapRemoval must match variant='sparse_forbid'"
+    )
+    check_close("forbid/n80_default_py_vs_wasm", l_fb80_x.coords(copy=True), ws["fb80"]["xCoords"], 1e-4)
+    check_close("forbid/n80_radii_default_py_vs_wasm", lr_fb80_x.coords(copy=True), ws["fb80"]["radXCoords"], 1e-4)
+    assert not np.allclose(l_fb80_def.coords(copy=True).ravel(), l_fb80_full.coords(copy=True).ravel(), atol=1e-3), (
+        "N=80 default ForbidOverlapRemoval must diverge from variant='forbid'"
+    )
+    assert not np.allclose(lr_fb80_def.coords(copy=True).ravel(), lr_fb80_full.coords(copy=True).ravel(), atol=1e-3), (
+        "N=80 default ForbidOverlapRemoval.from_radii must diverge from variant='forbid'"
+    )
+    assert not np.allclose(ws["fb80"]["defCoords"], ws["fb80"]["fullCoords"], atol=1e-3), (
+        "N=80 WASM default ForbidOverlapRemoval must diverge from variant='forbid'"
+    )
 
     return [{
         "case": "cross_target_overlap_cluster_metrics_py_vs_wasm",

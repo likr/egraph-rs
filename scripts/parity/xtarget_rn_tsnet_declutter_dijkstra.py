@@ -75,6 +75,45 @@ def run_cross_target_rn_tsnet_declutter_dijkstra_parity(
     )
     ts_rn_rw.run(l_rn_rw)
 
+    # __new__ constructors (SgdSolver, TsNetSolver, GuMapSolver) & TsNet stage_iterations
+    knn16, _, _ = eg.build_pure_2hop_knn(g16)
+    perps16 = eg.compute_nodewise_2hop_perplexities(g16)
+    probs16 = eg.compute_knn_probabilities(knn16, perps16)
+
+    l_sgd_new = eg.Layout2d.from_coords(init16_f32)
+    s_sgd_new = eg.SgdSolver(g16, dtype="float32")
+    assert s_sgd_new.total_iterations == 60
+    s_sgd_new.run(l_sgd_new)
+
+    gumap_init16_f32 = (init16_f32 * 5.0).astype(np.float32)
+    l_gm_new = eg.Layout2d.from_coords(gumap_init16_f32)
+    l_gm_dog = eg.Layout2d.from_coords(gumap_init16_f32)
+    s_gm_new = eg.GuMapSolver(g16, dtype="float32")
+    eg.GuMapSolver.from_graph_dog(g16, dtype="float32").step(l_gm_dog)
+    s_gm_new.step(l_gm_new)
+    assert np.array_equal(l_gm_new.coords(copy=True), l_gm_dog.coords(copy=True))
+    l_gm_lr = eg.Layout2d.from_coords(gumap_init16_f32)
+    eg.GuMapSolver(g16, learning_rate=0.2, dtype="float32").step(l_gm_lr)
+
+    si_ctors: dict[str, Any] = {
+        "new": eg.TsNetSolver(g16, backend="exact", stage_iterations=(2, 3, 2), dtype="float32"),
+        "pure": eg.TsNetSolver.pure_2hop(g16, backend="exact", stage_iterations=(2, 3, 2), dtype="float32"),
+        "knn": eg.TsNetSolver.from_knn(knn16, perps16, backend="exact", stage_iterations=(2, 3, 2), dtype="float32"),
+        "probs": eg.TsNetSolver.from_probabilities(probs16, backend="exact", stage_iterations=(2, 3, 2), dtype="float32"),
+        "bfs": eg.TsNetSolver.from_graph_partial_bfs(g16, 15, 15.0, backend="exact", stage_iterations=(2, 3, 2), dtype="float32"),
+        "rn": eg.TsNetSolver.from_graph_row_normalized(g16, backend="exact", stage_iterations=(2, 3, 2), dtype="float32"),
+    }
+    si_coords_py: dict[str, Any] = {}
+    for k_si, sv_si in si_ctors.items():
+        assert sv_si.total_iterations == 7
+        lay_si = eg.Layout2d.from_coords(init16_f32)
+        sv_si.run(lay_si)
+        si_coords_py[k_si] = lay_si.coords(copy=True).ravel()
+
+    assert_non_panic_error("py/tsnet/bad_stage_iterations_len", lambda: eg.TsNetSolver(g16, stage_iterations=(2, 2)))
+    assert_non_panic_error("py/tsnet/bad_stage_iterations_zero", lambda: eg.TsNetSolver(g16, stage_iterations=(0, 2, 2)))
+    assert_non_panic_error("py/tsnet/bad_stage_iterations_bool", lambda: eg.TsNetSolver(g16, stage_iterations=(True, 2, 2)))
+
     # 2. TwinDeclutterer / declutter_twins_2d (f32/f64 + degenerate cases)
     twin_coords_f32 = np.array(
         [[0.0, 0.0], [0.0, 0.0], [1e-7, -1e-7], [1.0, 0.0], [2.0, 1.0], [0.0, 2.0]],
@@ -188,6 +227,45 @@ const tsRnRw = mod.TsNetSolver.fromGraphRowNormalizedWithOptions(g16, {
 const lRnRw = mod.Layout2d.fromCoords(init16);
 tsRnRw.run(lRnRw);
 
+const sgdNew = new mod.SgdSolver(g16);
+assert.equal(sgdNew.totalIterations, 60);
+const lSgdNew = mod.Layout2d.fromCoords(init16);
+sgdNew.run(lSgdNew);
+
+const gumapInit16 = new Float32Array(spec.init16.map((v) => v * 5.0));
+const gmNew = new mod.GuMapSolver(g16);
+const lGmNew = mod.Layout2d.fromCoords(gumapInit16);
+const lGmDog = mod.Layout2d.fromCoords(gumapInit16);
+gmNew.step(lGmNew);
+mod.GuMapSolver.fromGraphDog(g16).step(lGmDog);
+assert.deepEqual(Array.from(lGmNew.coordsView()), Array.from(lGmDog.coordsView()));
+const lGmLr = mod.Layout2d.fromCoords(gumapInit16);
+new mod.GuMapSolver(g16, { learningRate: 0.2 }).step(lGmLr);
+
+const pureRes16 = mod.buildPure2hopKnn(g16);
+const knn16 = pureRes16.knn();
+const perps16 = mod.computeNodewise2hopPerplexities(g16);
+const probs16 = mod.computeKnnProbabilities(knn16, perps16);
+const siOpts = { backend: 'exact', stageIterations: [2, 3, 2] };
+const siSolvers = {
+  new: new mod.TsNetSolver(g16, siOpts),
+  pure: mod.TsNetSolver.pure2Hop(g16, siOpts),
+  knn: mod.TsNetSolver.fromKnn(knn16, Array.from(perps16), 15.0, siOpts),
+  probs: mod.TsNetSolver.fromProbabilities(probs16, siOpts),
+  bfs: mod.TsNetSolver.fromGraphPartialBfs(g16, 15, 15.0, siOpts),
+  rn: mod.TsNetSolver.fromGraphRowNormalized(g16, siOpts),
+};
+const siCoords = {};
+for (const [kSi, svSi] of Object.entries(siSolvers)) {
+  assert.equal(svSi.totalIterations, 7);
+  const lSi = mod.Layout2d.fromCoords(init16);
+  svSi.run(lSi);
+  siCoords[kSi] = Array.from(lSi.coordsView());
+  lSi.free?.();
+  svSi.free?.();
+}
+probs16.free?.(); knn16.free?.(); pureRes16.free?.();
+
 const twinC = new Float32Array(spec.twin_coords);
 const tdR = new mod.TwinDeclutterer({ iterations: 4 });
 const tdS = new mod.TwinDeclutterer({ iterations: 4 });
@@ -250,6 +328,8 @@ const out = {
   autoSm: Array.from(lSm.coordsView()), autoBg: Array.from(lBg.coordsView()),
   autoSmFfts: tsSm.totalFft2dCalls, autoBgFfts: tsBg.totalFft2dCalls,
   stCoords: Array.from(lSt.coordsView()), rnRwCoords: Array.from(lRnRw.coordsView()),
+  sgdNewCoords: Array.from(lSgdNew.coordsView()), gmNewCoords: Array.from(lGmNew.coordsView()), gmLrCoords: Array.from(lGmLr.coordsView()),
+  siCoords,
   pairsRwLen: pairsRw.num1hop + pairsRw.num2hop,
   tdCoords: Array.from(lTdR.coordsView()), tdClusters: tdR.lastClusterCount, tdMoved: tdR.lastMovedCount, passesFn, degOut,
   tr5Edges: Array.from(tr5.edges()), tr5NumEdges: tr5.numEdges(),
@@ -266,7 +346,7 @@ const out = {
 ghyp.free?.(); gsph.free?.(); gico.free?.(); gtor.free?.(); gsbm.graph.free?.(); gdag.free?.(); gw.free?.();
 gDeg2.free?.(); dws.free?.(); g6W.free?.(); tr5.free?.(); dag5.free?.();
 lTdFn.free?.(); lTdS.free?.(); lTdR.free?.(); tdS.free?.(); tdR.free?.();
-lRnRw.free?.(); tsRnRw.free?.(); pairsRw.free?.(); lSt.free?.(); tsSt.free?.();
+lRnRw.free?.(); tsRnRw.free?.(); lGmLr.free?.(); lGmDog.free?.(); lGmNew.free?.(); gmNew.free?.(); lSgdNew.free?.(); sgdNew.free?.(); pairsRw.free?.(); lSt.free?.(); tsSt.free?.();
 probsCsr.free?.(); probsRw.free?.(); lBg.free?.(); tsBg.free?.(); lSm.free?.(); tsSm.free?.();
 g260.free?.(); g16.free?.();
 console.log(JSON.stringify(out));
@@ -281,6 +361,11 @@ console.log(JSON.stringify(out));
     assert ts_auto_big.total_fft_2d_calls == ws["autoBgFfts"] > 0
     max_f32_diff = max(max_f32_diff, check_array_close("rn/stages", l_st_py.coords(copy=True).ravel(), ws["stCoords"], 1e-4))
     max_f32_diff = max(max_f32_diff, check_array_close("rn/two_step_rw", l_rn_rw.coords(copy=True).ravel(), ws["rnRwCoords"], 1e-4))
+    max_f32_diff = max(max_f32_diff, check_array_close("ctor/sgd_new_default", l_sgd_new.coords(copy=True).ravel(), ws["sgdNewCoords"], 1e-4))
+    max_f32_diff = max(max_f32_diff, check_array_close("ctor/gumap_new_default", l_gm_new.coords(copy=True).ravel(), ws["gmNewCoords"], 5e-4))
+    max_f32_diff = max(max_f32_diff, check_array_close("ctor/gumap_new_lr02", l_gm_lr.coords(copy=True).ravel(), ws["gmLrCoords"], 1e-4))
+    for k_si, coords_si in si_coords_py.items():
+        max_f32_diff = max(max_f32_diff, check_array_close(f"tsnet/stage_iterations/{k_si}", coords_si, ws["siCoords"][k_si], 1e-4))
     assert len(pairs_rw.u1()) + len(pairs_rw.u2()) == ws["pairsRwLen"]
     max_f32_diff = max(max_f32_diff, check_array_close("declutter/coords", l_td_r.coords(copy=True).ravel(), ws["tdCoords"], 1e-5))
     assert td_r.last_cluster_count == ws["tdClusters"]
