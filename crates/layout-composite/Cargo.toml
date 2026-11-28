@@ -17,6 +17,7 @@ baselines = [
     "dep:egraph-layout-neighbor",
     "dep:egraph-layout-sgd",
     "dep:egraph-layout-stress",
+    "dep:egraph-linalg",
     "dep:egraph-spatial-trees",
 ]
 
@@ -27,4 +28,5 @@ egraph-layout-force = { workspace = true, optional = true }
 egraph-layout-neighbor = { workspace = true, optional = true }
 egraph-layout-sgd = { workspace = true, optional = true }
 egraph-layout-stress = { workspace = true, optional = true }
+egraph-linalg = { workspace = true, optional = true }
 egraph-spatial-trees = { workspace = true, optional = true }
