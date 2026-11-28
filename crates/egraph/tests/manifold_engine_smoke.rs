@@ -14,7 +14,7 @@ fn grid_2x3() -> CsrGraph<f64> {
 #[test]
 fn core_manifold_metric_lorentz_and_torus_smoke() {
     const {
-        assert!(POINCARE_EPS_F64 > 0.0 && POINCARE_EPS_F32 > 0.0);
+        assert!(egraph::core::POINCARE_EPS_F64 > 0.0 && egraph::core::POINCARE_EPS_F32 > 0.0);
     }
     let metric = ManifoldMetric::default();
     assert_eq!((metric.scale, metric.aspect), (1.0, 1.0));
@@ -52,28 +52,38 @@ fn spatial_non_euclidean_crossings_smoke() {
     )
     .expect("torus");
     torus.set_torus_extents(2.0, 1.0).expect("extents");
+    assert_eq!((torus.aspect(), torus.scale()), (2.0, 1.0));
     assert_eq!(
-        TorusLayoutView::torus_extents(&torus).expect("extents"),
-        (2.0, 1.0)
+        egraph::spatial::torus_crossing_number(&g4, &torus).expect("torus_cnt"),
+        1
     );
-    assert_eq!(torus_crossing_number(&g4, &torus).expect("torus_cnt"), 1);
-    let t_pairs: Vec<TorusCrossing> = torus_crossing_edges(&g4, &torus).expect("torus_edges");
+    let t_pairs: Vec<egraph::spatial::TorusCrossing> =
+        egraph::spatial::torus_crossing_edges(&g4, &torus).expect("torus_edges");
     assert_eq!(t_pairs.len(), 1);
     assert_eq!(
-        torus_crossing_edges_from_edges(&[(0, 2), (1, 3)], &torus)
+        egraph::spatial::torus_crossing_edges_from_edges(&[(0, 2), (1, 3)], &torus)
             .expect("from_edges")
             .len(),
         1
     );
     assert!(
-        !torus_edge_segments(0.1, 0.1, 0.9, 0.9)
+        !egraph::spatial::torus_edge_segments(0.1, 0.1, 0.9, 0.9)
             .expect("segs")
             .is_empty()
     );
     assert!(
-        !torus_layout_edge_segments(&g4, &torus)
+        !egraph::spatial::torus_layout_edge_segments(&g4, &torus)
             .expect("layout_segs")
             .is_empty()
+    );
+
+    // Explicit TorusView wrapper over Layout2d.
+    let euclid_torus = Layout2d::<f64>::from_xy(vec![0.1, 0.1, 0.4, 0.4], vec![0.1, 0.4, 0.4, 0.1])
+        .expect("euclid");
+    let torus_view = TorusView::new(&euclid_torus, 2.0, 1.0).expect("TorusView");
+    assert_eq!(
+        egraph::spatial::torus_crossing_number(&g4, &torus_view).expect("view cnt"),
+        1
     );
 
     let sphere = ManifoldLayout2d::<f64>::from_xy(
@@ -82,9 +92,12 @@ fn spatial_non_euclidean_crossings_smoke() {
         vec![1.2, 1.5, 1.8, 1.5],
     )
     .expect("sphere");
-    assert_eq!(spherical_crossing_number(&g4, &sphere).expect("sph_cnt"), 1);
     assert_eq!(
-        crossing_edges_spherical(&g4, &sphere)
+        egraph::spatial::spherical_crossing_number(&g4, &sphere).expect("sph_cnt"),
+        1
+    );
+    assert_eq!(
+        egraph::spatial::crossing_edges_spherical(&g4, &sphere)
             .expect("sph_edges")
             .len(),
         1
@@ -97,11 +110,11 @@ fn spatial_non_euclidean_crossings_smoke() {
     )
     .expect("poincare");
     assert_eq!(
-        hyperbolic_crossing_number(&g4, &poincare).expect("hyp_cnt"),
+        egraph::spatial::hyperbolic_crossing_number(&g4, &poincare).expect("hyp_cnt"),
         1
     );
     assert_eq!(
-        crossing_edges_hyperbolic(&g4, &poincare)
+        egraph::spatial::crossing_edges_hyperbolic(&g4, &poincare)
             .expect("hyp_edges")
             .len(),
         1
@@ -114,30 +127,28 @@ fn spatial_non_euclidean_crossings_smoke() {
     )
     .expect("lorentz");
     assert_eq!(
-        hyperbolic_crossing_number(&g4, &lorentz).expect("lor_cnt"),
+        egraph::spatial::hyperbolic_crossing_number(&g4, &lorentz).expect("lor_cnt"),
         1
     );
 }
 
 #[cfg(feature = "layout")]
 fn run_manifold_solver(
-    solver: &mut impl IterativeSolver<f64, ManifoldLayout2d<f64>>,
+    solver: &mut impl IterativeSolver<Target = ManifoldLayout2d<f64>>,
     layout: &mut ManifoldLayout2d<f64>,
     label: &str,
 ) {
-    let st = IterativeSolver::<f64, ManifoldLayout2d<f64>>::run(solver, layout)
+    let st = solver
+        .run(layout)
         .unwrap_or_else(|e| panic!("{label} run failed: {e}"));
     assert!(st.is_finished(), "{label}");
     assert!(layout.validate_finite().is_ok(), "{label}");
 }
 
 #[cfg(feature = "layout")]
-fn run_windowed_sgd(mut solver: SgdSolver<f64>, kind: ManifoldKind, n: usize) {
+fn run_windowed_sgd(mut solver: SgdSolver<ManifoldLayout2d<f64>>, kind: ManifoldKind, n: usize) {
     let mut ml = ManifoldLayout2d::<f64>::init(kind, n, 7, 0.35).expect("init");
-    fn advance<L: SgdScheduleWindowLayout<f64>>(s: &mut SgdSolver<f64>, l: &mut L) {
-        s.run_schedule_window(l, 0, 3).expect("window");
-    }
-    advance(&mut solver, &mut ml);
+    solver.run_schedule_window(&mut ml, 0, 3).expect("window");
     assert!(ml.validate_finite().is_ok());
 }
 
@@ -145,74 +156,52 @@ fn run_windowed_sgd(mut solver: SgdSolver<f64>, kind: ManifoldKind, n: usize) {
 fn build_sgd_mode_smoke(
     mode: usize,
     g: &CsrGraph<f64>,
-    landmarks: &DogVaradhanLandmarks,
+    landmarks: &egraph::neighborhood::DogVaradhanLandmarks,
     emb: &[f64],
     sched: SgdScheduleConfig,
-) -> (&'static str, SgdSolver<f64>) {
+) -> (&'static str, SgdSolver<ManifoldLayout2d<f64>>) {
     let n = g.num_nodes();
-    let dog_cfg = DogVaradhanConfig {
-        n_landmarks: 4,
-        seed: 42,
-        ..DogVaradhanConfig::default()
-    };
-    let sb_cfg = SparseBarrierConfig {
-        num_pivots: 4,
-        schedule: sched,
-        seed: 42,
-        ..SparseBarrierConfig::default()
-    };
-    let (u, o) = (vec![1.0, 1.0], vec![1.0]);
+    let dog_cfg = egraph::neighborhood::DogVaradhanConfig::new()
+        .with_n_landmarks(4)
+        .with_seed(42);
+    let sb_cfg = SparseBarrierConfig::new()
+        .with_num_pivots(4)
+        .with_schedule(sched.clone())
+        .with_seed(42);
+    let mut pair_buf = SgdPairBuffer::<f64>::new();
+    pair_buf.push_spring(0, 1, 1.0, 1.0).expect("push_spring");
+    pair_buf.push_hinge(0, 5, 2.0, 0.5).expect("push_hinge");
     match mode {
         0 => ("full", SgdSolver::full(g, sched, 42).expect("full")),
-        1 => (
-            "pairs",
-            SgdSolver::from_pairs(
+        1 => {
+            let u = [1.0, 1.0];
+            let s = SgdSolver::from_pairs(n, &[0, 1], &[1, 2], &u, &u, &u, &u, sched, 42);
+            ("pairs", s.expect("pairs"))
+        }
+        2 => {
+            let o = [1.0];
+            let s = SgdSolver::from_pairs_with_hinges(
                 n,
-                vec![0, 1],
-                vec![1, 2],
-                u.clone(),
-                u.clone(),
-                u.clone(),
-                u,
+                &[0],
+                &[1],
+                &o,
+                &o,
+                &o,
+                &o,
+                &[0],
+                &[5],
+                &[2.0],
+                &[2.0],
+                &[0.5],
+                &[0.5],
                 sched,
                 42,
-            )
-            .expect("pairs"),
-        ),
-        2 => (
-            "hinges",
-            SgdSolver::from_pairs_with_hinges(
-                n,
-                vec![0],
-                vec![1],
-                o.clone(),
-                o.clone(),
-                o.clone(),
-                o,
-                vec![0],
-                vec![5],
-                vec![2.0],
-                vec![2.0],
-                vec![0.5],
-                vec![0.5],
-                sched,
-                42,
-            )
-            .expect("hinges"),
-        ),
+            );
+            ("hinges", s.expect("hinges"))
+        }
         3 => (
-            "packed",
-            SgdSolver::from_packed_symmetric(
-                n,
-                vec![egraph::layout::sgd::PackedSymPair::new(
-                    0, 1, false, 1.0, 1.0,
-                )],
-                1,
-                0,
-                sched,
-                42,
-            )
-            .expect("packed"),
+            "pair_buffer",
+            SgdSolver::from_pair_buffer(n, pair_buf, sched, 42).expect("pair_buffer"),
         ),
         4 => ("rp", SgdSolver::random_pair(g, 3, sched, 42).expect("rp")),
         5 => (
@@ -241,78 +230,109 @@ fn build_sgd_mode_smoke(
             )
             .expect("sn"),
         ),
-        9 => {
-            let mut c = OrtmannSparseStressConfig::default();
-            (c.num_pivots, c.iterations, c.seed) = (4, 6, 42);
-            (
-                "ortmann",
-                SgdSolver::ortmann_sparse_stress(g, c).expect("o"),
+        9 => (
+            "ortmann",
+            SgdSolver::ortmann_sparse_stress(
+                g,
+                egraph::layout::OrtmannSparseStressConfig::new()
+                    .with_num_pivots(4)
+                    .with_iterations(6)
+                    .with_seed(42),
             )
-        }
-        10 => (
-            "empty",
-            SgdSolver::from_packed_symmetric(n, Vec::new(), 0, 0, sched, 42).expect("empty"),
+            .expect("ortmann"),
         ),
-        11 => {
-            let mut c = SnapTFdpConfig::default();
-            (c.iterations, c.seed) = (6, 42);
-            ("snap", SgdSolver::snap_t_fdp(g, c).expect("snap"))
-        }
-        12 => {
-            let mut c = PacmapGraphConfig::default();
-            (c.phase_iterations, c.num_landmarks, c.seed) = ([2, 2, 2], 4, 42);
-            ("pacmap", SgdSolver::pacmap_graph(g, c).expect("pacmap"))
-        }
-        13 => {
-            let mut c = Sgd2Config::default();
-            (c.iterations, c.batch_size, c.seed) = (6, 4, 42);
-            ("sgd2", SgdSolver::sgd2(g, c).expect("sgd2"))
-        }
-        14 => {
-            let mut c = LargeVisConfig::default();
-            (c.iterations, c.negative_samples, c.seed) = (6, 2, 42);
-            ("largevis", SgdSolver::largevis(g, c).expect("largevis"))
-        }
-        15 => {
-            let mut c = DrGraphConfig::default();
-            (
-                c.k_order,
-                c.iterations,
-                c.negative_samples,
-                c.coarsen_stop_ratio,
-                c.seed,
-            ) = (2, 6, 2, 0.85, 42);
-            ("drgraph", SgdSolver::drgraph(g, c).expect("drgraph"))
-        }
-        _ => {
-            let mut c = GraphCneConfig::default();
-            (c.iterations, c.negative_samples, c.seed) = (6, 2, 42);
-            ("graph_cne", SgdSolver::graph_cne(g, c).expect("graph_cne"))
-        }
+        _ => (
+            "empty",
+            SgdSolver::from_pair_buffer(n, SgdPairBuffer::new(), sched, 42).expect("empty"),
+        ),
     }
 }
 
 #[cfg(feature = "layout")]
 #[test]
-fn manifold_all_solvers_and_17_sgd_modes_smoke() {
+fn manifold_all_solvers_and_separated_embedding_solvers_smoke() {
     let g = grid_2x3();
     let n = g.num_nodes();
     let sched = SgdScheduleConfig::new(6);
-    let dog_cfg = DogVaradhanConfig {
-        n_landmarks: 4,
-        seed: 42,
-        ..DogVaradhanConfig::default()
-    };
-    let (landmarks, _) = compute_regularized_dog_varadhan_landmarks(&g, &dog_cfg).expect("dog");
-    let spec = koren_spectral_init::<f64, f64>(&g, Some(1.0), 1e-6, 100, 42).expect("spec");
+    let dog_cfg = egraph::neighborhood::DogVaradhanConfig::new()
+        .with_n_landmarks(4)
+        .with_seed(42);
+    let (landmarks, _) =
+        egraph::neighborhood::compute_regularized_dog_varadhan_landmarks(&g, &dog_cfg)
+            .expect("dog");
+    let spec: Layout2d<f64> = KorenSpectral::<Layout2d<f64>>::new(&g)
+        .generate()
+        .expect("spec");
     let emb: Vec<f64> = (0..n).flat_map(|i| [spec.x()[i], spec.y()[i]]).collect();
-    for mode in 0..17 {
-        let (label, mut solver) = build_sgd_mode_smoke(mode, &g, &landmarks, &emb, sched);
-        assert!(solver.supports_manifold(), "{label}");
+    for mode in 0..11 {
+        let (label, mut solver) = build_sgd_mode_smoke(mode, &g, &landmarks, &emb, sched.clone());
         let mut l =
             ManifoldLayout2d::<f64>::init(ManifoldKind::HyperbolicLorentz, n, 42, 0.35).unwrap();
         run_manifold_solver(&mut solver, &mut l, label);
     }
+
+    // Separated Sgd2Solver + 5 layout-embedding solvers on ManifoldLayout2d.
+    let base_hyp =
+        ManifoldLayout2d::<f64>::init(ManifoldKind::HyperbolicLorentz, n, 42, 0.35).unwrap();
+    let mut sgd2 = Sgd2Solver::<ManifoldLayout2d<f64>>::new(
+        &g,
+        Sgd2Config::new()
+            .with_iterations(6)
+            .with_batch_size(4)
+            .with_seed(42),
+    )
+    .expect("sgd2");
+    run_manifold_solver(&mut sgd2, &mut base_hyp.clone(), "sgd2");
+
+    let mut snap = SnapTFdpSolver::<ManifoldLayout2d<f64>>::new(
+        &g,
+        SnapTFdpConfig::new().with_iterations(6).with_seed(42),
+    )
+    .expect("snap");
+    run_manifold_solver(&mut snap, &mut base_hyp.clone(), "snap");
+
+    let mut pacmap = PacmapGraphSolver::<ManifoldLayout2d<f64>>::new(
+        &g,
+        PacmapGraphConfig::new()
+            .with_phase_iterations([2, 2, 2])
+            .with_num_landmarks(4)
+            .with_seed(42),
+    )
+    .expect("pacmap");
+    run_manifold_solver(&mut pacmap, &mut base_hyp.clone(), "pacmap");
+
+    let mut lv = LargeVisSolver::<ManifoldLayout2d<f64>>::new(
+        &g,
+        LargeVisConfig::new()
+            .with_iterations(6)
+            .with_negative_samples(2)
+            .with_seed(42),
+    )
+    .expect("largevis");
+    run_manifold_solver(&mut lv, &mut base_hyp.clone(), "largevis");
+
+    let mut dr = DrGraphSolver::<ManifoldLayout2d<f64>>::new(
+        &g,
+        DrGraphConfig::new()
+            .with_k_order(2)
+            .with_iterations(6)
+            .with_negative_samples(2)
+            .with_coarsen_stop_ratio(0.85)
+            .with_seed(42),
+    )
+    .expect("drgraph");
+    run_manifold_solver(&mut dr, &mut base_hyp.clone(), "drgraph");
+
+    let mut cne = GraphCneSolver::<ManifoldLayout2d<f64>>::new(
+        &g,
+        GraphCneConfig::new()
+            .with_iterations(6)
+            .with_negative_samples(2)
+            .with_seed(42),
+    )
+    .expect("graph_cne");
+    run_manifold_solver(&mut cne, &mut base_hyp.clone(), "graph_cne");
+
     run_windowed_sgd(
         SgdSolver::full(&g, sched, 42).expect("win"),
         ManifoldKind::Spherical,
@@ -323,7 +343,7 @@ fn manifold_all_solvers_and_17_sgd_modes_smoke() {
     assert_eq!(sph_full_cfg.max_mu, None);
     let mut l_full = ManifoldLayout2d::<f64>::init(ManifoldKind::Spherical, n, 11, 1.0).expect("s");
     let mut l_cap = l_full.clone();
-    let mut s_full = SgdSolver::full(&g, sph_full_cfg, 11).expect("s_full");
+    let mut s_full = SgdSolver::full(&g, sph_full_cfg.clone(), 11).expect("s_full");
     let mut s_cap = SgdSolver::full(&g, sph_full_cfg.with_max_mu(Some(0.1)), 11).expect("s_cap");
     run_manifold_solver(&mut s_full, &mut l_full, "sph_full");
     run_manifold_solver(&mut s_cap, &mut l_cap, "sph_cap");
@@ -331,30 +351,38 @@ fn manifold_all_solvers_and_17_sgd_modes_smoke() {
 
     let base = ManifoldLayout2d::<f64>::init(ManifoldKind::Torus2d, n, 42, 0.4).expect("torus");
     let (mut l_sm, mut l_kk, mut l_ts, mut l_gm) = (base.clone(), base.clone(), base.clone(), base);
-    let (mut c_sm, mut c_kk) = (
-        StressMajorizationConfig::default(),
-        KamadaKawaiConfig::default(),
-    );
-    (c_sm.max_iterations, c_kk.max_iterations) = (5, Some(5));
-    let mut sm = StressMajorizationSolver::<f64>::from_graph(&g, c_sm).expect("sm");
+    let mut sm = StressMajorizationSolver::<ManifoldLayout2d<f64>>::from_graph(
+        &g,
+        StressMajorizationConfig::new().with_max_iterations(5),
+    )
+    .expect("sm");
     run_manifold_solver(&mut sm, &mut l_sm, "stress_majorization");
-    assert!(
-        sm.compute_stress_manifold(&l_sm)
-            .expect("stress")
-            .is_finite()
-    );
+    assert!(sm.compute_stress(&l_sm).expect("stress").is_finite());
 
-    let mut kk = KamadaKawaiSolver::<f64>::from_graph(&g, c_kk).expect("kk");
+    let mut kk = KamadaKawaiSolver::<ManifoldLayout2d<f64>>::from_graph(
+        &g,
+        KamadaKawaiConfig::new().with_max_iterations(Some(5)),
+    )
+    .expect("kk");
     run_manifold_solver(&mut kk, &mut l_kk, "kamada_kawai");
 
-    let mut c_ts = TsNetConfig::pure_2hop();
-    (c_ts.backend, c_ts.stage_iterations) = (TsNetBackend::Exact, [2, 2, 2]);
-    let mut ts = TsNetSolver::<f64>::from_graph_pure_2hop(&g, c_ts).expect("tsnet");
+    let stages = vec![
+        TsNetStage::new().with_iterations(2).with_exaggeration(4.0),
+        TsNetStage::new().with_iterations(2),
+        TsNetStage::new().with_iterations(2),
+    ];
+    let mut ts = TsNetSolver::<ManifoldLayout2d<f64>>::from_graph_pure_2hop(
+        &g,
+        TsNetConfig::pure_2hop().with_stages(stages),
+    )
+    .expect("tsnet");
     run_manifold_solver(&mut ts, &mut l_ts, "ts_net");
 
-    let mut c_gm = GuMapConfig::default();
-    (c_gm.iterations, c_gm.seed) = (5, 42);
-    let mut gm = GuMapSolver::<f64>::new(&g, c_gm).expect("gumap");
+    let mut gm = GuMapSolver::<ManifoldLayout2d<f64>>::new(
+        &g,
+        GuMapConfig::new().with_iterations(5).with_seed(42),
+    )
+    .expect("gumap");
     run_manifold_solver(&mut gm, &mut l_gm, "gumap");
 }
 
@@ -363,26 +391,29 @@ fn manifold_all_solvers_and_17_sgd_modes_smoke() {
 fn manifold_baselines_fr_solver_smoke() {
     let g = grid_2x3();
     let mut ml = ManifoldLayout2d::<f64>::init(ManifoldKind::Spherical, 6, 42, 1.0).expect("sph");
-    let mut c_fr = FruchtermanReingoldConfig::default();
-    (c_fr.iterations, c_fr.seed) = (6, 42);
-    let mut fr = FruchtermanReingoldSolver::<f64>::new(&g, c_fr).expect("fr");
+    let mut fr = FruchtermanReingoldSolver::<ManifoldLayout2d<f64>>::new(
+        &g,
+        FruchtermanReingoldConfig::new()
+            .with_iterations(6)
+            .with_seed(42),
+    )
+    .expect("fr");
     run_manifold_solver(&mut fr, &mut ml, "fruchterman_reingold");
 }
 
 #[cfg(feature = "metrics")]
 #[test]
-fn manifold_metrics_prelude_and_dispatcher_smoke() {
+fn manifold_metrics_unified_and_dispatcher_smoke() {
     let g = grid_2x3();
     let mut torus = ManifoldLayout2d::<f64>::torus_spectral_phase_init(&g, 42).expect("torus");
     torus.set_torus_extents(2.0, 1.5).expect("extents");
-    let cfg = MetricConfig {
-        sns_num_pivots: 2,
-        crossing_num_samples: 16,
-        rta_num_landmarks: 3,
-        rta_num_triplets: 128,
-        rta_min_degree: 1,
-        ..MetricConfig::default()
-    };
+    let cfg = MetricConfig::new()
+        .with_sns_num_pivots(2)
+        .with_np_num_samples(16)
+        .with_np_seed(77)
+        .with_rta_num_landmarks(3)
+        .with_rta_num_triplets(128)
+        .with_rta_min_degree(1);
     let rep = evaluate_metrics(
         &g,
         &torus,
@@ -409,24 +440,19 @@ fn manifold_metrics_prelude_and_dispatcher_smoke() {
     .expect("evaluate_metrics");
     assert_eq!(
         rep.geodesic_distortion,
-        Some(geodesic_distortion(&g, &torus).expect("gd"))
+        Some(egraph::metrics::geodesic_distortion(&g, &torus).expect("gd"))
     );
     assert_eq!(
         rep.scale_normalized_stress,
-        Some(scale_normalized_stress_manifold(&g, &torus).expect("sns"))
+        Some(egraph::metrics::scale_normalized_stress(&g, &torus).expect("sns"))
     );
     assert_eq!(
         rep.torus_crossing_number,
-        Some(torus_crossing_number(&g, &torus).expect("tc"))
+        Some(egraph::metrics::torus_crossing_number(&g, &torus).expect("tc"))
     );
     assert_eq!(
         rep.neighborhood_preservation_2hop,
-        Some(neighborhood_preservation_2hop_manifold(&g, &torus).expect("np2"))
-    );
-    assert!(
-        egraph::metrics::geodesic_distortion(&g, &torus)
-            .expect("mod gd")
-            .is_finite()
+        Some(egraph::metrics::neighborhood_preservation_2hop(&g, &torus).expect("np2"))
     );
     assert!(matches!(
         evaluate_metrics(&g, &torus, &[MetricTarget::CrossingNumber], &cfg),
@@ -436,7 +462,7 @@ fn manifold_metrics_prelude_and_dispatcher_smoke() {
 
 #[cfg(all(feature = "metrics", feature = "eval-baselines"))]
 #[test]
-fn manifold_metrics_eval_baselines_prelude_smoke() {
+fn manifold_metrics_eval_baselines_unified_smoke() {
     let g = grid_2x3();
     let ml =
         ManifoldLayout2d::<f64>::init(ManifoldKind::HyperbolicPoincare, 6, 42, 0.4).expect("p");
@@ -463,32 +489,33 @@ fn manifold_metrics_eval_baselines_prelude_smoke() {
         Some(&labels),
     )
     .expect("eval-baselines");
+    let bl = rep.baseline_metrics().expect("baseline_metrics");
     assert_eq!(
-        rep.distance_consistency,
-        Some(distance_consistency_manifold(&ml, &labels).expect("dsc"))
+        bl.distance_consistency,
+        Some(egraph::metrics::distance_consistency(&ml, &labels).expect("dsc"))
     );
     assert_eq!(
-        rep.silhouette_score,
-        Some(silhouette_score_manifold(&ml, &labels).expect("sil"))
+        bl.silhouette_score,
+        Some(egraph::metrics::silhouette_score(&ml, &labels).expect("sil"))
     );
     assert!(
-        calinski_harabasz_score_manifold(&ml, &labels)
+        egraph::metrics::calinski_harabasz_score(&ml, &labels)
             .expect("ch")
             .is_finite()
     );
     assert!(
-        davies_bouldin_score_manifold(&ml, &labels)
+        egraph::metrics::davies_bouldin_score(&ml, &labels)
             .expect("db")
             .is_finite()
     );
     assert!(
-        cq_kmeans_manifold(&ml, &labels, 2, 10, 42)
+        egraph::metrics::cq_kmeans(&ml, &labels, 2, 10, 42)
             .expect("km")
             .ari
             .is_finite()
     );
     assert!(
-        cq_hac_manifold(&ml, &labels)
+        egraph::metrics::cq_hac(&ml, &labels)
             .expect("hac")
             .homogeneity
             .is_finite()
