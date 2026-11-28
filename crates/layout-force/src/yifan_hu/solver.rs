@@ -72,7 +72,7 @@ enum YhSpaceBuf {
 /// let g = CsrGraph::<()>::from_unweighted_edges(3, &[(0, 1), (1, 2)], false, false).unwrap();
 /// let _solver = YifanHuSolver::<LayoutNd<f64>, BarnesHut>::new(&g, YifanHuConfig::new());
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct YifanHuSolver<
     L: EuclideanLayout + DefaultForceBackend = Layout2d<f64>,
     B: YifanHuRepulsion<L> = <L as DefaultForceBackend>::Backend,
@@ -82,6 +82,23 @@ pub struct YifanHuSolver<
     backend: B,
     repulsion_state: B::State,
     _layout: PhantomData<fn() -> L>,
+}
+
+impl<L, B> Clone for YifanHuSolver<L, B>
+where
+    L: EuclideanLayout + DefaultForceBackend,
+    B: YifanHuRepulsion<L> + Clone,
+    B::State: Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            state: self.state.clone(),
+            space: self.space.clone(),
+            backend: self.backend.clone(),
+            repulsion_state: self.repulsion_state.clone(),
+            _layout: PhantomData,
+        }
+    }
 }
 
 impl<L, B> YifanHuSolver<L, B>
@@ -333,6 +350,49 @@ where
     #[inline]
     pub fn optimal_distance(&self) -> f64 {
         self.state.levels[0].optimal_distance
+    }
+
+    /// Returns the graph at hierarchy `level` (`0` is finest, `num_levels() - 1` is coarsest).
+    #[inline]
+    pub fn level_graph(&self, level: usize) -> Option<&CsrGraph<f64>> {
+        self.state.levels.get(level).map(|l| &l.graph)
+    }
+
+    /// Returns the optimal pairwise distance $K_\ell$ at hierarchy `level`.
+    #[inline]
+    pub fn level_optimal_distance(&self, level: usize) -> Option<f64> {
+        self.state.levels.get(level).map(|l| l.optimal_distance)
+    }
+
+    /// Returns the mapping from nodes at `level` to coarse nodes at `level + 1`, if coarsened.
+    #[inline]
+    pub fn level_coarse_of_finer(&self, level: usize) -> Option<&[u32]> {
+        self.state
+            .levels
+            .get(level)
+            .and_then(|l| l.coarse_of_finer.as_deref())
+    }
+
+    /// Returns the cluster vertex counts for coarse nodes at `level + 1` produced from `level`.
+    #[inline]
+    pub fn level_cluster_counts_of_finer(&self, level: usize) -> Option<&[u32]> {
+        self.state
+            .levels
+            .get(level)
+            .and_then(|l| l.cluster_counts_of_finer.as_deref())
+    }
+
+    /// Returns the mapping from finest-level vertices (`0..num_nodes`) to vertices at `level`
+    /// (empty slice for `level == 0`).
+    #[inline]
+    pub fn fine_to_level(&self, level: usize) -> Option<&[u32]> {
+        self.state.fine_to_level.get(level).map(Vec::as_slice)
+    }
+
+    /// Returns the active step length at the current hierarchy level.
+    #[inline]
+    pub fn current_level_step_length(&self) -> f64 {
+        self.state.level_step_len
     }
 }
 

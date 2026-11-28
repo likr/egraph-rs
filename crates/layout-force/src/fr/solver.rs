@@ -103,7 +103,7 @@ impl FrState {
 /// let g = CsrGraph::<()>::from_unweighted_edges(3, &[(0, 1), (1, 2)], false, false).unwrap();
 /// let _s = FruchtermanReingoldSolver::<LayoutNd<f64>, Grid>::new(&g, FruchtermanReingoldConfig::new());
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct FruchtermanReingoldSolver<
     L: RiemannianLayout + DefaultFrBackend = Layout2d<f64>,
     B: FrRepulsion<L> = <L as DefaultFrBackend>::Backend,
@@ -112,6 +112,22 @@ pub struct FruchtermanReingoldSolver<
     backend: B,
     repulsion_state: B::State,
     _layout: PhantomData<fn() -> L>,
+}
+
+impl<L, B> Clone for FruchtermanReingoldSolver<L, B>
+where
+    L: RiemannianLayout + DefaultFrBackend,
+    B: FrRepulsion<L> + Clone,
+    B::State: Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            state: self.state.clone(),
+            backend: self.backend.clone(),
+            repulsion_state: self.repulsion_state.clone(),
+            _layout: PhantomData,
+        }
+    }
 }
 
 impl<L, B> FruchtermanReingoldSolver<L, B>
@@ -235,6 +251,28 @@ where
     #[inline]
     pub fn num_nodes(&self) -> usize {
         self.state.num_nodes
+    }
+
+    /// Returns the number of canonical undirected edges.
+    #[inline]
+    pub fn num_edges(&self) -> usize {
+        self.state.edges_u.len()
+    }
+
+    /// Returns the canonical undirected edges `(u, v, weights)`.
+    #[inline]
+    pub fn edges(&self) -> (&[u32], &[u32], &[f64]) {
+        (
+            &self.state.edges_u,
+            &self.state.edges_v,
+            &self.state.edges_w,
+        )
+    }
+
+    /// Returns the initial cooling temperature $T_0$.
+    #[inline]
+    pub fn initial_temperature(&self) -> f64 {
+        self.state.initial_temperature
     }
 
     /// Returns the current lifecycle status.

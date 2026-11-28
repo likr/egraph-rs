@@ -39,7 +39,7 @@ pub enum YifanHuLevelCoords<'a> {
 /// without modifying `egraph-layout-force`.
 pub trait YifanHuRepulsion<L: LayoutStorage + ?Sized> {
     /// Backend-owned scratch state (e.g. spatial trees; `()` for [`Exact`]).
-    type State: fmt::Debug + Clone;
+    type State: fmt::Debug;
 
     /// Validates backend configuration before constructing a solver.
     fn validate(&self) -> CoreResult<()>;

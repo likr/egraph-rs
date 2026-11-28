@@ -26,7 +26,7 @@ use super::solver::{COINCIDENT_DIST_SQ, COINCIDENT_PERTURB_DIST};
 pub trait FrRepulsion<L: RiemannianLayout + ?Sized> {
     /// Backend-owned scratch state (e.g. spatial trees or grid buffers; no unused tree fields in
     /// [`Exact`]).
-    type State: fmt::Debug + Clone;
+    type State: fmt::Debug;
 
     /// Validates backend configuration before constructing a solver.
     fn validate(&self) -> CoreResult<()>;

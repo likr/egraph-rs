@@ -65,7 +65,7 @@ enum LinLogSpaceBuf {
 /// let g = CsrGraph::<()>::from_unweighted_edges(3, &[(0, 1), (1, 2)], false, false).unwrap();
 /// let _solver = LinLogSolver::<LayoutNd<f64>, BarnesHut>::new(&g, LinLogConfig::new());
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct LinLogSolver<
     L: EuclideanLayout + DefaultForceBackend = Layout2d<f64>,
     B: LinLogRepulsionBackend<L> = <L as DefaultForceBackend>::Backend,
@@ -75,6 +75,23 @@ pub struct LinLogSolver<
     backend: B,
     repulsion_state: B::State,
     _layout: PhantomData<fn() -> L>,
+}
+
+impl<L, B> Clone for LinLogSolver<L, B>
+where
+    L: EuclideanLayout + DefaultForceBackend,
+    B: LinLogRepulsionBackend<L> + Clone,
+    B::State: Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            state: self.state.clone(),
+            space: self.space.clone(),
+            backend: self.backend.clone(),
+            repulsion_state: self.repulsion_state.clone(),
+            _layout: PhantomData,
+        }
+    }
 }
 
 impl<L, B> LinLogSolver<L, B>
@@ -233,6 +250,34 @@ where
     #[inline]
     pub fn num_nodes(&self) -> usize {
         self.state.num_nodes
+    }
+
+    /// Returns the number of canonical undirected edges.
+    #[inline]
+    pub fn num_edges(&self) -> usize {
+        self.state.edges_u.len()
+    }
+
+    /// Returns the canonical undirected edges `(u, v, weights)` with effective weights applied.
+    #[inline]
+    pub fn edges(&self) -> (&[u32], &[u32], &[f64]) {
+        (
+            &self.state.edges_u,
+            &self.state.edges_v,
+            &self.state.edges_w,
+        )
+    }
+
+    /// Returns the sum of per-node repulsion masses $\sum_u m_u$.
+    #[inline]
+    pub fn total_mass(&self) -> f64 {
+        self.state.total_mass
+    }
+
+    /// Returns the current global adaptive speed scalar.
+    #[inline]
+    pub fn global_speed(&self) -> f64 {
+        self.state.global_speed
     }
 
     /// Returns the current lifecycle status.

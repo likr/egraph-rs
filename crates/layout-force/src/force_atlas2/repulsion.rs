@@ -67,7 +67,7 @@ impl<'a> ForceRepulsionParams<'a> {
 /// geodesic repulsion backends without modifying `egraph-layout-force`.
 pub trait ForceRepulsion<L: LayoutStorage + ?Sized> {
     /// Backend-owned scratch state (e.g. spatial trees; `()` for [`Exact`]).
-    type State: fmt::Debug + Clone;
+    type State: fmt::Debug;
 
     /// Validates backend configuration before constructing a solver.
     fn validate(&self) -> CoreResult<()>;

@@ -61,7 +61,7 @@ enum Fa2SpaceBuf {
 /// let g = CsrGraph::<()>::from_unweighted_edges(3, &[(0, 1), (1, 2)], false, false).unwrap();
 /// let _solver = ForceAtlas2Solver::<LayoutNd<f64>, BarnesHut>::new(&g, ForceAtlas2Config::new());
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ForceAtlas2Solver<
     L: EuclideanLayout + DefaultForceBackend = Layout2d<f64>,
     B: ForceRepulsion<L> = <L as DefaultForceBackend>::Backend,
@@ -71,6 +71,23 @@ pub struct ForceAtlas2Solver<
     backend: B,
     repulsion_state: B::State,
     _layout: PhantomData<fn() -> L>,
+}
+
+impl<L, B> Clone for ForceAtlas2Solver<L, B>
+where
+    L: EuclideanLayout + DefaultForceBackend,
+    B: ForceRepulsion<L> + Clone,
+    B::State: Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            state: self.state.clone(),
+            space: self.space.clone(),
+            backend: self.backend.clone(),
+            repulsion_state: self.repulsion_state.clone(),
+            _layout: PhantomData,
+        }
+    }
 }
 
 impl<L, B> ForceAtlas2Solver<L, B>
@@ -296,6 +313,18 @@ where
     #[inline]
     pub fn num_nodes(&self) -> usize {
         self.state.num_nodes
+    }
+
+    /// Returns the number of canonical undirected edges.
+    #[inline]
+    pub fn num_edges(&self) -> usize {
+        self.state.edges_u.len()
+    }
+
+    /// Returns the current global adaptive speed scalar.
+    #[inline]
+    pub fn global_speed(&self) -> f64 {
+        self.state.global_speed
     }
 
     /// Returns the current lifecycle status.
