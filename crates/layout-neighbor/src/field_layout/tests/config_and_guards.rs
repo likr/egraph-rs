@@ -55,7 +55,8 @@ fn test_field_layout_edge_cases_and_error_guards() {
     let empty = CsrGraph::<f64>::from_edges(0, &[], None, false, false).unwrap();
     let mut se_fdp = TFdpSolver::<Layout2d<f64>>::new(&empty, tfdp_cfg.clone()).unwrap();
     let mut se_umap =
-        IbUmapSolver::<f64>::from_graph_dog(&empty, 16, &dog_cfg, ib_cfg.clone()).unwrap();
+        IbUmapSolver::<Layout2d<f64>>::from_graph_dog(&empty, 16, &dog_cfg, ib_cfg.clone())
+            .unwrap();
     let mut le = Layout2d::<f64>::zeros(0);
     assert_eq!(se_fdp.run(&mut le).unwrap(), SolverStatus::Converged);
     assert_eq!(se_umap.run(&mut le).unwrap(), SolverStatus::Converged);
@@ -63,7 +64,8 @@ fn test_field_layout_edge_cases_and_error_guards() {
     let single = CsrGraph::<f64>::from_edges(1, &[], None, false, false).unwrap();
     let mut ss_fdp = TFdpSolver::<Layout2d<f64>>::new(&single, tfdp_cfg.clone()).unwrap();
     let mut ss_umap =
-        IbUmapSolver::<f64>::from_graph_dog(&single, 16, &dog_cfg, ib_cfg.clone()).unwrap();
+        IbUmapSolver::<Layout2d<f64>>::from_graph_dog(&single, 16, &dog_cfg, ib_cfg.clone())
+            .unwrap();
     let mut ls = Layout2d::from_xy(vec![3.5], vec![-2.5]).unwrap();
     assert_eq!(ss_fdp.run(&mut ls).unwrap(), SolverStatus::Converged);
     assert_eq!(ss_umap.run(&mut ls).unwrap(), SolverStatus::Converged);
@@ -74,7 +76,7 @@ fn test_field_layout_edge_cases_and_error_guards() {
     let disc = CsrGraph::<f64>::from_edges(6, &[(0, 1), (3, 4)], None, false, false).unwrap();
     let mut sd_fdp =
         TFdpSolver::<Layout2d<f64>>::new(&disc, tfdp_cfg.clone().with_iterations(15)).unwrap();
-    let mut sd_umap = IbUmapSolver::<f64>::from_graph_dog(
+    let mut sd_umap = IbUmapSolver::<Layout2d<f64>>::from_graph_dog(
         &disc,
         16,
         &dog_cfg,
@@ -92,9 +94,13 @@ fn test_field_layout_edge_cases_and_error_guards() {
         TFdpSolver::<Layout2d<f64>>::new(&disc, tfdp_cfg.clone().with_iterations(0)).unwrap();
     assert_eq!(zero_fdp.status(), SolverStatus::Completed);
     assert_eq!(zero_fdp.total_iterations(), Some(0));
-    let mut zero_umap =
-        IbUmapSolver::<f64>::from_graph_dog(&disc, 16, &dog_cfg, ib_cfg.clone().with_iterations(0))
-            .unwrap();
+    let mut zero_umap = IbUmapSolver::<Layout2d<f64>>::from_graph_dog(
+        &disc,
+        16,
+        &dog_cfg,
+        ib_cfg.clone().with_iterations(0),
+    )
+    .unwrap();
     assert_eq!(zero_umap.status(), SolverStatus::Completed);
     assert_eq!(zero_umap.total_iterations(), Some(0));
 
@@ -137,6 +143,22 @@ fn test_field_layout_edge_cases_and_error_guards() {
         ),
         Err(CoreError::InvalidInput(_))
     ));
+    assert!(matches!(
+        IbUmapSolver::<Layout2d<f64>, BarnesHut>::new_with_backend(
+            &disc,
+            IbUmapConfig::new(),
+            BarnesHut::new(f64::INFINITY),
+        ),
+        Err(CoreError::InvalidInput(_))
+    ));
+    assert!(matches!(
+        IbUmapSolver::<Layout2d<f64>, IbFft>::new_with_backend(
+            &disc,
+            IbUmapConfig::new(),
+            IbFft::new().with_intervals(0),
+        ),
+        Err(CoreError::InvalidInput(_))
+    ));
 
     // Negative or NaN config & weight guards
     let bad_tfdp_configs = [
@@ -159,18 +181,17 @@ fn test_field_layout_edge_cases_and_error_guards() {
         ib_cfg.clone().with_spread(0.0),
         ib_cfg.clone().with_c_k(-1.0),
         ib_cfg.clone().with_tau_scale(0.0),
-        ib_cfg.clone().with_theta(f64::INFINITY),
         ib_cfg.clone().with_a(Some(0.0)),
         ib_cfg.clone().with_b(Some(f64::NAN)),
     ];
     for bad in bad_ib_configs {
-        assert!(IbUmapSolver::<f64>::from_graph_dog(&disc, 16, &dog_cfg, bad).is_err());
+        assert!(IbUmapSolver::<Layout2d<f64>>::from_graph_dog(&disc, 16, &dog_cfg, bad).is_err());
     }
 
     // Degree slice length mismatch in IbUmapSolver::from_fuzzy_set
     let probs = SparseProbabilities::empty(3);
     assert!(matches!(
-        IbUmapSolver::<f64>::from_fuzzy_set(probs, Some(&[1, 2]), ib_cfg),
+        IbUmapSolver::<Layout2d<f64>>::from_fuzzy_set(probs, Some(&[1, 2]), ib_cfg),
         Err(CoreError::DimensionMismatch { .. })
     ));
 
@@ -191,8 +212,10 @@ fn test_ib_umap_from_landmarks_bit_exact_and_validation() {
     let cfg = IbUmapConfig::new().with_iterations(15).with_seed(67);
     let (landmarks, _) = compute_regularized_dog_varadhan_landmarks(&g, &dog_cfg).unwrap();
 
-    let mut s_dog = IbUmapSolver::<f64>::from_graph_dog(&g, 32, &dog_cfg, cfg.clone()).unwrap();
-    let mut s_lm = IbUmapSolver::<f64>::from_landmarks(&g, &landmarks, 32, cfg.clone()).unwrap();
+    let mut s_dog =
+        IbUmapSolver::<Layout2d<f64>>::from_graph_dog(&g, 32, &dog_cfg, cfg.clone()).unwrap();
+    let mut s_lm =
+        IbUmapSolver::<Layout2d<f64>>::from_landmarks(&g, &landmarks, 32, cfg.clone()).unwrap();
     let mut l_dog = seeded_layout::<f64>(n, 1.0, 23);
     let mut l_lm = l_dog.clone();
     s_dog.run(&mut l_dog).unwrap();
@@ -206,7 +229,8 @@ fn test_ib_umap_from_landmarks_bit_exact_and_validation() {
     let g_unit =
         CsrGraph::<()>::from_unweighted_csr(g.indptr(), g.indices(), false, false).unwrap();
     let mut s_unit =
-        IbUmapSolver::<f64>::from_landmarks(&g_unit, &landmarks, 32, cfg.clone()).unwrap();
+        IbUmapSolver::<Layout2d<f64>>::from_landmarks(&g_unit, &landmarks, 32, cfg.clone())
+            .unwrap();
     let mut l_unit = seeded_layout::<f64>(n, 1.0, 23);
     s_unit.run(&mut l_unit).unwrap();
     for i in 0..n {
@@ -217,13 +241,13 @@ fn test_ib_umap_from_landmarks_bit_exact_and_validation() {
     // Validation errors
     let bad_nodes = DogVaradhanLandmarks::empty(n + 1).unwrap();
     assert!(matches!(
-        IbUmapSolver::<f64>::from_landmarks(&g, &bad_nodes, 32, cfg.clone()),
+        IbUmapSolver::<Layout2d<f64>>::from_landmarks(&g, &bad_nodes, 32, cfg.clone()),
         Err(CoreError::DimensionMismatch { .. })
     ));
 
     let bad_empty_lm = DogVaradhanLandmarks::empty(n).unwrap();
     assert!(matches!(
-        IbUmapSolver::<f64>::from_landmarks(&g, &bad_empty_lm, 32, cfg),
+        IbUmapSolver::<Layout2d<f64>>::from_landmarks(&g, &bad_empty_lm, 32, cfg),
         Err(CoreError::InvalidInput(_))
     ));
 }

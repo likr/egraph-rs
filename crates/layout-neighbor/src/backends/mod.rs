@@ -3,7 +3,9 @@ mod wrappers;
 use egraph_core::{CoreError, CoreResult};
 use egraph_spatial_fft::{IbFftConfig, InterpolationOrder};
 
-pub use wrappers::{Auto2d, Auto3d, TFdpBackend2d, TFdpBackend3d, TsNetBackend2d, TsNetBackend3d};
+pub use wrappers::{
+    Auto2d, Auto3d, IbUmapBackend2d, TFdpBackend2d, TFdpBackend3d, TsNetBackend2d, TsNetBackend3d,
+};
 
 /// Default vertex-count threshold at or below which [`Auto2d`] and [`Auto3d`] select [`Exact`].
 pub const DEFAULT_AUTO_EXACT_THRESHOLD: usize = 256;
@@ -11,8 +13,9 @@ pub const DEFAULT_AUTO_EXACT_THRESHOLD: usize = 256;
 /// Exact $O(N^2)$ pairwise repulsion backend.
 ///
 /// Supported across all [`RiemannianLayout`](egraph_core::RiemannianLayout) targets in
-/// [`TsNetSolver`](crate::TsNetSolver) and all [`EuclideanLayout`](egraph_core::EuclideanLayout)
-/// targets in [`TFdpSolver`](crate::TFdpSolver).
+/// [`TsNetSolver`](crate::TsNetSolver), all [`EuclideanLayout`](egraph_core::EuclideanLayout)
+/// targets in [`TFdpSolver`](crate::TFdpSolver), and [`Layout2d`](egraph_core::Layout2d) in
+/// [`IbUmapSolver`](crate::IbUmapSolver).
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub struct Exact;
@@ -25,10 +28,11 @@ impl Exact {
 }
 
 /// $O(N \log N)$ Barnes-Hut spatial tree repulsion backend
-/// (`ArenaQuadtree2d` on `Layout2d`, `ArenaOctree3d` on `Layout3d`).
+/// (`ArenaQuadtree2d` / `FieldQuadtree` on `Layout2d`, `ArenaOctree3d` on `Layout3d`).
 ///
 /// Supported only on [`Layout2d`](egraph_core::Layout2d) and
-/// [`Layout3d`](egraph_core::Layout3d).
+/// [`Layout3d`](egraph_core::Layout3d) (with [`IbUmapSolver`](crate::IbUmapSolver) supporting
+/// [`Layout2d`](egraph_core::Layout2d)).
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq)]
 pub struct BarnesHut {
@@ -248,7 +252,7 @@ impl LinearFft {
 }
 
 /// Interpolation-based 2D FFT repulsion backend (`IbFft2d`) for [`TFdpSolver`](crate::TFdpSolver)
-/// (`Layout2d` only).
+/// and [`IbUmapSolver`](crate::IbUmapSolver) (`Layout2d` only).
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct IbFft {

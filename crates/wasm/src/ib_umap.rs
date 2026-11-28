@@ -3,8 +3,13 @@
 //! `IbUmapSolver` targets `"layout2d"` exclusively (`"layout3d"`, `"layoutNd"`, and
 //! `"manifold2d"` fail fast with `UnsupportedOperation`).
 
-use egraph::layout::{FieldRepulsionBackend, IbUmapConfig, IbUmapSolver};
+use egraph::core::Layout2d;
+use egraph::layout::{
+    IbFft, IbUmapBackend2d, IbUmapConfig, IbUmapSolver,
+    neighbor::{BarnesHut as NeighborBarnesHut, Exact as NeighborExact},
+};
 use egraph::neighborhood::DogVaradhanConfig;
+use egraph::spatial::IbFftConfig;
 use wasm_bindgen::prelude::*;
 
 use crate::csr_graph::JsCsrGraph;
@@ -14,22 +19,30 @@ use crate::js_convert::{
     unsupported_err,
 };
 use crate::js_options::{
-    JsTargetKind, check_options_arg, get_prop, is_plain_js_object, opt_bool_prop, opt_f64_prop,
-    opt_maybe_f64_prop, opt_seed_prop, opt_string_prop, opt_target_prop, opt_usize_prop,
-    parse_dog_config_from_options, parse_field_repulsion_backend, parse_ibfft_order,
-    solver_status_str,
+    JsTargetKind, check_options_arg, get_prop, is_plain_js_object, normalize_enum_token,
+    opt_bool_prop, opt_f64_prop, opt_maybe_f64_prop, opt_seed_prop, opt_string_prop,
+    opt_target_prop, opt_usize_prop, parse_dog_config_from_options, solver_status_str,
 };
 use crate::layout_buffers::JsLayout2d;
 use crate::neighborhood_types::{JsKnnGraph, JsSparseProbabilities};
 use crate::solver_runner::{run_layout_in_place, run_steps_layout_in_place, step_layout_in_place};
+
+use super::t_fdp::parse_ibfft_from_options;
 
 const DEFAULT_IBUMAP_MAX_2HOP: usize = 30;
 const DEFAULT_IBUMAP_LANDMARKS_MAX_2HOP: usize = 32;
 const DEFAULT_IBUMAP_SIGMA_ITERS: usize = 64;
 const DEFAULT_IBUMAP_SIGMA_TOL: f64 = 1e-5;
 
-fn parse_ib_umap_config(options: &JsValue, ctx: &str) -> Result<IbUmapConfig, JsValue> {
+fn parse_ib_umap_config(
+    options: &JsValue,
+    ctx: &str,
+) -> Result<(IbUmapConfig, IbUmapBackend2d), JsValue> {
     let mut cfg = IbUmapConfig::default();
+    let mut theta = NeighborBarnesHut::default().theta;
+    let mut ibfft_cfg = IbFftConfig::default();
+    let mut backend_opt: Option<String> = None;
+
     if check_options_arg(options, ctx)? {
         let target = opt_target_prop(options)?;
         if target != JsTargetKind::Layout2d {
@@ -37,9 +50,7 @@ fn parse_ib_umap_config(options: &JsValue, ctx: &str) -> Result<IbUmapConfig, Js
                 "IbUmapSolver only supports target 'layout2d'",
             ));
         }
-        if let Some(b_str) = opt_string_prop(options, "backend")? {
-            cfg.backend = parse_field_repulsion_backend(&b_str)?;
-        }
+        backend_opt = opt_string_prop(options, "backend")?;
         cfg.iterations = opt_usize_prop(options, "iterations", cfg.iterations)?;
         cfg.learning_rate = opt_f64_prop(options, "learningRate", cfg.learning_rate)?;
         cfg.min_dist = opt_f64_prop(options, "minDist", cfg.min_dist)?;
@@ -49,24 +60,39 @@ fn parse_ib_umap_config(options: &JsValue, ctx: &str) -> Result<IbUmapConfig, Js
         cfg.c_k = opt_f64_prop(options, "cK", cfg.c_k)?;
         cfg.tau_scale = opt_f64_prop(options, "tauScale", cfg.tau_scale)?;
         cfg.hub_damping = opt_bool_prop(options, "hubDamping", cfg.hub_damping)?;
-        cfg.theta = opt_f64_prop(options, "theta", cfg.theta)?;
-        let ord_val = get_prop(options, "interpolationOrder")?;
-        if !ord_val.is_undefined() && !ord_val.is_null() {
-            cfg.ibfft.order = parse_ibfft_order(&ord_val)?;
-        }
-        cfg.ibfft.intervals = opt_usize_prop(options, "intervals", cfg.ibfft.intervals)?;
-        cfg.ibfft.min_grid_dim = opt_usize_prop(options, "minGridDim", cfg.ibfft.min_grid_dim)?;
-        cfg.ibfft.max_grid_dim = opt_usize_prop(options, "maxGridDim", cfg.ibfft.max_grid_dim)?;
+        theta = opt_f64_prop(options, "theta", theta)?;
+        ibfft_cfg = parse_ibfft_from_options(options)?;
         cfg.seed = opt_seed_prop(options)?;
     }
-    Ok(cfg)
+
+    NeighborBarnesHut::new(theta)
+        .validate()
+        .map_err(core_err_to_js)?;
+    ibfft_cfg.validate().map_err(core_err_to_js)?;
+
+    let backend = match backend_opt {
+        None => IbUmapBackend2d::IbFft(IbFft::new().with_ibfft(ibfft_cfg)),
+        Some(ref b) => match normalize_enum_token(b)?.as_str() {
+            "ibfft" | "fft" => IbUmapBackend2d::IbFft(IbFft::new().with_ibfft(ibfft_cfg)),
+            "barneshut" | "bh" => IbUmapBackend2d::BarnesHut(NeighborBarnesHut::new(theta)),
+            "exact" => IbUmapBackend2d::Exact(NeighborExact::new()),
+            _ => {
+                return Err(invalid_input_err(format!(
+                    "unknown IbUmapSolver backend {b:?}; expected 'ibFft', 'barnesHut', or 'exact'"
+                )));
+            }
+        },
+    };
+    cfg.validate().map_err(core_err_to_js)?;
+    backend.validate().map_err(core_err_to_js)?;
+    Ok((cfg, backend))
 }
 
 /// Cooperative interpolation-based batch Graph UMAP (`ibUMAP`) solver (`f32`, `layout2d`).
 #[wasm_bindgen(js_name = IbUmapSolver)]
 #[derive(Debug, Clone)]
 pub struct JsIbUmapSolver {
-    inner: IbUmapSolver<f32>,
+    inner: IbUmapSolver<Layout2d<f32>, IbUmapBackend2d>,
 }
 
 #[wasm_bindgen(js_class = IbUmapSolver)]
@@ -75,7 +101,7 @@ impl JsIbUmapSolver {
     /// regularized DoG Varadhan landmark ALT distances.
     #[wasm_bindgen(constructor)]
     pub fn new(graph: &JsCsrGraph, options: &JsValue) -> Result<JsIbUmapSolver, JsValue> {
-        let cfg = parse_ib_umap_config(options, "IbUmapSolver")?;
+        let (cfg, backend) = parse_ib_umap_config(options, "IbUmapSolver")?;
         let (max_2hop, mut dog_cfg) = if is_plain_js_object(options) {
             let max_2hop_val = opt_usize_prop(options, "max2hopPerNode", DEFAULT_IBUMAP_MAX_2HOP)?;
             let d_cfg = parse_dog_config_from_options(options, "IbUmapSolver")?;
@@ -87,8 +113,14 @@ impl JsIbUmapSolver {
             )
         };
         dog_cfg.seed = cfg.seed;
-        let inner = IbUmapSolver::<f32>::from_graph_dog(graph.inner(), max_2hop, &dog_cfg, cfg)
-            .map_err(core_err_to_js)?;
+        let inner = IbUmapSolver::<Layout2d<f32>, IbUmapBackend2d>::from_graph_dog_with_backend(
+            graph.inner(),
+            max_2hop,
+            &dog_cfg,
+            cfg,
+            backend,
+        )
+        .map_err(core_err_to_js)?;
         Ok(Self { inner })
     }
 
@@ -131,17 +163,22 @@ impl JsIbUmapSolver {
             };
             (max_2hop_val, options)
         };
-        let cfg = parse_ib_umap_config(opts_val, "IbUmapSolver.fromLandmarks")?;
-        let inner =
-            IbUmapSolver::<f32>::from_landmarks(graph.inner(), landmarks.inner(), max_2hop, cfg)
-                .map_err(core_err_to_js)?;
+        let (cfg, backend) = parse_ib_umap_config(opts_val, "IbUmapSolver.fromLandmarks")?;
+        let inner = IbUmapSolver::<Layout2d<f32>, IbUmapBackend2d>::from_landmarks_with_backend(
+            graph.inner(),
+            landmarks.inner(),
+            max_2hop,
+            cfg,
+            backend,
+        )
+        .map_err(core_err_to_js)?;
         Ok(Self { inner })
     }
 
     /// Constructs an `IbUmapSolver` from a `KnnGraph` via `computeFuzzySimplicialSet`.
     #[wasm_bindgen(js_name = fromKnn)]
     pub fn from_knn(knn: &JsKnnGraph, options: &JsValue) -> Result<JsIbUmapSolver, JsValue> {
-        let cfg = parse_ib_umap_config(options, "IbUmapSolver.fromKnn")?;
+        let (cfg, backend) = parse_ib_umap_config(options, "IbUmapSolver.fromKnn")?;
         let (sigma_iters, sigma_tol) = if is_plain_js_object(options) {
             (
                 opt_usize_prop(options, "sigmaIters", DEFAULT_IBUMAP_SIGMA_ITERS)?,
@@ -150,8 +187,14 @@ impl JsIbUmapSolver {
         } else {
             (DEFAULT_IBUMAP_SIGMA_ITERS, DEFAULT_IBUMAP_SIGMA_TOL)
         };
-        let inner = IbUmapSolver::<f32>::from_knn(knn.inner(), sigma_iters, sigma_tol, cfg)
-            .map_err(core_err_to_js)?;
+        let inner = IbUmapSolver::<Layout2d<f32>, IbUmapBackend2d>::from_knn_with_backend(
+            knn.inner(),
+            sigma_iters,
+            sigma_tol,
+            cfg,
+            backend,
+        )
+        .map_err(core_err_to_js)?;
         Ok(Self { inner })
     }
 
@@ -177,7 +220,7 @@ impl JsIbUmapSolver {
             (Some(degs), options)
         };
 
-        let cfg = parse_ib_umap_config(opts_val, "IbUmapSolver.fromFuzzySet")?;
+        let (cfg, backend) = parse_ib_umap_config(opts_val, "IbUmapSolver.fromFuzzySet")?;
         let degrees = if let Some(degs) = pos_degrees {
             Some(degs)
         } else if is_plain_js_object(opts_val) {
@@ -191,9 +234,13 @@ impl JsIbUmapSolver {
             None
         };
 
-        let inner =
-            IbUmapSolver::<f32>::from_fuzzy_set(probs.inner().clone(), degrees.as_deref(), cfg)
-                .map_err(core_err_to_js)?;
+        let inner = IbUmapSolver::<Layout2d<f32>, IbUmapBackend2d>::from_fuzzy_set_with_backend(
+            probs.inner().clone(),
+            degrees.as_deref(),
+            cfg,
+            backend,
+        )
+        .map_err(core_err_to_js)?;
         Ok(Self { inner })
     }
 
@@ -228,10 +275,10 @@ impl JsIbUmapSolver {
 
     #[wasm_bindgen(getter)]
     pub fn backend(&self) -> String {
-        match self.inner.config().backend {
-            FieldRepulsionBackend::IbFft => "ibFft",
-            FieldRepulsionBackend::BarnesHut => "barnesHut",
-            FieldRepulsionBackend::Exact => "exact",
+        match self.inner.backend() {
+            IbUmapBackend2d::IbFft(_) => "ibFft",
+            IbUmapBackend2d::BarnesHut(_) => "barnesHut",
+            IbUmapBackend2d::Exact(_) => "exact",
             _ => "ibFft",
         }
         .to_owned()

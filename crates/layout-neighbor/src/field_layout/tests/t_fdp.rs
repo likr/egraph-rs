@@ -5,7 +5,7 @@ use egraph_neighborhood::{DogVaradhanConfig, KnnGraph};
 
 use crate::backends::{BarnesHut, Exact, IbFft, TFdpBackend2d};
 
-use super::super::{FieldRepulsionBackend, IbUmapConfig, IbUmapSolver, TFdpConfig, TFdpSolver};
+use super::super::{IbUmapConfig, IbUmapSolver, TFdpConfig, TFdpSolver};
 use super::{barbell_graph, grid_graph, seeded_layout};
 
 #[test]
@@ -226,9 +226,13 @@ fn test_t_fdp_and_ib_umap_from_knn_and_t_fdp_separates_barbell() {
     assert_eq!(s_knn_fdp.run(&mut l_kf).unwrap(), SolverStatus::Completed);
     assert!(l_kf.is_all_finite());
 
-    let mut s_knn_umap =
-        IbUmapSolver::<f64>::from_knn(&knn, 64, 1e-5, IbUmapConfig::new().with_iterations(30))
-            .unwrap();
+    let mut s_knn_umap = IbUmapSolver::<Layout2d<f64>>::from_knn(
+        &knn,
+        64,
+        1e-5,
+        IbUmapConfig::new().with_iterations(30),
+    )
+    .unwrap();
     let mut l_ku = seeded_layout::<f64>(4, 1.0, 9);
     assert_eq!(s_knn_umap.run(&mut l_ku).unwrap(), SolverStatus::Completed);
     assert!(l_ku.is_all_finite());
@@ -262,9 +266,19 @@ fn test_zero_per_step_allocations_directed_graph_and_custom_ab_alpha() {
     assert!(stats.nx < 512 && stats.ny < 512);
 
     let caps = s_fdp.state_capacities();
+    let (fdp_indptr, fdp_indices, fdp_weights) = s_fdp.edge_csr();
+    assert_eq!(fdp_indptr.len(), 25);
+    assert_eq!(fdp_indices.len(), s_fdp.num_edges());
+    assert_eq!(fdp_weights.len(), s_fdp.num_edges());
+    let fdp_ptr = fdp_indptr.as_ptr();
     s_fdp.run(&mut l_fdp).unwrap();
+    assert_eq!(s_fdp.edge_csr().0.as_ptr(), fdp_ptr);
     assert_eq!(s_fdp.state_capacities(), caps);
     assert!(l_fdp.is_all_finite());
+
+    let empty = CsrGraph::<f64>::from_edges(0, &[], None, false, false).unwrap();
+    let s_empty_fdp = TFdpSolver::<Layout2d<f64>>::new(&empty, TFdpConfig::new()).unwrap();
+    assert_eq!(s_empty_fdp.edge_csr(), (&[0][..], &[][..], &[][..]));
 
     // Span guard prevents 512x512 FFT blowup on huge coordinate spans and matches Exact forces.
     let mut wide_layout = seeded_layout::<f64>(24, 5000.0, 17);
@@ -284,24 +298,25 @@ fn test_zero_per_step_allocations_directed_graph_and_custom_ab_alpha() {
     );
     assert!(wide_layout.is_all_finite());
 
-    let mut s_umap = IbUmapSolver::<f64>::from_graph_dog(
+    let mut s_umap = IbUmapSolver::<Layout2d<f64>, BarnesHut>::from_graph_dog_with_backend(
         &dir_graph,
         16,
         &DogVaradhanConfig::default(),
         IbUmapConfig::new()
-            .with_backend(FieldRepulsionBackend::BarnesHut)
             .with_iterations(15)
             .with_a(Some(1.6))
             .with_b(Some(0.9)),
+        BarnesHut::default(),
     )
     .unwrap();
     assert_eq!(s_umap.ab(), (1.6, 0.9));
+    assert_eq!(s_umap.ab_params(), (1.6, 0.9));
     assert_eq!(s_umap.a(), 1.6);
     assert_eq!(s_umap.b(), 0.9);
     let mut l_umap = seeded_layout::<f64>(24, 2.0, 11);
     s_umap.step(&mut l_umap).unwrap();
-    let qt_node_cap = s_umap.field_quadtree.nodes.capacity();
+    let qt_node_cap = s_umap.backend_state().quadtree_node_capacity();
     s_umap.run(&mut l_umap).unwrap();
-    assert!(s_umap.field_quadtree.nodes.capacity() >= qt_node_cap);
+    assert!(s_umap.backend_state().quadtree_node_capacity() >= qt_node_cap);
     assert!(l_umap.is_all_finite());
 }

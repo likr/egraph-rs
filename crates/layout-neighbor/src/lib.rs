@@ -8,17 +8,19 @@ mod ts_net;
 mod validation;
 
 pub use backends::{
-    Auto2d, Auto3d, BarnesHut, DEFAULT_AUTO_EXACT_THRESHOLD, Exact, FitFft, IbFft, LinearFft,
-    TFdpBackend2d, TFdpBackend3d, TsNetBackend2d, TsNetBackend3d,
+    Auto2d, Auto3d, BarnesHut, DEFAULT_AUTO_EXACT_THRESHOLD, Exact, FitFft, IbFft, IbUmapBackend2d,
+    LinearFft, TFdpBackend2d, TFdpBackend3d, TsNetBackend2d, TsNetBackend3d,
 };
 pub use field_layout::{
-    DEFAULT_MAX_2HOP_PER_NODE, DefaultTFdpBackend, FieldFftStats, FieldRepulsionBackend,
-    IbUmapConfig, IbUmapSolver, RhoSchedule, TFdpConfig, TFdpRepulsion, TFdpSolver,
+    DEFAULT_MAX_2HOP_PER_NODE, DefaultIbUmapBackend, DefaultTFdpBackend, FieldFftStats,
+    IbUmapConfig, IbUmapRepulsion, IbUmapSolver, RhoSchedule, TFdpConfig, TFdpRepulsion,
+    TFdpSolver,
 };
 #[doc(hidden)]
 pub use field_layout::{
-    ExactTFdpState, TFdpBackend2dState, TFdpBackend3dState, TFdpBarnesHut2dState,
-    TFdpBarnesHut3dState, TFdpCore, TFdpIbFft2dState, TFdpWorkspace,
+    ExactIbUmapState, ExactTFdpState, IbUmapBackend2dState, IbUmapBarnesHut2dState, IbUmapCore,
+    IbUmapIbFft2dState, IbUmapWorkspace, TFdpBackend2dState, TFdpBackend3dState,
+    TFdpBarnesHut2dState, TFdpBarnesHut3dState, TFdpCore, TFdpIbFft2dState, TFdpWorkspace,
 };
 pub use gumap::{GuMapConfig, GuMapSolver, GuMapTarget};
 #[doc(hidden)]

@@ -328,10 +328,26 @@ impl<L: GuMapTarget> GuMapSolver<L> {
         self.core.edge_src.len()
     }
 
+    /// Returns the directed positive probability edges `(src, tgt, weights)` in SoA format.
+    #[inline]
+    pub fn edges(&self) -> (&[u32], &[u32], &[f32]) {
+        (
+            &self.core.edge_src,
+            &self.core.edge_tgt,
+            &self.core.edge_weight,
+        )
+    }
+
     /// Returns the resolved UMAP low-dimensional curve parameters `(a, b)`.
     #[inline]
     pub fn ab(&self) -> (f64, f64) {
         (self.core.a, self.core.b)
+    }
+
+    /// Returns the resolved UMAP low-dimensional curve parameters `(a, b)`.
+    #[inline]
+    pub fn ab_params(&self) -> (f64, f64) {
+        self.ab()
     }
 
     /// Returns the resolved UMAP curve parameter `a`.

@@ -293,6 +293,12 @@ where
         self.core.num_nodes
     }
 
+    /// Returns the symmetric high-dimensional joint probabilities `(indptr, indices, p_vals)` in CSR format.
+    #[inline]
+    pub fn probabilities_csr(&self) -> (&[u32], &[u32], &[f64]) {
+        (&self.core.indptr, &self.core.indices, &self.core.p_vals)
+    }
+
     /// Returns the stability-capped learning rate of the current stage.
     #[inline]
     pub fn current_stage_lr(&self) -> f64 {

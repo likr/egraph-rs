@@ -259,3 +259,33 @@ impl TFdpBackend3d {
         }
     }
 }
+
+/// Dynamic wrapper over all legal [`IbUmapSolver`](crate::IbUmapSolver) backends on
+/// [`Layout2d`](egraph_core::Layout2d) for runtime-selected bindings.
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq)]
+pub enum IbUmapBackend2d {
+    /// $O(N)$ interpolation-based 2D FFT repulsion.
+    IbFft(IbFft),
+    /// $O(N \log N)$ 2D Barnes-Hut quadtree repulsion.
+    BarnesHut(BarnesHut),
+    /// Exact $O(N^2)$ pairwise repulsion.
+    Exact(Exact),
+}
+
+impl Default for IbUmapBackend2d {
+    fn default() -> Self {
+        Self::IbFft(IbFft::default())
+    }
+}
+
+impl IbUmapBackend2d {
+    /// Validates the wrapped 2D backend parameters.
+    pub fn validate(&self) -> CoreResult<()> {
+        match self {
+            Self::IbFft(b) => b.validate(),
+            Self::BarnesHut(b) => b.validate(),
+            Self::Exact(_) => Ok(()),
+        }
+    }
+}

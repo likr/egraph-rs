@@ -278,7 +278,8 @@ pub fn run_layout_method_with_labels(
         LayoutMethod::Ibumap => {
             let dog_cfg = DogVaradhanConfig::new().with_seed(seed);
             let cfg = IbUmapConfig::new().with_seed(seed);
-            let mut solver = IbUmapSolver::from_graph_dog(graph, 32, &dog_cfg, cfg)?;
+            let mut solver =
+                IbUmapSolver::<Layout2d<f64>>::from_graph_dog(graph, 32, &dog_cfg, cfg)?;
             solver.run(layout)?;
         }
         LayoutMethod::Backbone => {

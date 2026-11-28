@@ -1,19 +1,5 @@
 use egraph_core::{CoreError, CoreResult};
 
-/// Repulsion approximation backend used by [`TFdpSolver`](super::TFdpSolver) and
-/// [`IbUmapSolver`](super::IbUmapSolver).
-#[non_exhaustive]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub enum FieldRepulsionBackend {
-    /// $O(N)$ interpolation-based 2D FFT convolution via [`IbFft2d`](egraph_spatial_fft::IbFft2d).
-    #[default]
-    IbFft,
-    /// $O(N \log N)$ Barnes-Hut spatial tree approximation (2D quadtree or 3D octree).
-    BarnesHut,
-    /// Exact $O(N^2)$ pairwise repulsion reference.
-    Exact,
-}
-
 /// Telemetry counters from the most recent `IbFft` step on [`TFdpSolver`](super::TFdpSolver) or
 /// [`IbUmapSolver`](super::IbUmapSolver).
 #[non_exhaustive]

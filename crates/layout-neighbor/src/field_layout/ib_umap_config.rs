@@ -1,15 +1,15 @@
 use egraph_core::{CoreError, CoreResult};
 use egraph_neighborhood::find_ab_params;
-use egraph_spatial_fft::{IbFftConfig, InterpolationOrder};
 
-use super::config::FieldRepulsionBackend;
-
-/// Configuration for [`IbUmapSolver`](super::IbUmapSolver) (`ibUMAP` interpolation-based batch Graph UMAP).
+/// Space-independent configuration for [`IbUmapSolver`](super::IbUmapSolver) (`ibUMAP`
+/// interpolation-based batch Graph UMAP).
+///
+/// Repulsion approximation settings (`theta`, FFT grid parameters) live on concrete backend
+/// types ([`Exact`](crate::Exact), [`BarnesHut`](crate::BarnesHut), [`IbFft`](crate::IbFft),
+/// [`IbUmapBackend2d`](crate::IbUmapBackend2d)).
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq)]
 pub struct IbUmapConfig {
-    /// Repulsion evaluation backend (`IbFft` by default).
-    pub backend: FieldRepulsionBackend,
     /// Total optimization iterations (`default: 200`).
     pub iterations: usize,
     /// Initial learning rate $\alpha_0$ (`default: 1.0`).
@@ -28,10 +28,6 @@ pub struct IbUmapConfig {
     pub tau_scale: f64,
     /// Whether to apply inverse-degree hub damping $\eta_i$ (`default: true`).
     pub hub_damping: bool,
-    /// Barnes-Hut opening angle threshold $\theta \ge 0$ (`default: 0.5`).
-    pub theta: f64,
-    /// Interpolation-based 2D FFT grid configuration.
-    pub ibfft: IbFftConfig,
     /// Explicit deterministic seed for fallback zero-layout jitter (`default: 42`).
     pub seed: u64,
 }
@@ -39,7 +35,6 @@ pub struct IbUmapConfig {
 impl Default for IbUmapConfig {
     fn default() -> Self {
         Self {
-            backend: FieldRepulsionBackend::IbFft,
             iterations: 200,
             learning_rate: 1.0,
             min_dist: 0.1,
@@ -49,8 +44,6 @@ impl Default for IbUmapConfig {
             c_k: 4.0,
             tau_scale: 4.0,
             hub_damping: true,
-            theta: 0.5,
-            ibfft: IbFftConfig::default(),
             seed: 42,
         }
     }
@@ -60,12 +53,6 @@ impl IbUmapConfig {
     /// Creates a new [`IbUmapConfig`] initialized with default values.
     pub fn new() -> Self {
         Self::default()
-    }
-
-    /// Sets the repulsion evaluation backend.
-    pub fn with_backend(mut self, backend: FieldRepulsionBackend) -> Self {
-        self.backend = backend;
-        self
     }
 
     /// Sets total optimization iterations.
@@ -119,18 +106,6 @@ impl IbUmapConfig {
     /// Enables or disables inverse-degree hub damping.
     pub fn with_hub_damping(mut self, hub_damping: bool) -> Self {
         self.hub_damping = hub_damping;
-        self
-    }
-
-    /// Sets the Barnes-Hut opening angle threshold `theta`.
-    pub fn with_theta(mut self, theta: f64) -> Self {
-        self.theta = theta;
-        self
-    }
-
-    /// Sets the interpolation-based 2D FFT grid configuration.
-    pub fn with_ibfft(mut self, ibfft: IbFftConfig) -> Self {
-        self.ibfft = ibfft;
         self
     }
 
@@ -196,7 +171,7 @@ impl IbUmapConfig {
         Ok((eff_a, eff_b))
     }
 
-    /// Validates all `ibUMAP` hyperparameters and nested FFT configuration.
+    /// Validates all `ibUMAP` hyperparameters.
     pub fn validate(&self) -> CoreResult<()> {
         let _ = self.resolve_ab()?;
         if !self.learning_rate.is_finite() {
@@ -226,39 +201,6 @@ impl IbUmapConfig {
                 self.tau_scale
             )));
         }
-        if !self.theta.is_finite() {
-            return Err(CoreError::non_finite("IbUmapConfig::theta"));
-        }
-        if self.theta < 0.0 {
-            return Err(CoreError::invalid_input(format!(
-                "theta must be >= 0.0, got {}",
-                self.theta
-            )));
-        }
-        self.ibfft.validate()
-    }
-
-    /// Returns the configured FFT interpolation order (`ibfft.order`).
-    #[inline]
-    pub fn interpolation_order(&self) -> InterpolationOrder {
-        self.ibfft.order
-    }
-
-    /// Returns the configured FFT nominal interval count (`ibfft.intervals`).
-    #[inline]
-    pub fn intervals(&self) -> usize {
-        self.ibfft.intervals
-    }
-
-    /// Returns the configured minimum FFT grid dimension (`ibfft.min_grid_dim`).
-    #[inline]
-    pub fn min_grid_dim(&self) -> usize {
-        self.ibfft.min_grid_dim
-    }
-
-    /// Returns the configured maximum FFT grid dimension (`ibfft.max_grid_dim`).
-    #[inline]
-    pub fn max_grid_dim(&self) -> usize {
-        self.ibfft.max_grid_dim
+        Ok(())
     }
 }

@@ -279,6 +279,7 @@ export interface TFdpOptions {
 }
 
 export interface IbUmapOptions {
+  target?: "layout2d" | string | null;
   max2hopPerNode?: number | null;
   backend?: FieldRepulsionBackend | string | null;
   iterations?: number | null;

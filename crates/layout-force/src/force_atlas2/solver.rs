@@ -306,6 +306,22 @@ where
         Some(self.state.config.iterations)
     }
 
+    /// Returns the canonical undirected edges `(u, v, weights)` with effective weights applied.
+    #[inline]
+    pub fn edges(&self) -> (&[u32], &[u32], &[f64]) {
+        (
+            &self.state.edges_u,
+            &self.state.edges_v,
+            &self.state.edges_w,
+        )
+    }
+
+    /// Returns the per-node ForceAtlas2 masses `deg + 1`.
+    #[inline]
+    pub fn masses(&self) -> &[f64] {
+        &self.state.masses
+    }
+
     /// Returns the per-node collision radii.
     #[inline]
     pub fn node_radii(&self) -> &[f64] {

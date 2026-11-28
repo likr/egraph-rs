@@ -1,7 +1,9 @@
-use egraph_core::{IterativeSolver, Layout2d, SolverStatus};
+use egraph_core::{CoreError, CoreResult, CsrGraph, IterativeSolver, Layout2d, SolverStatus};
 use egraph_neighborhood::{DogVaradhanConfig, SparseProbabilities};
 
-use super::super::{FieldRepulsionBackend, IbUmapConfig, IbUmapSolver};
+use crate::backends::{BarnesHut, Exact, IbFft, IbUmapBackend2d};
+
+use super::super::{IbUmapConfig, IbUmapRepulsion, IbUmapSolver};
 use super::{barbell_graph, grid_graph, seeded_layout, star_graph};
 
 #[test]
@@ -9,19 +11,30 @@ fn test_ib_umap_step_vs_run_bit_exact_f64_and_f32_all_backends() {
     let grid = grid_graph(4, 4);
     let dog_cfg = DogVaradhanConfig::default();
     for backend in [
-        FieldRepulsionBackend::IbFft,
-        FieldRepulsionBackend::BarnesHut,
-        FieldRepulsionBackend::Exact,
+        IbUmapBackend2d::IbFft(IbFft::new()),
+        IbUmapBackend2d::BarnesHut(BarnesHut::default()),
+        IbUmapBackend2d::Exact(Exact::new()),
     ] {
-        let cfg = IbUmapConfig::new()
-            .with_backend(backend)
-            .with_iterations(20)
-            .with_seed(55);
+        let cfg = IbUmapConfig::new().with_iterations(20).with_seed(55);
 
         let mut s_run =
-            IbUmapSolver::<f64>::from_graph_dog(&grid, 32, &dog_cfg, cfg.clone()).unwrap();
+            IbUmapSolver::<Layout2d<f64>, IbUmapBackend2d>::from_graph_dog_with_backend(
+                &grid,
+                32,
+                &dog_cfg,
+                cfg.clone(),
+                backend.clone(),
+            )
+            .unwrap();
         let mut s_step =
-            IbUmapSolver::<f64>::from_graph_dog(&grid, 32, &dog_cfg, cfg.clone()).unwrap();
+            IbUmapSolver::<Layout2d<f64>, IbUmapBackend2d>::from_graph_dog_with_backend(
+                &grid,
+                32,
+                &dog_cfg,
+                cfg.clone(),
+                backend.clone(),
+            )
+            .unwrap();
         let mut l_run = seeded_layout::<f64>(grid.num_nodes(), 2.0, 23);
         let mut l_step = l_run.clone();
 
@@ -39,8 +52,19 @@ fn test_ib_umap_step_vs_run_bit_exact_f64_and_f32_all_backends() {
         }
 
         let mut s32_run =
-            IbUmapSolver::<f32>::from_graph_dog(&grid, 32, &dog_cfg, cfg.clone()).unwrap();
-        let mut s32_step = IbUmapSolver::<f32>::from_graph_dog(&grid, 32, &dog_cfg, cfg).unwrap();
+            IbUmapSolver::<Layout2d<f32>, IbUmapBackend2d>::from_graph_dog_with_backend(
+                &grid,
+                32,
+                &dog_cfg,
+                cfg.clone(),
+                backend.clone(),
+            )
+            .unwrap();
+        let mut s32_step =
+            IbUmapSolver::<Layout2d<f32>, IbUmapBackend2d>::from_graph_dog_with_backend(
+                &grid, 32, &dog_cfg, cfg, backend,
+            )
+            .unwrap();
         let mut l32_run = seeded_layout::<f32>(grid.num_nodes(), 2.0, 23);
         let mut l32_step = l32_run.clone();
         s32_run.run(&mut l32_run).unwrap();
@@ -60,32 +84,26 @@ fn test_ib_umap_ibfft_vs_exact_and_barbell_separation() {
     let dog_cfg = DogVaradhanConfig::default();
     let init = seeded_layout::<f64>(barbell.num_nodes(), 2.5, 202);
 
-    let mut s_exact = IbUmapSolver::<f64>::from_graph_dog(
+    let mut s_exact = IbUmapSolver::<Layout2d<f64>, Exact>::from_graph_dog(
         &barbell,
         32,
         &dog_cfg,
-        IbUmapConfig::new()
-            .with_backend(FieldRepulsionBackend::Exact)
-            .with_iterations(25),
+        IbUmapConfig::new().with_iterations(25),
     )
     .unwrap();
-    let mut s_ibfft = IbUmapSolver::<f64>::from_graph_dog(
+    let mut s_ibfft = IbUmapSolver::<Layout2d<f64>, IbFft>::from_graph_dog(
         &barbell,
         32,
         &dog_cfg,
-        IbUmapConfig::new()
-            .with_backend(FieldRepulsionBackend::IbFft)
-            .with_iterations(25),
+        IbUmapConfig::new().with_iterations(25),
     )
     .unwrap();
-    let mut s_bh_exact = IbUmapSolver::<f64>::from_graph_dog(
+    let mut s_bh_exact = IbUmapSolver::<Layout2d<f64>, BarnesHut>::from_graph_dog_with_backend(
         &barbell,
         32,
         &dog_cfg,
-        IbUmapConfig::new()
-            .with_backend(FieldRepulsionBackend::BarnesHut)
-            .with_iterations(25)
-            .with_theta(0.0),
+        IbUmapConfig::new().with_iterations(25),
+        BarnesHut::new(0.0),
     )
     .unwrap();
 
@@ -95,6 +113,8 @@ fn test_ib_umap_ibfft_vs_exact_and_barbell_separation() {
     s_exact.run(&mut l_exact).unwrap();
     s_ibfft.run(&mut l_ibfft).unwrap();
     s_bh_exact.run(&mut l_bh).unwrap();
+    assert!(s_ibfft.total_fft_2d_calls() > 0);
+    assert!(s_ibfft.last_fft_stats().is_some());
 
     for i in 0..barbell.num_nodes() {
         let bh_err = (l_bh.x()[i] - l_exact.x()[i]).hypot(l_bh.y()[i] - l_exact.y()[i]);
@@ -104,7 +124,7 @@ fn test_ib_umap_ibfft_vs_exact_and_barbell_separation() {
     }
 
     // Full 150-epoch run from all-zeros separates the two barbell cliques cleanly.
-    let mut full_solver = IbUmapSolver::<f64>::from_graph_dog(
+    let mut full_solver = IbUmapSolver::<Layout2d<f64>>::from_graph_dog(
         &barbell,
         32,
         &dog_cfg,
@@ -136,7 +156,7 @@ fn test_ib_umap_ibfft_vs_exact_and_barbell_separation() {
 }
 
 #[test]
-fn test_ib_umap_hub_damping_and_tau_clipping() {
+fn test_ib_umap_hub_damping_tau_clipping_and_ir_accessors() {
     let star = star_graph(24);
     let probs = SparseProbabilities::from_csr(
         star.num_nodes(),
@@ -169,7 +189,6 @@ fn test_ib_umap_hub_damping_and_tau_clipping() {
     let init = Layout2d::from_xy(xs, ys).unwrap();
 
     let cfg_damped = IbUmapConfig::new()
-        .with_backend(FieldRepulsionBackend::Exact)
         .with_iterations(10)
         .with_learning_rate(1.0)
         .with_tau_scale(4.0)
@@ -180,25 +199,46 @@ fn test_ib_umap_hub_damping_and_tau_clipping() {
         .with_tau_scale(0.25)
         .with_hub_damping(false);
 
-    let s_damped =
-        IbUmapSolver::<f64>::from_fuzzy_set(probs.clone(), Some(&[24; 25]), cfg_damped.clone())
-            .unwrap();
+    let s_damped = IbUmapSolver::<Layout2d<f64>, Exact>::from_fuzzy_set(
+        probs.clone(),
+        Some(&[24; 25]),
+        cfg_damped.clone(),
+    )
+    .unwrap();
     assert_eq!(s_damped.num_nodes(), 25);
     assert_eq!(s_damped.num_edges(), 48);
     assert!(s_damped.a() > 0.0 && s_damped.b() > 0.0);
-    assert_eq!(s_damped.backend(), FieldRepulsionBackend::Exact);
+    assert_eq!(s_damped.ab_params(), s_damped.ab());
+    assert_eq!(s_damped.backend(), &Exact::new());
+    let (indptr, indices, weights) = s_damped.edge_csr();
+    assert_eq!(indptr.len(), 26);
+    assert_eq!(indices.len(), 48);
+    assert_eq!(weights.len(), 48);
+    assert_eq!(s_damped.hub_eta().len(), 25);
+    assert!((s_damped.hub_eta()[0] - 1.0 / 24.0).abs() < 1e-12);
 
     let mut s_nat_damped =
-        IbUmapSolver::<f64>::from_fuzzy_set(probs.clone(), None, cfg_damped).unwrap();
+        IbUmapSolver::<Layout2d<f64>, Exact>::from_fuzzy_set(probs.clone(), None, cfg_damped)
+            .unwrap();
     let mut s_undamped =
-        IbUmapSolver::<f64>::from_fuzzy_set(probs.clone(), None, cfg_undamped).unwrap();
-    let mut s_tight = IbUmapSolver::<f64>::from_fuzzy_set(probs, None, cfg_tight_tau).unwrap();
+        IbUmapSolver::<Layout2d<f64>, Exact>::from_fuzzy_set(probs.clone(), None, cfg_undamped)
+            .unwrap();
+    let mut s_tight =
+        IbUmapSolver::<Layout2d<f64>, Exact>::from_fuzzy_set(probs, None, cfg_tight_tau).unwrap();
+    assert!(
+        s_undamped
+            .hub_eta()
+            .iter()
+            .all(|&v| (v - 1.0).abs() < 1e-12)
+    );
 
     let mut l_damped = init.clone();
     let mut l_undamped = init.clone();
     let mut l_tight = init.clone();
 
+    let csr_ptr_before = s_nat_damped.edge_csr().0.as_ptr();
     s_nat_damped.step(&mut l_damped).unwrap();
+    assert_eq!(s_nat_damped.edge_csr().0.as_ptr(), csr_ptr_before);
     s_undamped.step(&mut l_undamped).unwrap();
     s_tight.step(&mut l_tight).unwrap();
 
@@ -220,4 +260,135 @@ fn test_ib_umap_hub_damping_and_tau_clipping() {
         tight_hub_delta < undamped_hub_delta,
         "expected tighter tau_scale=0.25 to clip step: tight={tight_hub_delta}, undamped={undamped_hub_delta}"
     );
+
+    // Empty graph CSR invariant on IbUmapSolver::edge_csr / hub_eta.
+    let empty = CsrGraph::<f64>::from_edges(0, &[], None, false, false).unwrap();
+    let s_empty = IbUmapSolver::<Layout2d<f64>>::new(&empty, IbUmapConfig::new()).unwrap();
+    let (e_indptr, e_indices, e_weights) = s_empty.edge_csr();
+    assert_eq!(e_indptr, &[0]);
+    assert!(e_indices.is_empty());
+    assert!(e_weights.is_empty());
+    assert!(s_empty.hub_eta().is_empty());
+    assert!(s_empty.ab_params().0 > 0.0 && s_empty.ab_params().1 > 0.0);
+}
+
+#[derive(Clone, Copy, Debug)]
+enum RepulsionErrorKind {
+    BackendUnavailable,
+    DeviceLimitExceeded,
+    NumericalBreakdown,
+}
+
+#[derive(Clone, Debug)]
+struct FailingRepulsionBackend {
+    kind: RepulsionErrorKind,
+    fail_on_call: usize,
+}
+
+#[derive(Clone, Debug)]
+struct FailingRepulsionState {
+    calls: usize,
+}
+
+impl IbUmapRepulsion<Layout2d<f64>> for FailingRepulsionBackend {
+    type State = FailingRepulsionState;
+
+    fn validate_config(&self) -> CoreResult<()> {
+        Ok(())
+    }
+
+    fn init_state(&self, _num_nodes: usize) -> CoreResult<Self::State> {
+        Ok(FailingRepulsionState { calls: 0 })
+    }
+
+    fn compute_repulsion(
+        &self,
+        state: &mut Self::State,
+        _layout: &Layout2d<f64>,
+        _a: f64,
+        _b: f64,
+        _c_k: f64,
+        rep_forces: &mut [f64],
+    ) -> CoreResult<()> {
+        state.calls += 1;
+        if state.calls == self.fail_on_call {
+            return Err(match self.kind {
+                RepulsionErrorKind::BackendUnavailable => {
+                    CoreError::backend_unavailable("simulated unavailable backend")
+                }
+                RepulsionErrorKind::DeviceLimitExceeded => {
+                    CoreError::device_limit_exceeded("simulated device limit exceeded")
+                }
+                RepulsionErrorKind::NumericalBreakdown => {
+                    CoreError::numerical_breakdown("simulated numerical breakdown")
+                }
+            });
+        }
+        rep_forces.fill(0.0);
+        Ok(())
+    }
+}
+
+#[test]
+fn test_ib_umap_terminal_failure_sets_failed_status_and_makes_step_noop() {
+    let grid = grid_graph(3, 3);
+    let dog_cfg = DogVaradhanConfig::default();
+
+    for kind in [
+        RepulsionErrorKind::BackendUnavailable,
+        RepulsionErrorKind::DeviceLimitExceeded,
+        RepulsionErrorKind::NumericalBreakdown,
+    ] {
+        for fail_on_call in [1_usize, 2_usize] {
+            let mut solver =
+                IbUmapSolver::<Layout2d<f64>, FailingRepulsionBackend>::from_graph_dog_with_backend(
+                    &grid,
+                    16,
+                    &dog_cfg,
+                    IbUmapConfig::new().with_iterations(10).with_seed(17),
+                    FailingRepulsionBackend { kind, fail_on_call },
+                )
+                .unwrap();
+            let mut layout = seeded_layout::<f64>(grid.num_nodes(), 2.0, 11);
+
+            for expected_iter in 1..fail_on_call {
+                assert_eq!(solver.step(&mut layout).unwrap(), SolverStatus::Running);
+                assert_eq!(solver.iteration(), expected_iter);
+            }
+
+            let err = solver.step(&mut layout).unwrap_err();
+            match kind {
+                RepulsionErrorKind::BackendUnavailable => {
+                    assert!(matches!(err, CoreError::BackendUnavailable(_)));
+                }
+                RepulsionErrorKind::DeviceLimitExceeded => {
+                    assert!(matches!(err, CoreError::DeviceLimitExceeded(_)));
+                }
+                RepulsionErrorKind::NumericalBreakdown => {
+                    assert!(matches!(err, CoreError::NumericalBreakdown(_)));
+                }
+            }
+
+            assert_eq!(solver.status(), SolverStatus::Failed);
+            assert!(solver.status().is_finished());
+            assert!(solver.status().is_failed());
+            assert_eq!(solver.iteration(), fail_on_call - 1);
+            assert_eq!(solver.backend_state().calls, fail_on_call);
+
+            let snapshot = layout.clone();
+            assert_eq!(solver.step(&mut layout).unwrap(), SolverStatus::Failed);
+            assert_eq!(
+                solver.run_steps(&mut layout, 3).unwrap(),
+                SolverStatus::Failed
+            );
+            assert_eq!(solver.run(&mut layout).unwrap(), SolverStatus::Failed);
+
+            assert_eq!(solver.backend_state().calls, fail_on_call);
+            assert_eq!(solver.iteration(), fail_on_call - 1);
+            for i in 0..grid.num_nodes() {
+                assert_eq!(layout.x()[i].to_bits(), snapshot.x()[i].to_bits());
+                assert_eq!(layout.y()[i].to_bits(), snapshot.y()[i].to_bits());
+            }
+        }
+    }
 }

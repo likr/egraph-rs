@@ -3,9 +3,10 @@
 //! Each domain crate is exposed as a submodule (`sgd`, `embedding`, `neighbor`, `stress`,
 //! `force`, `constraints`, `multilevel`, `refine`, `composite`) alongside non-colliding
 //! flat re-exports. Solvers with typed repulsion backends (`TsNetSolver`, `TFdpSolver`,
-//! `ForceAtlas2Solver`, `LinLogSolver`, `YifanHuSolver`, `FruchtermanReingoldSolver`,
-//! `MaxentStressSolver`, `StressMajorizationSolver`) resolve their default backend per space
-//! automatically and reject incompatible `(L, B)` pairings at compile time:
+//! `IbUmapSolver`, `ForceAtlas2Solver`, `LinLogSolver`, `YifanHuSolver`,
+//! `FruchtermanReingoldSolver`, `MaxentStressSolver`, `StressMajorizationSolver`) resolve their
+//! default backend per space automatically and reject incompatible `(L, B)` pairings at compile
+//! time:
 //!
 //! ```
 //! use egraph::core::{CsrGraph, IterativeSolver, Layout3d, LayoutNd};
@@ -113,11 +114,11 @@ pub use egraph_layout_multilevel::{
 #[cfg(feature = "baselines")]
 pub use egraph_layout_multilevel::{GripConfig, GripSolver, SfcConfig, SfcCurveKind, SfcLayout};
 pub use egraph_layout_neighbor::{
-    Auto2d, Auto3d, DEFAULT_AUTO_EXACT_THRESHOLD, DEFAULT_MAX_2HOP_PER_NODE, DefaultTFdpBackend,
-    DefaultTsNetBackend, FieldFftStats, FieldRepulsionBackend, FitFft, GuMapConfig, GuMapSolver,
-    GuMapTarget, IbFft, IbUmapConfig, IbUmapSolver, LinearFft, RhoSchedule, TFdpBackend2d,
-    TFdpBackend3d, TFdpConfig, TFdpRepulsion, TFdpSolver, TsNetBackend2d, TsNetBackend3d,
-    TsNetConfig, TsNetRepulsion, TsNetSolver, TsNetStage,
+    Auto2d, Auto3d, DEFAULT_AUTO_EXACT_THRESHOLD, DEFAULT_MAX_2HOP_PER_NODE, DefaultIbUmapBackend,
+    DefaultTFdpBackend, DefaultTsNetBackend, FieldFftStats, FitFft, GuMapConfig, GuMapSolver,
+    GuMapTarget, IbFft, IbUmapBackend2d, IbUmapConfig, IbUmapRepulsion, IbUmapSolver, LinearFft,
+    RhoSchedule, TFdpBackend2d, TFdpBackend3d, TFdpConfig, TFdpRepulsion, TFdpSolver,
+    TsNetBackend2d, TsNetBackend3d, TsNetConfig, TsNetRepulsion, TsNetSolver, TsNetStage,
 };
 #[cfg(feature = "baselines")]
 pub use egraph_layout_refine::{

@@ -47,7 +47,12 @@ pub struct TFdpIbFft2dState<S: Scalar> {
     last_fft_stats: Option<FieldFftStats>,
 }
 
-fn check_rep_slice(n: usize, dims: usize, rep_forces: &[f64], ctx: &'static str) -> CoreResult<()> {
+pub(super) fn check_rep_slice(
+    n: usize,
+    dims: usize,
+    rep_forces: &[f64],
+    ctx: &'static str,
+) -> CoreResult<()> {
     let expected = n
         .checked_mul(dims)
         .ok_or_else(|| CoreError::invalid_input("repulsion force buffer size overflow"))?;

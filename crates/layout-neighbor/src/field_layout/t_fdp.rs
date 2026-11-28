@@ -269,6 +269,16 @@ where
         self.core.indices.len()
     }
 
+    /// Returns the symmetrized positive attraction edges `(indptr, indices, edge_weights)` in CSR format.
+    #[inline]
+    pub fn edge_csr(&self) -> (&[u32], &[u32], &[f32]) {
+        (
+            &self.core.indptr,
+            &self.core.indices,
+            &self.core.edge_weights,
+        )
+    }
+
     /// Returns the cumulative number of `fft_2d` calls executed across all steps.
     #[inline]
     pub fn total_fft_2d_calls(&self) -> u64 {

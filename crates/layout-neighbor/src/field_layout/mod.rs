@@ -4,6 +4,9 @@
 mod config;
 mod ib_umap;
 mod ib_umap_config;
+mod ib_umap_constructors;
+mod ib_umap_repulsion;
+mod ib_umap_repulsion_impls;
 mod ib_umap_step;
 mod quadtree;
 mod repulsion;
@@ -16,9 +19,16 @@ mod t_fdp_step3d;
 #[cfg(test)]
 mod tests;
 
-pub use config::{FieldFftStats, FieldRepulsionBackend, RhoSchedule, TFdpConfig};
+pub use config::{FieldFftStats, RhoSchedule, TFdpConfig};
 pub use ib_umap::{DEFAULT_MAX_2HOP_PER_NODE, IbUmapSolver};
 pub use ib_umap_config::IbUmapConfig;
+pub use ib_umap_repulsion::{DefaultIbUmapBackend, IbUmapRepulsion};
+#[doc(hidden)]
+pub use ib_umap_repulsion::{IbUmapCore, IbUmapWorkspace};
+#[doc(hidden)]
+pub use ib_umap_repulsion_impls::{
+    ExactIbUmapState, IbUmapBackend2dState, IbUmapBarnesHut2dState, IbUmapIbFft2dState,
+};
 pub use repulsion::{DefaultTFdpBackend, TFdpRepulsion};
 #[doc(hidden)]
 pub use repulsion::{TFdpCore, TFdpWorkspace};

@@ -1,7 +1,6 @@
 //! Thin Python binding facade for `IbUmapSolver` (`Layout2d` only).
 
 use egraph::core::IterativeSolver;
-use egraph::layout::IbUmapSolver;
 use pyo3::prelude::*;
 
 use crate::csr_graph::PyCsrGraph;
@@ -11,16 +10,13 @@ use crate::layout_buffers::PyLayout2d;
 use crate::neighborhood::{PyDogVaradhanLandmarks, PyKnnGraph, PySparseProbabilities};
 use crate::solver_common::{
     DualIterativeSolver, SolverAction, execute_solver_action, extract_solver_layout,
-    impl_dual_solver,
 };
 
 use super::fit_field_stats::PyFieldFftStats;
 use super::ib_umap_builders::{
-    build_ib_umap_from_fuzzy_set, build_ib_umap_from_knn, build_ib_umap_from_landmarks,
-    build_ib_umap_new,
+    IbUmapInner, build_ib_umap_from_fuzzy_set, build_ib_umap_from_knn,
+    build_ib_umap_from_landmarks, build_ib_umap_new,
 };
-
-impl_dual_solver!(IbUmapInner, IbUmapSolver);
 
 /// Cooperative interpolation-based batch Graph UMAP (`ibUMAP`) layout solver (`Layout2d`).
 #[pyclass(name = "IbUmapSolver", module = "egraph._core")]

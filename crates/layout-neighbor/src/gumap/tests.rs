@@ -434,4 +434,20 @@ fn test_gumap_symmetric_negative_updates_both_endpoints_and_step_parity() {
             assert_eq!(l32_r.y()[i].to_bits(), l32_s.y()[i].to_bits());
         }
     }
+
+    let mut s_ir = GuMapSolver::<Layout2d<f64>>::new(&grid, GuMapConfig::new()).unwrap();
+    let (src, tgt, w) = s_ir.edges();
+    assert_eq!(src.len(), s_ir.num_edges());
+    assert_eq!(tgt.len(), s_ir.num_edges());
+    assert_eq!(w.len(), s_ir.num_edges());
+    assert_eq!(s_ir.ab_params(), s_ir.ab());
+    let src_ptr = src.as_ptr();
+    let mut l_ir = seeded_layout::<f64>(grid.num_nodes(), 1.0, 17);
+    s_ir.step(&mut l_ir).unwrap();
+    assert_eq!(s_ir.edges().0.as_ptr(), src_ptr);
+
+    let empty = CsrGraph::<f64>::from_edges(0, &[], None, false, false).unwrap();
+    let s_empty = GuMapSolver::<Layout2d<f64>>::new(&empty, GuMapConfig::new()).unwrap();
+    assert_eq!(s_empty.edges(), (&[][..], &[][..], &[][..]));
+    assert!(s_empty.ab_params().0 > 0.0 && s_empty.ab_params().1 > 0.0);
 }

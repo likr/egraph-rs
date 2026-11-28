@@ -294,3 +294,39 @@ fn test_force_atlas2_step_vs_run_overlap_and_v6_contract() {
     assert!(matches!(res, Err(CoreError::NumericalBreakdown(_))));
     assert_eq!(overflow_solver.status(), SolverStatus::Failed);
 }
+
+#[test]
+fn test_force_atlas2_ir_accessors_and_empty_singleton() {
+    let empty = CsrGraph::<()>::from_unweighted_edges(0, &[], false, false).unwrap();
+    let s_empty =
+        ForceAtlas2Solver::<Layout2d<f64>>::new_unweighted(&empty, ForceAtlas2Config::new())
+            .unwrap();
+    assert_eq!(s_empty.edges(), (&[][..], &[][..], &[][..]));
+    assert!(s_empty.masses().is_empty());
+
+    let single = CsrGraph::<()>::from_unweighted_edges(1, &[], false, false).unwrap();
+    let s_single =
+        ForceAtlas2Solver::<Layout2d<f64>>::new_unweighted(&single, ForceAtlas2Config::new())
+            .unwrap();
+    assert_eq!(s_single.edges(), (&[][..], &[][..], &[][..]));
+    assert_eq!(s_single.masses(), &[1.0]);
+
+    let g =
+        CsrGraph::<f64>::from_edges(4, &[(0, 1), (1, 2)], Some(&[2.0, 3.0]), false, false).unwrap();
+    let mut s = ForceAtlas2Solver::<Layout2d<f64>>::new(
+        &g,
+        ForceAtlas2Config::new()
+            .with_iterations(5)
+            .with_outbound_attraction_distribution(true),
+    )
+    .unwrap();
+    let (eu, ev, ew) = s.edges();
+    assert_eq!(eu.len(), 2);
+    assert_eq!(ev.len(), 2);
+    assert_eq!(ew.len(), 2);
+    assert_eq!(s.masses(), &[2.0, 3.0, 2.0, 1.0]);
+    let eu_ptr = eu.as_ptr();
+    let mut layout = seeded_layout::<f64>(4, 9);
+    s.step(&mut layout).unwrap();
+    assert_eq!(s.edges().0.as_ptr(), eu_ptr);
+}

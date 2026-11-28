@@ -390,6 +390,11 @@ fn test_from_graph_row_normalized_uncapped_capped_and_bit_exact() {
     let mut l_empty = Layout2d::<f64>::zeros(0);
     assert_eq!(s_empty.run(&mut l_empty).unwrap(), SolverStatus::Converged);
 
+    let (e_ptr, e_idx, e_val) = s_empty.probabilities_csr();
+    assert_eq!(e_ptr, &[0]);
+    assert!(e_idx.is_empty());
+    assert!(e_val.is_empty());
+
     let probs_beta = graph_12hop_row_normalized_probabilities_with_options(
         &grid,
         0.5,
@@ -451,8 +456,22 @@ fn test_from_graph_row_normalized_uncapped_capped_and_bit_exact() {
     }
     assert!(matches!(
         TsNetSolver::<Layout2d<f64>>::from_graph_row_normalized_with_degree_decay(
-            &grid, 0.5, None, -0.1, cfg
+            &grid,
+            0.5,
+            None,
+            -0.1,
+            cfg.clone()
         ),
         Err(CoreError::InvalidInput(_))
     ));
+
+    let mut s_ir = TsNetSolver::<Layout2d<f64>>::new(&grid, cfg).unwrap();
+    let (indptr, indices, p_vals) = s_ir.probabilities_csr();
+    assert_eq!(indptr.len(), n + 1);
+    assert_eq!(indices.len(), indptr[n] as usize);
+    assert_eq!(p_vals.len(), indices.len());
+    let ptr = indptr.as_ptr();
+    let mut l_ir = seeded_layout::<f64>(n, 0.5, 29);
+    s_ir.step(&mut l_ir).unwrap();
+    assert_eq!(s_ir.probabilities_csr().0.as_ptr(), ptr);
 }
