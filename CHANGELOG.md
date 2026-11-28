@@ -5,6 +5,42 @@ All notable changes to `egraph-rs` (`egraph` on PyPI and npm) will be documented
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [6.0.0-beta.1] - 2026-11-28
+
+### Added
+
+- **4-Layer Geometry Traits & First-Class `Layout3d<S>` / `EdgePolylines<L>` (`egraph-core`, `egraph-edge-routing`)**:
+  - Added open `LayoutStorage` -> `MetricSpace` -> `RiemannianLayout` (with `exp_map_and_transport` so `parallel_transport_into` executes before `exp_map`) and sealed `EuclideanLayout` (`Layout2d<S>`, `Layout3d<S>`, `LayoutNd<S>`) backed by hidden zero-cost `EuclideanStorageRef`/`EuclideanStorageMut` views.
+  - Added `Layout3d<S>` (SoA `{x, y, z}` in Rust, zero-copy `(N, 3)` NumPy views in Python, interleaved `Float32Array` `coordsView()` in WASM) and `EdgePolylines<L>` with new `crates/edge-routing` (`egraph-edge-routing`) housing `FdebSolver<L>` (`IterativeSolver<Target = EdgePolylines<L>>`).
+  - Added `NodeExtents2d<'a, S>`, `NodeShape2d<S>`, `PinMask`, `CsrGraphBuilder<W>`, `CsrGraph<()>` unweighted constructors, `NearestNeighborIndex`/`SpatialIndex`, `LinearOperator<S>`, `CommunityDetector`/`Clusterer`, `SgdPairBuffer<S>`, and opt-in `serde` feature on core/facade crates.
+- **28-Crate Parallel Workspace & CI Acceleration**:
+  - Split `layout-embedding` (`PacmapGraphSolver`, `LargeVisSolver`, `DrGraphSolver`, `GraphCneSolver`, `SnapTFdpSolver`), `layout-refine` (`SpatialIntruderRefiner`, `ScreenedPoissonRefiner`, `ClusterRefineSolver`), `layout-composite` (`BackboneSolver`, `SelLayoutSolver`, `GroupInABoxSolver`), and `edge-routing`; renamed `crates/cluster` -> `crates/clustering`; eliminated thin umbrellas `crates/spatial` and `crates/layout` (`egraph::spatial` and `egraph::layout` live on the `egraph` facade).
+  - Consolidated 28 `crates/wasm/tests/` binaries into a single `wasm_suite` integration test binary, batched `wasm32` checks in `scripts/check_invariants.sh`, and parallelized `ci.yml` (`rust-core` + `rust-feature-matrix` + `semver-checks` + `uv`/npm/Playwright caching), cutting CI duration from ~12.5m to ~4.6m.
+
+### Changed
+
+- **Compile-Time Typed Backends & Open Repulsion Traits**:
+  - Promoted repulsion/strategy backends to type parameter `B` (`TsNetSolver<L, B>`, `TFdpSolver<L, B>`, `ForceAtlas2Solver<L, B>`, `LinLogSolver<L, B>`, `YifanHuSolver<L, B>`, `FruchtermanReingoldSolver<L, B>`, `MaxentStressSolver<L, B>`, `StressMajorizationSolver<L, S>`) with open repulsion traits and associated `Default*Backend` types (`Auto2d` on `Layout2d`, `Auto3d` on `Layout3d`, `Exact` on `LayoutNd`), eliminating runtime `TypeId::of` dispatch, dead `theta`/`ibfft` config fields, and invalid `(L, B)` combinations at compile time.
+- **Role-Separated Traits & One-Algorithm-Per-Type**:
+  - Unified `IterativeSolver { type Target: ?Sized }` (with `run_steps(target, 0)` pre-validation, `SolverStatus::Failed`, `total_iterations() -> Option<usize>`, and `&mut T`/`Box<T>` blanket impls), `LayoutGenerator { type Output }` (`PivotMds`, `ClassicalMds`, `Hde`, `RdMds`, `KorenSpectral`, `CoarseBackbone`, `SfcLayout`), and `LayoutTransform { type Target: ?Sized }` (`PfsPrimeOverlapRemoval`, `TwinDeclutterer`).
+  - Split `FieldLayoutSolver` into `TFdpSolver` and `IbUmapSolver`, separated `Sgd2Solver` + the 5 `layout-embedding` classes from `SgdSolver`, made `TsNetConfig` use variable-length `stages: Vec<TsNetStage>`, standardized `u32` layer/cluster IDs and `&[T]` inputs, and generalized `metrics*` over `MetricSpace`/`EuclideanLayout` with additive `eval-baselines` (`ClusterBaselineConfig`/`ClusterBaselineReport`) and separated `np_num_samples`/`np_seed`.
+- **SemVer Hardening, MSRV `1.88` & Publishing Metadata**:
+  - Declared workspace `rust-version = "1.88"` and metadata across all 24 publishable library crates (setting `publish = false` on `egraph-{ffi,python,wasm,cli}`), added `#[non_exhaustive]` across public enums/configs/reports/errors, removed `Copy` from evolvable config/report/stats/stage/result structs, encapsulated `SparseProbabilities` and `Sparse12HopPairs`, sealed `pub mod` internals behind flat crate-root re-exports, curated `egraph::prelude`, and switched Python classifiers to `Development Status :: 4 - Beta`.
+- **Python, WASM/TS & Repo Layout Freeze**:
+  - Python: Added explicit `target=` parameter (`"layout2d" | "layout3d" | "layout_nd" | "manifold2d"`) with fail-fast validation, UAF-safe `PyEdgePolylines`, `EgraphError(ValueError)` with 7 typed subclasses, keyword-only `*` hyperparameters, frozen Result structs, and modernized `.pyi` (`Protocol`/`TypedDict`/`Literal`) verified via `mypy --strict` and `stubtest`.
+  - WASM/TS: Migrated all 620 error sites from `JsError` to `Result<T, JsValue>` with `.code: EgraphErrorCode`, converted 34+ multi-arg functions to `{ ...options }`, standardized strict `camelCase` tokens, added `number | bigint` 64-bit seeds, enforced `weightDtype: "float32"`, and updated `memory.grow`-safe `Layout3d`/`EdgePolylines` views.
+  - Moved `js/` -> `examples/web/` (flat depth-2 Vite layout), moved historical plans into `docs/archive/`, separated `egraph-dataset` into lightweight `dataset` vs opt-in `dataset-embedded` (`9` CSVs excluded from `.wasm`), and updated `notebooks/01..09_*.ipynb` + Sphinx/TypeDoc docs.
+
+### Fixed
+
+- **Non-Euclidean Manifold Geometry & Mixed-Layout Soundness**:
+  - Implemented closed-form Levi-Civita `parallel_transport_into` + `exp_map_and_transport` across `Torus2d`, `Spherical`, `HyperbolicPoincare`, and extreme-radius-safe `HyperbolicLorentz`; fixed `KamadaKawaiSolver` tangent Hessian positive-definiteness check, `TsNetSolver` velocity parallel transport, `PacmapGraphSolver` rotation-invariant Riemannian Adam, and `Sgd2Solver` `SO(2)`-invariant trace preconditioning; eradicated 2D/ND scratch aliasing bugs (`ActiveLayoutKind` removed, `LayoutNd` `dims == 3` branch removed, `ManifoldKind` locked per solver).
+
+### Removed
+
+- **`petgraph`, `ContinuousFdp`, `delaunay` Feature Fallback & Redundant Shims**:
+  - Deleted `crates/petgraph` and all `petgraph` dependencies across the workspace, removed `ContinuousFdp` and the `delaunay` feature (making `spade` unconditional), eliminated `MetricLayout`/`SgdScheduleWindowLayout`/`NdSpatialIndex`/`*_nd`/`*_manifold` duplicates, sealed `TorusLayoutView` (removing implicit `Layout2d` impl), and encapsulated `ChaCha8Rng`/`RngCore` behind `DeterministicRng`.
+
 ## [6.0.0-alpha.9] - 2026-11-27
 
 ### Added

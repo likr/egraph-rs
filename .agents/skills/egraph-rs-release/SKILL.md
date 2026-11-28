@@ -13,7 +13,7 @@ Use this skill whenever preparing, bumping, tagging, publishing, or verifying a 
 
 Update every file below atomically when bumping `X.Y.Z-alpha.N` / `X.Y.Z-beta.N` / `X.Y.Z-rc.N` / `X.Y.Z` (PEP 440 PyPI equivalent: `X.Y.ZaN` / `X.Y.ZbN` / `X.Y.ZrcN` / `X.Y.Z`):
 
-1. `Cargo.toml` (`[workspace.package].version` AND all 23 internal publishable `egraph*` version pins under `[workspace.dependencies]`, enforced by `scripts/verify_helpers.py`)
+1. `Cargo.toml` (`[workspace.package].version` AND all 24 internal publishable `egraph*` version pins under `[workspace.dependencies]`, enforced by `scripts/verify_helpers.py`)
 2. `crates/python/Cargo.toml` (`package.version`)
 3. `crates/wasm/Cargo.toml` (`package.version`)
 4. `crates/wasm/package.json` (`"version"`)
@@ -42,7 +42,7 @@ Run single-threaded before committing or tagging:
    - Verify publishable Rust crate packaging across the 24 publishable crates with `cargo publish --workspace --dry-run --allow-dirty` (or clean tree) when validating `Cargo.toml` metadata and `[workspace.dependencies]` pins.
    - **Version-Bump-Only Scope Guard**: If the release bump commit changes only the version/lockfile/changelog/doc files (verified via `git diff --stat <verified_parent>..HEAD` touching zero `.rs`/`.py`/`.mjs` logic files), `--invariants --docs` + `npx tsc --noEmit` + local clean-env `maturin build`/`sdist`/`npm pack` smoke is sufficient prior to pushing `origin/master`; do not duplicate the parent commit's full Rust/Python/WASM test suite locally because `ci.yml` runs the full matrix remotely before tagging.
    - **Distribution Build Profile**: `.github/workflows/release.yml` builds published PyPI wheels with `maturin build --profile dist-release` (`lto = "thin"`, `codegen-units = 1`), distinct from the fast parallel `[profile.release]` (`lto = false`) used by `ci.yml` and local `verify.sh --rust`/`--python` checks.
-4. Commit (`chore(release): bump version to <version>`), push `origin/master`, and wait for `.github/workflows/ci.yml` (`6/6` jobs) to complete green before creating a release tag.
+4. Commit (`chore(release): bump version to <version>`), push `origin/master`, and wait for `.github/workflows/ci.yml` (`9/9` jobs) to complete green before creating a release tag.
 
 ## 3. OIDC Prerequisites & Tag Recovery Policy
 
@@ -67,7 +67,7 @@ After `release.yml` completes `success` across all 11 jobs:
 ### PyPI (`pip install --pre`)
 - Install into a fresh `python3 -m venv` with `PIP_NO_CACHE_DIR=1 pip install --pre "egraph==<pep440>"` (add `--only-binary=:all:` when testing wheel-only installs without Rust).
 - **Important v6 Python API facts**:
-  - Check installed version with `import importlib.metadata as md, egraph as eg; assert eg.__version__ == md.version("egraph") == "<pep440>"` (`egraph.__version__` is exported in PEP 440 form, e.g. `6.0.0a8`, matching `CARGO_PKG_VERSION`, and intentionally omitted from `egraph.__all__`).
+  - Check installed version with `import importlib.metadata as md, egraph as eg; assert eg.__version__ == md.version("egraph") == "<pep440>"` (`egraph.__version__` is exported in PEP 440 form, e.g. `6.0.0b1`, matching `CARGO_PKG_VERSION`, and intentionally omitted from `egraph.__all__`).
   - `eg.SgdSolver.sparse_barrier_dog(...)` returns `SgdSolver` directly (not a tuple).
   - `report = eg.evaluate_metrics(g, lay, ["sns", "np2", "crossing_number"])` accepts short aliases as input and returns a frozen `MetricReport` supporting typed properties (`report.scale_normalized_stress`, `report.neighborhood_preservation_2hop`, `report.crossing_number`), mapping lookup (`report["scale_normalized_stress"]`), and `report.to_dict()`.
   - Smoke-test `Layout3d` (`target="layout3d"` on `ForceAtlas2Solver` / `TsNetSolver`), `EdgePolylines.straight_line_from_graph(g, lay)` + `FdebSolver(polylines)`, and fail-fast `UnsupportedOperationError` on illegal `(target, backend)` pairs (e.g. `TsNetSolver(g, target="layout3d", backend="fit_fft")`).

@@ -32,7 +32,7 @@ members = [
 ]
 
 [workspace.package]
-version = "6.0.0-alpha.9"
+version = "6.0.0-beta.1"
 edition = "2024"
 rust-version = "1.88"
 license = "MIT"
@@ -49,31 +49,31 @@ ndarray = { version = "0.17", default-features = false, features = ["std"] }
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-egraph = { path = "crates/egraph", version = "6.0.0-alpha.9" }
-egraph-clustering = { path = "crates/clustering", version = "6.0.0-alpha.9" }
-egraph-core = { path = "crates/core", version = "6.0.0-alpha.9" }
-egraph-dataset = { path = "crates/dataset", version = "6.0.0-alpha.9" }
-egraph-edge-routing = { path = "crates/edge-routing", version = "6.0.0-alpha.9" }
+egraph = { path = "crates/egraph", version = "6.0.0-beta.1" }
+egraph-clustering = { path = "crates/clustering", version = "6.0.0-beta.1" }
+egraph-core = { path = "crates/core", version = "6.0.0-beta.1" }
+egraph-dataset = { path = "crates/dataset", version = "6.0.0-beta.1" }
+egraph-edge-routing = { path = "crates/edge-routing", version = "6.0.0-beta.1" }
 egraph-ffi = { path = "crates/ffi" }
-egraph-layout-composite = { path = "crates/layout-composite", version = "6.0.0-alpha.9" }
-egraph-layout-constraints = { path = "crates/layout-constraints", version = "6.0.0-alpha.9" }
-egraph-layout-embedding = { path = "crates/layout-embedding", version = "6.0.0-alpha.9" }
-egraph-layout-force = { path = "crates/layout-force", version = "6.0.0-alpha.9" }
-egraph-layout-multilevel = { path = "crates/layout-multilevel", version = "6.0.0-alpha.9" }
-egraph-layout-neighbor = { path = "crates/layout-neighbor", version = "6.0.0-alpha.9" }
-egraph-layout-refine = { path = "crates/layout-refine", version = "6.0.0-alpha.9" }
-egraph-layout-sgd = { path = "crates/layout-sgd", version = "6.0.0-alpha.9" }
-egraph-layout-stress = { path = "crates/layout-stress", version = "6.0.0-alpha.9" }
-egraph-linalg = { path = "crates/linalg", version = "6.0.0-alpha.9" }
-egraph-linalg-amg = { path = "crates/linalg-amg", version = "6.0.0-alpha.9" }
-egraph-linalg-mds = { path = "crates/linalg-mds", version = "6.0.0-alpha.9" }
-egraph-metrics = { path = "crates/metrics", version = "6.0.0-alpha.9" }
-egraph-metrics-cluster = { path = "crates/metrics-cluster", version = "6.0.0-alpha.9" }
-egraph-metrics-geometry = { path = "crates/metrics-geometry", version = "6.0.0-alpha.9" }
-egraph-neighborhood = { path = "crates/neighborhood", version = "6.0.0-alpha.9" }
-egraph-spatial-crossings = { path = "crates/spatial-crossings", version = "6.0.0-alpha.9" }
-egraph-spatial-fft = { path = "crates/spatial-fft", version = "6.0.0-alpha.9" }
-egraph-spatial-trees = { path = "crates/spatial-trees", version = "6.0.0-alpha.9" }
+egraph-layout-composite = { path = "crates/layout-composite", version = "6.0.0-beta.1" }
+egraph-layout-constraints = { path = "crates/layout-constraints", version = "6.0.0-beta.1" }
+egraph-layout-embedding = { path = "crates/layout-embedding", version = "6.0.0-beta.1" }
+egraph-layout-force = { path = "crates/layout-force", version = "6.0.0-beta.1" }
+egraph-layout-multilevel = { path = "crates/layout-multilevel", version = "6.0.0-beta.1" }
+egraph-layout-neighbor = { path = "crates/layout-neighbor", version = "6.0.0-beta.1" }
+egraph-layout-refine = { path = "crates/layout-refine", version = "6.0.0-beta.1" }
+egraph-layout-sgd = { path = "crates/layout-sgd", version = "6.0.0-beta.1" }
+egraph-layout-stress = { path = "crates/layout-stress", version = "6.0.0-beta.1" }
+egraph-linalg = { path = "crates/linalg", version = "6.0.0-beta.1" }
+egraph-linalg-amg = { path = "crates/linalg-amg", version = "6.0.0-beta.1" }
+egraph-linalg-mds = { path = "crates/linalg-mds", version = "6.0.0-beta.1" }
+egraph-metrics = { path = "crates/metrics", version = "6.0.0-beta.1" }
+egraph-metrics-cluster = { path = "crates/metrics-cluster", version = "6.0.0-beta.1" }
+egraph-metrics-geometry = { path = "crates/metrics-geometry", version = "6.0.0-beta.1" }
+egraph-neighborhood = { path = "crates/neighborhood", version = "6.0.0-beta.1" }
+egraph-spatial-crossings = { path = "crates/spatial-crossings", version = "6.0.0-beta.1" }
+egraph-spatial-fft = { path = "crates/spatial-fft", version = "6.0.0-beta.1" }
+egraph-spatial-trees = { path = "crates/spatial-trees", version = "6.0.0-beta.1" }
 spade = "2.2"
 
 [profile.release]
