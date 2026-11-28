@@ -8,16 +8,15 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "../../..");
 const pkgDir = path.join(repoRoot, "crates/wasm/pkg");
-const examplesWebDist = path.join(repoRoot, "examples/web/dist");
-const distDir = existsSync(examplesWebDist)
-  ? examplesWebDist
-  : path.join(repoRoot, "js/examples/dist");
+const distDir = path.join(repoRoot, "examples/web/dist");
 
 async function loadPlaywright() {
   try {
     return await import("playwright");
   } catch {
-    const fallback = path.join(repoRoot, "js/examples/node_modules/playwright/index.mjs");
+    const localFallback = path.join(repoRoot, "examples/web/node_modules/playwright/index.mjs");
+    const rootFallback = path.join(repoRoot, "node_modules/playwright/index.mjs");
+    const fallback = existsSync(localFallback) ? localFallback : rootFallback;
     return await import(pathToFileURL(fallback).href);
   }
 }
@@ -305,7 +304,7 @@ try {
     `Expected N=5,000 runProgressive frame time <= 10 ms, got max=${browserBench.maxMs.toFixed(2)} ms`,
   );
 
-  // 3. Load built js/examples/dist/ SPA and verify all 13 demo routes render cleanly without errors
+  // 3. Load built examples/web/dist/ SPA and verify all 13 demo routes render cleanly without errors
   const canvasRoutes = [
     "/tsnet-track-a",
     "/t-fdp",
@@ -330,12 +329,16 @@ try {
     await page.goto(`${baseUrl}${route}`, { waitUntil: "networkidle" });
     await page.waitForSelector("[data-testid='graph-canvas']");
     await page.waitForTimeout(250);
+    const statusText = await page.locator(".graph-status-bar").innerText();
+    assert(!statusText.includes("Error:"), `Route ${route} reported status error: ${statusText}`);
   }
 
   for (const route of svgRoutes) {
     await page.goto(`${baseUrl}${route}`, { waitUntil: "networkidle" });
     await page.waitForSelector(".graph-canvas-wrap svg > g circle, .graph-canvas-wrap svg > g path");
     await page.waitForTimeout(250);
+    const statusText = await page.locator(".graph-status-bar").innerText();
+    assert(!statusText.includes("Error:"), `Route ${route} reported status error: ${statusText}`);
   }
 
   assert.equal(pageErrors.length, 0, `Page errors in Chromium: ${pageErrors.join("; ")}`);

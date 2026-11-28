@@ -1,15 +1,20 @@
 {
-  "name": "egraph",
+  "name": "egraph-workspace",
   "author": "Yosuke Onoue <onoue@likr-lab.com>",
   "license": "MIT",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "crates/wasm",
+    "examples/web"
+  ],
   "scripts": {
-    "prestart": "npm run wasm-build:web",
-    "start": "npm run dev -w examples",
-    "wasm-build": "npm run wasm-build:bundler && npm run wasm-build:no-modules && npm run wasm-build:nodejs && npm run wasm-build:web",
-    "wasm-build:bundler": "wasm-pack build --target bundler -d dist/bundler crates/wasm",
-    "wasm-build:no-modules": "wasm-pack build --target no-modules -d dist/no-modules crates/wasm",
-    "wasm-build:nodejs": "wasm-pack build --target nodejs -d dist/nodejs crates/wasm",
-    "wasm-build:web": "wasm-pack build --target web -d dist/web crates/wasm"
+    "wasm:build": "npm --prefix crates/wasm run build",
+    "wasm:docs": "npm --prefix crates/wasm run docs",
+    "wasm:test": "npm --prefix crates/wasm run test:smoke",
+    "examples:dev": "npm --prefix examples/web run dev",
+    "examples:build": "npm --prefix examples/web run build",
+    "start": "npm run examples:dev"
   },
   "repository": {
     "type": "git",
@@ -18,17 +23,5 @@
   "bugs": {
     "url": "https://github.com/likr/egraph-rs/issues"
   },
-  "homepage": "https://github.com/likr/egraph-rs#readme",
-  "devDependencies": {
-    "prettier": "^2.3.1"
-  },
-  "private": true,
-  "workspaces": [
-    "crates/wasm",
-    "js/*"
-  ],
-  "dependencies": {
-    "egraph-dataset": "file:js/dataset",
-    "example": "^0.0.0"
-  }
+  "homepage": "https://github.com/likr/egraph-rs#readme"
 }

@@ -1,29 +1,32 @@
 import { useEffect, useRef, useState } from "react";
-import { Layout2d, SgdSolver, runProgressive } from "egraph";
+import { ClassicalMds, normalizeLayout2d } from "egraph";
 import { GraphCanvas } from "../components/GraphCanvas";
 import { loadMiserablesGraph } from "../graphUtils";
 
-export function ExampleSgd() {
+export function ExampleMds() {
   const sceneRef = useRef(null);
   const [tick, setTick] = useState(0);
-  const [status, setStatus] = useState("initializing...");
+  const [status, setStatus] = useState("computing Classical MDS...");
 
   useEffect(() => {
-    const ac = new AbortController();
+    let cancelled = false;
     let graph = null;
     let layout = null;
-    let solver = null;
 
     (async () => {
       try {
         const loaded = await loadMiserablesGraph();
-        if (ac.signal.aborted) {
+        if (cancelled) {
           loaded.graph.free();
           return;
         }
         graph = loaded.graph;
-        layout = Layout2d.init(loaded.numNodes, 1);
-        solver = SgdSolver.full(graph, { iterations: 100, eps: 0.1, seed: 1 });
+        const t0 = performance.now();
+        const mds = new ClassicalMds({ target: "layout2d" });
+        layout = mds.generate(graph);
+        mds.free();
+        normalizeLayout2d(layout, 1.0, 42);
+        const dt = (performance.now() - t0).toFixed(2);
         sceneRef.current = {
           coords: layout.coordsView(),
           numNodes: loaded.numNodes,
@@ -31,28 +34,15 @@ export function ExampleSgd() {
           links: loaded.links,
           nodeRadius: 5,
         };
+        setStatus(`Classical MDS completed in ${dt} ms (${loaded.numNodes} nodes)`);
         setTick((t) => t + 1);
-
-        await runProgressive(
-          solver,
-          layout,
-          (ctx) => {
-            sceneRef.current.coords = layout.coordsView();
-            setStatus(`SGD: iteration ${ctx.iteration}/${ctx.totalIterations} (${ctx.status})`);
-            setTick((t) => t + 1);
-          },
-          { frameBudgetMs: 10, signal: ac.signal },
-        );
       } catch (err) {
-        if (err?.name !== "AbortError") {
-          setStatus(`Error: ${err.message}`);
-        }
+        setStatus(`Error: ${err.message}`);
       }
     })();
 
     return () => {
-      ac.abort();
-      solver?.free();
+      cancelled = true;
       layout?.free();
       graph?.free();
     };
@@ -61,7 +51,7 @@ export function ExampleSgd() {
   return (
     <div>
       <div className="graph-status-bar">
-        <span className="tag is-info is-medium">Full SGD (v6 CsrGraph + runProgressive)</span>
+        <span className="tag is-info is-medium">Classical MDS (v6 ClassicalMds)</span>
         <span className="tag is-light">{status}</span>
       </div>
       <GraphCanvas sceneRef={sceneRef} tick={tick} />

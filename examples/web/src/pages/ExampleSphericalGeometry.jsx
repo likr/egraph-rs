@@ -38,7 +38,12 @@ export function ExampleSphericalGeometry() {
           const colat = Math.PI * (0.25 + 0.5 * ((i % 7) / 7));
           manifold.setPoint(i, lon, colat);
         }
-        solver = SgdSolver.full(graph, { iterations: 80, eps: 0.1, seed: 4 });
+        solver = SgdSolver.full(graph, {
+          target: "manifold2d",
+          iterations: 80,
+          eps: 0.1,
+          seed: 4,
+        });
 
         const syncFrame = (ctx) => {
           const raw = manifold.coordsView();

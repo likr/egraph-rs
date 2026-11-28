@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { TsNetSolver, evaluateMetrics, pivotMdsInit, runProgressive } from "egraph";
+import { PivotMds, TsNetSolver, evaluateMetrics, runProgressive } from "egraph";
 import { GraphCanvas } from "../components/GraphCanvas";
 import { loadEmbeddedGraph } from "../graphUtils";
 
@@ -23,10 +23,16 @@ export function ExampleTsNetTrackA() {
           return;
         }
         graph = loaded.graph;
-        layout = pivotMdsInit(graph, 32, 42, null, 1.0);
+        const mds = new PivotMds({ numPivots: 32, seed: 42, targetStd: 1.0 });
+        layout = mds.generate(graph);
+        mds.free();
         solver = TsNetSolver.pure2Hop(graph, {
-          backend: "fft",
-          stageIterations: [120, 80, 150],
+          backend: "fitFft",
+          stages: [
+            { iterations: 120, exaggeration: 4.0, lambdaKl: 1.0, lambdaC: 0.1, lambdaR: 0.0 },
+            { iterations: 80, exaggeration: 1.0, lambdaKl: 1.0, lambdaC: 0.01, lambdaR: 0.0 },
+            { iterations: 150, exaggeration: 1.0, lambdaKl: 1.0, lambdaC: 0.0, lambdaR: 0.0 },
+          ],
           seed: 42,
         });
         sceneRef.current = {
@@ -52,7 +58,11 @@ export function ExampleTsNetTrackA() {
           { frameBudgetMs: 10, signal: ac.signal },
         );
         const dt = (performance.now() - t0).toFixed(1);
-        const report = evaluateMetrics(graph, layout, ["np2", "sns"], 16, 128, 42);
+        const report = evaluateMetrics(graph, layout, ["np2", "sns"], {
+          numPivots: 16,
+          numSamples: 128,
+          seed: 42,
+        });
         const np2 = report.neighborhoodPreservation2Hop?.toFixed(4) ?? "n/a";
         const sns = report.scaleNormalizedStress?.toFixed(4) ?? "n/a";
         report.free();
@@ -75,7 +85,7 @@ export function ExampleTsNetTrackA() {
   return (
     <div>
       <div className="graph-status-bar">
-        <span className="tag is-primary is-medium">Track A: TsNetSolver.pure2Hop (FFT + runProgressive)</span>
+        <span className="tag is-primary is-medium">Track A: TsNetSolver.pure2Hop (fitFft + runProgressive)</span>
         <div className="select is-small">
           <select value={dataset} onChange={(e) => setDataset(e.target.value)}>
             <option value="lesmis">lesmis (77 nodes)</option>

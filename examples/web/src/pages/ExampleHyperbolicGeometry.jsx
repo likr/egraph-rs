@@ -78,7 +78,12 @@ export function ExampleHyperbolicGeometry() {
           const r = 0.08 * (1 + (i % 4)) * 0.25;
           manifold.setPoint(i, r * Math.cos(ang), r * Math.sin(ang));
         }
-        solver = SgdSolver.full(graph, { iterations: 80, eps: 0.1, seed: 4 });
+        solver = SgdSolver.full(graph, {
+          target: "manifold2d",
+          iterations: 80,
+          eps: 0.1,
+          seed: 4,
+        });
 
         const syncFrame = (ctx) => {
           const raw = manifold.coordsView();

@@ -67,7 +67,12 @@ export function ExampleTorusGeometry() {
           const [wx, wy] = wrapTorusPoint((i * 0.6180339) % 1.0, (i * 0.381966) % 1.0);
           manifold.setPoint(i, wx, wy);
         }
-        solver = SgdSolver.full(graph, { iterations: 40, eps: 0.1, seed: 1 });
+        solver = SgdSolver.full(graph, {
+          target: "manifold2d",
+          iterations: 40,
+          eps: 0.1,
+          seed: 1,
+        });
 
         const syncFrame = (ctx, targetLayout = manifold, segCount = null) => {
           const raw = targetLayout.coordsView();

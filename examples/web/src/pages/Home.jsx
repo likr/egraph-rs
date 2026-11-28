@@ -1,15 +1,15 @@
 import { Link } from "react-router-dom";
 
 const demos = [
-  { to: "/tsnet-track-a", title: "Track A: TsNetSolver.pure2Hop (FFT + Adaptive k-NN)", isNew: true },
-  { to: "/t-fdp", title: "t-FDP: TFdpSolver (ibfft + PivotMDS)", isNew: true },
-  { to: "/force-atlas2", title: "ForceAtlas2 (Barnes-Hut + runProgressive)", isNew: true },
+  { to: "/tsnet-track-a", title: "Track A: TsNetSolver.pure2Hop (fitFft + Adaptive k-NN)", isNew: true },
+  { to: "/t-fdp", title: "t-FDP: TFdpSolver (ibFft + PivotMds)", isNew: true },
+  { to: "/force-atlas2", title: "ForceAtlas2 (barnesHut + runProgressive)", isNew: true },
   { to: "/gumap", title: "GuMap (GuMapSolver.fromGraphDog + runProgressive)", isNew: true },
   { to: "/sgd", title: "Full SGD (SgdSolver.full + runProgressive)" },
   { to: "/kamada-kawai", title: "Kamada-Kawai (KamadaKawaiSolver.fromGraph + runProgressive)" },
   { to: "/stress-majorization", title: "Stress Majorization (StressMajorizationSolver + runProgressive)" },
-  { to: "/mds", title: "Classical MDS (classicalMds2d + normalizeLayout2d)" },
-  { to: "/edge-bundling", title: "Force-Directed Edge Bundling (FdebSolver + runProgressive)" },
+  { to: "/mds", title: "Classical MDS (ClassicalMds + normalizeLayout2d)" },
+  { to: "/edge-bundling", title: "Force-Directed Edge Bundling (EdgePolylines + FdebSolver + runProgressive)" },
   { to: "/prism-overlap-removal", title: "PRISM Overlap Removal (PrismOverlapRemoval + runProgressive)" },
   { to: "/hyperbolic-geometry", title: "Hyperbolic Geometry (ManifoldLayout2d + Poincaré Disk)" },
   { to: "/spherical-geometry", title: "Spherical Geometry (ManifoldLayout2d + Azimuthal Globe)" },

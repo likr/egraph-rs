@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { FdebSolver, Layout2d, SgdSolver, runProgressive } from "egraph";
+import { EdgePolylines, FdebSolver, Layout2d, SgdSolver, runProgressive } from "egraph";
 import { GraphCanvas } from "../components/GraphCanvas";
 import { loadMiserablesGraph } from "../graphUtils";
 
@@ -12,6 +12,7 @@ export function ExampleEdgeBundling() {
     const ac = new AbortController();
     let graph = null;
     let layout = null;
+    let polylines = null;
     let sgd = null;
     let fdeb = null;
 
@@ -23,7 +24,7 @@ export function ExampleEdgeBundling() {
           return;
         }
         graph = loaded.graph;
-        layout = Layout2d.init(loaded.numNodes, 4);
+        layout = Layout2d.init(loaded.numNodes, { seed: 4 });
         sgd = SgdSolver.full(graph, { iterations: 80, eps: 0.1, seed: 4 });
         sgd.run(layout);
 
@@ -36,16 +37,17 @@ export function ExampleEdgeBundling() {
         };
         setTick((t) => t + 1);
 
-        fdeb = new FdebSolver(graph, { cycles: 4, stepsPerCycle: 15, s0: 0.08 });
+        polylines = EdgePolylines.straightLineFromGraph(graph, layout);
+        fdeb = new FdebSolver(polylines, { cycles: 4, stepsPerCycle: 15, s0: 0.08 });
 
         await runProgressive(
           fdeb,
-          layout,
+          polylines,
           (ctx) => {
             sceneRef.current.coords = layout.coordsView();
             sceneRef.current.bundled = {
-              offsets: fdeb.edgeOffsets(),
-              points: fdeb.points(),
+              offsets: polylines.edgeOffsetsView(),
+              points: polylines.pointsView(),
             };
             setStatus(`FDEB: step ${ctx.iteration}/${ctx.totalIterations} (${ctx.status})`);
             setTick((t) => t + 1);
@@ -62,6 +64,7 @@ export function ExampleEdgeBundling() {
     return () => {
       ac.abort();
       fdeb?.free();
+      polylines?.free();
       sgd?.free();
       layout?.free();
       graph?.free();

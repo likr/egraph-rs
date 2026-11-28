@@ -7,7 +7,7 @@ crates/wasm/dist
 crates/wasm/umd
 wasm-pack.log
 
-js/examples/dist
+examples/web/dist
 
 .venv
 

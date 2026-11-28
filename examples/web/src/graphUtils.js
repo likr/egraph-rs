@@ -4,10 +4,10 @@ import { CsrGraph } from "egraph";
 const palette = d3.scaleOrdinal(d3.schemeCategory10);
 
 const DATASET_LOADERS = {
-  lesmis: () => import("../../../js/dataset/les_miserables.json"),
-  karate: () => import("../../../js/dataset/karate_club.json"),
-  "1138_bus": () => import("../../../js/dataset/1138_bus.json"),
-  "3_elt": () => import("../../../js/dataset/3elt.json"),
+  lesmis: () => import("../dataset/les_miserables.json"),
+  karate: () => import("../dataset/karate_club.json"),
+  "1138_bus": () => import("../dataset/1138_bus.json"),
+  "3_elt": () => import("../dataset/3elt.json"),
 };
 
 export async function loadMiserablesGraph() {
@@ -42,7 +42,10 @@ export async function loadMiserablesGraph() {
   }
 
   const edges = new Uint32Array(edgePairs);
-  const graph = CsrGraph.fromEdgeList(nodes.length, edges, null, false, true);
+  const graph = CsrGraph.fromEdgeList(nodes.length, edges, null, {
+    directed: false,
+    sanitize: true,
+  });
   return { graph, edges, nodes, links, numNodes: nodes.length };
 }
 
@@ -71,8 +74,7 @@ export async function loadEmbeddedGraph(name) {
     data.nodes.length,
     new Uint32Array(rawEdgePairs),
     null,
-    false,
-    true,
+    { directed: false, sanitize: true },
   );
   const lcc = raw.largestConnectedComponent();
   const graph = lcc.graph();

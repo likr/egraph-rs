@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { Layout2d, StressMajorizationSolver, runProgressive } from "egraph";
+import { Layout2d, SgdSolver, runProgressive } from "egraph";
 import { GraphCanvas } from "../components/GraphCanvas";
 import { loadMiserablesGraph } from "../graphUtils";
 
-export function ExampleStressMajorization() {
+export function ExampleSgd() {
   const sceneRef = useRef(null);
   const [tick, setTick] = useState(0);
   const [status, setStatus] = useState("initializing...");
@@ -22,11 +22,8 @@ export function ExampleStressMajorization() {
           return;
         }
         graph = loaded.graph;
-        layout = Layout2d.init(loaded.numNodes, 7);
-        solver = StressMajorizationSolver.fromGraph(graph, {
-          epsilon: 1e-5,
-          maxIterations: 100,
-        });
+        layout = Layout2d.init(loaded.numNodes, { seed: 1 });
+        solver = SgdSolver.full(graph, { iterations: 100, eps: 0.1, seed: 1 });
         sceneRef.current = {
           coords: layout.coordsView(),
           numNodes: loaded.numNodes,
@@ -41,9 +38,7 @@ export function ExampleStressMajorization() {
           layout,
           (ctx) => {
             sceneRef.current.coords = layout.coordsView();
-            const stress = solver.lastStress();
-            const stressStr = typeof stress === "number" ? `, stress=${stress.toFixed(2)}` : "";
-            setStatus(`Stress Majorization: step ${ctx.iteration}/${ctx.totalIterations} (${ctx.status}${stressStr})`);
+            setStatus(`SGD: iteration ${ctx.iteration}/${ctx.totalIterations} (${ctx.status})`);
             setTick((t) => t + 1);
           },
           { frameBudgetMs: 10, signal: ac.signal },
@@ -66,7 +61,7 @@ export function ExampleStressMajorization() {
   return (
     <div>
       <div className="graph-status-bar">
-        <span className="tag is-info is-medium">Stress Majorization (v6 CsrGraph + runProgressive)</span>
+        <span className="tag is-info is-medium">Full SGD (v6 CsrGraph + runProgressive)</span>
         <span className="tag is-light">{status}</span>
       </div>
       <GraphCanvas sceneRef={sceneRef} tick={tick} />

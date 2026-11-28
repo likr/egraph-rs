@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { GuMapSolver, evaluateMetrics, pivotMdsInit, runProgressive } from "egraph";
+import { GuMapSolver, PivotMds, evaluateMetrics, runProgressive } from "egraph";
 import { GraphCanvas } from "../components/GraphCanvas";
 import { loadEmbeddedGraph } from "../graphUtils";
 
@@ -23,7 +23,9 @@ export function ExampleGuMap() {
           return;
         }
         graph = loaded.graph;
-        layout = pivotMdsInit(graph, 32, 42, null, 1.0);
+        const mds = new PivotMds({ numPivots: 32, seed: 42, targetStd: 1.0 });
+        layout = mds.generate(graph);
+        mds.free();
         solver = GuMapSolver.fromGraphDog(graph, {
           iterations: 150,
           negativeSampleRate: 5,
@@ -52,7 +54,11 @@ export function ExampleGuMap() {
           { frameBudgetMs: 10, signal: ac.signal },
         );
         const dt = (performance.now() - t0).toFixed(1);
-        const report = evaluateMetrics(graph, layout, ["np2", "sns"], 16, 128, 42);
+        const report = evaluateMetrics(graph, layout, ["np2", "sns"], {
+          numPivots: 16,
+          numSamples: 128,
+          seed: 42,
+        });
         const np2 = report.neighborhoodPreservation2Hop?.toFixed(4) ?? "n/a";
         const sns = report.scaleNormalizedStress?.toFixed(4) ?? "n/a";
         report.free();

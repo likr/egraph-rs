@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { ForceAtlas2Solver, pivotMdsInit, runProgressive } from "egraph";
+import { Layout2d, StressMajorizationSolver, runProgressive } from "egraph";
 import { GraphCanvas } from "../components/GraphCanvas";
-import { loadEmbeddedGraph } from "../graphUtils";
+import { loadMiserablesGraph } from "../graphUtils";
 
-export function ExampleForceAtlas2() {
+export function ExampleStressMajorization() {
   const sceneRef = useRef(null);
-  const [dataset, setDataset] = useState("lesmis");
   const [tick, setTick] = useState(0);
   const [status, setStatus] = useState("initializing...");
 
@@ -17,43 +16,38 @@ export function ExampleForceAtlas2() {
 
     (async () => {
       try {
-        const loaded = await loadEmbeddedGraph(dataset);
+        const loaded = await loadMiserablesGraph();
         if (ac.signal.aborted) {
           loaded.graph.free();
           return;
         }
         graph = loaded.graph;
-        layout = pivotMdsInit(graph, 32, 42, null, 1.0);
-        solver = new ForceAtlas2Solver(graph, {
-          iterations: 200,
-          useBarnesHut: true,
-          linlogMode: false,
-          seed: 42,
+        layout = Layout2d.init(loaded.numNodes, { seed: 7 });
+        solver = StressMajorizationSolver.fromGraph(graph, {
+          epsilon: 1e-5,
+          maxIterations: 100,
         });
         sceneRef.current = {
           coords: layout.coordsView(),
           numNodes: loaded.numNodes,
           nodes: loaded.nodes,
           links: loaded.links,
-          nodeRadius: loaded.numNodes > 200 ? 2.5 : 5,
+          nodeRadius: 5,
         };
         setTick((t) => t + 1);
 
-        const t0 = performance.now();
         await runProgressive(
           solver,
           layout,
           (ctx) => {
             sceneRef.current.coords = layout.coordsView();
-            setStatus(
-              `ForceAtlas2 (${dataset}): step ${ctx.iteration}/${ctx.totalIterations} (${ctx.status})`,
-            );
+            const stress = solver.lastStress;
+            const stressStr = typeof stress === "number" ? `, stress=${stress.toFixed(2)}` : "";
+            setStatus(`Stress Majorization: step ${ctx.iteration}/${ctx.totalIterations} (${ctx.status}${stressStr})`);
             setTick((t) => t + 1);
           },
           { frameBudgetMs: 10, signal: ac.signal },
         );
-        const dt = (performance.now() - t0).toFixed(1);
-        setStatus(`ForceAtlas2 completed in ${dt} ms (${loaded.numNodes} nodes)`);
       } catch (err) {
         if (err?.name !== "AbortError") {
           setStatus(`Error: ${err.message}`);
@@ -67,19 +61,12 @@ export function ExampleForceAtlas2() {
       layout?.free();
       graph?.free();
     };
-  }, [dataset]);
+  }, []);
 
   return (
     <div>
       <div className="graph-status-bar">
-        <span className="tag is-primary is-medium">ForceAtlas2 (Barnes-Hut + runProgressive)</span>
-        <div className="select is-small">
-          <select value={dataset} onChange={(e) => setDataset(e.target.value)}>
-            <option value="lesmis">lesmis (77 nodes)</option>
-            <option value="karate">karate (34 nodes)</option>
-            <option value="1138_bus">1138_bus (1,138 nodes)</option>
-          </select>
-        </div>
+        <span className="tag is-info is-medium">Stress Majorization (v6 CsrGraph + runProgressive)</span>
         <span className="tag is-light">{status}</span>
       </div>
       <GraphCanvas sceneRef={sceneRef} tick={tick} />
