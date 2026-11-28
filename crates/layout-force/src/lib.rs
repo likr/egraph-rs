@@ -10,7 +10,6 @@ mod gem;
 mod graph_edges;
 #[cfg(feature = "baselines")]
 mod linlog;
-mod repulsion;
 mod yifan_hu;
 
 pub use backend::{BarnesHut, DefaultForceBackend, Exact, ForceBackend};
@@ -25,5 +24,4 @@ pub use fr::{FrRepulsion, FruchtermanReingoldConfig, FruchtermanReingoldSolver};
 pub use gem::{GemConfig, GemSolver};
 #[cfg(feature = "baselines")]
 pub use linlog::{LinLogConfig, LinLogRepulsion, LinLogRepulsionBackend, LinLogSolver};
-pub use repulsion::CoulombRepulsionBackend;
 pub use yifan_hu::{YifanHuConfig, YifanHuLevelCoords, YifanHuRepulsion, YifanHuSolver};

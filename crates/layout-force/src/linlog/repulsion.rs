@@ -64,6 +64,7 @@ pub struct LinLogBarnesHut3dState {
 }
 
 /// Scratch state for [`ForceBackend`] in 2D [`LinLogSolver`](super::LinLogSolver).
+#[non_exhaustive]
 #[derive(Debug, Clone)]
 pub enum LinLogDynamic2dState {
     Exact,
@@ -71,6 +72,7 @@ pub enum LinLogDynamic2dState {
 }
 
 /// Scratch state for [`ForceBackend`] in 3D [`LinLogSolver`](super::LinLogSolver).
+#[non_exhaustive]
 #[derive(Debug, Clone)]
 pub enum LinLogDynamic3dState {
     Exact,

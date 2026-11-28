@@ -21,6 +21,7 @@ pub use forbid::{ForbidConfig, ForbidOverlapRemoval, ForbidVariant};
 pub use gtree::{GTreeConfig, GTreeOverlapRemoval};
 pub use layering::{
     LayeringMethod, assign_layers, cycle_edges, remove_cycles, transitive_reduction,
+    transitive_reduction_weighted,
 };
 #[cfg(feature = "baselines")]
 pub use pfs_prime::{PfsPrimeConfig, PfsPrimeOverlapRemoval};

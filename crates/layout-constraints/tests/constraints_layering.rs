@@ -2,7 +2,8 @@ use egraph_core::{CoreError, CsrGraph, DeterministicRng, Layout2d, NodeExtents2d
 use egraph_layout_constraints::{
     ConstraintProjector, LayeringMethod, SeparationConstraint, assign_layers, cycle_edges,
     generate_layered_constraints, project_clustered_rectangle_no_overlap_2d,
-    project_rectangle_no_overlap_2d, remove_cycles,
+    project_rectangle_no_overlap_2d, remove_cycles, transitive_reduction,
+    transitive_reduction_weighted,
 };
 use egraph_spatial_trees::RectangleOverlapSweep;
 
@@ -284,4 +285,22 @@ fn test_layering_longest_path_network_simplex_and_cycles() {
         generate_layered_constraints(&undir, &[0u32, 1], 1.0_f64),
         Err(CoreError::UnsupportedOperation(_))
     ));
+
+    // 6. Unweighted CsrGraph<()> transitive_reduction after remove_cycles and weighted preservation.
+    let tr_from_removed: CsrGraph<()> = transitive_reduction(&dag).unwrap();
+    assert_eq!(tr_from_removed.num_nodes(), dag.num_nodes());
+    assert!(cycle_edges(&tr_from_removed).unwrap().is_empty());
+
+    let weighted_dag = CsrGraph::<f64>::from_edges(
+        4,
+        &[(0, 1), (1, 2), (2, 3), (0, 2), (0, 3)],
+        Some(&[1.0, 2.0, 3.0, 9.0, 9.0]),
+        true,
+        false,
+    )
+    .unwrap();
+    let tr_unweighted: CsrGraph<()> = transitive_reduction(&weighted_dag).unwrap();
+    assert_eq!(tr_unweighted.edges(), vec![(0, 1), (1, 2), (2, 3)]);
+    let tr_weighted: CsrGraph<f64> = transitive_reduction_weighted(&weighted_dag).unwrap();
+    assert_eq!(tr_weighted.weights().unwrap(), &[1.0, 2.0, 3.0]);
 }

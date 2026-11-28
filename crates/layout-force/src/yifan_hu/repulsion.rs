@@ -79,6 +79,7 @@ pub struct YhBarnesHut3dState {
 }
 
 /// Scratch state for [`ForceBackend`] in 2D [`YifanHuSolver`](super::YifanHuSolver).
+#[non_exhaustive]
 #[derive(Debug, Clone)]
 pub enum YhDynamic2dState {
     Exact,
@@ -86,6 +87,7 @@ pub enum YhDynamic2dState {
 }
 
 /// Scratch state for [`ForceBackend`] in 3D [`YifanHuSolver`](super::YifanHuSolver).
+#[non_exhaustive]
 #[derive(Debug, Clone)]
 pub enum YhDynamic3dState {
     Exact,

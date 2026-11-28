@@ -12,7 +12,7 @@ use std::collections::VecDeque;
 use egraph_core::{CoreError, CoreResult, CsrGraph};
 
 use network_simplex::network_simplex_on_dag;
-pub use transitive_reduction::transitive_reduction;
+pub use transitive_reduction::{transitive_reduction, transitive_reduction_weighted};
 
 /// Layer assignment algorithm for [`assign_layers`].
 #[non_exhaustive]

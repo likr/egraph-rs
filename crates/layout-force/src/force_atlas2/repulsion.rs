@@ -109,6 +109,7 @@ pub struct Fa2BarnesHut3dState {
 }
 
 /// Scratch state for [`ForceBackend`] in 2D [`ForceAtlas2Solver`](super::ForceAtlas2Solver).
+#[non_exhaustive]
 #[derive(Debug, Clone)]
 pub enum Fa2Dynamic2dState {
     Exact,
@@ -116,6 +117,7 @@ pub enum Fa2Dynamic2dState {
 }
 
 /// Scratch state for [`ForceBackend`] in 3D [`ForceAtlas2Solver`](super::ForceAtlas2Solver).
+#[non_exhaustive]
 #[derive(Debug, Clone)]
 pub enum Fa2Dynamic3dState {
     Exact,

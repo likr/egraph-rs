@@ -55,6 +55,7 @@ pub struct FrExactState {
 }
 
 /// Scratch state for [`FrBackend`] in 2D [`FruchtermanReingoldSolver`](super::FruchtermanReingoldSolver).
+#[non_exhaustive]
 #[derive(Debug, Clone)]
 pub enum FrDynamic2dState {
     Exact(FrExactState),
@@ -63,6 +64,7 @@ pub enum FrDynamic2dState {
 }
 
 /// Scratch state for [`FrBackend`] in 3D [`FruchtermanReingoldSolver`](super::FruchtermanReingoldSolver).
+#[non_exhaustive]
 #[derive(Debug, Clone)]
 pub enum FrDynamic3dState {
     Exact(FrExactState),
