@@ -38,14 +38,14 @@ if (typeof mod.TsNetSolver === 'function') {
   }
   bbEdges.push(5, 6);
   const bb = CsrGraph.fromEdgeList(12, new Uint32Array(bbEdges));
-  const km = mod.kmeansPlusPlus([10, 10, 10.2, 9.8, 9.8, 10.1, -10, -10, -9.9, -10.2, -10.1, -9.8], 6, 2, 2, 100, 1e-4, 3, 42);
+  const km = mod.kmeansPlusPlus([10, 10, 10.2, 9.8, 9.8, 10.1, -10, -10, -9.9, -10.2, -10.1, -9.8], 6, 2, { k: 2, maxIterations: 100, tol: 1e-4, nInit: 3, seed: 42 });
   assert.deepEqual(Array.from(km.labels()), [0, 0, 0, 1, 1, 1]);
   assert.ok(km.labelsView() instanceof Uint32Array);
   assert.ok(km.centroidsView() instanceof Float64Array);
-  const spRes = mod.spectralClustering(bb, 2, 300, 1e-4, 100, 1e-4, 42);
+  const spRes = mod.spectralClustering(bb, { k: 2, maxEigenIterations: 300, eigenTol: 1e-4, kmeansMaxIterations: 100, kmeansTol: 1e-4, seed: 42 });
   assert.deepEqual(Array.from(spRes.labels()), [0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1]);
   assert.ok(spRes.labelsView() instanceof Uint32Array);
-  const lv = mod.louvainCommunities(bb, 100, 1.0, 1e-7, 42);
+  const lv = mod.louvainCommunities(bb, { maxPasses: 100, resolution: 1.0, minModularityGain: 1e-7, seed: 42 });
   assert.equal(lv.numCommunities, 2);
   assert.ok(lv.labelsView() instanceof Uint32Array);
   const lpaRes = mod.labelPropagation(bb, 100, 42);
@@ -54,7 +54,7 @@ if (typeof mod.TsNetSolver === 'function') {
   const coarse = mod.coarsenGraph(bb, [100, 100, 100, 100, 100, 100, 999, 999, 999, 999, 999, 999]);
   assert.equal(coarse.numClusters, 2);
   const cl = Layout2d.fromCoords(new Float32Array([-2, 0, 2, 0]));
-  const proj = mod.projectClusteredLayout(cl, coarse.nodeToCoarse(), 0.2, 42);
+  const proj = mod.projectClusteredLayout(cl, coarse.nodeToCoarse(), { spreadRadius: 0.2, seed: 42 });
   assert.equal(proj.len(), 12);
   proj.free?.();
   cl.free?.();
@@ -79,8 +79,8 @@ if (typeof mod.TsNetSolver === 'function') {
     initArr[2 * i + 1] = 0.6 * Math.sin(1.13 * i - 0.21) - 0.09 * i / 16.0;
   }
 
-  const tsR = mod.TsNetSolver.pure2Hop(g16, { backend: 'fft', stageIterations: [4, 4, 4], seed: 42 });
-  const tsS = mod.TsNetSolver.pure2Hop(g16, { backend: 'fft', stageIterations: [4, 4, 4], seed: 42 });
+  const tsR = mod.TsNetSolver.pure2Hop(g16, { backend: 'fitFft', stageIterations: [4, 4, 4], seed: 42 });
+  const tsS = mod.TsNetSolver.pure2Hop(g16, { backend: 'fitFft', stageIterations: [4, 4, 4], seed: 42 });
   const lR = Layout2d.fromCoords(initArr);
   const lS = Layout2d.fromCoords(initArr);
   assert.equal(tsR.run(lR), 'completed');
@@ -108,7 +108,7 @@ if (typeof mod.TsNetSolver === 'function') {
   const dirG = CsrGraph.fromEdgeList(3, new Uint32Array([0, 1, 1, 2]), null, true, true);
   let threwDir = false;
   try {
-    mod.spectralClustering(dirG, 2);
+    mod.spectralClustering(dirG, { k: 2 });
   } catch (err) {
     assert.ok(!(err instanceof WebAssembly.RuntimeError));
     threwDir = true;
@@ -121,11 +121,16 @@ if (typeof mod.TsNetSolver === 'function') {
 
 if (typeof mod.TFdpSolver === 'function') {
   const forcePostprocSymbols = [
+    'EdgePolylines',
     'FdebSolver',
     'ForceAtlas2Solver',
     'IbUmapSolver',
+    'Layout3d',
+    'PacmapGraphSolver',
     'PrismOverlapRemoval',
     'SeparationConstraint',
+    'Sgd2Solver',
+    'SnapTFdpSolver',
     'TFdpSolver',
     'YifanHuSolver',
     'assignLayers',
@@ -177,22 +182,22 @@ if (typeof mod.TFdpSolver === 'function') {
     ls.free?.();
   };
 
-  for (const bk of ['ibfft', 'barnes_hut', 'exact']) {
+  for (const bk of ['ibFft', 'barnesHut', 'exact']) {
     checkStepEqRun(() => new mod.TFdpSolver(g16, { backend: bk, iterations: 8, seed: 42 }), init16, 3, `TFdp/${bk}`);
     checkStepEqRun(() => new mod.IbUmapSolver(g16, { backend: bk, iterations: 6, seed: 42 }), init16, 2, `IbUmap/${bk}`);
   }
-  checkStepEqRun(() => mod.SgdSolver.snapTFdp(g16, { iterations: 8, negativesPerEdge: 3, seed: 42 }), init16, 3, 'Sgd.snapTFdp');
-  checkStepEqRun(() => mod.SgdSolver.pacmapGraph(g16, { nNeighbors: 5, phaseIterations: [3, 3, 4], seed: 42 }), init16, 4, 'Sgd.pacmapGraph');
-  checkStepEqRun(() => mod.SgdSolver.sgd2(g16, { iterations: 8, batchSize: 16, seed: 42 }), init16, 3, 'Sgd.sgd2');
+  checkStepEqRun(() => new mod.SnapTFdpSolver(g16, { iterations: 8, negativesPerEdge: 3, seed: 42 }), init16, 3, 'SnapTFdpSolver');
+  checkStepEqRun(() => new mod.PacmapGraphSolver(g16, { nNeighbors: 5, phaseIterations: [3, 3, 4], seed: 42 }), init16, 4, 'PacmapGraphSolver');
+  checkStepEqRun(() => new mod.Sgd2Solver(g16, { iterations: 8, batchSize: 16, seed: 42 }), init16, 3, 'Sgd2Solver');
   checkStepEqRun(() => mod.SgdSolver.full(g16, { iterations: 8, kind: 'squared', seed: 42 }), init16, 3, 'Sgd.squared');
-  checkStepEqRun(() => new mod.ForceAtlas2Solver(g16, { iterations: 8, useBarnesHut: true, seed: 42 }), init16, 3, 'FA2/bh');
-  checkStepEqRun(() => new mod.ForceAtlas2Solver(g16, { iterations: 8, useBarnesHut: false, seed: 42 }), init16, 3, 'FA2/exact');
+  checkStepEqRun(() => new mod.ForceAtlas2Solver(g16, { iterations: 8, backend: 'barnesHut', seed: 42 }), init16, 3, 'FA2/bh');
+  checkStepEqRun(() => new mod.ForceAtlas2Solver(g16, { iterations: 8, backend: 'exact', seed: 42 }), init16, 3, 'FA2/exact');
   checkStepEqRun(() => new mod.YifanHuSolver(g16, { maxIterationsPerLevel: 8, minCoarsenSize: 6, minCoarsenRatio: 0.9, seed: 42 }), init16, 3, 'YifanHu');
 
   const prismInit = init16.map((v) => v * 0.15);
   checkStepEqRun(() => mod.PrismOverlapRemoval.fromRadii(new Float32Array(16).fill(0.4), { maxIterations: 40, seed: 42 }), prismInit, 2, 'PRISM');
 
-  // FdebSolver step() == run() and input layout reuse (no value-drop bug)
+  // EdgePolylines + FdebSolver step() == run() and input layout reuse
   const fdebInit = new Float32Array(32);
   for (let r = 0; r < 4; r += 1) {
     for (let c = 0; c < 4; c += 1) {
@@ -200,25 +205,27 @@ if (typeof mod.TFdpSolver === 'function') {
       fdebInit[2 * (r * 4 + c) + 1] = r;
     }
   }
-  const lFdebR = Layout2d.fromCoords(fdebInit);
-  const lFdebS = Layout2d.fromCoords(fdebInit);
-  const fdebR = new mod.FdebSolver(g16, { cycles: 2, stepsPerCycle: 6 });
-  const fdebS = new mod.FdebSolver(g16, { cycles: 2, stepsPerCycle: 6 });
-  assert.equal(fdebR.run(lFdebR), 'completed');
-  fdebS.step(lFdebS);
-  fdebS.runSteps(lFdebS, 3);
-  while (!fdebS.isFinished) fdebS.step(lFdebS);
-  assert.deepEqual(Array.from(fdebR.edgeOffsets()), Array.from(fdebS.edgeOffsets()));
-  assert.deepEqual(Array.from(fdebR.points()), Array.from(fdebS.points()));
-  assert.deepEqual(Array.from(lFdebR.coordsView()), Array.from(fdebInit));
+  const lFdeb = Layout2d.fromCoords(fdebInit);
+  const polyR = mod.EdgePolylines.straightLineFromGraph(g16, lFdeb);
+  const polyS = mod.EdgePolylines.straightLineFromGraph(g16, lFdeb);
+  const fdebR = new mod.FdebSolver(polyR, { cycles: 2, stepsPerCycle: 6 });
+  const fdebS = new mod.FdebSolver(polyS, { cycles: 2, stepsPerCycle: 6 });
+  assert.equal(fdebR.run(polyR), 'completed');
+  fdebS.step(polyS);
+  fdebS.runSteps(polyS, 3);
+  while (!fdebS.isFinished) fdebS.step(polyS);
+  assert.deepEqual(Array.from(polyR.edgeOffsetsView()), Array.from(polyS.edgeOffsetsView()));
+  assert.deepEqual(Array.from(polyR.pointsView()), Array.from(polyS.pointsView()));
+  assert.deepEqual(Array.from(lFdeb.coordsView()), Array.from(fdebInit));
   fdebR.free?.();
   fdebS.free?.();
-  lFdebR.free?.();
-  lFdebS.free?.();
+  polyR.free?.();
+  polyS.free?.();
+  lFdeb.free?.();
 
   // runProgressive parity vs run()
-  const pRun = new mod.ForceAtlas2Solver(g16, { iterations: 6, useBarnesHut: false, seed: 42 });
-  const pProg = new mod.ForceAtlas2Solver(g16, { iterations: 6, useBarnesHut: false, seed: 42 });
+  const pRun = new mod.ForceAtlas2Solver(g16, { iterations: 6, backend: 'exact', seed: 42 });
+  const pProg = new mod.ForceAtlas2Solver(g16, { iterations: 6, backend: 'exact', seed: 42 });
   const lpRun = Layout2d.fromCoords(init16);
   const lpProg = Layout2d.fromCoords(init16);
   pRun.run(lpRun);
@@ -251,18 +258,24 @@ if (typeof mod.TFdpSolver === 'function') {
   cyc.free?.();
 
   const badL = Layout2d.zeros(3);
+  const g3 = CsrGraph.fromEdgeList(3, new Uint32Array([0, 1]));
+  const poly16 = mod.EdgePolylines.straightLineFromGraph(g16, Layout2d.zeros(16));
+  const polyBad = mod.EdgePolylines.straightLineFromGraph(g3, badL);
   assertNonPanicError('force tfdp bad backend', () => new mod.TFdpSolver(g16, { backend: 'bad' }));
   assertNonPanicError('force tfdp dim mismatch', () => new mod.TFdpSolver(g16).step(badL));
   assertNonPanicError('force ibumap zero tau', () => new mod.IbUmapSolver(g16, { tauScale: 0 }));
-  assertNonPanicError('force snapTFdp bad rhoPower', () => mod.SgdSolver.snapTFdp(g16, { rhoPower: 0 }));
-  assertNonPanicError('force pacmapGraph bad nNeighbors', () => mod.SgdSolver.pacmapGraph(g16, { nNeighbors: 0 }));
-  assertNonPanicError('force sgd2 bad batchSize', () => mod.SgdSolver.sgd2(g16, { batchSize: 0 }));
+  assertNonPanicError('force snapTFdp bad rhoPower', () => new mod.SnapTFdpSolver(g16, { rhoPower: 0 }));
+  assertNonPanicError('force pacmapGraph bad nNeighbors', () => new mod.PacmapGraphSolver(g16, { nNeighbors: 0 }));
+  assertNonPanicError('force sgd2 bad batchSize', () => new mod.Sgd2Solver(g16, { batchSize: 0 }));
   assertNonPanicError('force fa2 bad jitter', () => new mod.ForceAtlas2Solver(g16, { jitterTolerance: 0 }));
   assertNonPanicError('force yh bad stepRatio', () => new mod.YifanHuSolver(g16, { stepRatio: 1.0 }));
   assertNonPanicError('force prism len mismatch', () => new mod.PrismOverlapRemoval(new Float32Array([1, 1]), new Float32Array([1])));
   assertNonPanicError('force constraint nan', () => new mod.SeparationConstraint(0, 1, Number.NaN));
   assertNonPanicError('force assignLayers undir', () => mod.assignLayers(g16, 'longestPath'));
-  assertNonPanicError('force fdeb dim mismatch', () => new mod.FdebSolver(g16).step(badL));
+  assertNonPanicError('force fdeb dim mismatch', () => new mod.FdebSolver(poly16).step(polyBad));
+  polyBad.free?.();
+  poly16.free?.();
+  g3.free?.();
   badL.free?.();
   g16.free?.();
 }

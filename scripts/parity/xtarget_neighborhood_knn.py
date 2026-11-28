@@ -33,11 +33,17 @@ def run_cross_target_neighborhood_knn_parity(
     hop1, hop2 = eg.extract_1hop_2hop_csr(g)
     sparse_pairs = eg.extract_sparse_1hop_2hop_pairs(g, max_2hop_per_node=8, seed=42)
     sparse_pairs_zero = eg.extract_sparse_1hop_2hop_pairs(g, max_2hop_per_node=0, seed=42)
-    pure_knn, k2_deg, pure_stats = eg.build_pure_2hop_knn(g)
+    pure_res = eg.build_pure_2hop_knn(g)
+    pure_knn = pure_res.knn
+    k2_deg = pure_res.k2_deg
+    pure_stats = pure_res.stats
+    assert k2_deg is not None
     sizes_2hop = eg.compute_2hop_neighborhood_sizes(g)
     node_perps = eg.compute_nodewise_2hop_perplexities(g)
     med_perp = float(eg.compute_median_2hop_perplexity(g))
-    hybrid_knn, hybrid_stats = eg.build_hybrid_adaptive_knn(g, jl_emb, node_perps)
+    hybrid_res = eg.build_hybrid_adaptive_knn(g, jl_emb, node_perps)
+    hybrid_knn = hybrid_res.knn
+    hybrid_stats = hybrid_res.stats
     bfs_knn = eg.partial_bfs_knn(g, k=6, seed=42)
     probs = eg.compute_knn_probabilities(hybrid_knn, node_perps)
     probs_rn = eg.compute_knn_probabilities(hybrid_knn, node_perps, row_normalize=True)
@@ -57,7 +63,7 @@ if (typeof mod.extract1hop2hopCsr !== 'function') {
 }
 
 const g = mod.CsrGraph.fromEdgeList(spec.n, new Uint32Array(spec.edges));
-const jlEmb = mod.chebyshevDogJlEmbedding(g, 12, 25, 42, true, 1e-4);
+const jlEmb = mod.chebyshevDogJlEmbedding(g, { jlDim: 12, degree: 25, seed: 42, degreeNormalize: true, epsPsd: 1e-4 });
 
 const twoHop = mod.extract1hop2hopCsr(g);
 const h1 = twoHop.hop1();
@@ -74,7 +80,7 @@ const hybRes = mod.buildHybridAdaptiveKnn(g, jlEmb, 12, nodePerps);
 const hybKnn = hybRes.knn();
 const bfsKnn = mod.partialBfsKnn(g, 6, 42);
 const probs = mod.computeKnnProbabilities(hybKnn, nodePerps);
-const probsRn = mod.computeKnnProbabilities(hybKnn, nodePerps, null, null, null, true);
+const probsRn = mod.computeKnnProbabilities(hybKnn, nodePerps, { rowNormalize: true });
 const fuzzy = mod.computeFuzzySimplicialSet(hybKnn);
 const ab = Array.from(mod.findAbParams(0.1, 1.0));
 const htGamma = mod.computeHorvitzThompsonGamma(1.0, 1600, 16);

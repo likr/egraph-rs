@@ -109,7 +109,7 @@ def run_clustering_solvers_python_checks(eg: Any) -> list[dict[str, Any]]:
         init_typed = init16.astype(np_dtype)
 
         # TsNetSolver.pure_2hop (all 4 backends)
-        for backend in ("fft", "linear_fft", "barnes_hut", "exact"):
+        for backend in ("fit_fft", "linear_fft", "barnes_hut", "exact"):
             ts_r = eg.TsNetSolver.pure_2hop(
                 g16, backend=backend, stage_iterations=(4, 4, 4), seed=42, dtype=dtype_name
             )
@@ -174,8 +174,8 @@ def run_clustering_solvers_python_checks(eg: Any) -> list[dict[str, Any]]:
 
         # SgdSolver manifold stepping (all 3 manifolds)
         for kind in ("hyperbolic", "spherical", "torus"):
-            mr = eg.SgdSolver.full(g16, iterations=8, seed=42, dtype=dtype_name)
-            ms = eg.SgdSolver.full(g16, iterations=8, seed=42, dtype=dtype_name)
+            mr = eg.SgdSolver.full(g16, target="manifold2d", iterations=8, seed=42, dtype=dtype_name)
+            ms = eg.SgdSolver.full(g16, target="manifold2d", iterations=8, seed=42, dtype=dtype_name)
             mlr = eg.ManifoldLayout2d.from_coords(kind, (init16 * 0.25).astype(np_dtype))
             mls = eg.ManifoldLayout2d.from_coords(kind, (init16 * 0.25).astype(np_dtype))
             assert mr.run(mlr) == "completed"

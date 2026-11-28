@@ -34,9 +34,15 @@ from parity.xtarget_core_solvers import run_cross_target_core_solvers_parity
 from parity.xtarget_embeddings_and_knn_probs import (
     run_cross_target_embeddings_knn_probs_parity,
 )
+from parity.xtarget_error_contracts_and_guards import (
+    run_cross_target_error_contracts_parity,
+)
 from parity.xtarget_force_and_multilevel import run_cross_target_force_multilevel_parity
 from parity.xtarget_gcaf import run_cross_target_gcaf_parity
 from parity.xtarget_hde_and_sgd_presets import run_cross_target_hde_sgd_presets_parity
+from parity.xtarget_layout3d_and_generators import (
+    run_cross_target_layout3d_generators_parity,
+)
 from parity.xtarget_linalg_spectral_amg import run_cross_target_linalg_spectral_parity
 from parity.xtarget_manifold_engines_and_crossings import (
     run_cross_target_manifold_engines_crossings_parity,
@@ -120,5 +126,7 @@ def run_all_suites(
             results.extend(run_cross_target_nd_solvers_metrics_parity(eg_mod, wasm_pkg))
             results.extend(run_cross_target_manifold_engines_crossings_parity(eg_mod, wasm_pkg))
             results.extend(run_cross_target_rn_tsnet_declutter_dijkstra_parity(eg_mod, wasm_pkg))
+            results.extend(run_cross_target_layout3d_generators_parity(eg_mod, wasm_pkg))
+            results.extend(run_cross_target_error_contracts_parity(eg_mod, wasm_pkg))
 
     return results

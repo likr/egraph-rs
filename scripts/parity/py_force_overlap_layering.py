@@ -29,7 +29,7 @@ def run_force_overlap_layering_python_checks(eg: Any) -> list[dict[str, Any]]:
     g25 = eg.CsrGraph.from_edges(25, make_grid_edges(5, 5), directed=False, sanitize=True)
     init25 = np.array(make_asymmetric_coords(25, scale=1.0), dtype=np.float64)
 
-    knn16, _, _ = eg.build_pure_2hop_knn(g16)
+    knn16 = eg.build_pure_2hop_knn(g16).knn
     fuzzy16 = eg.compute_fuzzy_simplicial_set(knn16)
     deg16 = np.diff(g16.indptr()).astype(np.uint32)
 
@@ -38,7 +38,7 @@ def run_force_overlap_layering_python_checks(eg: Any) -> list[dict[str, Any]]:
         init25_typed = init25.astype(np_dtype)
 
         # 1. TFdpSolver across all 3 backends + from_knn
-        for backend in ("ibfft", "barnes_hut", "exact"):
+        for backend in ("ib_fft", "barnes_hut", "exact"):
             sr = eg.TFdpSolver(g16, backend=backend, iterations=8, seed=42, dtype=dtype_name)
             ss = eg.TFdpSolver(g16, backend=backend, iterations=8, seed=42, dtype=dtype_name)
             lr = eg.Layout2d.from_coords(init16_typed)
@@ -67,7 +67,7 @@ def run_force_overlap_layering_python_checks(eg: Any) -> list[dict[str, Any]]:
         assert np.array_equal(lk1.coords(copy=True), lk2.coords(copy=True))
 
         # 2. IbUmapSolver across all 3 backends + from_knn + from_fuzzy_set
-        for backend in ("ibfft", "barnes_hut", "exact"):
+        for backend in ("ib_fft", "barnes_hut", "exact"):
             ir = eg.IbUmapSolver(g16, max_2hop_per_node=20, backend=backend, iterations=6, seed=42, dtype=dtype_name)
             is_ = eg.IbUmapSolver(g16, max_2hop_per_node=20, backend=backend, iterations=6, seed=42, dtype=dtype_name)
             lr = eg.Layout2d.from_coords(init16_typed)
@@ -89,13 +89,13 @@ def run_force_overlap_layering_python_checks(eg: Any) -> list[dict[str, Any]]:
         assert ik.run(lik) == "completed" and lik.is_all_finite()
         assert ifs.run(lif) == "completed" and lif.is_all_finite()
 
-        # 3. SgdSolver force/embedding constructors (snap_t_fdp, pacmap_graph, sgd2, schedule="squared")
+        # 3. Separated SGD embedding solvers + SgdSolver(schedule="squared")
         force_sgd_builders: list[tuple[str, Callable[[], Any]]] = [
-            ("snap_t_fdp", bind_call(eg.SgdSolver.snap_t_fdp, g16, iterations=8, negatives_per_edge=3, seed=42, dtype=dtype_name)),
+            ("snap_t_fdp", bind_call(eg.SnapTFdpSolver, g16, iterations=8, negatives_per_edge=3, seed=42, dtype=dtype_name)),
             (
                 "pacmap_graph",
                 bind_call(
-                    eg.SgdSolver.pacmap_graph,
+                    eg.PacmapGraphSolver,
                     g16,
                     n_neighbors=5,
                     phase_iterations=(3, 3, 4),
@@ -103,7 +103,7 @@ def run_force_overlap_layering_python_checks(eg: Any) -> list[dict[str, Any]]:
                     dtype=dtype_name,
                 ),
             ),
-            ("sgd2", bind_call(eg.SgdSolver.sgd2, g16, iterations=8, batch_size=16, seed=42, dtype=dtype_name)),
+            ("sgd2", bind_call(eg.Sgd2Solver, g16, iterations=8, batch_size=16, seed=42, dtype=dtype_name)),
             ("squared", bind_call(eg.SgdSolver.full, g16, iterations=8, schedule="squared", seed=42, dtype=dtype_name)),
         ]
         for s_name, mk_s in force_sgd_builders:
@@ -111,19 +111,19 @@ def run_force_overlap_layering_python_checks(eg: Any) -> list[dict[str, Any]]:
             ss = mk_s()
             lr = eg.Layout2d.from_coords(init16_typed)
             ls = eg.Layout2d.from_coords(init16_typed)
-            assert sr.run(lr) == "completed", f"SgdSolver.{s_name} did not complete"
+            assert sr.run(lr) == "completed", f"SGD solver {s_name} did not complete"
             assert ss.run_steps(ls, 3) == "running"
             while not ss.is_finished:
                 ss.step(ls)
             assert lr.is_all_finite()
             assert np.array_equal(lr.coords(copy=True), ls.coords(copy=True)), (
-                f"SgdSolver.{s_name}/{dtype_name} step != run"
+                f"SGD solver {s_name}/{dtype_name} step != run"
             )
 
         # 4. ForceAtlas2Solver (Barnes-Hut & Exact)
-        for use_bh in (True, False):
-            fr = eg.ForceAtlas2Solver(g16, iterations=10, use_barnes_hut=use_bh, seed=42, dtype=dtype_name)
-            fs = eg.ForceAtlas2Solver(g16, iterations=10, use_barnes_hut=use_bh, seed=42, dtype=dtype_name)
+        for backend in ("barnes_hut", "exact"):
+            fr = eg.ForceAtlas2Solver(g16, iterations=10, backend=backend, seed=42, dtype=dtype_name)
+            fs = eg.ForceAtlas2Solver(g16, iterations=10, backend=backend, seed=42, dtype=dtype_name)
             lr = eg.Layout2d.from_coords(init16_typed)
             ls = eg.Layout2d.from_coords(init16_typed)
             assert fr.run(lr) == "completed"
@@ -132,7 +132,7 @@ def run_force_overlap_layering_python_checks(eg: Any) -> list[dict[str, Any]]:
                 fs.step(ls)
             assert lr.is_all_finite()
             assert np.array_equal(lr.coords(copy=True), ls.coords(copy=True)), (
-                f"ForceAtlas2Solver/bh={use_bh}/{dtype_name} step != run"
+                f"ForceAtlas2Solver/backend={backend}/{dtype_name} step != run"
             )
 
         # 5. YifanHuSolver (multilevel)
@@ -193,25 +193,26 @@ def run_force_overlap_layering_python_checks(eg: Any) -> list[dict[str, Any]]:
         assert np.allclose(cl_c[1] - cl_c[0], [0.5, 0.0], atol=1e-5)
         assert np.allclose(cl_c[3] - cl_c[2], [0.5, 0.0], atol=1e-5)
 
-        # 8. FdebSolver (step == run, input layout preserved)
+        # 8. EdgePolylines + FdebSolver (step == run, input layout preserved)
         fdeb_base = np.array([[float(c), float(r)] for r in range(4) for c in range(4)], dtype=np_dtype)
-        l_fdeb_r = eg.Layout2d.from_coords(fdeb_base)
-        l_fdeb_s = eg.Layout2d.from_coords(fdeb_base)
-        fr_fdeb = eg.FdebSolver(g16, cycles=2, steps_per_cycle=6, dtype=dtype_name)
-        fs_fdeb = eg.FdebSolver(g16, cycles=2, steps_per_cycle=6, dtype=dtype_name)
-        assert fr_fdeb.dtype == dtype_name
-        assert fr_fdeb.run(l_fdeb_r) == "completed"
-        fs_fdeb.step(l_fdeb_s)
-        fs_fdeb.run_steps(l_fdeb_s, 3)
-        fs_fdeb.run(l_fdeb_s)
-        off_r = fr_fdeb.edge_offsets()
-        pts_r = fr_fdeb.points()
+        l_fdeb = eg.Layout2d.from_coords(fdeb_base)
+        poly_r = eg.EdgePolylines.straight_line_from_graph(g16, l_fdeb)
+        poly_s = eg.EdgePolylines.straight_line_from_graph(g16, l_fdeb)
+        fr_fdeb = eg.FdebSolver(poly_r, cycles=2, steps_per_cycle=6)
+        fs_fdeb = eg.FdebSolver(poly_s, cycles=2, steps_per_cycle=6)
+        assert fr_fdeb.dtype == dtype_name and fr_fdeb.target == "layout2d"
+        assert fr_fdeb.run(poly_r) == "completed"
+        fs_fdeb.step(poly_s)
+        fs_fdeb.run_steps(poly_s, 3)
+        fs_fdeb.run(poly_s)
+        off_r = poly_r.edge_offsets()
+        pts_r = poly_r.points()
         assert off_r.dtype == np.uint32 and off_r.shape == (g16.num_edges + 1,)
         assert int(off_r[0]) == 0 and int(off_r[-1]) == pts_r.shape[0]
         assert pts_r.dtype == np_dtype and pts_r.shape[1] == 2 and np.all(np.isfinite(pts_r))
-        assert np.array_equal(off_r, fs_fdeb.edge_offsets())
-        assert np.array_equal(pts_r, fs_fdeb.points())
-        assert np.array_equal(l_fdeb_r.coords(copy=True), fdeb_base)
+        assert np.array_equal(off_r, poly_s.edge_offsets())
+        assert np.array_equal(pts_r, poly_s.points())
+        assert np.array_equal(l_fdeb.coords(copy=True), fdeb_base)
 
     # 9. Layering (cycle_edges, remove_cycles, assign_layers) & generate_layered_constraints
     cyc = eg.CsrGraph.from_edges(4, [(0, 1), (1, 2), (2, 0), (1, 3)], directed=True, sanitize=True)
@@ -248,6 +249,10 @@ def run_force_overlap_layering_python_checks(eg: Any) -> list[dict[str, Any]]:
     bad_l = eg.Layout2d.zeros(5)
     l16_nan = eg.Layout2d.zeros(16)
     l16_nan.coords(copy=False)[0, 0] = float("nan")
+    poly_16 = eg.EdgePolylines.straight_line_from_graph(g16, eg.Layout2d.zeros(16))
+    poly_bad = eg.EdgePolylines.straight_line_from_graph(
+        eg.CsrGraph.from_edges(5, [(0, 1)]), bad_l
+    )
     force_postproc_bad_cases: list[tuple[str, Callable[[], Any]]] = [
         ("TFdpSolver/bad_backend", lambda: eg.TFdpSolver(g16, backend="bad")),
         ("TFdpSolver/momentum_1", lambda: eg.TFdpSolver(g16, momentum=1.0)),
@@ -257,9 +262,9 @@ def run_force_overlap_layering_python_checks(eg: Any) -> list[dict[str, Any]]:
         ("TFdpSolver.from_knn/bad_indptr", lambda: eg.TFdpSolver.from_knn([], [])),
         ("IbUmapSolver/zero_tau", lambda: eg.IbUmapSolver(g16, tau_scale=0.0)),
         ("IbUmapSolver/bad_backend", lambda: eg.IbUmapSolver(g16, backend="bad")),
-        ("SgdSolver.snap_t_fdp/zero_rho_power", lambda: eg.SgdSolver.snap_t_fdp(g16, rho_power=0.0)),
-        ("SgdSolver.pacmap_graph/zero_neighbors", lambda: eg.SgdSolver.pacmap_graph(g16, n_neighbors=0)),
-        ("SgdSolver.sgd2/zero_batch", lambda: eg.SgdSolver.sgd2(g16, batch_size=0)),
+        ("SnapTFdpSolver/zero_rho_power", lambda: eg.SnapTFdpSolver(g16, rho_power=0.0)),
+        ("PacmapGraphSolver/zero_neighbors", lambda: eg.PacmapGraphSolver(g16, n_neighbors=0)),
+        ("Sgd2Solver/zero_batch", lambda: eg.Sgd2Solver(g16, batch_size=0)),
         ("ForceAtlas2Solver/zero_jitter", lambda: eg.ForceAtlas2Solver(g16, jitter_tolerance=0.0)),
         ("ForceAtlas2Solver/dim_mismatch", lambda: eg.ForceAtlas2Solver(g16).step(bad_l)),
         ("YifanHuSolver/step_ratio_1", lambda: eg.YifanHuSolver(g16, step_ratio=1.0)),
@@ -278,9 +283,9 @@ def run_force_overlap_layering_python_checks(eg: Any) -> list[dict[str, Any]]:
         ("remove_cycles/undirected", lambda: eg.remove_cycles(g16)),
         ("assign_layers/undirected", lambda: eg.assign_layers(g16)),
         ("assign_layers/bad_method", lambda: eg.assign_layers(dag, method="unknown")),
-        ("FdebSolver/dim_mismatch", lambda: eg.FdebSolver(g16).run(bad_l)),
-        ("FdebSolver/cycles_too_large", lambda: eg.FdebSolver(g16, cycles=30)),
-        ("FdebSolver/nan_layout", lambda: eg.FdebSolver(g16).run(l16_nan)),
+        ("FdebSolver/dim_mismatch", lambda: eg.FdebSolver(poly_16).run(poly_bad)),
+        ("FdebSolver/cycles_too_large", lambda: eg.FdebSolver(poly_16, cycles=30)),
+        ("EdgePolylines/nan_layout", lambda: eg.EdgePolylines.straight_line_from_graph(g16, l16_nan)),
     ]
     for label, fn in force_postproc_bad_cases:
         assert_non_panic_error(label, fn)

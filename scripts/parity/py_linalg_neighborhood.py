@@ -98,7 +98,11 @@ def run_linalg_neighborhood_python_checks(eg: Any) -> list[dict[str, Any]]:
     assert hop1.num_nodes == n and hop2.num_nodes == n
     assert hop1.num_edges == g.num_edges
 
-    pure_knn, k2_deg, pure_stats = eg.build_pure_2hop_knn(g)
+    pure_res = eg.build_pure_2hop_knn(g)
+    pure_knn = pure_res.knn
+    k2_deg = pure_res.k2_deg
+    pure_stats = pure_res.stats
+    assert k2_deg is not None
     assert pure_knn.indptr().dtype == np.uint32
     sizes = eg.compute_2hop_neighborhood_sizes(g)
     assert np.array_equal(k2_deg, sizes)
@@ -114,7 +118,9 @@ def run_linalg_neighborhood_python_checks(eg: Any) -> list[dict[str, Any]]:
     med_perp = eg.compute_median_2hop_perplexity(g)
     assert node_perps.shape == (n,) and np.all(node_perps > 0.0) and med_perp > 0.0
 
-    hybrid_knn, hybrid_stats = eg.build_hybrid_adaptive_knn(g, jl_emb, node_perps)
+    hybrid_res = eg.build_hybrid_adaptive_knn(g, jl_emb, node_perps)
+    hybrid_knn = hybrid_res.knn
+    hybrid_stats = hybrid_res.stats
     assert hybrid_knn.num_nodes == n
     assert hybrid_stats["n_truncated_1hop"] == 0
     assert hybrid_stats["n_filled_residual"] + hybrid_stats["n_pure_2hop_rows"] == n
@@ -154,8 +160,9 @@ def run_linalg_neighborhood_python_checks(eg: Any) -> list[dict[str, Any]]:
     # 5b. AmgPcgSolver (SPD, singular/isolated, cooperative stepping, batch)
     amg_reg = eg.AmgPcgSolver.from_graph_regularized_laplacian(g, gamma=10.0)
     b_amg = np.cos(0.17 * np.arange(n, dtype=np.float64))
-    x_amg, amg_info = amg_reg.solve(b_amg)
-    assert amg_info["converged"] and amg_info["relative_residual"] <= 1e-8
+    amg_res = amg_reg.solve(b_amg)
+    x_amg = amg_res.solution
+    assert amg_res.converged and amg_res.relative_residual <= 1e-8
     amg_step = eg.AmgPcgSolver.from_graph_regularized_laplacian(g, gamma=10.0)
     amg_step.start_solve(b_amg)
     if not amg_step.is_finished:
@@ -164,15 +171,17 @@ def run_linalg_neighborhood_python_checks(eg: Any) -> list[dict[str, Any]]:
     assert np.array_equal(amg_step.solution(), x_amg)
 
     b_amg_batch = np.column_stack([b_amg, -2.0 * b_amg])
-    x_amg_batch, batch_info = amg_reg.solve_batch(b_amg_batch)
-    assert batch_info["all_converged"] and np.allclose(x_amg_batch[:, 0], x_amg, atol=1e-12)
+    batch_res = amg_reg.solve_batch(b_amg_batch)
+    x_amg_batch = batch_res.solutions
+    assert batch_res.all_converged and np.allclose(x_amg_batch[:, 0], x_amg, atol=1e-12)
 
     amg_sing = eg.AmgPcgSolver.from_graph_laplacian(g, kind="combinatorial", shift=0.0)
     b_sing = np.zeros(n, dtype=np.float64)
     b_sing[0] = 1.0
     b_sing[64] = -1.0
-    x_sing, sing_info = amg_sing.solve(b_sing)
-    assert sing_info["converged"] and float(x_sing[69]) == 0.0
+    sing_res = amg_sing.solve(b_sing)
+    x_sing = sing_res.solution
+    assert sing_res.converged and float(x_sing[69]) == 0.0
 
     results.append({
         "case": "linalg_and_neighborhood",

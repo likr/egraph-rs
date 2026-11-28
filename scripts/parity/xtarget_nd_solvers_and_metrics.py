@@ -66,55 +66,59 @@ def run_cross_target_nd_solvers_metrics_parity(
 
     py_solvers: dict[str, Any] = {}
     solver_makers_3d: list[tuple[str, Any, int]] = [
-        ("sgd", lambda: eg.SgdSolver.full(g16, iterations=6, seed=42, dtype="float32"), 2),
+        ("sgd", lambda: eg.SgdSolver.full(g16, target="layout_nd", iterations=6, seed=42, dtype="float32"), 2),
         (
             "tsnet",
             lambda: eg.TsNetSolver.pure_2hop(
-                g16, backend="exact", stage_iterations=(3, 3, 3), seed=42, dtype="float32"
+                g16, target="layout_nd", backend="exact", stage_iterations=(3, 3, 3), seed=42, dtype="float32"
             ),
             3,
         ),
         (
             "gumap",
             lambda: eg.GuMapSolver.from_graph_dog(
-                g16, max_2hop_per_node=16, degree=15, num_landmarks=8, iterations=8, learning_rate=0.2, seed=42, dtype="float32"
+                g16, target="layout_nd", max_2hop_per_node=16, degree=15, num_landmarks=8, iterations=8, learning_rate=0.2, seed=42, dtype="float32"
             ),
             3,
         ),
-        ("sm", lambda: eg.StressMajorizationSolver.from_graph(g16, max_iterations=10, dtype="float32"), 3),
-        ("kk", lambda: eg.KamadaKawaiSolver.from_graph(g16, max_iterations=10, eps=1e-3, max_inner_iters=30, dtype="float32"), 3),
-        ("maxent", lambda: eg.MaxentStressSolver(g16, stages=2, steps_per_stage=3, use_barnes_hut=True, seed=42, dtype="float32"), 2),
-        ("fr", lambda: eg.FruchtermanReingoldSolver(g16, iterations=6, backend="barnes_hut", seed=42, dtype="float32"), 2),
-        ("linlog", lambda: eg.LinLogSolver(g16, iterations=6, use_barnes_hut=True, seed=42, dtype="float32"), 2),
-        ("fa2", lambda: eg.ForceAtlas2Solver(g16, iterations=6, use_barnes_hut=True, seed=42, dtype="float32"), 2),
-        ("yh", lambda: eg.YifanHuSolver(g16, max_iterations_per_level=6, min_coarsen_size=6, seed=42, dtype="float32"), 3),
+        ("sm", lambda: eg.StressMajorizationSolver.from_graph(g16, target="layout_nd", max_iterations=10, dtype="float32"), 3),
+        ("kk", lambda: eg.KamadaKawaiSolver.from_graph(g16, target="layout_nd", max_iterations=10, eps=1e-3, max_inner_iters=30, dtype="float32"), 3),
+        ("maxent", lambda: eg.MaxentStressSolver(g16, target="layout_nd", backend="exact", stages=2, steps_per_stage=3, seed=42, dtype="float32"), 2),
+        ("fr", lambda: eg.FruchtermanReingoldSolver(g16, target="layout_nd", backend="exact", iterations=6, seed=42, dtype="float32"), 2),
+        ("linlog", lambda: eg.LinLogSolver(g16, target="layout_nd", backend="exact", iterations=6, seed=42, dtype="float32"), 2),
+        ("fa2", lambda: eg.ForceAtlas2Solver(g16, target="layout_nd", backend="exact", iterations=6, seed=42, dtype="float32"), 2),
+        ("yh", lambda: eg.YifanHuSolver(g16, target="layout_nd", backend="exact", max_iterations_per_level=6, min_coarsen_size=6, seed=42, dtype="float32"), 3),
     ]
     for name, mk, chunk in solver_makers_3d:
         _, coords = run_py_pair(mk, init3_f32, chunk)
         py_solvers[name] = coords.ravel()
 
-    fd3_r = eg.FdebSolver(g16, cycles=1, steps_per_cycle=4, dtype="float32")
-    fd3_s = eg.FdebSolver(g16, cycles=1, steps_per_cycle=4, dtype="float32")
     l_fd3 = eg.LayoutNd.from_coords(init3_f32)
-    fd3_r.run(l_fd3)
-    fd3_s.step(l_fd3)
-    fd3_s.run(l_fd3)
-    assert fd3_r.point_dims == 3
-    assert np.array_equal(fd3_r.points(), fd3_s.points())
-    py_solvers["fdeb3_pts"] = fd3_r.points().ravel()
-    py_solvers["fdeb3_z"] = fd3_r.points_z()
-    py_solvers["fdeb3_ax1"] = fd3_r.points_axis(1)
+    poly_fd3_r = eg.EdgePolylines.straight_line_from_graph(g16, l_fd3)
+    poly_fd3_s = eg.EdgePolylines.straight_line_from_graph(g16, l_fd3)
+    fd3_r = eg.FdebSolver(poly_fd3_r, cycles=1, steps_per_cycle=4)
+    fd3_s = eg.FdebSolver(poly_fd3_s, cycles=1, steps_per_cycle=4)
+    fd3_r.run(poly_fd3_r)
+    fd3_s.step(poly_fd3_s)
+    fd3_s.run(poly_fd3_s)
+    assert fd3_r.point_dims == 3 and poly_fd3_r.dims == 3
+    assert np.array_equal(poly_fd3_r.points(), poly_fd3_s.points())
+    py_solvers["fdeb3_pts"] = poly_fd3_r.points().ravel()
+    py_solvers["fdeb3_z"] = poly_fd3_r.points_z()
+    py_solvers["fdeb3_ax1"] = poly_fd3_r.points_axis(1)
 
-    # 4D checks (SgdSolver, StressMajorizationSolver, FdebSolver)
-    _, sgd4_c = run_py_pair(lambda: eg.SgdSolver.full(g16, iterations=5, seed=42, dtype="float32"), init4_f32, 2)
-    _, sm4_c = run_py_pair(lambda: eg.StressMajorizationSolver.from_graph(g16, max_iterations=6, dtype="float32"), init4_f32, 2)
-    fd4 = eg.FdebSolver(g16, cycles=1, steps_per_cycle=3, dtype="float32")
-    fd4.run(eg.LayoutNd.from_coords(init4_f32))
-    assert fd4.point_dims == 4
+    # 4D checks (SgdSolver, StressMajorizationSolver, EdgePolylines + FdebSolver)
+    _, sgd4_c = run_py_pair(lambda: eg.SgdSolver.full(g16, target="layout_nd", iterations=5, seed=42, dtype="float32"), init4_f32, 2)
+    _, sm4_c = run_py_pair(lambda: eg.StressMajorizationSolver.from_graph(g16, target="layout_nd", max_iterations=6, dtype="float32"), init4_f32, 2)
+    l_fd4 = eg.LayoutNd.from_coords(init4_f32)
+    poly_fd4 = eg.EdgePolylines.straight_line_from_graph(g16, l_fd4)
+    fd4 = eg.FdebSolver(poly_fd4, cycles=1, steps_per_cycle=3)
+    fd4.run(poly_fd4)
+    assert fd4.point_dims == 4 and poly_fd4.dims == 4
     py_solvers["sgd4"] = sgd4_c.ravel()
     py_solvers["sm4"] = sm4_c.ravel()
-    py_solvers["fdeb4_pts"] = fd4.points().ravel()
-    py_solvers["fdeb4_ax3"] = fd4.points_axis(3)
+    py_solvers["fdeb4_pts"] = poly_fd4.points().ravel()
+    py_solvers["fdeb4_ax3"] = poly_fd4.points_axis(3)
 
     # ArenaOctree3d (exact theta=0.0 vs BH theta=0.5, unit & weighted)
     l_oct = eg.LayoutNd.from_coords(init3_f32)
@@ -185,7 +189,7 @@ assert.equal(l0.dims, 3);
 assert.equal(l0.numNodes, 4);
 l0.set(1, 2, 0.75);
 assert.ok(Math.abs(l0.get(1, 2) - 0.75) < 1e-6);
-const lInit = mod.LayoutNd.init(16, 3, 42, 0.8);
+const lInit = mod.LayoutNd.init(16, 3, { seed: 42, scale: 0.8 });
 lInit.normalizeStd(1.0);
 assert.ok(lInit.isAllFinite());
 lInit.free?.(); l0.free?.();
@@ -206,40 +210,45 @@ const runPair = (mk, base, dims, chunk) => {
 };
 
 const solvers = {
-  sgd: runPair(() => mod.SgdSolver.full(g16, { iterations: 6, seed: 42 }), init3, 3, 2),
-  tsnet: runPair(() => mod.TsNetSolver.pure2Hop(g16, { backend: 'exact', stageIterations: [3, 3, 3], seed: 42 }), init3, 3, 3),
-  gumap: runPair(() => mod.GuMapSolver.fromGraphDog(g16, { max2hopPerNode: 16, degree: 15, numLandmarks: 8, iterations: 8, learningRate: 0.2, seed: 42 }), init3, 3, 3),
-  sm: runPair(() => mod.StressMajorizationSolver.fromGraph(g16, { maxIterations: 10 }), init3, 3, 3),
-  kk: runPair(() => mod.KamadaKawaiSolver.fromGraph(g16, { maxIterations: 10, eps: 1e-3, maxInnerIters: 30 }), init3, 3, 3),
-  maxent: runPair(() => new mod.MaxentStressSolver(g16, { stages: 2, stepsPerStage: 3, useBarnesHut: true, seed: 42 }), init3, 3, 2),
-  fr: runPair(() => new mod.FruchtermanReingoldSolver(g16, { iterations: 6, backend: 'barnes_hut', seed: 42 }), init3, 3, 2),
-  linlog: runPair(() => new mod.LinLogSolver(g16, { iterations: 6, useBarnesHut: true, seed: 42 }), init3, 3, 2),
-  fa2: runPair(() => new mod.ForceAtlas2Solver(g16, { iterations: 6, useBarnesHut: true, seed: 42 }), init3, 3, 2),
-  yh: runPair(() => new mod.YifanHuSolver(g16, { maxIterationsPerLevel: 6, minCoarsenSize: 6, seed: 42 }), init3, 3, 3),
-  sgd4: runPair(() => mod.SgdSolver.full(g16, { iterations: 5, seed: 42 }), init4, 4, 2),
-  sm4: runPair(() => mod.StressMajorizationSolver.fromGraph(g16, { maxIterations: 6 }), init4, 4, 2),
+  sgd: runPair(() => mod.SgdSolver.full(g16, { target: 'layoutNd', iterations: 6, seed: 42 }), init3, 3, 2),
+  tsnet: runPair(() => mod.TsNetSolver.pure2Hop(g16, { target: 'layoutNd', backend: 'exact', stageIterations: [3, 3, 3], seed: 42 }), init3, 3, 3),
+  gumap: runPair(() => mod.GuMapSolver.fromGraphDog(g16, { target: 'layoutNd', max2hopPerNode: 16, degree: 15, numLandmarks: 8, iterations: 8, learningRate: 0.2, seed: 42 }), init3, 3, 3),
+  sm: runPair(() => mod.StressMajorizationSolver.fromGraph(g16, { target: 'layoutNd', maxIterations: 10 }), init3, 3, 3),
+  kk: runPair(() => mod.KamadaKawaiSolver.fromGraph(g16, { target: 'layoutNd', maxIterations: 10, eps: 1e-3, maxInnerIters: 30 }), init3, 3, 3),
+  maxent: runPair(() => new mod.MaxentStressSolver(g16, { target: 'layoutNd', backend: 'exact', stages: 2, stepsPerStage: 3, seed: 42 }), init3, 3, 2),
+  fr: runPair(() => new mod.FruchtermanReingoldSolver(g16, { target: 'layoutNd', backend: 'exact', iterations: 6, seed: 42 }), init3, 3, 2),
+  linlog: runPair(() => new mod.LinLogSolver(g16, { target: 'layoutNd', backend: 'exact', iterations: 6, seed: 42 }), init3, 3, 2),
+  fa2: runPair(() => new mod.ForceAtlas2Solver(g16, { target: 'layoutNd', backend: 'exact', iterations: 6, seed: 42 }), init3, 3, 2),
+  yh: runPair(() => new mod.YifanHuSolver(g16, { target: 'layoutNd', backend: 'exact', maxIterationsPerLevel: 6, minCoarsenSize: 6, seed: 42 }), init3, 3, 3),
+  sgd4: runPair(() => mod.SgdSolver.full(g16, { target: 'layoutNd', iterations: 5, seed: 42 }), init4, 4, 2),
+  sm4: runPair(() => mod.StressMajorizationSolver.fromGraph(g16, { target: 'layoutNd', maxIterations: 6 }), init4, 4, 2),
 };
 
 {
-  const fd3R = new mod.FdebSolver(g16, { cycles: 1, stepsPerCycle: 4 });
-  const fd3S = new mod.FdebSolver(g16, { cycles: 1, stepsPerCycle: 4 });
   const l3 = mod.LayoutNd.fromCoords(16, 3, init3);
-  fd3R.run(l3); fd3S.step(l3); fd3S.run(l3);
-  assert.equal(fd3R.pointDims, 3);
-  solvers.fdeb3_pts = Array.from(fd3R.toInterleavedPointsNd());
-  assert.deepEqual(solvers.fdeb3_pts, Array.from(fd3R.pointsNd()));
-  solvers.fdeb3_z = Array.from(fd3R.pointsZ());
-  solvers.fdeb3_ax1 = Array.from(fd3R.pointsAxis(1));
-  l3.free?.(); fd3R.free?.(); fd3S.free?.();
+  const poly3R = mod.EdgePolylines.straightLineFromGraph(g16, l3);
+  const poly3S = mod.EdgePolylines.straightLineFromGraph(g16, l3);
+  const fd3R = new mod.FdebSolver(poly3R, { cycles: 1, stepsPerCycle: 4 });
+  const fd3S = new mod.FdebSolver(poly3S, { cycles: 1, stepsPerCycle: 4 });
+  fd3R.run(poly3R); fd3S.step(poly3S); fd3S.run(poly3S);
+  assert.equal(fd3R.dims, 3);
+  assert.equal(poly3R.dims, 3);
+  solvers.fdeb3_pts = Array.from(poly3R.pointsView());
+  assert.deepEqual(solvers.fdeb3_pts, Array.from(poly3S.pointsView()));
+  solvers.fdeb3_z = solvers.fdeb3_pts.filter((_, idx) => idx % 3 === 2);
+  solvers.fdeb3_ax1 = solvers.fdeb3_pts.filter((_, idx) => idx % 3 === 1);
+  poly3R.free?.(); poly3S.free?.(); l3.free?.(); fd3R.free?.(); fd3S.free?.();
 }
 {
-  const fd4 = new mod.FdebSolver(g16, { cycles: 1, stepsPerCycle: 3 });
   const l4 = mod.LayoutNd.fromCoords(16, 4, init4);
-  fd4.run(l4);
-  assert.equal(fd4.pointDims, 4);
-  solvers.fdeb4_pts = Array.from(fd4.toInterleavedPointsNd());
-  solvers.fdeb4_ax3 = Array.from(fd4.pointsAxis(3));
-  l4.free?.(); fd4.free?.();
+  const poly4 = mod.EdgePolylines.straightLineFromGraph(g16, l4);
+  const fd4 = new mod.FdebSolver(poly4, { cycles: 1, stepsPerCycle: 3 });
+  fd4.run(poly4);
+  assert.equal(fd4.dims, 4);
+  assert.equal(poly4.dims, 4);
+  solvers.fdeb4_pts = Array.from(poly4.pointsView());
+  solvers.fdeb4_ax3 = solvers.fdeb4_pts.filter((_, idx) => idx % 4 === 3);
+  poly4.free?.(); l4.free?.(); fd4.free?.();
 }
 
 const lOct = mod.LayoutNd.fromCoords(16, 3, init3);
@@ -274,10 +283,10 @@ const labels16 = new Uint32Array(spec.labels16);
 const ev3 = mod.evaluateMetrics(
   g16, lOct,
   [
-    'sns', 'sampled_sns', 'np1', 'np2', 'node_resolution', 'drng', 'dgg',
-    'ideal_edge_lengths', 'layout_degeneracy', 'landmark_stratified_rta',
-    'silhouette_score', 'calinski_harabasz_score', 'davies_bouldin_score',
-    'distance_consistency', 'neighborhood_hit',
+    'sns', 'sampledScaleNormalizedStress', 'np1', 'np2', 'nodeResolution', 'drng', 'dgg',
+    'idealEdgeLengths', 'layoutDegeneracy', 'landmarkStratifiedRta',
+    'silhouetteScore', 'calinskiHarabaszScore', 'daviesBouldinScore',
+    'distanceConsistency', 'neighborhoodHit',
   ],
   { numPivots: 4, numSamples: 64, seed: 42, labels: labels16, numLandmarks: 4, numTriplets: 50, minDegree: 1, neighborhoodHitK: 3 },
 ).toRecord();

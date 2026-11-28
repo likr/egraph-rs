@@ -48,10 +48,9 @@ def run_cross_target_classic_overlap_baselines_parity(
     radii10_f32 = [0.50] * 10
 
     maxent_py: dict[str, dict[str, Any]] = {}
-    for use_bh in (True, False):
-        tag = "bh" if use_bh else "exact"
+    for tag, bk in (("bh", "barnes_hut"), ("exact", "exact")):
         ms = eg.MaxentStressSolver(
-            g_bb, q=0.4, stages=2, steps_per_stage=5, use_barnes_hut=use_bh, seed=42, dtype="float32"
+            g_bb, q=0.4, stages=2, steps_per_stage=5, backend=bk, seed=42, dtype="float32"
         )
         lay = eg.Layout2d.from_coords(init10_f32)
         ms.run(lay)
@@ -89,18 +88,17 @@ def run_cross_target_classic_overlap_baselines_parity(
 
     pfs_box = eg.PfsPrimeOverlapRemoval(hw10_f32, hh10_f32, padding=0.02, seed=42, dtype="float32")
     l_pfs_box = eg.Layout2d.from_coords(ov_f32)
-    pfs_box.run(l_pfs_box)
+    pfs_box.apply(l_pfs_box)
     pfs_rad = eg.PfsPrimeOverlapRemoval.from_radii(radii10_f32, padding=0.0, seed=42, dtype="float32")
     l_col_orig = eg.Layout2d.from_coords(col_f32)
     l_pfs_rad = eg.Layout2d.from_coords(col_f32)
-    pfs_rad.run(l_pfs_rad)
+    pfs_rad.apply(l_pfs_rad)
     pfs_nor_py = eg.nor_metrics(l_col_orig, l_pfs_rad, radii10_f32, radii10_f32, graph=g_bb)
 
     sfc_py: dict[str, dict[str, Any]] = {}
     for curve in ("hilbert", "morton"):
-        sc = eg.SfcLayoutSolver(g_bb, curve=curve, scale=80.0, seed=42, dtype="float32")
-        lay = eg.Layout2d.zeros(10, dtype="float32")
-        sc.run(lay)
+        sc = eg.SfcLayout(g_bb, curve=curve, scale=80.0, seed=42, dtype="float32")
+        lay = sc.generate()
         sfc_py[curve] = {
             "coords": lay.coords(copy=True),
             "order": sc.vertex_order().tolist(),
@@ -136,10 +134,9 @@ const hh10 = new Float32Array(spec.hh10);
 const radii10 = new Float32Array(spec.radii10);
 
 const maxentOut = {};
-for (const useBh of [true, false]) {
-  const tag = useBh ? 'bh' : 'exact';
-  const s1 = new mod.MaxentStressSolver(gBb, { q: 0.4, stages: 2, stepsPerStage: 5, useBarnesHut: useBh, seed: 42 });
-  const s2 = new mod.MaxentStressSolver(gBb, { q: 0.4, stages: 2, stepsPerStage: 5, useBarnesHut: useBh, seed: 42 });
+for (const [tag, bk] of [['bh', 'barnesHut'], ['exact', 'exact']]) {
+  const s1 = new mod.MaxentStressSolver(gBb, { q: 0.4, stages: 2, stepsPerStage: 5, backend: bk, seed: 42 });
+  const s2 = new mod.MaxentStressSolver(gBb, { q: 0.4, stages: 2, stepsPerStage: 5, backend: bk, seed: 42 });
   const l1 = mod.Layout2d.fromCoords(init10);
   const l2 = mod.Layout2d.fromCoords(init10);
   s1.run(l1); s2.step(l2); s2.runSteps(l2, 3); s2.run(l2);
@@ -175,15 +172,15 @@ if (!arrEq(gemCoords, Array.from(lm2.coordsView()))) throw new Error('WASM Gem s
 lm1.free?.(); lm2.free?.(); gem1.free?.(); gem2.free?.();
 
 const selOut = {};
-for (const [mapping, layoutBackend] of [['sigmoid', 'fr'], ['tanh', 't_fdp']]) {
-  const s1 = new mod.SelLayoutSolver(gBb, { mapping, layoutBackend, iterations: 8, seed: 42 });
-  const s2 = new mod.SelLayoutSolver(gBb, { mapping, layoutBackend, iterations: 8, seed: 42 });
+for (const [mapping, pyBk, wasmBk] of [['sigmoid', 'fr', 'fr'], ['tanh', 't_fdp', 'tFdp']]) {
+  const s1 = new mod.SelLayoutSolver(gBb, { mapping, layoutBackend: wasmBk, iterations: 8, seed: 42 });
+  const s2 = new mod.SelLayoutSolver(gBb, { mapping, layoutBackend: wasmBk, iterations: 8, seed: 42 });
   const l1 = mod.Layout2d.fromCoords(init10);
   const l2 = mod.Layout2d.fromCoords(init10);
   s1.run(l1); s2.step(l2); s2.runSteps(l2, 2); s2.run(l2);
   const c1 = Array.from(l1.coordsView());
-  if (!arrEq(c1, Array.from(l2.coordsView()))) throw new Error(`WASM SEL step()!=run() for ${mapping}/${layoutBackend}`);
-  selOut[`${mapping}_${layoutBackend}`] = { coords: c1, seTarget: s1.seTarget, weights: Array.from(s1.modulatedWeights()) };
+  if (!arrEq(c1, Array.from(l2.coordsView()))) throw new Error(`WASM SEL step()!=run() for ${mapping}/${wasmBk}`);
+  selOut[`${mapping}_${pyBk}`] = { coords: c1, seTarget: s1.seTarget, weights: Array.from(s1.modulatedWeights()) };
   l1.free?.(); l2.free?.(); s1.free?.(); s2.free?.();
 }
 
@@ -191,15 +188,15 @@ const pfBox1 = new mod.PfsPrimeOverlapRemoval(hw10, hh10, { padding: 0.02, seed:
 const pfBox2 = new mod.PfsPrimeOverlapRemoval(hw10, hh10, { padding: 0.02, seed: 42 });
 const lPf1 = mod.Layout2d.fromCoords(ov);
 const lPf2 = mod.Layout2d.fromCoords(ov);
-pfBox1.run(lPf1); pfBox2.step(lPf2);
+pfBox1.apply(lPf1); pfBox2.apply(lPf2);
 const pfBoxCoords = Array.from(lPf1.coordsView());
-if (!arrEq(pfBoxCoords, Array.from(lPf2.coordsView()))) throw new Error('WASM PFS step()!=run()');
+if (!arrEq(pfBoxCoords, Array.from(lPf2.coordsView()))) throw new Error('WASM PFS deterministic apply mismatch');
 const pfBoxOv = pfBox1.lastOverlapCount;
 
 const pfRad = mod.PfsPrimeOverlapRemoval.fromRadii(radii10, { padding: 0.0, seed: 42 });
 const lColOrig = mod.Layout2d.fromCoords(col);
 const lPfRad = mod.Layout2d.fromCoords(col);
-pfRad.run(lPfRad);
+pfRad.apply(lPfRad);
 const pfRadCoords = Array.from(lPfRad.coordsView());
 const pfRadOv = pfRad.lastOverlapCount;
 const norG = mod.norMetrics(gBb, lColOrig, lPfRad, radii10, radii10);
@@ -209,13 +206,12 @@ lPf1.free?.(); lPf2.free?.(); pfBox1.free?.(); pfBox2.free?.();
 
 const sfcOut = {};
 for (const curve of ['hilbert', 'morton']) {
-  const s1 = new mod.SfcLayoutSolver(gBb, { curve, scale: 80.0, seed: 42 });
-  const s2 = new mod.SfcLayoutSolver(gBb, { curve, scale: 80.0, seed: 42 });
-  const l1 = mod.Layout2d.zeros(10);
-  const l2 = mod.Layout2d.zeros(10);
-  s1.run(l1); s2.step(l2);
+  const s1 = new mod.SfcLayout(gBb, { curve, scale: 80.0, seed: 42 });
+  const s2 = new mod.SfcLayout(gBb, { curve, scale: 80.0, seed: 42 });
+  const l1 = s1.generate();
+  const l2 = s2.generate();
   const c1 = Array.from(l1.coordsView());
-  if (!arrEq(c1, Array.from(l2.coordsView()))) throw new Error(`WASM SFC step()!=run() for ${curve}`);
+  if (!arrEq(c1, Array.from(l2.coordsView()))) throw new Error(`WASM SFC deterministic generate mismatch for ${curve}`);
   const deg = mod.layoutDegeneracy(gBb, l1);
   sfcOut[curve] = { coords: c1, order: Array.from(s1.vertexOrder()), dups: deg.duplicateNodesF32 };
   deg.free?.(); l1.free?.(); l2.free?.(); s1.free?.(); s2.free?.();
@@ -232,14 +228,21 @@ for (const gDeg of [gEmpty, gSingle, gDisc, gDirRec]) {
     new mod.GripSolver(gDeg, { roundsMin: 2, roundsMax: 4, seed: 42 }),
     new mod.GemSolver(gDeg, { maxIterations: 4, seed: 42 }),
     new mod.SelLayoutSolver(gDeg, { iterations: 4, seed: 42 }),
-    mod.PfsPrimeOverlapRemoval.fromRadii(new Float32Array(m).fill(0.25), { seed: 42 }),
-    new mod.SfcLayoutSolver(gDeg, { seed: 42 }),
   ]) {
     const ld = mod.Layout2d.zeros(m);
     s.run(ld);
     if (!ld.isAllFinite()) throw new Error('WASM baseline solver non-finite on degenerate graph');
     ld.free?.(); s.free?.();
   }
+  const pfsDeg = mod.PfsPrimeOverlapRemoval.fromRadii(new Float32Array(m).fill(0.25), { seed: 42 });
+  const lPfsDeg = mod.Layout2d.zeros(m);
+  pfsDeg.apply(lPfsDeg);
+  if (!lPfsDeg.isAllFinite()) throw new Error('WASM PFS non-finite on degenerate graph');
+  lPfsDeg.free?.(); pfsDeg.free?.();
+  const sfcGen = new mod.SfcLayout(gDeg, { seed: 42 });
+  const lSfcDeg = sfcGen.generate();
+  if (!lSfcDeg.isAllFinite()) throw new Error('WASM SFC non-finite on degenerate graph');
+  lSfcDeg.free?.(); sfcGen.free?.();
 }
 gEmpty.free?.(); gSingle.free?.(); gDisc.free?.(); gDirRec.free?.();
 
@@ -248,7 +251,7 @@ assertNonPanicError('wasm/grip/rounds_inv', () => new mod.GripSolver(gBb, { roun
 assertNonPanicError('wasm/gem/edge_len_0', () => new mod.GemSolver(gBb, { edgeLength: 0 }));
 assertNonPanicError('wasm/sel/bad_mapping', () => new mod.SelLayoutSolver(gBb, { mapping: 'bad' }));
 assertNonPanicError('wasm/pfs/neg_padding', () => new mod.PfsPrimeOverlapRemoval(hw10, hh10, { padding: -0.1 }));
-assertNonPanicError('wasm/sfc/bad_curve', () => new mod.SfcLayoutSolver(gBb, { curve: 'peano' }));
+assertNonPanicError('wasm/sfc/bad_curve', () => new mod.SfcLayout(gBb, { curve: 'peano' }));
 
 gBb.free?.(); gGrid.free?.(); gStar.free?.();
 console.log(JSON.stringify({

@@ -45,10 +45,10 @@ def run_cross_target_hde_sgd_presets_parity(
         ("ort_kmeans", lambda: eg.SgdSolver.ortmann_sparse_stress(g_bb, num_pivots=4, pivot_strategy="kmeans_sp", iterations=10, seed=42, dtype="float32")),
         ("ort_maxmin_rand", lambda: eg.SgdSolver.ortmann_sparse_stress(g_bb, num_pivots=4, pivot_strategy="maxmin_random_sp", iterations=10, seed=42, dtype="float32")),
         ("ort_maxmin", lambda: eg.SgdSolver.ortmann_sparse_stress(g_bb, num_pivots=4, pivot_strategy="maxmin_sp", iterations=10, seed=42, dtype="float32")),
-        ("largevis", lambda: eg.SgdSolver.largevis(g_bb, iterations=10, negative_samples=3, seed=42, dtype="float32")),
-        ("drgraph", lambda: eg.SgdSolver.drgraph(g_bb, k_order=1, negative_samples=3, iterations=10, seed=42, dtype="float32")),
-        ("cne_infonce", lambda: eg.SgdSolver.graph_cne(g_bb, objective="infonce", negative_samples=3, iterations=10, seed=42, dtype="float32")),
-        ("cne_neg_tsne", lambda: eg.SgdSolver.graph_cne(g_bb, objective="neg_tsne", negative_samples=3, iterations=10, seed=42, dtype="float32")),
+        ("largevis", lambda: eg.LargeVisSolver(g_bb, iterations=10, negative_samples=3, seed=42, dtype="float32")),
+        ("drgraph", lambda: eg.DrGraphSolver(g_bb, k_order=1, negative_samples=3, iterations=10, seed=42, dtype="float32")),
+        ("cne_infonce", lambda: eg.GraphCneSolver(g_bb, objective="infonce", negative_samples=3, iterations=10, seed=42, dtype="float32")),
+        ("cne_neg_tsne", lambda: eg.GraphCneSolver(g_bb, objective="neg_tsne", negative_samples=3, iterations=10, seed=42, dtype="float32")),
     )
     sgd_py: dict[str, Any] = {}
     for key, mk in sgd_factories:
@@ -85,13 +85,13 @@ const hdeOut = {
 lHde.free?.(); lHdePiv.free?.(); lHdeNd.free?.();
 
 const sgdConfigs = [
-  ['ort_kmeans', () => mod.SgdSolver.ortmannSparseStress(gBb, { numPivots: 4, pivotStrategy: 'kmeans_sp', iterations: 10, seed: 42 })],
-  ['ort_maxmin_rand', () => mod.SgdSolver.ortmannSparseStress(gBb, { numPivots: 4, pivotStrategy: 'maxmin_random_sp', iterations: 10, seed: 42 })],
-  ['ort_maxmin', () => mod.SgdSolver.ortmannSparseStress(gBb, { numPivots: 4, pivotStrategy: 'maxmin_sp', iterations: 10, seed: 42 })],
-  ['largevis', () => mod.SgdSolver.largevis(gBb, { iterations: 10, negativeSamples: 3, seed: 42 })],
-  ['drgraph', () => mod.SgdSolver.drgraph(gBb, { kOrder: 1, negativeSamples: 3, iterations: 10, seed: 42 })],
-  ['cne_infonce', () => mod.SgdSolver.graphCne(gBb, { objective: 'infonce', negativeSamples: 3, iterations: 10, seed: 42 })],
-  ['cne_neg_tsne', () => mod.SgdSolver.graphCne(gBb, { objective: 'neg_tsne', negativeSamples: 3, iterations: 10, seed: 42 })],
+  ['ort_kmeans', () => mod.SgdSolver.ortmannSparseStress(gBb, { numPivots: 4, pivotStrategy: 'kmeansSp', iterations: 10, seed: 42 })],
+  ['ort_maxmin_rand', () => mod.SgdSolver.ortmannSparseStress(gBb, { numPivots: 4, pivotStrategy: 'maxminRandomSp', iterations: 10, seed: 42 })],
+  ['ort_maxmin', () => mod.SgdSolver.ortmannSparseStress(gBb, { numPivots: 4, pivotStrategy: 'maxminSp', iterations: 10, seed: 42 })],
+  ['largevis', () => new mod.LargeVisSolver(gBb, { iterations: 10, negativeSamples: 3, seed: 42 })],
+  ['drgraph', () => new mod.DrGraphSolver(gBb, { kOrder: 1, negativeSamples: 3, iterations: 10, seed: 42 })],
+  ['cne_infonce', () => new mod.GraphCneSolver(gBb, { objective: 'infoNce', negativeSamples: 3, iterations: 10, seed: 42 })],
+  ['cne_neg_tsne', () => new mod.GraphCneSolver(gBb, { objective: 'negTSne', negativeSamples: 3, iterations: 10, seed: 42 })],
 ];
 const sgdOut = {};
 for (const [k, mk] of sgdConfigs) {
@@ -121,9 +121,9 @@ for (const gDeg of [gEmpty, gSingle, gDisc, gDirRec]) {
   h2.free?.();
   for (const s of [
     mod.SgdSolver.ortmannSparseStress(gDeg, { numPivots: 3, iterations: 4, seed: 42 }),
-    mod.SgdSolver.largevis(gDeg, { iterations: 4, seed: 42 }),
-    mod.SgdSolver.drgraph(gDeg, { iterations: 4, seed: 42 }),
-    mod.SgdSolver.graphCne(gDeg, { iterations: 4, seed: 42 }),
+    new mod.LargeVisSolver(gDeg, { iterations: 4, seed: 42 }),
+    new mod.DrGraphSolver(gDeg, { iterations: 4, seed: 42 }),
+    new mod.GraphCneSolver(gDeg, { iterations: 4, seed: 42 }),
   ]) {
     const ld = mod.Layout2d.zeros(m);
     s.run(ld);
@@ -136,9 +136,9 @@ gEmpty.free?.(); gSingle.free?.(); gDisc.free?.(); gDirRec.free?.();
 assertNonPanicError('wasm/hde/dimensions_0', () => mod.hde(gBb, { dimensions: 0 }));
 assertNonPanicError('wasm/hdeNd/outputDims_0', () => mod.hdeNd(gBb, { outputDims: 0 }));
 assertNonPanicError('wasm/ortmann/bad_strat', () => mod.SgdSolver.ortmannSparseStress(gBb, { pivotStrategy: 'bad' }));
-assertNonPanicError('wasm/largevis/neg_gamma', () => mod.SgdSolver.largevis(gBb, { gamma: -1 }));
-assertNonPanicError('wasm/drgraph/k0', () => mod.SgdSolver.drgraph(gBb, { kOrder: 0 }));
-assertNonPanicError('wasm/cne/bad_obj', () => mod.SgdSolver.graphCne(gBb, { objective: 'bad' }));
+assertNonPanicError('wasm/largevis/neg_gamma', () => new mod.LargeVisSolver(gBb, { gamma: -1 }));
+assertNonPanicError('wasm/drgraph/k0', () => new mod.DrGraphSolver(gBb, { kOrder: 0 }));
+assertNonPanicError('wasm/cne/bad_obj', () => new mod.GraphCneSolver(gBb, { objective: 'bad' }));
 
 gAsym.free?.(); gBb.free?.();
 console.log(JSON.stringify({ hde_available: true, hdeOut, sgdOut }));

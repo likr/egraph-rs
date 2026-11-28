@@ -106,10 +106,11 @@ def run_cross_target_overlap_layering_parity(
         out["proj_cl_rect"] = l_crc.coords(copy=True)
 
         l_fd = eg.Layout2d.from_coords(fdeb_init_f32.astype(np_dt))
-        fd = eg.FdebSolver(g16, cycles=2, steps_per_cycle=6, dtype=dtype_name)
-        fd.run(l_fd)
-        out["fdeb_offsets"] = fd.edge_offsets()
-        out["fdeb_points"] = fd.points()
+        poly_fd = eg.EdgePolylines.straight_line_from_graph(g16, l_fd)
+        fd = eg.FdebSolver(poly_fd, cycles=2, steps_per_cycle=6)
+        fd.run(poly_fd)
+        out["fdeb_offsets"] = poly_fd.edge_offsets()
+        out["fdeb_points"] = poly_fd.points()
         return out
 
     py32 = run_py_postproc("float32")
@@ -206,20 +207,21 @@ const lCrc = mod.Layout2d.fromCoords(new Float32Array(spec.cl_init));
 mod.projectClusteredRectangleNoOverlap2d(lCrc, new Uint32Array(spec.cl_ids), new Float32Array(spec.hw4), new Float32Array(spec.hh4));
 const projClRect = Array.from(lCrc.coordsView());
 
-const lFdR = mod.Layout2d.fromCoords(new Float32Array(spec.fdeb_init));
-const lFdS = mod.Layout2d.fromCoords(new Float32Array(spec.fdeb_init));
-const fdR = new mod.FdebSolver(g16, { cycles: 2, stepsPerCycle: 6 });
-const fdS = new mod.FdebSolver(g16, { cycles: 2, stepsPerCycle: 6 });
-fdR.run(lFdR);
-fdS.step(lFdS);
-fdS.runSteps(lFdS, 3);
-while (!fdS.isFinished) fdS.step(lFdS);
-const fdebOff = Array.from(fdR.edgeOffsets());
-const fdebPts = Array.from(fdR.points());
-if (JSON.stringify(fdebPts) !== JSON.stringify(Array.from(fdS.points()))) {
+const lFd = mod.Layout2d.fromCoords(new Float32Array(spec.fdeb_init));
+const polyR = mod.EdgePolylines.straightLineFromGraph(g16, lFd);
+const polyS = mod.EdgePolylines.straightLineFromGraph(g16, lFd);
+const fdR = new mod.FdebSolver(polyR, { cycles: 2, stepsPerCycle: 6 });
+const fdS = new mod.FdebSolver(polyS, { cycles: 2, stepsPerCycle: 6 });
+fdR.run(polyR);
+fdS.step(polyS);
+fdS.runSteps(polyS, 3);
+while (!fdS.isFinished) fdS.step(polyS);
+const fdebOff = Array.from(polyR.edgeOffsetsView());
+const fdebPts = Array.from(polyR.pointsView());
+if (JSON.stringify(fdebPts) !== JSON.stringify(Array.from(polyS.pointsView()))) {
   throw new Error('WASM FdebSolver step() != run()');
 }
-lFdR.free?.(); lFdS.free?.();
+polyR.free?.(); polyS.free?.(); lFd.free?.();
 
 const out = {
   overlap_available: true,

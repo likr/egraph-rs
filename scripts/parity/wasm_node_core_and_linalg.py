@@ -91,7 +91,7 @@ if (typeof mod.scaleNormalizedStress === 'function') {
   assert.ok(pd.sigmaDist < 1e-5 && pd.sigmaDisp < 1e-5);
   pd.free?.();
 
-  const rep = mod.evaluateMetrics(gBb, lBb, ['sns', 'crossingNumber', 'np1', 'np2'], 4, 200, 42);
+  const rep = mod.evaluateMetrics(gBb, lBb, ['sns', 'crossingNumber', 'np1', 'np2'], { numPivots: 4, numSamples: 200, seed: 42 });
   const rec = rep.toRecord();
   assert.deepEqual(
     Object.keys(rec).sort(),
@@ -114,12 +114,14 @@ if (typeof mod.scaleNormalizedStress === 'function') {
   const lShort = Layout2d.zeros(3);
   const badCoords = new Float32Array(bbCoords);
   badCoords[0] = Number.NaN;
-  const lNan = Layout2d.fromCoords(badCoords);
+  assertNonPanicError('Layout2d.fromCoords nan', () => Layout2d.fromCoords(badCoords));
+  const lNan = Layout2d.fromCoords(bbCoords);
+  lNan.coordsView()[0] = Number.NaN;
   assertNonPanicError('metrics sns dim mismatch', () => mod.scaleNormalizedStress(gBb, lShort));
   assertNonPanicError('metrics sweep nan', () => mod.sweepCrossingNumber(gBb, lNan));
   assertNonPanicError('metrics bad targets', () => mod.evaluateMetrics(gBb, lBb, 'sns'));
-  assertNonPanicError('metrics zero pivots', () => mod.sampledScaleNormalizedStress(gBb, lBb, 0, 42));
-  assertNonPanicError('metrics neg seed', () => mod.sampledScaleNormalizedStress(gBb, lBb, 4, -1));
+  assertNonPanicError('metrics zero pivots', () => mod.sampledScaleNormalizedStress(gBb, lBb, { numPivots: 0, seed: 42 }));
+  assertNonPanicError('metrics neg seed', () => mod.sampledScaleNormalizedStress(gBb, lBb, { numPivots: 4, seed: -1 }));
 
   lShort.free?.();
   lNan.free?.();
@@ -176,19 +178,19 @@ if (typeof mod.selectMaxminSpPivots === 'function') {
   }
   const g16 = CsrGraph.fromEdgeList(16, new Uint32Array(gEdges));
 
-  const piv = mod.selectMaxminSpPivots(g16, 6, 42, 2);
+  const piv = mod.selectMaxminSpPivots(g16, { numPivots: 6, seed: 42, minDegree: 2 });
   assert.ok(piv instanceof Uint32Array && piv.length === 6);
 
-  const lPmds = mod.pivotMdsInit(g16, 6, 42, 2, 1.0);
-  const lPmdsUnnorm = mod.pivotMdsInit(g16, 6, 42, 2, null);
-  const lKoren = mod.korenSpectralInit(g16, 1.0, 1e-4, 300, 42);
+  const lPmds = mod.pivotMdsInit(g16, { numPivots: 6, seed: 42, minDegree: 2, targetStd: 1.0 });
+  const lPmdsUnnorm = mod.pivotMdsInit(g16, { numPivots: 6, seed: 42, minDegree: 2, targetStd: null });
+  const lKoren = mod.korenSpectralInit(g16, { targetStd: 1.0, tol: 1e-4, maxIterations: 300, seed: 42 });
   assert.equal(lPmds.len(), 16);
   assert.equal(lPmdsUnnorm.len(), 16);
   assert.equal(lKoren.len(), 16);
   assert.equal(lPmds.isAllFinite(), true);
   assert.equal(lKoren.isAllFinite(), true);
 
-  const eig = mod.smallestLaplacianEigenpairs(g16, 4, 1e-4, 300, 42);
+  const eig = mod.smallestLaplacianEigenpairs(g16, { nModes: 4, tol: 1e-4, maxIterations: 300, seed: 42 });
   assert.equal(eig.numNodes, 16);
   assert.equal(eig.numModes, 4);
   const invD = eig.invSqrtDeg();
@@ -203,7 +205,7 @@ if (typeof mod.selectMaxminSpPivots === 'function') {
   const heat = mod.chebyshevHeatSpmv(g16, statVec, 1, 2.0);
   for (let i = 0; i < 16; i += 1) assert.ok(Math.abs(heat[i] - statVec[i]) < 1e-9);
 
-  const jl = mod.chebyshevDogJlEmbedding(g16, 12, 25, 42, true, 1e-4);
+  const jl = mod.chebyshevDogJlEmbedding(g16, { jlDim: 12, degree: 25, seed: 42, degreeNormalize: true, epsPsd: 1e-4 });
   assert.ok(jl instanceof Float64Array && jl.length === 16 * 12);
 
   const twoHop = mod.extract1hop2hopCsr(g16);
@@ -241,14 +243,14 @@ if (typeof mod.selectMaxminSpPivots === 'function') {
   assert.ok(Math.abs(ab[0] - 1.577) < 0.02 && Math.abs(ab[1] - 0.895) < 0.02);
   assert.ok(Math.abs(mod.computeHorvitzThompsonGamma(1.0, 1600, 16) - 10.0) < 1e-12);
 
-  const lm = mod.computeRegularizedDogVaradhanLandmarks(g16, 25, 16, 42);
+  const lm = mod.computeRegularizedDogVaradhanLandmarks(g16, { degree: 25, numLandmarks: 16, seed: 42 });
   assert.equal(lm.numNodes, 16);
   assert.ok(lm.coarseTable() instanceof Float64Array);
   const alt = lm.altDistances(new Uint32Array([0, 15]), new Uint32Array([15, 0]));
   assert.ok(Math.abs(alt[0] - alt[1]) < 1e-12);
 
-  assertNonPanicError('linalg bad seed', () => mod.selectMaxminSpPivots(g16, 4, 1.5));
-  assertNonPanicError('linalg neg targetStd', () => mod.pivotMdsInit(g16, 4, 42, 2, -1));
+  assertNonPanicError('linalg bad seed', () => mod.selectMaxminSpPivots(g16, { numPivots: 4, seed: 1.5 }));
+  assertNonPanicError('linalg neg targetStd', () => mod.pivotMdsInit(g16, { numPivots: 4, seed: 42, minDegree: 2, targetStd: -1 }));
   assertNonPanicError('linalg nan vec', () => mod.chebyshevHeatSpmv(g16, new Float64Array([Number.NaN]), 1, 1.0));
   assertNonPanicError('linalg neg dist', () => mod.KnnGraph.fromCsr(2, new Uint32Array([0, 1, 1]), new Uint32Array([1]), new Float64Array([-1.0])));
   assertNonPanicError('linalg alt oob', () => lm.altDistances(new Uint32Array([0]), new Uint32Array([99])));

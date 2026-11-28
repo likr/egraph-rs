@@ -87,27 +87,27 @@ def run_embedding_classic_solvers_python_checks(eg: Any) -> list[dict[str, Any]]
             ),
             (
                 "largevis",
-                bind_call(eg.SgdSolver.largevis, g_bb, iterations=10, negative_samples=3, seed=42, dtype=dtype_name),
+                bind_call(eg.LargeVisSolver, g_bb, iterations=10, negative_samples=3, seed=42, dtype=dtype_name),
             ),
             (
                 "drgraph_k1",
-                bind_call(eg.SgdSolver.drgraph, g_bb, k_order=1, negative_samples=3, iterations=10, seed=42, dtype=dtype_name),
+                bind_call(eg.DrGraphSolver, g_bb, k_order=1, negative_samples=3, iterations=10, seed=42, dtype=dtype_name),
             ),
             (
                 "drgraph_k2",
-                bind_call(eg.SgdSolver.drgraph, g_bb, k_order=2, negative_samples=3, iterations=10, seed=42, dtype=dtype_name),
+                bind_call(eg.DrGraphSolver, g_bb, k_order=2, negative_samples=3, iterations=10, seed=42, dtype=dtype_name),
             ),
             (
                 "graph_cne_infonce",
                 bind_call(
-                    eg.SgdSolver.graph_cne,
+                    eg.GraphCneSolver,
                     g_bb, objective="infonce", negative_samples=3, iterations=10, seed=42, dtype=dtype_name,
                 ),
             ),
             (
                 "graph_cne_neg_tsne",
                 bind_call(
-                    eg.SgdSolver.graph_cne,
+                    eg.GraphCneSolver,
                     g_bb, objective="neg_tsne", negative_samples=3, iterations=10, seed=42, dtype=dtype_name,
                 ),
             ),
@@ -129,15 +129,15 @@ def run_embedding_classic_solvers_python_checks(eg: Any) -> list[dict[str, Any]]
             assert np.array_equal(lr1.coords(copy=True), ls.coords(copy=True)), label
 
         # 3. MaxentStressSolver
-        for use_bh in (True, False):
+        for backend in ("barnes_hut", "exact"):
             mr1 = eg.MaxentStressSolver(
-                g_asym, q=0.5, stages=2, steps_per_stage=4, use_barnes_hut=use_bh, seed=42, dtype=dtype_name
+                g_asym, q=0.5, stages=2, steps_per_stage=4, backend=backend, seed=42, dtype=dtype_name
             )
             mr2 = eg.MaxentStressSolver(
-                g_asym, q=0.5, stages=2, steps_per_stage=4, use_barnes_hut=use_bh, seed=42, dtype=dtype_name
+                g_asym, q=0.5, stages=2, steps_per_stage=4, backend=backend, seed=42, dtype=dtype_name
             )
             ms = eg.MaxentStressSolver(
-                g_asym, q=0.5, stages=2, steps_per_stage=4, use_barnes_hut=use_bh, seed=42, dtype=dtype_name
+                g_asym, q=0.5, stages=2, steps_per_stage=4, backend=backend, seed=42, dtype=dtype_name
             )
             assert abs(mr1.effective_q - 0.5) < 1e-12
             assert abs(mr1.current_alpha - 1.0) < 1e-12
@@ -222,18 +222,13 @@ def run_embedding_classic_solvers_python_checks(eg: Any) -> list[dict[str, Any]]
 
         pf1 = eg.PfsPrimeOverlapRemoval(hw10, hh10, padding=0.02, seed=42, dtype=dtype_name)
         pf2 = eg.PfsPrimeOverlapRemoval(hw10, hh10, padding=0.02, seed=42, dtype=dtype_name)
-        pfs = eg.PfsPrimeOverlapRemoval(hw10, hh10, padding=0.02, seed=42, dtype=dtype_name)
         lpf1 = eg.Layout2d.from_coords(ov_coords)
         lpf2 = eg.Layout2d.from_coords(ov_coords)
-        lpfs = eg.Layout2d.from_coords(ov_coords)
-        pf1.run(lpf1)
-        pf2.run(lpf2)
-        pfs.step(lpfs)
-        assert pf1.is_finished and pfs.is_finished
+        pf1.apply(lpf1)
+        pf2.apply(lpf2)
         assert pf1.last_overlap_count == 0
         assert len(eg.rectangle_overlaps(lpf1, hw10, hh10)) == 0
         assert np.array_equal(lpf1.coords(copy=True), lpf2.coords(copy=True))
-        assert np.array_equal(lpf1.coords(copy=True), lpfs.coords(copy=True))
 
         col_coords = np.column_stack([
             np.linspace(-1.0, 1.0, 10, dtype=np.float64),
@@ -242,28 +237,22 @@ def run_embedding_classic_solvers_python_checks(eg: Any) -> list[dict[str, Any]]
         l_col_orig = eg.Layout2d.from_coords(col_coords)
         l_col_adj = eg.Layout2d.from_coords(col_coords)
         pfr = eg.PfsPrimeOverlapRemoval.from_radii(radii10, padding=0.0, seed=42, dtype=dtype_name)
-        pfr.run(l_col_adj)
+        pfr.apply(l_col_adj)
         assert pfr.last_overlap_count == 0
         assert len(eg.rectangle_overlaps(l_col_adj, radii10, radii10)) == 0
         nor_pfs = eg.nor_metrics(l_col_orig, l_col_adj, radii10, radii10, graph=g_bb)
         assert abs(float(nor_pfs["oo_nni"])) < 1e-12
 
-        # 6. SFC Layout Solver (0 co-location)
+        # 6. SFC Layout Generator (0 co-location)
         for curve in ("hilbert", "morton"):
-            sfc1 = eg.SfcLayoutSolver(g_bb, curve=curve, scale=80.0, seed=42, dtype=dtype_name)
-            sfc2 = eg.SfcLayoutSolver(g_bb, curve=curve, scale=80.0, seed=42, dtype=dtype_name)
-            sfcs = eg.SfcLayoutSolver(g_bb, curve=curve, scale=80.0, seed=42, dtype=dtype_name)
+            sfc1 = eg.SfcLayout(g_bb, curve=curve, scale=80.0, seed=42, dtype=dtype_name)
+            sfc2 = eg.SfcLayout(g_bb, curve=curve, scale=80.0, seed=42, dtype=dtype_name)
+            lsfc1 = sfc1.generate()
+            lsfc2 = sfc2.generate()
             ord1 = sfc1.vertex_order()
             assert ord1.dtype == np.uint32 and sorted(ord1.tolist()) == list(range(10))
-            lsfc1 = eg.Layout2d.zeros(10, dtype=dtype_name)
-            lsfc2 = eg.Layout2d.zeros(10, dtype=dtype_name)
-            lsfcs = eg.Layout2d.zeros(10, dtype=dtype_name)
-            sfc1.run(lsfc1)
-            sfc2.run(lsfc2)
-            sfcs.step(lsfcs)
-            assert sfc1.is_finished and sfcs.is_finished and lsfc1.is_all_finite()
+            assert lsfc1.dtype == dtype_name and lsfc1.is_all_finite()
             assert np.array_equal(lsfc1.coords(copy=True), lsfc2.coords(copy=True))
-            assert np.array_equal(lsfc1.coords(copy=True), lsfcs.coords(copy=True))
             assert eg.layout_degeneracy(g_bb, lsfc1)["duplicate_nodes_f32"] == 0
 
     # Auto-q invariant on MaxentStressSolver
@@ -287,19 +276,21 @@ def run_embedding_classic_solvers_python_checks(eg: Any) -> list[dict[str, Any]]
         )
         for solver in (
             eg.SgdSolver.ortmann_sparse_stress(g_deg, num_pivots=3, iterations=4, seed=42),
-            eg.SgdSolver.largevis(g_deg, iterations=4, seed=42),
-            eg.SgdSolver.drgraph(g_deg, iterations=4, seed=42),
-            eg.SgdSolver.graph_cne(g_deg, iterations=4, seed=42),
+            eg.LargeVisSolver(g_deg, iterations=4, seed=42),
+            eg.DrGraphSolver(g_deg, iterations=4, seed=42),
+            eg.GraphCneSolver(g_deg, iterations=4, seed=42),
             eg.MaxentStressSolver(g_deg, stages=2, steps_per_stage=3, seed=42),
             eg.GripSolver(g_deg, rounds_min=2, rounds_max=4, seed=42),
             eg.GemSolver(g_deg, max_iterations=4, seed=42),
             eg.SelLayoutSolver(g_deg, iterations=4, seed=42),
-            eg.PfsPrimeOverlapRemoval.from_radii(np.full(m, 0.25, dtype=np.float64), seed=42),
-            eg.SfcLayoutSolver(g_deg, seed=42),
         ):
             lay = eg.Layout2d.from_coords(deg_init)
             solver.run(lay)
             assert lay.is_all_finite()
+        lay_pfs = eg.Layout2d.from_coords(deg_init)
+        eg.PfsPrimeOverlapRemoval.from_radii(np.full(m, 0.25, dtype=np.float64), seed=42).apply(lay_pfs)
+        assert lay_pfs.is_all_finite()
+        assert eg.SfcLayout(g_deg, seed=42).generate().is_all_finite()
 
     results.append({
         "case": "embedding_and_classic_solvers",
@@ -325,14 +316,14 @@ def run_embedding_classic_solvers_python_checks(eg: Any) -> list[dict[str, Any]]
         ("hde/bool_seed", lambda: eg.hde(g_bb, seed=True), (TypeError,)),
         ("ortmann/num_pivots_0", lambda: eg.SgdSolver.ortmann_sparse_stress(g_bb, num_pivots=0), (ValueError,)),
         ("ortmann/bad_strategy", lambda: eg.SgdSolver.ortmann_sparse_stress(g_bb, pivot_strategy="bad"), (ValueError,)),
-        ("largevis/neg_gamma", lambda: eg.SgdSolver.largevis(g_bb, gamma=-1.0), (ValueError,)),
-        ("largevis/bool_seed", lambda: eg.SgdSolver.largevis(g_bb, seed=True), (TypeError,)),
-        ("drgraph/k_order_0", lambda: eg.SgdSolver.drgraph(g_bb, k_order=0), (ValueError,)),
-        ("drgraph/bad_ratio", lambda: eg.SgdSolver.drgraph(g_bb, coarsen_stop_ratio=1.5), (ValueError,)),
-        ("graph_cne/bad_obj", lambda: eg.SgdSolver.graph_cne(g_bb, objective="bad"), (ValueError,)),
-        ("graph_cne/neg_rep", lambda: eg.SgdSolver.graph_cne(g_bb, repulsion_weight=-0.5), (ValueError,)),
-        ("largevis/nan_layout", lambda: eg.SgdSolver.largevis(g_bb, iterations=2).run(bad_lay), (ValueError,)),
-        ("largevis/wrong_len", lambda: eg.SgdSolver.largevis(g_bb, iterations=2).run(wrong_lay), (ValueError,)),
+        ("largevis/neg_gamma", lambda: eg.LargeVisSolver(g_bb, gamma=-1.0), (ValueError,)),
+        ("largevis/bool_seed", lambda: eg.LargeVisSolver(g_bb, seed=True), (TypeError,)),
+        ("drgraph/k_order_0", lambda: eg.DrGraphSolver(g_bb, k_order=0), (ValueError,)),
+        ("drgraph/bad_ratio", lambda: eg.DrGraphSolver(g_bb, coarsen_stop_ratio=1.5), (ValueError,)),
+        ("graph_cne/bad_obj", lambda: eg.GraphCneSolver(g_bb, objective="bad"), (ValueError,)),
+        ("graph_cne/neg_rep", lambda: eg.GraphCneSolver(g_bb, repulsion_weight=-0.5), (ValueError,)),
+        ("largevis/nan_layout", lambda: eg.LargeVisSolver(g_bb, iterations=2).run(bad_lay), (ValueError,)),
+        ("largevis/wrong_len", lambda: eg.LargeVisSolver(g_bb, iterations=2).run(wrong_lay), (ValueError,)),
         ("maxent/q_too_low", lambda: eg.MaxentStressSolver(g_bb, q=-2.0), (ValueError,)),
         ("maxent/q_nan", lambda: eg.MaxentStressSolver(g_bb, q=float("nan")), (ValueError,)),
         ("maxent/alpha_decay_bad", lambda: eg.MaxentStressSolver(g_bb, alpha_decay=1.5), (ValueError,)),
@@ -352,13 +343,11 @@ def run_embedding_classic_solvers_python_checks(eg: Any) -> list[dict[str, Any]]
         ("pfs_prime/neg_hw", lambda: eg.PfsPrimeOverlapRemoval([-1.0], [1.0]), (ValueError,)),
         ("pfs_prime/neg_padding", lambda: eg.PfsPrimeOverlapRemoval([1.0], [1.0], padding=-0.1), (ValueError,)),
         ("pfs_prime/inf_radii", lambda: eg.PfsPrimeOverlapRemoval.from_radii([float("inf")]), (ValueError,)),
-        ("pfs_prime/nan_layout", lambda: eg.PfsPrimeOverlapRemoval(hw10_ok, hh10_ok).run(bad_lay), (ValueError,)),
-        ("pfs_prime/wrong_len", lambda: eg.PfsPrimeOverlapRemoval(hw10_ok, hh10_ok).run(wrong_lay), (ValueError,)),
-        ("sfc/scale_0", lambda: eg.SfcLayoutSolver(g_bb, scale=0.0), (ValueError,)),
-        ("sfc/res_order_16", lambda: eg.SfcLayoutSolver(g_bb, resolution_order=16), (ValueError,)),
-        ("sfc/bad_curve", lambda: eg.SfcLayoutSolver(g_bb, curve="peano"), (ValueError,)),
-        ("sfc/nan_layout", lambda: eg.SfcLayoutSolver(g_bb).run(bad_lay), (ValueError,)),
-        ("sfc/wrong_len", lambda: eg.SfcLayoutSolver(g_bb).run(wrong_lay), (ValueError,)),
+        ("pfs_prime/nan_layout", lambda: eg.PfsPrimeOverlapRemoval(hw10_ok, hh10_ok).apply(bad_lay), (ValueError,)),
+        ("pfs_prime/wrong_len", lambda: eg.PfsPrimeOverlapRemoval(hw10_ok, hh10_ok).apply(wrong_lay), (ValueError,)),
+        ("sfc/scale_0", lambda: eg.SfcLayout(g_bb, scale=0.0), (ValueError,)),
+        ("sfc/res_order_16", lambda: eg.SfcLayout(g_bb, resolution_order=16), (ValueError,)),
+        ("sfc/bad_curve", lambda: eg.SfcLayout(g_bb, curve="peano"), (ValueError,)),
     ]
     for label, fn, expected in classic_bad_cases:
         assert_non_panic_error(label, fn, expected_types=expected)

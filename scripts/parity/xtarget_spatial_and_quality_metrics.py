@@ -141,8 +141,10 @@ const apsp = mod.allPairsBfs(gGrid, 1.0);
 const sssp = Array.from(mod.bfsSingleSource(gGrid, 0, 2.0));
 const snsDist = mod.scaleNormalizedStressFromDistances(lGrid, apsp);
 const ielUnit = mod.idealEdgeLengthsWithUnit(gGrid, lGrid, 1.5);
-const evalRep = mod.evaluateMetrics(gGrid, lGrid, ['sns', 'idealEdgeLengths'], 4, 64, 42, 1.5);
-const evalDefRep = mod.evaluateMetrics(gGrid, lGrid, ['sampled_sns', 'sampled_crossing_number']);
+const evalRep = mod.evaluateMetrics(gGrid, lGrid, ['sns', 'idealEdgeLengths'], {
+  numPivots: 4, numSamples: 64, seed: 42, idealEdgeLength: 1.5,
+});
+const evalDefRep = mod.evaluateMetrics(gGrid, lGrid, ['sampledScaleNormalizedStress', 'sampledCrossingNumber']);
 const sampledSnsDef = mod.sampledScaleNormalizedStress(gGrid, lGrid);
 const sampledCrDef = mod.sampledCrossingNumber(gGrid, lGrid);
 const lGridAdj = mod.Layout2d.fromCoords(new Float32Array(spec.grid_coords.map((v, i) => v + (i % 2 === 0 ? 0.05 : -0.03))));
@@ -150,15 +152,15 @@ const pdEdges = mod.prismDistortionWithEdges(lGrid, lGridAdj, new Uint32Array(gg
 
 const qComm = new Uint32Array([0, 0, 0, 0, 0, 1, 1, 1, 1]);
 const qCl = mod.crosslessness(gGrid, lGrid);
-const qScl = mod.sampledCrosslessness(gGrid, lGrid, 100, 42);
+const qScl = mod.sampledCrosslessness(gGrid, lGrid, { numSamples: 100, seed: 42 });
 const qMa = mod.minimumAngle(gGrid, lGrid);
 const qMaSum = mod.minimumAngleSummary(gGrid, lGrid);
 const qDeg = mod.layoutDegeneracy(gGrid, lGrid);
-const qNig = mod.adjustedPatchNig(lGrid, qComm, 16, 2048, 0.04, 42);
-const qNigMs = Array.from(mod.adjustedPatchNigMultiscale(lGrid, qComm, [16, 32], 2048, 0.04, 42));
-const qRta = mod.landmarkStratifiedRta(gGrid, lGrid, 4, 50, 1, 42);
-const qRtaDet = mod.landmarkStratifiedRtaDetail(gGrid, lGrid, 4, 50, 1, 42);
-const qLmIds = mod.selectMaxminSpPivots(gGrid, 3, 42, 1);
+const qNig = mod.adjustedPatchNig(lGrid, qComm, { patchRadius: 16, canvasSize: 2048, padFrac: 0.04, seed: 42 });
+const qNigMs = Array.from(mod.adjustedPatchNigMultiscale(lGrid, qComm, { radii: [16, 32], canvasSize: 2048, padFrac: 0.04, seed: 42 }));
+const qRta = mod.landmarkStratifiedRta(gGrid, lGrid, { numLandmarks: 4, numTriplets: 50, minDegree: 1, seed: 42 });
+const qRtaDet = mod.landmarkStratifiedRtaDetail(gGrid, lGrid, { numLandmarks: 4, numTriplets: 50, minDegree: 1, seed: 42 });
+const qLmIds = mod.selectMaxminSpPivots(gGrid, { numPivots: 3, seed: 42, minDegree: 1 });
 const qTblFlat = [];
 for (let r = 0; r < qLmIds.length; r++) {
   const rowOff = qLmIds[r] * 9;
@@ -167,17 +169,17 @@ for (let r = 0; r < qLmIds.length; r++) {
     qTblFlat.push(Number.isFinite(dv) ? dv : Number.POSITIVE_INFINITY);
   }
 }
-const qRtaTbl = mod.landmarkStratifiedRtaFromLandmarks(lGrid, qLmIds, new Float64Array(qTblFlat), 1000, 42);
+const qRtaTbl = mod.landmarkStratifiedRtaFromLandmarks(lGrid, qLmIds, new Float64Array(qTblFlat), { numTriplets: 1000, seed: 42 });
 const qEval = mod.evaluateMetrics(
   gGrid, lGrid,
   ['crosslessness', 'sampledCrosslessness', 'minimumAngle', 'minimumAngleA1', 'layoutDegeneracy', 'adjustedPatchNig', 'clusterAreaFaithfulness', 'landmarkStratifiedRta'],
-  null, 100, 42, null, qComm, 4, 50, 1, 16, 2048, 0.04,
+  { numSamples: 100, seed: 42, labels: qComm, numLandmarks: 4, numTriplets: 50, minDegree: 1, patchRadius: 16, canvasSize: 2048, padFrac: 0.04 },
 );
 
 const gDir4 = mod.CsrGraph.fromEdgeList(4, new Uint32Array([0, 1, 0, 3, 1, 3, 3, 0, 3, 1, 3, 2]), undefined, true, true);
 const lDir4 = mod.Layout2d.fromCoords(new Float32Array([0, 0, 2, 2, 0, 2, 2, 0]));
 const clDir4 = mod.crosslessness(gDir4, lDir4);
-const sclDir4 = mod.sampledCrosslessness(gDir4, lDir4, 100, 42);
+const sclDir4 = mod.sampledCrosslessness(gDir4, lDir4, { numSamples: 100, seed: 42 });
 const gRstar = mod.CsrGraph.fromEdgeList(4, new Uint32Array([0, 1, 1, 0, 0, 2, 2, 0, 0, 3, 3, 0]), undefined, true, true);
 const lRstar = mod.Layout2d.fromCoords(new Float32Array([0, 0, 1, 0, 0, 1, -1, 0]));
 const clRstar = mod.crosslessness(gRstar, lRstar);

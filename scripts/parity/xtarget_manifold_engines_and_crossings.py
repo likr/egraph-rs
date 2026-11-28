@@ -72,28 +72,30 @@ def run_cross_target_manifold_engines_crossings_parity(
 
     def make_17_py() -> list[tuple[str, Any]]:
         return [
-            ("full", eg.SgdSolver.full(g16, iterations=4, seed=42, dtype="float32")),
-            ("from_pairs", eg.SgdSolver.from_pairs(16, packed_src, packed_tgt, packed_d, iterations=4, seed=42, dtype="float32")),
-            ("from_pairs_with_hinges", eg.SgdSolver.from_pairs_with_hinges(16, packed_src, packed_tgt, packed_d, [0], [15], [2.5], iterations=4, seed=42, dtype="float32")),
-            ("from_packed_symmetric", eg.SgdSolver.from_packed_symmetric(16, packed_src, packed_tgt, packed_d, packed_w, packed_h, iterations=4, seed=42, dtype="float32")),
-            ("sparse_barrier_from_landmarks", eg.SgdSolver.sparse_barrier_from_landmarks(g16, lm16, iterations=4, seed=42, dtype="float32")),
-            ("sparse_barrier_dog", eg.SgdSolver.sparse_barrier_dog(g16, degree=15, num_landmarks=8, iterations=4, seed=42, dtype="float32")),
-            ("streaming_negatives", eg.SgdSolver.streaming_negatives(g16, negatives_per_node=2, iterations=4, seed=42, dtype="float32")),
-            ("random_pair", eg.SgdSolver.random_pair(g16, pairs_per_node=3, iterations=4, seed=42, dtype="float32")),
-            ("omega", eg.SgdSolver.omega(g16, emb16, k=3, iterations=4, seed=42, dtype="float32")),
-            ("sgd2", eg.SgdSolver.sgd2(g16, iterations=4, batch_size=8, seed=42, dtype="float32")),
-            ("pacmap_graph", eg.SgdSolver.pacmap_graph(g16, n_neighbors=4, phase_iterations=(2, 2, 2), seed=42, dtype="float32")),
-            ("pacmap_graph_with_landmarks", eg.SgdSolver.pacmap_graph_with_landmarks(g16, lm16, n_neighbors=4, phase_iterations=(2, 2, 2), seed=42, dtype="float32")),
-            ("snap_t_fdp", eg.SgdSolver.snap_t_fdp(g16, iterations=4, negatives_per_edge=2, seed=42, dtype="float32")),
-            ("ortmann_sparse_stress", eg.SgdSolver.ortmann_sparse_stress(g16, num_pivots=4, iterations=4, seed=42, dtype="float32")),
-            ("largevis", eg.SgdSolver.largevis(g16, iterations=4, negative_samples=2, seed=42, dtype="float32")),
-            ("drgraph", eg.SgdSolver.drgraph(g16, iterations=4, negative_samples=2, seed=42, dtype="float32")),
-            ("graph_cne", eg.SgdSolver.graph_cne(g16, iterations=4, negative_samples=2, seed=42, dtype="float32")),
+            ("full", eg.SgdSolver.full(g16, target="manifold2d", iterations=4, seed=42, dtype="float32")),
+            ("from_pairs", eg.SgdSolver.from_pairs(16, packed_src, packed_tgt, packed_d, target="manifold2d", iterations=4, seed=42, dtype="float32")),
+            ("from_pairs_with_hinges", eg.SgdSolver.from_pairs_with_hinges(16, packed_src, packed_tgt, packed_d, [0], [15], [2.5], target="manifold2d", iterations=4, seed=42, dtype="float32")),
+            ("from_packed_symmetric", eg.SgdSolver.from_packed_symmetric(16, packed_src, packed_tgt, packed_d, packed_w, packed_h, target="manifold2d", iterations=4, seed=42, dtype="float32")),
+            ("sparse_barrier_from_landmarks", eg.SgdSolver.sparse_barrier_from_landmarks(g16, lm16, target="manifold2d", iterations=4, seed=42, dtype="float32")),
+            ("sparse_barrier_dog", eg.SgdSolver.sparse_barrier_dog(g16, target="manifold2d", degree=15, num_landmarks=8, iterations=4, seed=42, dtype="float32")),
+            ("streaming_negatives", eg.SgdSolver.streaming_negatives(g16, target="manifold2d", negatives_per_node=2, iterations=4, seed=42, dtype="float32")),
+            ("random_pair", eg.SgdSolver.random_pair(g16, target="manifold2d", pairs_per_node=3, iterations=4, seed=42, dtype="float32")),
+            ("omega", eg.SgdSolver.omega(g16, emb16, k=3, target="manifold2d", iterations=4, seed=42, dtype="float32")),
+            ("sgd2", eg.Sgd2Solver(g16, target="manifold2d", iterations=4, batch_size=8, seed=42, dtype="float32")),
+            ("pacmap_graph", eg.PacmapGraphSolver(g16, target="manifold2d", n_neighbors=4, phase_iterations=(2, 2, 2), seed=42, dtype="float32")),
+            ("pacmap_graph_with_landmarks", eg.PacmapGraphSolver.with_landmarks(g16, lm16, target="manifold2d", n_neighbors=4, phase_iterations=(2, 2, 2), seed=42, dtype="float32")),
+            ("snap_t_fdp", eg.SnapTFdpSolver(g16, target="manifold2d", iterations=4, negatives_per_edge=2, seed=42, dtype="float32")),
+            ("ortmann_sparse_stress", eg.SgdSolver.ortmann_sparse_stress(g16, target="manifold2d", num_pivots=4, iterations=4, seed=42, dtype="float32")),
+            ("largevis", eg.LargeVisSolver(g16, target="manifold2d", iterations=4, negative_samples=2, seed=42, dtype="float32")),
+            ("drgraph", eg.DrGraphSolver(g16, target="manifold2d", iterations=4, negative_samples=2, seed=42, dtype="float32")),
+            ("graph_cne", eg.GraphCneSolver(g16, target="manifold2d", iterations=4, negative_samples=2, seed=42, dtype="float32")),
         ]
 
     sgd17_py: dict[str, Any] = {}
     for mode_name, sv in make_17_py():
-        assert sv.supports_manifold, f"{mode_name} must support manifold"
+        assert sv.target == "manifold2d", f"{mode_name} target mismatch: {sv.target}"
+        if hasattr(sv, "supports_manifold"):
+            assert sv.supports_manifold, f"{mode_name} must support manifold"
         ml_m = eg.ManifoldLayout2d.from_coords("hyperbolic_poincare", poin_c)
         sv.run(ml_m)
         assert ml_m.is_all_finite()
@@ -112,11 +114,11 @@ def run_cross_target_manifold_engines_crossings_parity(
         return lr.coords(copy=True).ravel()
 
     mani_py = {
-        "tsnet_sph": run_mani_py(lambda: eg.TsNetSolver.pure_2hop(g16, backend="exact", stage_iterations=(2, 2, 2), seed=42, dtype="float32"), "spherical", sph_c, 2),
-        "gumap_tor": run_mani_py(lambda: eg.GuMapSolver.from_graph_dog(g16, max_2hop_per_node=16, degree=15, num_landmarks=8, iterations=5, learning_rate=0.2, seed=42, dtype="float32"), "torus_2d", tor_c, 2),
-        "sm_lor": run_mani_py(lambda: eg.StressMajorizationSolver.from_graph(g16, max_iterations=5, dtype="float32"), "hyperbolic_lorentz", lor_c, 2),
-        "kk_poin": run_mani_py(lambda: eg.KamadaKawaiSolver.from_graph(g16, max_iterations=5, eps=1e-3, max_inner_iters=20, dtype="float32"), "hyperbolic_poincare", poin_c, 2),
-        "fr_sph": run_mani_py(lambda: eg.FruchtermanReingoldSolver(g16, iterations=5, backend="exact", seed=42, dtype="float32"), "spherical", sph_c, 2),
+        "tsnet_sph": run_mani_py(lambda: eg.TsNetSolver.pure_2hop(g16, target="manifold2d", backend="exact", stage_iterations=(2, 2, 2), seed=42, dtype="float32"), "spherical", sph_c, 2),
+        "gumap_tor": run_mani_py(lambda: eg.GuMapSolver.from_graph_dog(g16, target="manifold2d", max_2hop_per_node=16, degree=15, num_landmarks=8, iterations=5, learning_rate=0.2, seed=42, dtype="float32"), "torus_2d", tor_c, 2),
+        "sm_lor": run_mani_py(lambda: eg.StressMajorizationSolver.from_graph(g16, target="manifold2d", max_iterations=5, dtype="float32"), "hyperbolic_lorentz", lor_c, 2),
+        "kk_poin": run_mani_py(lambda: eg.KamadaKawaiSolver.from_graph(g16, target="manifold2d", max_iterations=5, eps=1e-3, max_inner_iters=20, dtype="float32"), "hyperbolic_poincare", poin_c, 2),
+        "fr_sph": run_mani_py(lambda: eg.FruchtermanReingoldSolver(g16, target="manifold2d", iterations=5, backend="exact", seed=42, dtype="float32"), "spherical", sph_c, 2),
     }
 
     # Schedule window + max_mu parity on Layout2d and ManifoldLayout2d
@@ -127,7 +129,7 @@ def run_cross_target_manifold_engines_crossings_parity(
     sv_w2.run_schedule_window(l_w2, 0, 2)
     win_2d_py = l_w2.coords(copy=True).ravel()
 
-    sv_wm = eg.SgdSolver.full(g16, iterations=6, max_mu=None, seed=42, dtype="float32")
+    sv_wm = eg.SgdSolver.full(g16, target="manifold2d", iterations=6, max_mu=None, seed=42, dtype="float32")
     l_wm = eg.ManifoldLayout2d.from_coords("hyperbolic_poincare", poin_c)
     sv_wm.run_schedule_window(l_wm, 0, 3)
     sv_wm.reset_schedule(iterations=4, max_mu=0.05, seed=99)
@@ -200,7 +202,7 @@ const lorC = new Float32Array(spec.lor);
 const sphC = new Float32Array(spec.sph);
 const torC = new Float32Array(spec.tor);
 
-const mRes = mod.ManifoldLayout2d.fromCoords('hyperbolic_poincare', poinC);
+const mRes = mod.ManifoldLayout2d.fromCoords('hyperbolicPoincare', poinC);
 mRes.setScale(1.5);
 mRes.setAspect(1.25);
 assert.equal(mRes.scale, 1.5);
@@ -209,7 +211,7 @@ assert.deepEqual(mRes.metric(), { scale: 1.5, aspect: 1.25 });
 mRes.rescaleGeodesic(2.4);
 const rescaledPoin = Array.from(mRes.coordsView());
 
-const mLor = mod.ManifoldLayout2d.fromCoords('hyperbolic_lorentz', lorC);
+const mLor = mod.ManifoldLayout2d.fromCoords('hyperbolicLorentz', lorC);
 const lorToPoin = Array.from(mLor.toPoincareLayout().coordsView());
 const lExp = Array.from(mod.lorentzExpMap(0.15, -0.1, 0.08, 0.12));
 const lLog = Array.from(mod.lorentzLogMap(0.15, -0.1, lExp[0], lExp[1]));
@@ -218,7 +220,7 @@ const lPt = Array.from(mod.lorentzToPoincarePoint(0.3, -0.4));
 const lMid = Array.from(mod.lorentzEinsteinMidpoint(new Float64Array([0.1, -0.2, 0.15]), new Float64Array([0.2, 0.1, -0.05])));
 const pMid = Array.from(mod.poincareEinsteinMidpoint(new Float64Array([0.1, -0.2, 0.15]), new Float64Array([0.2, 0.1, -0.05])));
 
-const lm16 = mod.computeRegularizedDogVaradhanLandmarks(g16, 15, 8, 42);
+const lm16 = mod.computeRegularizedDogVaradhanLandmarks(g16, { degree: 15, numLandmarks: 8, seed: 42 });
 const emb16 = new Float64Array(spec.emb16);
 const pSrc = new Uint32Array(spec.packed_src);
 const pTgt = new Uint32Array(spec.packed_tgt);
@@ -227,29 +229,30 @@ const pW = new Float32Array(spec.packed_w);
 const pH = new Uint8Array(spec.packed_h);
 
 const sgdMakers = [
-  ['full', () => mod.SgdSolver.full(g16, { iterations: 4, seed: 42 })],
-  ['from_pairs', () => mod.SgdSolver.fromPairs(16, pSrc, pTgt, pD, null, null, null, { iterations: 4, seed: 42 })],
-  ['from_pairs_with_hinges', () => mod.SgdSolver.fromPairsWithHinges(16, pSrc, pTgt, pD, null, null, null, new Uint32Array([0]), new Uint32Array([15]), new Float32Array([2.5]), null, null, null, { iterations: 4, seed: 42 })],
-  ['from_packed_symmetric', () => mod.SgdSolver.fromPackedSymmetric(16, pSrc, pTgt, pD, pW, pH, { iterations: 4, seed: 42 })],
-  ['sparse_barrier_from_landmarks', () => mod.SgdSolver.sparseBarrierFromLandmarks(g16, lm16, null, { iterations: 4, seed: 42 })],
-  ['sparse_barrier_dog', () => mod.SgdSolver.sparseBarrierDog(g16, { degree: 15, numLandmarks: 8, iterations: 4, seed: 42 })],
-  ['streaming_negatives', () => mod.SgdSolver.streamingNegatives(g16, { negativesPerNode: 2, iterations: 4, seed: 42 })],
-  ['random_pair', () => mod.SgdSolver.randomPair(g16, { pairsPerNode: 3, iterations: 4, seed: 42 })],
-  ['omega', () => mod.SgdSolver.omega(g16, emb16, 8, { k: 3, iterations: 4, seed: 42 })],
-  ['sgd2', () => mod.SgdSolver.sgd2(g16, { iterations: 4, batchSize: 8, seed: 42 })],
-  ['pacmap_graph', () => mod.SgdSolver.pacmapGraph(g16, { nNeighbors: 4, phaseIterations: [2, 2, 2], seed: 42 })],
-  ['pacmap_graph_with_landmarks', () => mod.SgdSolver.pacmapGraphWithLandmarks(g16, lm16, { nNeighbors: 4, phaseIterations: [2, 2, 2], seed: 42 })],
-  ['snap_t_fdp', () => mod.SgdSolver.snapTFdp(g16, { iterations: 4, negativesPerEdge: 2, seed: 42 })],
-  ['ortmann_sparse_stress', () => mod.SgdSolver.ortmannSparseStress(g16, { numPivots: 4, iterations: 4, seed: 42 })],
-  ['largevis', () => mod.SgdSolver.largevis(g16, { iterations: 4, negativeSamples: 2, seed: 42 })],
-  ['drgraph', () => mod.SgdSolver.drgraph(g16, { iterations: 4, negativeSamples: 2, seed: 42 })],
-  ['graph_cne', () => mod.SgdSolver.graphCne(g16, { iterations: 4, negativeSamples: 2, seed: 42 })],
+  ['full', () => mod.SgdSolver.full(g16, { target: 'manifold2d', iterations: 4, seed: 42 })],
+  ['from_pairs', () => mod.SgdSolver.fromPairs(16, pSrc, pTgt, pD, { target: 'manifold2d', iterations: 4, seed: 42 })],
+  ['from_pairs_with_hinges', () => mod.SgdSolver.fromPairsWithHinges(16, pSrc, pTgt, pD, new Uint32Array([0]), new Uint32Array([15]), new Float32Array([2.5]), { target: 'manifold2d', iterations: 4, seed: 42 })],
+  ['from_packed_symmetric', () => mod.SgdSolver.fromPackedSymmetric(16, pSrc, pTgt, pD, { target: 'manifold2d', weights: pW, isHinge: pH, iterations: 4, seed: 42 })],
+  ['sparse_barrier_from_landmarks', () => mod.SgdSolver.sparseBarrierFromLandmarks(g16, lm16, { target: 'manifold2d', iterations: 4, seed: 42 })],
+  ['sparse_barrier_dog', () => mod.SgdSolver.sparseBarrierDog(g16, { target: 'manifold2d', degree: 15, numLandmarks: 8, iterations: 4, seed: 42 })],
+  ['streaming_negatives', () => mod.SgdSolver.streamingNegatives(g16, { target: 'manifold2d', negativesPerNode: 2, iterations: 4, seed: 42 })],
+  ['random_pair', () => mod.SgdSolver.randomPair(g16, { target: 'manifold2d', pairsPerNode: 3, iterations: 4, seed: 42 })],
+  ['omega', () => mod.SgdSolver.omega(g16, emb16, 8, { target: 'manifold2d', k: 3, iterations: 4, seed: 42 })],
+  ['sgd2', () => new mod.Sgd2Solver(g16, { target: 'manifold2d', iterations: 4, batchSize: 8, seed: 42 })],
+  ['pacmap_graph', () => new mod.PacmapGraphSolver(g16, { target: 'manifold2d', nNeighbors: 4, phaseIterations: [2, 2, 2], seed: 42 })],
+  ['pacmap_graph_with_landmarks', () => mod.PacmapGraphSolver.withLandmarks(g16, lm16, { target: 'manifold2d', nNeighbors: 4, phaseIterations: [2, 2, 2], seed: 42 })],
+  ['snap_t_fdp', () => new mod.SnapTFdpSolver(g16, { target: 'manifold2d', iterations: 4, negativesPerEdge: 2, seed: 42 })],
+  ['ortmann_sparse_stress', () => mod.SgdSolver.ortmannSparseStress(g16, { target: 'manifold2d', numPivots: 4, iterations: 4, seed: 42 })],
+  ['largevis', () => new mod.LargeVisSolver(g16, { target: 'manifold2d', iterations: 4, negativeSamples: 2, seed: 42 })],
+  ['drgraph', () => new mod.DrGraphSolver(g16, { target: 'manifold2d', iterations: 4, negativeSamples: 2, seed: 42 })],
+  ['graph_cne', () => new mod.GraphCneSolver(g16, { target: 'manifold2d', iterations: 4, negativeSamples: 2, seed: 42 })],
 ];
 const sgd17 = {};
 for (const [k, mk] of sgdMakers) {
   const s = mk();
-  assert.equal(s.supportsManifold, true);
-  const ml = mod.ManifoldLayout2d.fromCoords('hyperbolic_poincare', poinC);
+  assert.equal(s.target, 'manifold2d');
+  if (s.supportsManifold !== undefined) assert.equal(s.supportsManifold, true);
+  const ml = mod.ManifoldLayout2d.fromCoords('hyperbolicPoincare', poinC);
   s.run(ml);
   assert.ok(ml.isAllFinite());
   sgd17[k] = Array.from(ml.coordsView());
@@ -270,11 +273,11 @@ const runMani = (mk, kind, base, chunk) => {
   return cr;
 };
 const mani = {
-  tsnet_sph: runMani(() => mod.TsNetSolver.pure2Hop(g16, { backend: 'exact', stageIterations: [2, 2, 2], seed: 42 }), 'spherical', sphC, 2),
-  gumap_tor: runMani(() => mod.GuMapSolver.fromGraphDog(g16, { max2hopPerNode: 16, degree: 15, numLandmarks: 8, iterations: 5, learningRate: 0.2, seed: 42 }), 'torus_2d', torC, 2),
-  sm_lor: runMani(() => mod.StressMajorizationSolver.fromGraph(g16, { maxIterations: 5 }), 'hyperbolic_lorentz', lorC, 2),
-  kk_poin: runMani(() => mod.KamadaKawaiSolver.fromGraph(g16, { maxIterations: 5, eps: 1e-3, maxInnerIters: 20 }), 'hyperbolic_poincare', poinC, 2),
-  fr_sph: runMani(() => new mod.FruchtermanReingoldSolver(g16, { iterations: 5, backend: 'exact', seed: 42 }), 'spherical', sphC, 2),
+  tsnet_sph: runMani(() => mod.TsNetSolver.pure2Hop(g16, { target: 'manifold2d', backend: 'exact', stageIterations: [2, 2, 2], seed: 42 }), 'spherical', sphC, 2),
+  gumap_tor: runMani(() => mod.GuMapSolver.fromGraphDog(g16, { target: 'manifold2d', max2hopPerNode: 16, degree: 15, numLandmarks: 8, iterations: 5, learningRate: 0.2, seed: 42 }), 'torus', torC, 2),
+  sm_lor: runMani(() => mod.StressMajorizationSolver.fromGraph(g16, { target: 'manifold2d', maxIterations: 5 }), 'hyperbolicLorentz', lorC, 2),
+  kk_poin: runMani(() => mod.KamadaKawaiSolver.fromGraph(g16, { target: 'manifold2d', maxIterations: 5, eps: 1e-3, maxInnerIters: 20 }), 'hyperbolicPoincare', poinC, 2),
+  fr_sph: runMani(() => new mod.FruchtermanReingoldSolver(g16, { target: 'manifold2d', iterations: 5, backend: 'exact', seed: 42 }), 'spherical', sphC, 2),
 };
 
 const svW2 = mod.SgdSolver.full(g16, { iterations: 6, seed: 42 });
@@ -285,17 +288,17 @@ svW2.runScheduleWindow(lW2, 0, 2);
 const win2d = Array.from(lW2.coordsView());
 lW2.free?.(); svW2.free?.();
 
-const svWm = mod.SgdSolver.full(g16, { iterations: 6, seed: 42 });
-const lWm = mod.ManifoldLayout2d.fromCoords('hyperbolic_poincare', poinC);
+const svWm = mod.SgdSolver.full(g16, { target: 'manifold2d', iterations: 6, seed: 42 });
+const lWm = mod.ManifoldLayout2d.fromCoords('hyperbolicPoincare', poinC);
 svWm.runScheduleWindow(lWm, 0, 3);
 svWm.resetSchedule({ iterations: 4, maxMu: 0.05, seed: 99 });
 svWm.runScheduleWindow(lWm, 0, 2);
 const winMani = Array.from(lWm.coordsView());
 lWm.free?.(); svWm.free?.();
 
-const mlPoinX = mod.ManifoldLayout2d.fromCoords('hyperbolic_poincare', new Float32Array([0, 0, 0.5, 0, 0.5, 0.5, 0, 0.5]));
+const mlPoinX = mod.ManifoldLayout2d.fromCoords('hyperbolicPoincare', new Float32Array([0, 0, 0.5, 0, 0.5, 0.5, 0, 0.5]));
 const mlSphX = mod.ManifoldLayout2d.fromCoords('spherical', new Float32Array([0, 1.2, 0.6, 1.2, 0.6, 1.9, 0, 1.9]));
-const mlTorX = mod.ManifoldLayout2d.fromCoords('torus_2d', new Float32Array([0.1, 0.1, 0.9, 0.1, 0.9, 0.9, 0.1, 0.9]));
+const mlTorX = mod.ManifoldLayout2d.fromCoords('torus', new Float32Array([0.1, 0.1, 0.9, 0.1, 0.9, 0.9, 0.1, 0.9]));
 mlTorX.setTorusExtents(2.0, 0.5);
 
 const sphCn = mod.sphericalCrossingNumber(g4, mlSphX);
@@ -313,11 +316,11 @@ const torSegsEdge = Array.from(mod.torusEdgeSegments(0.9, 0.2, 0.1, 0.8));
 const torSegsLay = Array.from(mod.torusLayoutEdgeSegments(g4, mlTorX));
 const mTorSpec = mod.torusSpectralPhaseInit(g16, 42);
 const torPan = Array.from(mTorSpec.torusAutoPan(g16).coordsView());
-const mPoin = mod.ManifoldLayout2d.fromCoords('hyperbolic_poincare', poinC);
+const mPoin = mod.ManifoldLayout2d.fromCoords('hyperbolicPoincare', poinC);
 const gdPoin = mod.geodesicDistortion(g16, mPoin);
-const evGd = mod.evaluateMetrics(g16, mPoin, ['geodesic_distortion']).geodesicDistortion;
+const evGd = mod.evaluateMetrics(g16, mPoin, ['geodesicDistortion']).geodesicDistortion;
 const mSph = mod.ManifoldLayout2d.fromCoords('spherical', sphC);
-const mTor = mod.ManifoldLayout2d.fromCoords('torus_2d', torC);
+const mTor = mod.ManifoldLayout2d.fromCoords('torus', torC);
 const ggMani = {
   poincare: Array.from(mod.gabrielGraphEdges(mPoin)),
   lorentz: Array.from(mod.gabrielGraphEdges(mLor)),
@@ -333,7 +336,7 @@ const rngMani = {
 
 const mlAnti = mod.ManifoldLayout2d.fromCoords('spherical', new Float32Array([0, Math.PI * 0.5, Math.PI, Math.PI * 0.5]));
 assert.ok(Number.isFinite(mlAnti.geodesicDistance(0, 1)));
-const mlClamp = mod.ManifoldLayout2d.fromCoords('hyperbolic_poincare', new Float32Array([0.99999, 0, 0, 0.99999]));
+const mlClamp = mod.ManifoldLayout2d.fromCoords('hyperbolicPoincare', new Float32Array([0.99999, 0, 0, 0.99999]));
 mlClamp.projectAll();
 assert.ok(mlClamp.isAllFinite());
 assertNonPanicError('wasm/manifold/bad_scale', () => mRes.setScale(0.0));

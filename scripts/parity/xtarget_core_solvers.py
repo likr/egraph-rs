@@ -62,17 +62,17 @@ def run_cross_target_core_solvers_parity(
         c11_twin = twin11_f32 if dtype_name == "float32" else twin11_f32.astype(np.float64)
 
         out: dict[str, Any] = {}
-        for bk in ("fft", "linear_fft", "barnes_hut", "exact"):
+        for bk in ("fit_fft", "linear_fft", "barnes_hut", "exact"):
             lay = eg.Layout2d.from_coords(c16)
             sv = eg.TsNetSolver.pure_2hop(
-                g16, backend=bk, stage_iterations=(4, 4, 4), seed=42, dtype=dtype_name
+                g16, backend=bk, interpolation_order=3, stage_iterations=(4, 4, 4), seed=42, dtype=dtype_name
             )
             sv.run(lay)
             out[f"tsnet_{bk}"] = lay.coords(copy=True)
             out[f"tsnet_{bk}_ffts"] = int(sv.total_fft_2d_calls)
 
         for tag, w2_val, cap_val, bk in (
-            ("tsnet_rn_uncapped", 0.5, None, "fft"),
+            ("tsnet_rn_uncapped", 0.5, None, "fit_fft"),
             ("tsnet_rn_capped", 0.35, 8, "exact"),
         ):
             l_rn = eg.Layout2d.from_coords(c16)
@@ -81,6 +81,7 @@ def run_cross_target_core_solvers_parity(
                 w2=w2_val,
                 max_2hop_per_node=cap_val,
                 backend=bk,
+                interpolation_order=3,
                 stage_iterations=(4, 4, 4),
                 seed=42,
                 dtype=dtype_name,
@@ -236,22 +237,22 @@ const runPairAndCheckStep = (mkSolver, initCoords, stepChunk) => {
 };
 
 const solvers = {};
-for (const bk of ['fft', 'linear_fft', 'barnes_hut', 'exact']) {
+for (const [pyBk, wasmBk] of [['fit_fft', 'fitFft'], ['linear_fft', 'linearFft'], ['barnes_hut', 'barnesHut'], ['exact', 'exact']]) {
   const res = runPairAndCheckStep(
-    () => mod.TsNetSolver.pure2Hop(g16, { backend: bk, stageIterations: [4, 4, 4], seed: 42 }),
+    () => mod.TsNetSolver.pure2Hop(g16, { backend: wasmBk, interpolationOrder: 3, stageIterations: [4, 4, 4], seed: 42 }),
     init16, 5,
   );
-  solvers[`tsnet_${bk}`] = res.coords;
-  solvers[`tsnet_${bk}_ffts`] = res.solverRun.totalFft2dCalls;
+  solvers[`tsnet_${pyBk}`] = res.coords;
+  solvers[`tsnet_${pyBk}_ffts`] = res.solverRun.totalFft2dCalls;
   res.solverRun.free?.(); res.solverStep.free?.();
 }
 
 for (const [tag, w2Val, capVal, bk] of [
-  ['tsnet_rn_uncapped', 0.5, null, 'fft'],
+  ['tsnet_rn_uncapped', 0.5, null, 'fitFft'],
   ['tsnet_rn_capped', 0.35, 8, 'exact'],
 ]) {
   const res = runPairAndCheckStep(
-    () => mod.TsNetSolver.fromGraphRowNormalized(g16, { w2: w2Val, max2hopPerNode: capVal, backend: bk, stageIterations: [4, 4, 4], seed: 42 }),
+    () => mod.TsNetSolver.fromGraphRowNormalized(g16, { w2: w2Val, max2hopPerNode: capVal, backend: bk, interpolationOrder: 3, stageIterations: [4, 4, 4], seed: 42 }),
     init16, 5,
   );
   solvers[tag] = res.coords;
@@ -270,12 +271,20 @@ const sgdSpecs = [
     () => mod.SgdSolver.fromPairsWithHinges(
       16,
       new Uint32Array(spec.hinge_src), new Uint32Array(spec.hinge_tgt),
-      new Float32Array(spec.hinge_ones), new Float32Array(spec.hinge_ones),
-      new Float32Array(spec.hinge_ones), new Float32Array(spec.hinge_ones),
+      new Float32Array(spec.hinge_ones),
       new Uint32Array([0, 1]), new Uint32Array([15, 14]),
-      new Float32Array([3.0, 3.0]), new Float32Array([3.0, 3.0]),
-      new Float32Array([1.0, 1.0]), new Float32Array([1.0, 1.0]),
-      { iterations: 10, eps: 0.01, seed: 42 },
+      new Float32Array([3.0, 3.0]),
+      {
+        springDji: new Float32Array(spec.hinge_ones),
+        springWij: new Float32Array(spec.hinge_ones),
+        springWji: new Float32Array(spec.hinge_ones),
+        hingeDji: new Float32Array([3.0, 3.0]),
+        hingeWij: new Float32Array([1.0, 1.0]),
+        hingeWji: new Float32Array([1.0, 1.0]),
+        iterations: 10,
+        eps: 0.01,
+        seed: 42,
+      },
     ),
   ],
 ];
@@ -291,18 +300,27 @@ for (const [k, mk] of sgdSpecs) {
   const expH = mod.SgdSolver.fromPairsWithHinges(
     16,
     new Uint32Array(spec.hinge_src), new Uint32Array(spec.hinge_tgt),
-    new Float32Array(spec.hinge_ones), new Float32Array(spec.hinge_ones),
-    new Float32Array(spec.hinge_ones), new Float32Array(spec.hinge_ones),
+    new Float32Array(spec.hinge_ones),
     new Uint32Array([0, 1]), new Uint32Array([15, 14]),
-    new Float32Array([3.0, 3.0]), new Float32Array([3.0, 3.0]), inv9, inv9,
-    { iterations: 10, eps: 0.01, seed: 42 },
+    new Float32Array([3.0, 3.0]),
+    {
+      springDji: new Float32Array(spec.hinge_ones),
+      springWij: new Float32Array(spec.hinge_ones),
+      springWji: new Float32Array(spec.hinge_ones),
+      hingeDji: new Float32Array([3.0, 3.0]),
+      hingeWij: inv9,
+      hingeWji: inv9,
+      iterations: 10,
+      eps: 0.01,
+      seed: 42,
+    },
   );
   const optH = mod.SgdSolver.fromPairsWithHinges(
     16,
     new Uint32Array(spec.hinge_src), new Uint32Array(spec.hinge_tgt),
-    new Float32Array(spec.hinge_ones), null, null, null,
+    new Float32Array(spec.hinge_ones),
     new Uint32Array([0, 1]), new Uint32Array([15, 14]),
-    new Float32Array([3.0, 3.0]), null, null, null,
+    new Float32Array([3.0, 3.0]),
     { iterations: 10, eps: 0.01, seed: 42 },
   );
   const lExpH = mod.Layout2d.fromCoords(init16);
@@ -323,9 +341,9 @@ for (const [k, mk] of sgdSpecs) {
   res.solverRun.free?.(); res.solverStep.free?.();
 }
 {
-  const lm16 = mod.computeRegularizedDogVaradhanLandmarks(g16, 15, 8, 42);
+  const lm16 = mod.computeRegularizedDogVaradhanLandmarks(g16, { degree: 15, numLandmarks: 8, seed: 42 });
   const res = runPairAndCheckStep(
-    () => mod.GuMapSolver.fromLandmarks(g16, lm16, 16, { iterations: 15, learningRate: 0.2, seed: 42 }),
+    () => mod.GuMapSolver.fromLandmarks(g16, lm16, { max2hopPerNode: 16, iterations: 15, learningRate: 0.2, seed: 42 }),
     gumapInit16, 5,
   );
   solvers.gumap_lm = res.coords;
@@ -394,7 +412,7 @@ console.log(JSON.stringify({ solvers_available: true, solvers }));
     max_f64_diff = 0.0
     ws_sol = ws["solvers"]
     for key in (
-        "tsnet_fft",
+        "tsnet_fit_fft",
         "tsnet_linear_fft",
         "tsnet_barnes_hut",
         "tsnet_exact",
@@ -418,7 +436,7 @@ console.log(JSON.stringify({ solvers_available: true, solvers }));
         max_f32_diff = max(max_f32_diff, check_array_close(f"{key}/f32_vs_wasm", py32[key], ws_sol[key], 1e-4))
         max_f64_diff = max(max_f64_diff, check_f64_vs_f32_rel(f"{key}/f64_vs_f32", py64[key], py32[key], 5e-3))
 
-    for bk in ("fft", "linear_fft", "barnes_hut", "exact"):
+    for bk in ("fit_fft", "linear_fft", "barnes_hut", "exact"):
         assert py32[f"tsnet_{bk}_ffts"] == ws_sol[f"tsnet_{bk}_ffts"]
     for tag in ("tsnet_rn_uncapped", "tsnet_rn_capped"):
         assert py32[f"{tag}_ffts"] == ws_sol[f"{tag}_ffts"]

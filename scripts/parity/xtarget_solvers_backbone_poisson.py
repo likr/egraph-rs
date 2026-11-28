@@ -39,7 +39,7 @@ def run_cross_target_solvers_backbone_poisson_parity(
         g16,
         k=8,
         uniform_perplexity=6.0,
-        backend="fft",
+        backend="fit_fft",
         stage_iterations=(2, 2, 2),
         intervals=1,
         interpolation_order=1,
@@ -59,7 +59,8 @@ def run_cross_target_solvers_backbone_poisson_parity(
         w2=0.5,
         max_2hop_per_node=4,
         degree_beta=0.35,
-        backend="fft",
+        mode="degree_ordered_hub_suppressed",
+        backend="fit_fft",
         stage_iterations=(2, 2, 2),
         intervals=1,
         interpolation_order=1,
@@ -87,7 +88,7 @@ def run_cross_target_solvers_backbone_poisson_parity(
         p_exp=0.5,
         eps_psd=1e-4,
         t_coarse=32.0,
-        backend="ibfft",
+        backend="ib_fft",
         iterations=5,
         interpolation_order=1,
         intervals=16,
@@ -108,13 +109,16 @@ def run_cross_target_solvers_backbone_poisson_parity(
     gm_dog_py = eg.GuMapSolver.from_graph_dog(g16, min_degree=1, jl_dim=8, iterations=4, seed=42, dtype="float32")
 
     l_fdeb_py = eg.Layout2d.from_coords(init16_f32)
-    fdeb_py = eg.FdebSolver(g16, cycles=2, steps_per_cycle=4, dtype="float32")
-    fdeb_py.run(l_fdeb_py)
+    poly_fdeb_py = eg.EdgePolylines.straight_line_from_graph(g16, l_fdeb_py)
+    fdeb_py = eg.FdebSolver(poly_fdeb_py, cycles=2, steps_per_cycle=4)
+    fdeb_py.run(poly_fdeb_py)
 
     hier_py = eg.louvain_coarsen(g16, max_coarse_nodes=4, seed=42)
-    rhgh_lm_py, rhgh_st_py = eg.compute_pivoted_rhgh_landmarks(
+    rhgh_res_py = eg.compute_pivoted_rhgh_landmarks(
         g16, num_landmarks=8, min_degree=1, num_probes=16, seed=42
     )
+    rhgh_lm_py = rhgh_res_py.landmarks
+    rhgh_st_py = rhgh_res_py.stats
     g16_bb_weights = [1.0 + 0.05 * i for i in range(len(g16_edges))]
     g16_bb_py = eg.CsrGraph.from_edges(16, g16_edges, weights=g16_bb_weights, directed=False, sanitize=True)
     bb_py = eg.coarse_backbone_init(
@@ -175,7 +179,7 @@ const init16 = new Float32Array(spec.init16);
 const lTs = mod.Layout2d.fromCoords(init16);
 const lTsProg = mod.Layout2d.fromCoords(init16);
 const tsOpts = {
-  backend: 'fft',
+  backend: 'fitFft',
   stageIterations: [2, 2, 2],
   intervals: 1,
   interpolationOrder: 1,
@@ -183,9 +187,9 @@ const tsOpts = {
   maxGridDim: 64,
   seed: 42,
 };
-const tsPartial = mod.TsNetSolver.fromGraphPartialBfs(g16, 8, 6.0, tsOpts);
-const tsPartialProg = mod.TsNetSolver.fromGraphPartialBfs(g16, 8, 6.0, tsOpts);
-const tsRn = mod.TsNetSolver.fromGraphRowNormalized(g16, { w2: 0.5, max2hopPerNode: 4, degreeBeta: 0.35, ...tsOpts });
+const tsPartial = mod.TsNetSolver.fromGraphPartialBfs(g16, { k: 8, uniformPerplexity: 6.0, ...tsOpts });
+const tsPartialProg = mod.TsNetSolver.fromGraphPartialBfs(g16, { k: 8, uniformPerplexity: 6.0, ...tsOpts });
+const tsRn = mod.TsNetSolver.fromGraphRowNormalized(g16, { w2: 0.5, max2hopPerNode: 4, degreeBeta: 0.35, mode: 'degreeOrderedHubSuppressed', ...tsOpts });
 const lTsRn = mod.Layout2d.fromCoords(init16);
 tsRn.run(lTsRn);
 assert.equal(tsPartial.lastFftStats(), undefined);
@@ -204,7 +208,7 @@ tfdpKnn.run(lTfdpKnn);
 const lIb = mod.Layout2d.fromCoords(init16);
 const ib = new mod.IbUmapSolver(g16, {
   numLandmarks: 8, minDegree: 1, jlDim: 8, degreeNormalize: true, pExp: 0.5, epsPsd: 1e-4, tCoarse: 32.0,
-  backend: 'ibfft', iterations: 5, interpolationOrder: 1, intervals: 16, minGridDim: 32, maxGridDim: 128, seed: 42,
+  backend: 'ibFft', iterations: 5, interpolationOrder: 1, intervals: 16, minGridDim: 32, maxGridDim: 128, seed: 42,
 });
 ib.run(lIb);
 
@@ -217,8 +221,9 @@ sgdDog.run(lSgdDog);
 
 const gmDog = mod.GuMapSolver.fromGraphDog(g16, { minDegree: 1, jlDim: 8, iterations: 4, seed: 42 });
 const lFdeb = mod.Layout2d.fromCoords(init16);
-const fdeb = new mod.FdebSolver(g16, { cycles: 2, stepsPerCycle: 4 });
-fdeb.run(lFdeb);
+const polyFdeb = mod.EdgePolylines.straightLineFromGraph(g16, lFdeb);
+const fdeb = new mod.FdebSolver(polyFdeb, { cycles: 2, stepsPerCycle: 4 });
+fdeb.run(polyFdeb);
 
 const hier = mod.louvainCoarsen(g16, { maxCoarseNodes: 4, seed: 42 });
 const rhghRes = mod.computePivotedRhghLandmarks(g16, { numLandmarks: 8, minDegree: 1, numProbes: 16, seed: 42 });
@@ -229,7 +234,7 @@ const bb = mod.coarseBackboneInit(g16Bb, {
 });
 const bbAligned = mod.Layout2d.fromCoords(bb.fineLayout().copyCoords());
 const bbCoarse = bb.coarseLayout();
-mod.alignClusteredCentroids(bbAligned, bbCoarse, bb.nodeToCoarse(), 0.5);
+mod.alignClusteredCentroids(bbAligned, bbCoarse, bb.nodeToCoarse(), { gammaTether: 0.5 });
 
 const spDef = new mod.ScreenedPoissonField2d();
 assert.equal(spDef.gridSize, 512);
@@ -255,7 +260,7 @@ const out = {
   dogStats: { degree: dogStats.degree, numLandmarks: dogStats.numLandmarks, t1: dogStats.t1, t2: dogStats.t2, alpha: dogStats.alpha },
   sgdDogCoords: Array.from(lSgdDog.coordsView()),
   gmAb: Array.from(gmDog.ab),
-  fdeb: { offsets: Array.from(fdeb.edgeOffsets()), points: Array.from(fdeb.points()) },
+  fdeb: { offsets: Array.from(polyFdeb.edgeOffsetsView()), points: Array.from(polyFdeb.pointsView()) },
   backbone_bundle: {
     hierClusters: hier.numClusters,
     hierN2c: Array.from(hier.nodeToCoarse()),
@@ -276,7 +281,7 @@ const out = {
 };
 
 spRef.free?.(); lSpRef.free?.(); spEval.free?.(); lSpInit.free?.(); spField.free?.();
-fdeb.free?.(); lFdeb.free?.(); gmDog.free?.(); lmDogDef.free?.(); lSgdDog.free?.(); dogStats.free?.(); sgdDog.free?.();
+fdeb.free?.(); polyFdeb.free?.(); lFdeb.free?.(); gmDog.free?.(); lmDogDef.free?.(); lSgdDog.free?.(); dogStats.free?.(); sgdDog.free?.();
 bbAligned.free?.(); bbCoarse.free?.(); bb.free?.(); g16Bb.free?.(); rhghLm.free?.(); rhghRes.free?.(); hier.free?.();
 ib.free?.(); lIb.free?.(); tfdpKnn.free?.(); lTfdpKnn.free?.(); knnObj.free?.();
 fftStats.free?.(); lTsRn.free?.(); tsRn.free?.(); tsPartial.free?.(); tsPartialProg.free?.(); lTs.free?.(); lTsProg.free?.(); g16.free?.();
@@ -313,8 +318,8 @@ console.log(JSON.stringify(out));
     check_close("SgdSolver.dog_stats", [dog_stats_py["t1"], dog_stats_py["t2"], dog_stats_py["alpha"]], [ws["dogStats"]["t1"], ws["dogStats"]["t2"], ws["dogStats"]["alpha"]], 1e-12, is_f32=False)
     check_close("SgdSolver.sparse_barrier_dog/default_coords", l_sgd_dog_py.coords(copy=True), ws["sgdDogCoords"], 1e-4)
     check_close("GuMapSolver.from_graph_dog/default_ab", gm_dog_py.ab, ws["gmAb"], 1e-12, is_f32=False)
-    assert list(fdeb_py.edge_offsets()) == ws["fdeb"]["offsets"]
-    check_close("FdebSolver.points", fdeb_py.points(), ws["fdeb"]["points"], 1e-4)
+    assert list(poly_fdeb_py.edge_offsets()) == ws["fdeb"]["offsets"]
+    check_close("FdebSolver.points", poly_fdeb_py.points(), ws["fdeb"]["points"], 1e-4)
 
     bb_ws = ws["backbone_bundle"]
     assert hier_py["num_clusters"] == bb_ws["hierClusters"]

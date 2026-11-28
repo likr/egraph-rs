@@ -61,8 +61,10 @@ def run_cross_target_linalg_spectral_parity(
 
     amg_reg_py = eg.AmgPcgSolver.from_graph_regularized_laplacian(g, gamma=10.0)
     b_amg_py = heat_in[:, 0]
-    x_amg_py, info_amg_py = amg_reg_py.solve(b_amg_py)
-    x_amg_batch_py, info_amg_batch_py = amg_reg_py.solve_batch(heat_in)
+    res_amg_py = amg_reg_py.solve(b_amg_py)
+    x_amg_py = res_amg_py.solution
+    res_amg_batch_py = amg_reg_py.solve_batch(heat_in)
+    x_amg_batch_py = res_amg_batch_py.solutions
     amg_step_py = eg.AmgPcgSolver.from_graph_regularized_laplacian(g, gamma=10.0)
     amg_step_py.start_solve(b_amg_py)
     if not amg_step_py.is_finished:
@@ -74,7 +76,8 @@ def run_cross_target_linalg_spectral_parity(
     b_sing_py = np.zeros(n, dtype=np.float64)
     b_sing_py[0] = 1.0
     b_sing_py[64] = -1.0
-    x_sing_py, info_sing_py = amg_sing_py.solve(b_sing_py)
+    res_sing_py = amg_sing_py.solve(b_sing_py)
+    x_sing_py = res_sing_py.solution
 
     aniso_py, aniso_ns_py = eg.anisotropic_laplacian(
         g, alpha=0.5, beta=0.0, degree_reg=0.0, degree_cap=None, reweighted_degree_norm=True
@@ -111,19 +114,21 @@ if (typeof mod.selectMaxminSpPivots !== 'function') {
 }
 
 const g = mod.CsrGraph.fromEdgeList(spec.n, new Uint32Array(spec.edges));
-const pivots = Array.from(mod.selectMaxminSpPivots(g, 12, 42, 2));
-const lPmds = mod.pivotMdsInit(g, 12, 42, 2, 1.0);
+const pivots = Array.from(mod.selectMaxminSpPivots(g, { numPivots: 12, seed: 42, minDegree: 2 }));
+const lPmds = mod.pivotMdsInit(g, { numPivots: 12, seed: 42, minDegree: 2, targetStd: 1.0 });
 const pmdsCoords = Array.from(lPmds.coordsView());
-const lPmdsUnnorm = mod.pivotMdsInit(g, 12, 42, 2, null);
+const lPmdsUnnorm = mod.pivotMdsInit(g, { numPivots: 12, seed: 42, minDegree: 2, targetStd: null });
 const pmdsUnnormCoords = Array.from(lPmdsUnnorm.coordsView());
-const lKoren = mod.korenSpectralInit(g, 1.0, 1e-4, 300, 42);
+const lKoren = mod.korenSpectralInit(g, { targetStd: 1.0, tol: 1e-4, maxIterations: 300, seed: 42 });
 const korenCoords = Array.from(lKoren.coordsView());
 
-const eig = mod.smallestLaplacianEigenpairs(g, 4, 1e-4, 300, 42);
+const eig = mod.smallestLaplacianEigenpairs(g, { nModes: 4, tol: 1e-4, maxIterations: 300, seed: 42 });
 const mstats = mod.spectralMomentStats(g);
 const heatOut = Array.from(mod.chebyshevHeatSpmv(g, new Float64Array(spec.heat_in), 2, 2.5));
-const jlEmb = mod.chebyshevDogJlEmbedding(g, 12, 25, 42, true, 1e-4);
-const lm = mod.computeRegularizedDogVaradhanLandmarks(g, 25, 16, 42, true, 0.5, 1e-4, 48.0);
+const jlEmb = mod.chebyshevDogJlEmbedding(g, { jlDim: 12, degree: 25, seed: 42, degreeNormalize: true, epsPsd: 1e-4 });
+const lm = mod.computeRegularizedDogVaradhanLandmarks(g, {
+  degree: 25, numLandmarks: 16, seed: 42, degreeNormalize: true, pExp: 0.5, epsPsd: 1e-4, tCoarse: 48.0,
+});
 const altD = Array.from(lm.altDistances(new Uint32Array(spec.alt_u), new Uint32Array(spec.alt_v)));
 
 const amgReg = mod.AmgPcgSolver.fromGraphRegularizedLaplacian(g, 10.0);
@@ -139,7 +144,9 @@ if (!amgStep.isFinished) {
 const amgSing = mod.AmgPcgSolver.fromGraphLaplacian(g, "combinatorial", 0.0);
 const amgSingRes = amgSing.solve(new Float64Array(spec.b_sing));
 
-const aniso = mod.anisotropicLaplacian(g, 0.5, 0.0, 0.0, null, true);
+const aniso = mod.anisotropicLaplacian(g, {
+  alpha: 0.5, beta: 0.0, degreeReg: 0.0, degreeCap: null, reweightedDegreeNorm: true,
+});
 const anisoMat = aniso.matrix();
 const anisoNs = Array.from(aniso.nullspace());
 const anisoTrace = anisoMat.trace();
@@ -147,10 +154,10 @@ const anisoGersh = anisoMat.gershgorinSpectralBound();
 const anisoPi = anisoMat.estimateLambdaMax(10, 1.02, 42);
 const anisoLanc = anisoMat.estimateLambdaMaxLanczos(16, 1.05, 42);
 const anisoHeat = Array.from(mod.chebyshevHeatSpmvMatrix(anisoMat, new Float64Array(spec.heat_in), 2, 0.5));
-const anisoJl = Array.from(mod.chebyshevDogJlEmbeddingMatrix(anisoMat, 12, null, 42));
-const anisoLm = mod.computeRegularizedDogVaradhanLandmarksFromMatrix(
-  g, anisoMat, null, null, 16, 2, 64, 42, true, 0.5, 1e-4, 0.0
-);
+const anisoJl = Array.from(mod.chebyshevDogJlEmbeddingMatrix(anisoMat, { jlDim: 12, seed: 42 }));
+const anisoLm = mod.computeRegularizedDogVaradhanLandmarksFromMatrix(g, anisoMat, {
+  numLandmarks: 16, minDegree: 2, jlDim: 64, seed: 42, degreeNormalize: true, pExp: 0.5, epsPsd: 1e-4, tCoarse: 0.0,
+});
 
 const erJl = mod.computeEffectiveResistances(g, { jlDim: 64, seed: 42, exact: false });
 const erEx = mod.computeEffectiveResistances(g, { seed: 42, exact: true });
@@ -280,7 +287,7 @@ console.log(JSON.stringify(out));
     check_f64("eigen/vectors", evecs, ws["eig"]["vectors"])
     check_f64("eigen/inv_sqrt_deg", inv_d, ws["eig"]["invSqrtDeg"])
 
-    for k, v in mstats.items():
+    for k, v in mstats.to_dict().items():
         check_f64(f"spectral_moment_stats/{k}", [v], [ws["mstats"][k]])
 
     check_f64("chebyshev_heat_spmv", heat_out, ws["heatOut"])
@@ -303,15 +310,15 @@ console.log(JSON.stringify(out));
 
     assert amg_reg_py.num_levels == ws["amg"]["numLevels"]
     assert amg_reg_py.coarsest_size == ws["amg"]["coarsestSize"]
-    assert info_amg_py["iterations"] == ws["amg"]["iterations"]
-    assert bool(info_amg_py["converged"]) == bool(ws["amg"]["converged"])
+    assert res_amg_py.iterations == ws["amg"]["iterations"]
+    assert bool(res_amg_py.converged) == bool(ws["amg"]["converged"])
     check_f64("amg_pcg/x", x_amg_py, ws["amg"]["x"], tol=1e-10)
     check_f64("amg_pcg/x_step", x_amg_step_py, ws["amg"]["xStep"], tol=1e-10)
-    assert bool(info_amg_batch_py["all_converged"]) == bool(ws["amg"]["batchAllConverged"])
-    assert [int(v) for v in info_amg_batch_py["converged_per_col"]] == ws["amg"]["batchConvergedPerCol"]
+    assert bool(res_amg_batch_py.all_converged) == bool(ws["amg"]["batchAllConverged"])
+    assert [int(v) for v in res_amg_batch_py.converged_per_col] == ws["amg"]["batchConvergedPerCol"]
     check_f64("amg_pcg/batch_x", x_amg_batch_py.ravel(), ws["amg"]["batchX"], tol=1e-10)
-    assert info_sing_py["iterations"] == ws["amg"]["singIterations"]
-    assert bool(info_sing_py["converged"]) == bool(ws["amg"]["singConverged"])
+    assert res_sing_py.iterations == ws["amg"]["singIterations"]
+    assert bool(res_sing_py.converged) == bool(ws["amg"]["singConverged"])
     check_f64("amg_pcg/sing_x", x_sing_py, ws["amg"]["singX"], tol=1e-10)
 
     check_f64("aniso/values", aniso_py.values(), ws["aniso"]["values"])

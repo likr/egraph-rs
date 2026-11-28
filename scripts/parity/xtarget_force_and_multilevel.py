@@ -39,7 +39,7 @@ def run_cross_target_force_multilevel_parity(
     init25_f32 = np.array(make_asymmetric_coords(25, scale=1.0), dtype=np.float32)
     init25_f64 = init25_f32.astype(np.float64)
 
-    knn16, _, _ = eg.build_pure_2hop_knn(g16)
+    knn16 = eg.build_pure_2hop_knn(g16).knn
     deg16 = np.diff(g16.indptr()).astype(np.uint32)
     lm16 = eg.compute_regularized_dog_varadhan_landmarks(g16, num_landmarks=8, seed=42)
     fuzzy16 = eg.compute_fuzzy_simplicial_set(knn16)
@@ -49,7 +49,7 @@ def run_cross_target_force_multilevel_parity(
         c25 = init25_f32 if dtype_name == "float32" else init25_f64
 
         out: dict[str, Any] = {}
-        for bk in ("ibfft", "barnes_hut", "exact"):
+        for bk in ("ib_fft", "barnes_hut", "exact"):
             l_tf = eg.Layout2d.from_coords(c16)
             eg.TFdpSolver(g16, backend=bk, iterations=8, seed=42, dtype=dtype_name).run(l_tf)
             out[f"tfdp_{bk}"] = l_tf.coords(copy=True)
@@ -70,7 +70,7 @@ def run_cross_target_force_multilevel_parity(
         eg.IbUmapSolver.from_fuzzy_set(fuzzy16, degrees=deg16, backend="exact", iterations=6, seed=42, dtype=dtype_name).run(l_ibf)
         out["ibumap_fset"] = l_ibf.coords(copy=True)
 
-        for bk in ("exact", "ibfft"):
+        for bk in ("exact", "ib_fft"):
             l_ibl = eg.Layout2d.from_coords(c16)
             s_ibl = eg.IbUmapSolver.from_landmarks(
                 g16, lm16, max_2hop_per_node=16, backend=bk, iterations=6, seed=42, dtype=dtype_name
@@ -80,7 +80,7 @@ def run_cross_target_force_multilevel_parity(
             out[f"ibumap_lm_{bk}_edges"] = int(s_ibl.num_edges)
 
         l_pmk = eg.Layout2d.from_coords(c16)
-        s_pmk = eg.SgdSolver.pacmap_graph(
+        s_pmk = eg.PacmapGraphSolver(
             g16, n_neighbors=2, phase_iterations=(3, 3, 4), keep_all_1hop=True, seed=42, dtype=dtype_name
         )
         s_pmk.run(l_pmk)
@@ -88,7 +88,7 @@ def run_cross_target_force_multilevel_parity(
         out["sgd_pacmap_keep_springs"] = int(s_pmk.num_springs)
 
         l_pm_lm = eg.Layout2d.from_coords(c16)
-        s_pm_lm = eg.SgdSolver.pacmap_graph_with_landmarks(
+        s_pm_lm = eg.PacmapGraphSolver.with_landmarks(
             g16, lm16, n_neighbors=4, phase_iterations=(3, 3, 4),
             keep_all_1hop=True, max_1hop_per_node=2, degree_weight_beta=0.5, seed=42, dtype=dtype_name,
         )
@@ -97,10 +97,10 @@ def run_cross_target_force_multilevel_parity(
         out["sgd_pacmap_cap_beta_lm_springs"] = int(s_pm_lm.num_springs)
 
         sgd_specs = {
-            "sgd_snap": eg.SgdSolver.snap_t_fdp(g16, iterations=8, negatives_per_edge=3, seed=42, dtype=dtype_name),
-            "sgd_snap_beta": eg.SgdSolver.snap_t_fdp(g16, iterations=8, negatives_per_edge=3, degree_beta=0.5, bounded_attraction=False, seed=42, dtype=dtype_name),
-            "sgd_pacmap": eg.SgdSolver.pacmap_graph(g16, n_neighbors=5, phase_iterations=(3, 3, 4), seed=42, dtype=dtype_name),
-            "sgd_sgd2": eg.SgdSolver.sgd2(g16, iterations=8, batch_size=16, seed=42, dtype=dtype_name),
+            "sgd_snap": eg.SnapTFdpSolver(g16, iterations=8, negatives_per_edge=3, seed=42, dtype=dtype_name),
+            "sgd_snap_beta": eg.SnapTFdpSolver(g16, iterations=8, negatives_per_edge=3, degree_beta=0.5, bounded_attraction=False, seed=42, dtype=dtype_name),
+            "sgd_pacmap": eg.PacmapGraphSolver(g16, n_neighbors=5, phase_iterations=(3, 3, 4), seed=42, dtype=dtype_name),
+            "sgd_sgd2": eg.Sgd2Solver(g16, iterations=8, batch_size=16, seed=42, dtype=dtype_name),
             "sgd_squared": eg.SgdSolver.full(g16, iterations=8, schedule="squared", seed=42, dtype=dtype_name),
         }
         for k, sv in sgd_specs.items():
@@ -108,13 +108,13 @@ def run_cross_target_force_multilevel_parity(
             sv.run(lay)
             out[k] = lay.coords(copy=True)
 
-        for tag, use_bh in (("fa2_bh", True), ("fa2_exact", False)):
+        for tag, bk in (("fa2_bh", "barnes_hut"), ("fa2_exact", "exact")):
             l_fa = eg.Layout2d.from_coords(c16)
-            eg.ForceAtlas2Solver(g16, iterations=10, use_barnes_hut=use_bh, seed=42, dtype=dtype_name).run(l_fa)
+            eg.ForceAtlas2Solver(g16, iterations=10, backend=bk, seed=42, dtype=dtype_name).run(l_fa)
             out[tag] = l_fa.coords(copy=True)
 
         l_fa_cap = eg.Layout2d.from_coords(c16)
-        eg.ForceAtlas2Solver(g16, iterations=10, use_barnes_hut=True, max_displacement=0.25, seed=42, dtype=dtype_name).run(l_fa_cap)
+        eg.ForceAtlas2Solver(g16, iterations=10, backend="barnes_hut", max_displacement=0.25, seed=42, dtype=dtype_name).run(l_fa_cap)
         out["fa2_cap"] = l_fa_cap.coords(copy=True)
 
         l_yh = eg.Layout2d.from_coords(c25)
@@ -172,15 +172,15 @@ const runPairAndCheckStep = (mkSolver, initCoords, stepChunk) => {
 };
 
 const solvers = {};
-for (const bk of ['ibfft', 'barnes_hut', 'exact']) {
+for (const [pyBk, wasmBk] of [['ib_fft', 'ibFft'], ['barnes_hut', 'barnesHut'], ['exact', 'exact']]) {
   {
-    const r = runPairAndCheckStep(() => new mod.TFdpSolver(g16, { backend: bk, iterations: 8, seed: 42 }), init16, 3);
-    solvers[`tfdp_${bk}`] = r.coords;
+    const r = runPairAndCheckStep(() => new mod.TFdpSolver(g16, { backend: wasmBk, iterations: 8, seed: 42 }), init16, 3);
+    solvers[`tfdp_${pyBk}`] = r.coords;
     r.sR.free?.(); r.sS.free?.();
   }
   {
-    const r = runPairAndCheckStep(() => new mod.IbUmapSolver(g16, { backend: bk, iterations: 6, seed: 42 }), init16, 2);
-    solvers[`ibumap_${bk}`] = r.coords;
+    const r = runPairAndCheckStep(() => new mod.IbUmapSolver(g16, { backend: wasmBk, iterations: 6, seed: 42 }), init16, 2);
+    solvers[`ibumap_${pyBk}`] = r.coords;
     r.sR.free?.(); r.sS.free?.();
   }
 }
@@ -207,18 +207,18 @@ for (const bk of ['ibfft', 'barnes_hut', 'exact']) {
   r.sR.free?.(); r.sS.free?.();
 }
 {
-  const lm16 = mod.computeRegularizedDogVaradhanLandmarks(g16, null, 8, 42);
-  for (const bk of ['exact', 'ibfft']) {
-    const r = runPairAndCheckStep(() => mod.IbUmapSolver.fromLandmarks(g16, lm16, 16, { backend: bk, iterations: 6, seed: 42 }), init16, 2);
-    solvers[`ibumap_lm_${bk}`] = r.coords;
-    solvers[`ibumap_lm_${bk}_edges`] = r.sR.numEdges;
+  const lm16 = mod.computeRegularizedDogVaradhanLandmarks(g16, { numLandmarks: 8, seed: 42 });
+  for (const [pyBk, wasmBk] of [['exact', 'exact'], ['ib_fft', 'ibFft']]) {
+    const r = runPairAndCheckStep(() => mod.IbUmapSolver.fromLandmarks(g16, lm16, 16, { backend: wasmBk, iterations: 6, seed: 42 }), init16, 2);
+    solvers[`ibumap_lm_${pyBk}`] = r.coords;
+    solvers[`ibumap_lm_${pyBk}_edges`] = r.sR.numEdges;
     r.sR.free?.(); r.sS.free?.();
   }
   lm16.free?.();
 }
 {
   const r = runPairAndCheckStep(
-    () => mod.SgdSolver.pacmapGraph(g16, { nNeighbors: 2, phaseIterations: [3, 3, 4], keepAll1hop: true, seed: 42 }),
+    () => new mod.PacmapGraphSolver(g16, { nNeighbors: 2, phaseIterations: [3, 3, 4], keepAll1hop: true, seed: 42 }),
     init16, 3,
   );
   solvers.sgd_pacmap_keep = r.coords;
@@ -226,9 +226,9 @@ for (const bk of ['ibfft', 'barnes_hut', 'exact']) {
   r.sR.free?.(); r.sS.free?.();
 }
 {
-  const lm16Pm = mod.computeRegularizedDogVaradhanLandmarks(g16, null, 8, 42);
+  const lm16Pm = mod.computeRegularizedDogVaradhanLandmarks(g16, { numLandmarks: 8, seed: 42 });
   const r = runPairAndCheckStep(
-    () => mod.SgdSolver.pacmapGraphWithLandmarks(g16, lm16Pm, { nNeighbors: 4, phaseIterations: [3, 3, 4], keepAll1hop: true, max1hopPerNode: 2, degreeWeightBeta: 0.5, seed: 42 }),
+    () => mod.PacmapGraphSolver.withLandmarks(g16, lm16Pm, { nNeighbors: 4, phaseIterations: [3, 3, 4], keepAll1hop: true, max1hopPerNode: 2, degreeWeightBeta: 0.5, seed: 42 }),
     init16, 3,
   );
   solvers.sgd_pacmap_cap_beta_lm = r.coords;
@@ -237,14 +237,14 @@ for (const bk of ['ibfft', 'barnes_hut', 'exact']) {
 }
 
 for (const [k, mk] of [
-  ['sgd_snap', () => mod.SgdSolver.snapTFdp(g16, { iterations: 8, negativesPerEdge: 3, seed: 42 })],
-  ['sgd_snap_beta', () => mod.SgdSolver.snapTFdp(g16, { iterations: 8, negativesPerEdge: 3, degreeBeta: 0.5, boundedAttraction: false, seed: 42 })],
-  ['sgd_pacmap', () => mod.SgdSolver.pacmapGraph(g16, { nNeighbors: 5, phaseIterations: [3, 3, 4], seed: 42 })],
-  ['sgd_sgd2', () => mod.SgdSolver.sgd2(g16, { iterations: 8, batchSize: 16, seed: 42 })],
+  ['sgd_snap', () => new mod.SnapTFdpSolver(g16, { iterations: 8, negativesPerEdge: 3, seed: 42 })],
+  ['sgd_snap_beta', () => new mod.SnapTFdpSolver(g16, { iterations: 8, negativesPerEdge: 3, degreeBeta: 0.5, boundedAttraction: false, seed: 42 })],
+  ['sgd_pacmap', () => new mod.PacmapGraphSolver(g16, { nNeighbors: 5, phaseIterations: [3, 3, 4], seed: 42 })],
+  ['sgd_sgd2', () => new mod.Sgd2Solver(g16, { iterations: 8, batchSize: 16, seed: 42 })],
   ['sgd_squared', () => mod.SgdSolver.full(g16, { iterations: 8, kind: 'squared', seed: 42 })],
-  ['fa2_bh', () => new mod.ForceAtlas2Solver(g16, { iterations: 10, useBarnesHut: true, seed: 42 })],
-  ['fa2_exact', () => new mod.ForceAtlas2Solver(g16, { iterations: 10, useBarnesHut: false, seed: 42 })],
-  ['fa2_cap', () => new mod.ForceAtlas2Solver(g16, { iterations: 10, useBarnesHut: true, maxDisplacement: 0.25, seed: 42 })],
+  ['fa2_bh', () => new mod.ForceAtlas2Solver(g16, { iterations: 10, backend: 'barnesHut', seed: 42 })],
+  ['fa2_exact', () => new mod.ForceAtlas2Solver(g16, { iterations: 10, backend: 'exact', seed: 42 })],
+  ['fa2_cap', () => new mod.ForceAtlas2Solver(g16, { iterations: 10, backend: 'barnesHut', maxDisplacement: 0.25, seed: 42 })],
 ]) {
   const r = runPairAndCheckStep(mk, init16, 3);
   solvers[k] = r.coords;
@@ -275,17 +275,17 @@ console.log(JSON.stringify({ force_available: true, solvers }));
     max_f64_rel = 0.0
     ws_sol = ws["solvers"]
     solver_keys = (
-        "tfdp_ibfft",
+        "tfdp_ib_fft",
         "tfdp_barnes_hut",
         "tfdp_exact",
         "tfdp_knn",
-        "ibumap_ibfft",
+        "ibumap_ib_fft",
         "ibumap_barnes_hut",
         "ibumap_exact",
         "ibumap_knn",
         "ibumap_fset",
         "ibumap_lm_exact",
-        "ibumap_lm_ibfft",
+        "ibumap_lm_ib_fft",
         "sgd_snap",
         "sgd_snap_beta",
         "sgd_pacmap",
@@ -304,7 +304,7 @@ console.log(JSON.stringify({ force_available: true, solvers }));
 
     assert py32["yh_levels"] == ws_sol["yh_levels"]
     assert py32["ibumap_lm_exact_edges"] == ws_sol["ibumap_lm_exact_edges"]
-    assert py32["ibumap_lm_ibfft_edges"] == ws_sol["ibumap_lm_ibfft_edges"]
+    assert py32["ibumap_lm_ib_fft_edges"] == ws_sol["ibumap_lm_ib_fft_edges"]
     assert py32["sgd_pacmap_keep_springs"] == ws_sol["sgd_pacmap_keep_springs"]
     assert py32["sgd_pacmap_cap_beta_lm_springs"] == ws_sol["sgd_pacmap_cap_beta_lm_springs"]
 

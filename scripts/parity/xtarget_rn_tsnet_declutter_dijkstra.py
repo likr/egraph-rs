@@ -76,7 +76,7 @@ def run_cross_target_rn_tsnet_declutter_dijkstra_parity(
     ts_rn_rw.run(l_rn_rw)
 
     # __new__ constructors (SgdSolver, TsNetSolver, GuMapSolver) & TsNet stage_iterations
-    knn16, _, _ = eg.build_pure_2hop_knn(g16)
+    knn16 = eg.build_pure_2hop_knn(g16).knn
     perps16 = eg.compute_nodewise_2hop_perplexities(g16)
     probs16 = eg.compute_knn_probabilities(knn16, perps16)
 
@@ -100,8 +100,8 @@ def run_cross_target_rn_tsnet_declutter_dijkstra_parity(
         "pure": eg.TsNetSolver.pure_2hop(g16, backend="exact", stage_iterations=(2, 3, 2), dtype="float32"),
         "knn": eg.TsNetSolver.from_knn(knn16, perps16, backend="exact", stage_iterations=(2, 3, 2), dtype="float32"),
         "probs": eg.TsNetSolver.from_probabilities(probs16, backend="exact", stage_iterations=(2, 3, 2), dtype="float32"),
-        "bfs": eg.TsNetSolver.from_graph_partial_bfs(g16, 15, 15.0, backend="exact", stage_iterations=(2, 3, 2), dtype="float32"),
-        "rn": eg.TsNetSolver.from_graph_row_normalized(g16, backend="exact", stage_iterations=(2, 3, 2), dtype="float32"),
+        "bfs": eg.TsNetSolver.from_graph_partial_bfs(g16, k=15, uniform_perplexity=15.0, backend="exact", stage_iterations=(2, 3, 2), dtype="float32"),
+        "rn": eg.TsNetSolver.from_graph_row_normalized(g16, w2=0.35, max_2hop_per_node=32, mode="degree_ordered_hub_suppressed", backend="exact", stage_iterations=(2, 3, 2), dtype="float32"),
     }
     si_coords_py: dict[str, Any] = {}
     for k_si, sv_si in si_ctors.items():
@@ -119,15 +119,17 @@ def run_cross_target_rn_tsnet_declutter_dijkstra_parity(
         [[0.0, 0.0], [0.0, 0.0], [1e-7, -1e-7], [1.0, 0.0], [2.0, 1.0], [0.0, 2.0]],
         dtype=np.float32,
     )
+    td_1 = eg.TwinDeclutterer(iterations=1, dtype="float32")
+    l_td_1 = eg.Layout2d.from_coords(twin_coords_f32)
+    td_1.apply(l_td_1)
+    assert td_1.last_moved_count >= 2 and td_1.last_cluster_count >= 1
     td_r = eg.TwinDeclutterer(iterations=4, dtype="float32")
     td_s = eg.TwinDeclutterer(iterations=4, dtype="float32")
     l_td_r = eg.Layout2d.from_coords(twin_coords_f32)
     l_td_s = eg.Layout2d.from_coords(twin_coords_f32)
-    td_r.run(l_td_r)
-    td_s.step(l_td_s)
-    step1_moved = td_s.last_moved_count
-    assert step1_moved >= 2 and td_s.last_cluster_count >= 1
-    td_s.run(l_td_s)
+    td_r.apply(l_td_r)
+    td_s.apply(l_td_s)
+    assert td_r.last_cluster_count >= 1
     assert np.array_equal(l_td_r.coords(copy=True), l_td_s.coords(copy=True))
     l_td_64 = eg.Layout2d.from_coords(twin_coords_f32.astype(np.float64))
     passes_64 = eg.declutter_twins_2d(l_td_64, iterations=4)
@@ -176,7 +178,7 @@ def run_cross_target_rn_tsnet_declutter_dijkstra_parity(
     gtor = eg.generate_torus_grid(3, 4, triangulated=True)
     gico = eg.generate_spherical_icosphere(1)
     gsph = eg.generate_spherical_grid(4, 6)
-    ghyp = eg.generate_hyperbolic_tree(2, 3)
+    ghyp = eg.generate_hyperbolic_tree(branching_factor=2, depth=3)
 
     assert len(g6_w) == 6 and g6_w.has_edge(0, 1) and not g6_w.has_edge(0, 4)
     assert g6_w.edge_weight(0, 4) is None and abs(float(g6_w.edge_weight(0, 1) or 0.0) - 1.0) < 1e-6
@@ -200,28 +202,31 @@ const g260 = mod.CsrGraph.fromEdgeList(260, new Uint32Array(spec.g260_edges));
 const init16 = new Float32Array(spec.init16);
 const init260 = new Float32Array(spec.init260);
 
-const tsSm = mod.TsNetSolver.pure2Hop(g16, { backend: 'auto', stageIterations: [2, 2, 2], seed: 42 });
+const tsSm = mod.TsNetSolver.pure2Hop(g16, { backend: 'auto2d', stageIterations: [2, 2, 2], seed: 42 });
 assert.equal(tsSm.resolvedBackend, 'exact');
 const lSm = mod.Layout2d.fromCoords(init16);
 tsSm.run(lSm);
 assert.equal(tsSm.totalFft2dCalls, 0);
 
-const tsBg = mod.TsNetSolver.pure2Hop(g260, { backend: 'auto', stageIterations: [1, 1, 1], learningRateDivisor: 3.0, seed: 42 });
-assert.equal(tsBg.resolvedBackend, 'linear_fft');
+const tsBg = mod.TsNetSolver.pure2Hop(g260, { backend: 'auto2d', stageIterations: [1, 1, 1], learningRateDivisor: 3.0, seed: 42 });
+assert.equal(tsBg.resolvedBackend, 'linearFft');
 const lBg = mod.Layout2d.fromCoords(init260);
 tsBg.run(lBg);
 assert.ok(tsBg.totalFft2dCalls > 0);
 
-const probsRw = mod.graph12hopRowNormalizedProbabilitiesWithOptions(g16, 0.4, 8, 0.25, 'two_step_random_walk', 3, 42);
+const probsRw = mod.graph12hopRowNormalizedProbabilitiesWithOptions(g16, { w2: 0.4, max2hopPerNode: 8, degreeBeta: 0.25, mode: 'twoStepRandomWalk', maxBridgeDegree: 3, seed: 42 });
 const probsCsr = mod.SparseProbabilities.fromCsr(16, probsRw.indptr(), probsRw.indices(), probsRw.values());
-const stages = [new mod.TsNetStage(2, 4.0, 1.0, 0.1, 0.0), new mod.TsNetStage(2, 1.0, 1.0, 0.0, 0.0)];
+const stages = [
+  new mod.TsNetStage(2, { exaggeration: 4.0, lambdaKl: 1.0, lambdaC: 0.1, lambdaR: 0.0 }),
+  new mod.TsNetStage(2, { exaggeration: 1.0, lambdaKl: 1.0, lambdaC: 0.0, lambdaR: 0.0 }),
+];
 const tsSt = mod.TsNetSolver.fromProbabilitiesWithStages(probsCsr, stages, { backend: 'exact', learningRateDivisor: 3.0, seed: 42 });
 const lSt = mod.Layout2d.fromCoords(init16);
 tsSt.run(lSt);
 
-const pairsRw = mod.extractSparse1hop2hopPairsWithMode(g16, 8, 'two_step_random_walk', 3, 42);
-const tsRnRw = mod.TsNetSolver.fromGraphRowNormalizedWithOptions(g16, {
-  w2: 0.4, max2hopPerNode: 8, degreeBeta: 0.25, mode: 'two_step_random_walk', maxBridgeDegree: 3,
+const pairsRw = mod.extractSparse1hop2hopPairsWithMode(g16, { max2hopPerNode: 8, mode: 'twoStepRandomWalk', maxBridgeDegree: 3, seed: 42 });
+const tsRnRw = mod.TsNetSolver.fromGraphRowNormalized(g16, {
+  w2: 0.4, max2hopPerNode: 8, degreeBeta: 0.25, mode: 'twoStepRandomWalk', maxBridgeDegree: 3,
   backend: 'exact', stageIterations: [2, 2, 2], seed: 42,
 });
 const lRnRw = mod.Layout2d.fromCoords(init16);
@@ -250,10 +255,10 @@ const siOpts = { backend: 'exact', stageIterations: [2, 3, 2] };
 const siSolvers = {
   new: new mod.TsNetSolver(g16, siOpts),
   pure: mod.TsNetSolver.pure2Hop(g16, siOpts),
-  knn: mod.TsNetSolver.fromKnn(knn16, Array.from(perps16), 15.0, siOpts),
+  knn: mod.TsNetSolver.fromKnn(knn16, { perplexities: Array.from(perps16), uniformPerplexity: 15.0, ...siOpts }),
   probs: mod.TsNetSolver.fromProbabilities(probs16, siOpts),
-  bfs: mod.TsNetSolver.fromGraphPartialBfs(g16, 15, 15.0, siOpts),
-  rn: mod.TsNetSolver.fromGraphRowNormalized(g16, siOpts),
+  bfs: mod.TsNetSolver.fromGraphPartialBfs(g16, { k: 15, uniformPerplexity: 15.0, ...siOpts }),
+  rn: mod.TsNetSolver.fromGraphRowNormalized(g16, { w2: 0.35, max2hopPerNode: 32, mode: 'degreeOrderedHubSuppressed', ...siOpts }),
 };
 const siCoords = {};
 for (const [kSi, svSi] of Object.entries(siSolvers)) {
@@ -271,9 +276,8 @@ const tdR = new mod.TwinDeclutterer({ iterations: 4 });
 const tdS = new mod.TwinDeclutterer({ iterations: 4 });
 const lTdR = mod.Layout2d.fromCoords(twinC);
 const lTdS = mod.Layout2d.fromCoords(twinC);
-tdR.run(lTdR);
-tdS.step(lTdS);
-tdS.run(lTdS);
+tdR.apply(lTdR);
+tdS.apply(lTdS);
 assert.deepEqual(Array.from(lTdR.coordsView()), Array.from(lTdS.coordsView()));
 const lTdFn = mod.Layout2d.fromCoords(twinC);
 const passesFn = mod.declutterTwins2d(lTdFn, { iterations: 4 });
@@ -299,16 +303,16 @@ const dSs0 = Array.from(mod.dijkstraSingleSource(g6W, 0), (v) => (Number.isFinit
 const dApsp = Array.from(mod.allPairsDijkstra(g6W), (v) => (Number.isFinite(v) ? v : null));
 
 const nigLbl = new Uint32Array([0,0,0,0,0,0,0,0, 1,1,1,1,1,1,1,1]);
-const nigDet = mod.adjustedPatchNigDetail(mod.Layout2d.fromCoords(init16), nigLbl, 16, 1024, 0.05, 42).toRecord();
+const nigDet = mod.adjustedPatchNigDetail(mod.Layout2d.fromCoords(init16), nigLbl, { patchRadius: 16, canvasSize: 1024, padFrac: 0.05, seed: 42 }).toRecord();
 const gDeg2 = mod.CsrGraph.fromEdgeList(6, new Uint32Array([0, 1, 1, 2]));
 const deg6 = mod.layoutDegeneracy(gDeg2, mod.Layout2d.fromCoords(twinC)).toRecord();
 
 const dsNames = mod.listDatasets();
 const catLen = mod.datasetCatalog().length;
 const ds0 = mod.datasetInfo(dsNames[0]).toRecord();
-const gw = mod.generateWeightedGraph(12, 4, 0.2, 1.5, 42);
-const gdag = mod.generateLayeredDag(3, 4, 0.4, 42);
-const gsbm = mod.generateSbmGraph(new Uint32Array([5, 5]), 0.6, 0.1, 42);
+const gw = mod.generateWeightedGraph(12, { avgDegree: 4, minWeight: 0.2, maxWeight: 1.5, seed: 42 });
+const gdag = mod.generateLayeredDag(3, 4, { edgeProb: 0.4, seed: 42 });
+const gsbm = mod.generateSbmGraph(new Uint32Array([5, 5]), { pIntra: 0.6, pInter: 0.1, seed: 42 });
 const gtor = mod.generateTorusGrid(3, 4, true);
 const gico = mod.generateSphericalIcosphere(1);
 const gsph = mod.generateSphericalGrid(4, 6);

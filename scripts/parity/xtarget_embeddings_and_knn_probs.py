@@ -39,7 +39,10 @@ def run_cross_target_embeddings_knn_probs_parity(
     rep_in = np.array([[0.0, 3.0], [1.0, 2.0], [2.0, 1.0], [3.0, 0.0]], dtype=np.float64)
     rep_py = eg.representative_mds(rep_in, dims=2, dtype="float32")
     rerank_py = eg.build_rerank_knn(diff_coords_py, k=4, coarse_dim=2, rerank_factor=2)
-    capped_knn_py, capped_k2_py, _ = eg.build_capped_12hop_knn(g16, max_2hop_per_node=4, seed=42)
+    capped_res_py = eg.build_capped_12hop_knn(g16, max_2hop_per_node=4, seed=42)
+    capped_knn_py = capped_res_py.knn
+    capped_k2_py = capped_res_py.k2_deg
+    assert capped_k2_py is not None
     row_probs_py = eg.graph_row_normalized_probabilities(g16)
     row_probs12_py = eg.graph_12hop_row_normalized_probabilities(g16, w2=0.5, max_2hop_per_node=4, degree_beta=0.35, seed=42)
     sampled_sns_strat_py = float(eg.sampled_scale_normalized_stress(g16, cmds_py, num_pivots=4, seed=42))
@@ -59,24 +62,24 @@ const cmds = mod.classicalMds2d(g16);
 mod.normalizeLayout2d(cmds, 1.0, 42);
 const cmdsCoords = Array.from(cmds.coordsView());
 const rob = mod.classicalMds2d(g16);
-mod.robustNormalizeLayout2d(rob, 1.5, 0.95, 42);
+mod.robustNormalizeLayout2d(rob, { targetStd: 1.5, quantile: 0.95, seed: 42 });
 const robCoords = Array.from(rob.coordsView());
-const rd = mod.rdMds(g16, 3, 1e-10, 1e-6, 1000, 42);
+const rd = mod.rdMds(g16, { dims: 3, eigEps: 1e-10, tol: 1e-6, maxIterations: 1000, seed: 42 });
 const rdCoords = Array.from(rd.copyCoords());
-const resEmb = mod.computeResistanceEmbedding(g16, 3, 1e-4, 300, 42, 1e-10);
-const diffEmb = mod.computeDiffusionEmbedding(g16, 3, 0.5, null, 1e-4, 300, 42);
+const resEmb = mod.computeResistanceEmbedding(g16, { dim: 3, tol: 1e-4, maxIterations: 300, seed: 42, eigEps: 1e-10 });
+const diffEmb = mod.computeDiffusionEmbedding(g16, { dim: 3, p: 0.5, t: null, tol: 1e-4, maxIterations: 300, seed: 42 });
 const repNd = mod.representativeMds(new Float64Array([0, 3, 1, 2, 2, 1, 3, 0]), 4, 2, 2);
-const rerank = mod.buildRerankKnn(new Float64Array(spec.diff_coords), 16, spec.diff_dim, 4, 2, 2);
+const rerank = mod.buildRerankKnn(new Float64Array(spec.diff_coords), 16, spec.diff_dim, 4, { coarseDim: 2, rerankFactor: 2 });
 const cappedKnn = mod.buildCapped12hopKnn(g16, 4, 42);
 const rowProbs = mod.graphRowNormalizedProbabilities(g16);
-const rowProbs12 = mod.graph12hopRowNormalizedProbabilities(g16, 0.5, 4, 0.35, 42);
-const sampledSnsStrat = mod.sampledScaleNormalizedStress(g16, cmds, 4, 42);
+const rowProbs12 = mod.graph12hopRowNormalizedProbabilities(g16, { w2: 0.5, max2hopPerNode: 4, degreeBeta: 0.35, seed: 42 });
+const sampledSnsStrat = mod.sampledScaleNormalizedStress(g16, cmds, { numPivots: 4, seed: 42 });
 const symProbs = mod.symmetrizeRowNormalized(3, new Uint32Array([0, 1, 2, 3]), new Uint32Array([1, 2, 0]), new Float64Array([1, 1, 1]));
-const prio = mod.buildGumap12hopPriorityCsr(3, new Uint32Array([0]), new Uint32Array([1]), new Float64Array([1]), new Uint32Array([0, 1]), new Uint32Array([2, 2]), new Float64Array([2, 2]), 1.1);
+const prio = mod.buildGumap12hopPriorityCsr(3, new Uint32Array([0]), new Uint32Array([1]), new Float64Array([1]), new Uint32Array([0, 1]), new Uint32Array([2, 2]), new Float64Array([2, 2]), { tier2Margin: 1.1 });
 const d1 = new Float64Array([1e-6, 1.0]);
 const d2 = new Float64Array([2.0]);
 const d3 = new Float64Array([4.0]);
-const floorVal = mod.applyRelativeDistanceFloor(d1, d2, d3, 1e-3, 0.1);
+const floorVal = mod.applyRelativeDistanceFloor(d1, d2, d3, { epsDist: 1e-3, minRatio: 0.1 });
 
 const out = {
   cmdsCoords, robCoords, rdCoords, sampledSnsStrat,

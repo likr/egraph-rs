@@ -72,7 +72,7 @@ def run_cross_target_clustering_manifold_parity(
         m_init = man_sph_init_f32 if kind == "spherical" else man_init_f32
         ml32 = eg.ManifoldLayout2d.from_coords(kind, m_init)
         sgd_m32 = eg.SgdSolver.full(
-            g16, iterations=10, eps=0.01, schedule="exponential", step_scale=m_step_scale, seed=42, dtype="float32"
+            g16, target="manifold2d", iterations=10, eps=0.01, schedule="exponential", step_scale=m_step_scale, seed=42, dtype="float32"
         )
         sgd_m32.run(ml32)
         man_py32[kind] = {
@@ -81,7 +81,7 @@ def run_cross_target_clustering_manifold_parity(
         }
         ml64 = eg.ManifoldLayout2d.from_coords(kind, m_init.astype(np.float64))
         sgd_m64 = eg.SgdSolver.full(
-            g16, iterations=10, eps=0.01, schedule="exponential", step_scale=m_step_scale, seed=42, dtype="float64"
+            g16, target="manifold2d", iterations=10, eps=0.01, schedule="exponential", step_scale=m_step_scale, seed=42, dtype="float64"
         )
         sgd_m64.run(ml64)
         man_py64[kind] = {
@@ -104,17 +104,17 @@ if (typeof mod.kmeansPlusPlus !== 'function') {
   process.exit(0);
 }
 
-const km = mod.kmeansPlusPlus(new Float64Array(spec.pts_km), 6, 2, 2, 100, 1e-4, 3, 42);
+const km = mod.kmeansPlusPlus(new Float64Array(spec.pts_km), 6, 2, { k: 2, maxIterations: 100, tol: 1e-4, nInit: 3, seed: 42 });
 const bb = mod.CsrGraph.fromEdgeList(12, new Uint32Array(spec.bb_edges));
-const specRes = mod.spectralClustering(bb, 2, 300, 1e-4, 100, 1e-4, 42);
+const specRes = mod.spectralClustering(bb, { k: 2, maxEigenIterations: 300, eigenTol: 1e-4, kmeansMaxIterations: 100, kmeansTol: 1e-4, seed: 42 });
 const specLabels = Array.from(specRes.labels());
-const louv = mod.louvainCommunities(bb, 100, 1.0, 1e-7, 42);
+const louv = mod.louvainCommunities(bb, { maxPasses: 100, resolution: 1.0, minModularityGain: 1e-7, seed: 42 });
 const lpaRes = mod.labelPropagation(bb, 100, 42);
 const lpaLabels = Array.from(lpaRes.labels());
 const coarse = mod.coarsenGraph(bb, [100, 100, 100, 100, 100, 100, 999, 999, 999, 999, 999, 999]);
 const cg = coarse.graph();
 const cl = mod.Layout2d.fromCoords(new Float32Array(spec.coarse_coords));
-const proj = mod.projectClusteredLayout(cl, coarse.nodeToCoarse(), 0.2, 42);
+const proj = mod.projectClusteredLayout(cl, coarse.nodeToCoarse(), { spreadRadius: 0.2, seed: 42 });
 const projCoords = Array.from(proj.coordsView());
 
 const g16 = mod.CsrGraph.fromEdgeList(16, new Uint32Array(spec.g16_edges));
@@ -122,22 +122,22 @@ const manInit = new Float32Array(spec.man_init16);
 const manSphInit = new Float32Array(spec.man_sph_init16);
 
 const manifolds = {};
-for (const kind of ['hyperbolic', 'spherical', 'torus']) {
-  const mStepScale = kind === 'torus' ? 0.02 : (kind === 'spherical' ? 0.2 : 1.0);
-  const mInit = kind === 'spherical' ? manSphInit : manInit;
-  const mlRun = mod.ManifoldLayout2d.fromCoords(kind, mInit);
-  const mlStep = mod.ManifoldLayout2d.fromCoords(kind, mInit);
-  const sRun = mod.SgdSolver.full(g16, { iterations: 10, eps: 0.01, kind: 'exponential', stepScale: mStepScale, seed: 42 });
-  const sStep = mod.SgdSolver.full(g16, { iterations: 10, eps: 0.01, kind: 'exponential', stepScale: mStepScale, seed: 42 });
+for (const [pyKind, wasmKind] of [['hyperbolic', 'hyperbolicPoincare'], ['spherical', 'spherical'], ['torus', 'torus']]) {
+  const mStepScale = pyKind === 'torus' ? 0.02 : (pyKind === 'spherical' ? 0.2 : 1.0);
+  const mInit = pyKind === 'spherical' ? manSphInit : manInit;
+  const mlRun = mod.ManifoldLayout2d.fromCoords(wasmKind, mInit);
+  const mlStep = mod.ManifoldLayout2d.fromCoords(wasmKind, mInit);
+  const sRun = mod.SgdSolver.full(g16, { target: 'manifold2d', iterations: 10, eps: 0.01, kind: 'exponential', stepScale: mStepScale, seed: 42 });
+  const sStep = mod.SgdSolver.full(g16, { target: 'manifold2d', iterations: 10, eps: 0.01, kind: 'exponential', stepScale: mStepScale, seed: 42 });
   sRun.run(mlRun);
   sStep.runSteps(mlStep, 4);
   while (!sStep.isFinished) sStep.step(mlStep);
   const cRun = Array.from(mlRun.coordsView());
   const cStep = Array.from(mlStep.coordsView());
   if (JSON.stringify(cRun) !== JSON.stringify(cStep)) {
-    throw new Error(`WASM SgdSolver.step != run on ManifoldLayout2d for ${kind}`);
+    throw new Error(`WASM SgdSolver.step != run on ManifoldLayout2d for ${wasmKind}`);
   }
-  manifolds[kind] = { coords: cRun, dist: mlRun.geodesicDistance(0, 15) };
+  manifolds[pyKind] = { coords: cRun, dist: mlRun.geodesicDistance(0, 15) };
   mlRun.free?.();
   mlStep.free?.();
   sRun.free?.();

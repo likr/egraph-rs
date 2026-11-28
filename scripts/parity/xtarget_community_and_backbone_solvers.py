@@ -56,7 +56,7 @@ def run_cross_target_community_backbone_parity(
     linlog_py: dict[str, dict[str, Any]] = {}
     for rep in ("edge_repulsion", "node_repulsion"):
         ll = eg.LinLogSolver(
-            g_bb, iterations=8, repulsion_model=rep, use_barnes_hut=True, seed=42, dtype="float32"
+            g_bb, iterations=8, repulsion_model=rep, backend="barnes_hut", seed=42, dtype="float32"
         )
         lay = eg.Layout2d.from_coords(init10_f32)
         ll.run(lay)
@@ -145,20 +145,20 @@ const lMod = mod.leidenCommunities(gBb, { objective: 'modularity', resolution: 1
 const lCpm = mod.leidenCommunities(gBb, { objective: 'cpm', resolution: 0.3, seed: 42 });
 
 const linlog = {};
-for (const rep of ['edge_repulsion', 'node_repulsion']) {
-  const s = new mod.LinLogSolver(gBb, { iterations: 8, repulsionModel: rep, useBarnesHut: true, seed: 42 });
+for (const [pyRep, wasmRep] of [['edge_repulsion', 'edgeRepulsion'], ['node_repulsion', 'nodeRepulsion']]) {
+  const s = new mod.LinLogSolver(gBb, { iterations: 8, repulsionModel: wasmRep, backend: 'barnesHut', seed: 42 });
   const l = mod.Layout2d.fromCoords(init10);
   s.run(l);
-  linlog[rep] = { coords: Array.from(l.coordsView()), energy: s.energy(l), maxDisp: s.maxDisplacement };
+  linlog[pyRep] = { coords: Array.from(l.coordsView()), energy: s.energy(l), maxDisp: s.maxDisplacement };
   l.free?.(); s.free?.();
 }
 
 const fr = {};
-for (const backend of ['exact', 'barnes_hut', 'grid']) {
-  const s = new mod.FruchtermanReingoldSolver(gBb, { iterations: 8, backend, seed: 42 });
+for (const [pyBk, wasmBk] of [['exact', 'exact'], ['barnes_hut', 'barnesHut'], ['grid', 'grid']]) {
+  const s = new mod.FruchtermanReingoldSolver(gBb, { iterations: 8, backend: wasmBk, seed: 42 });
   const l = mod.Layout2d.fromCoords(init10);
   s.run(l);
-  fr[backend] = { coords: Array.from(l.coordsView()), optDist: s.optimalDistance };
+  fr[pyBk] = { coords: Array.from(l.coordsView()), optDist: s.optimalDistance };
   l.free?.(); s.free?.();
 }
 
@@ -194,15 +194,18 @@ const crFnMoved = mod.refineClusterLayout(lCrFn, commLabels, { method: 'kmeans',
 const crFnCoords = Array.from(lCrFn.coordsView());
 lCrFn.free?.();
 
-const treemap = Array.from(mod.squarifiedTreemap([5.0, 3.0, 2.0], 100.0, 50.0, 5.0, 10.0));
+const treemap = Array.from(mod.squarifiedTreemap([5.0, 3.0, 2.0], { width: 100.0, height: 50.0, x: 5.0, y: 10.0 }));
 const gib = {};
-for (const [bm, im, cw] of [['treemap', 'fr', [2.0, 1.0]], ['force_directed', 'yifan_hu', null]]) {
+for (const [pyBm, wasmBm, pyIm, wasmIm, cw] of [
+  ['treemap', 'treemap', 'fr', 'fr', [2.0, 1.0]],
+  ['force_directed', 'forceDirected', 'yifan_hu', 'yifanHu', null],
+]) {
   const s = new mod.GroupInABoxSolver(gBb, commLabels, {
-    boxMode: bm, intraMode: im, intraIterations: 6, fdIterations: 6, clusterWeights: cw, seed: 42,
+    boxMode: wasmBm, intraMode: wasmIm, intraIterations: 6, fdIterations: 6, clusterWeights: cw, seed: 42,
   });
   const l = mod.Layout2d.fromCoords(init10);
   s.run(l);
-  gib[`${bm}_${im}`] = { coords: Array.from(l.coordsView()), boxes: s.boxes() };
+  gib[`${pyBm}_${pyIm}`] = { coords: Array.from(l.coordsView()), boxes: s.boxes() };
   l.free?.(); s.free?.();
 }
 

@@ -102,10 +102,8 @@ for (const c of spec) {
   const rep = mod.evaluateMetrics(
     g,
     l,
-    ['sns', 'crossing_number', 'np1', 'np2', 'sampledNp1', 'sampledNp2', 'drng', 'dgg', 'aspect_ratio'],
-    4,
-    5,
-    42,
+    ['sns', 'crossingNumber', 'np1', 'np2', 'sampledNp1', 'sampledNp2', 'drng', 'dgg', 'aspectRatio'],
+    { numPivots: 4, numSamples: 5, seed: 42 },
   );
   const rec = rep.toRecord();
 
@@ -124,10 +122,10 @@ for (const c of spec) {
     sweep_crossing_number: mod.sweepCrossingNumber(g, l),
     neighborhood_preservation_1hop: mod.neighborhoodPreservation1Hop(g, l),
     neighborhood_preservation_2hop: mod.neighborhoodPreservation2Hop(g, l),
-    sampled_np1_sub: mod.sampledNp1(g, l, 5, 42),
-    sampled_np2_sub: mod.sampledNp2(g, l, 5, 42),
-    sampled_np1_full: mod.sampledNp1(g, l, c.n, 42),
-    sampled_np2_full: mod.sampledNp2(g, l, c.n, 42),
+    sampled_np1_sub: mod.sampledNp1(g, l, { numSamples: 5, seed: 42 }),
+    sampled_np2_sub: mod.sampledNp2(g, l, { numSamples: 5, seed: 42 }),
+    sampled_np1_full: mod.sampledNp1(g, l, { numSamples: c.n, seed: 42 }),
+    sampled_np2_full: mod.sampledNp2(g, l, { numSamples: c.n, seed: 42 }),
     prism_sigma_dist: pd.sigmaDist,
     prism_sigma_disp: pd.sigmaDisp,
     evaluate_metrics: {

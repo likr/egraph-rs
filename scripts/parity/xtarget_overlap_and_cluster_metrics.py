@@ -195,11 +195,11 @@ const lGtRad = mod.Layout2d.fromCoords(ov);
 gtRad.run(lGtRad);
 
 const fb = {};
-for (const variant of ['forbid', 'forbid_prime', 'sparse_forbid']) {
-  const s = new mod.ForbidOverlapRemoval(hw10, hh10, { variant, maxScaleIters: 25, sgdIterations: 30, seed: 42 });
+for (const [pyVar, wasmVar] of [['forbid', 'forbid'], ['forbid_prime', 'forbidPrime'], ['sparse_forbid', 'sparseForbid']]) {
+  const s = new mod.ForbidOverlapRemoval(hw10, hh10, { variant: wasmVar, maxScaleIters: 25, sgdIterations: 30, seed: 42 });
   const l = mod.Layout2d.fromCoords(ov);
   s.run(l);
-  fb[variant] = { coords: Array.from(l.coordsView()), ov: s.lastOverlapCount };
+  fb[pyVar] = { coords: Array.from(l.coordsView()), ov: s.lastOverlapCount };
   l.free?.(); s.free?.();
 }
 const fbRad = mod.ForbidOverlapRemoval.fromRadii(hw10, { variant: 'forbid', maxScaleIters: 25, sgdIterations: 30, seed: 42 });
@@ -216,7 +216,7 @@ const lFb80X = mod.Layout2d.fromCoords(ov80);
 const lFb80RadDef = mod.Layout2d.fromCoords(ov80);
 const lFb80RadX = mod.Layout2d.fromCoords(ov80);
 new mod.ForbidOverlapRemoval(hw80, hh80).step(lFb80Def);
-new mod.ForbidOverlapRemoval(hw80, hh80, { variant: 'sparse_forbid' }).step(lFb80Sp);
+new mod.ForbidOverlapRemoval(hw80, hh80, { variant: 'sparseForbid' }).step(lFb80Sp);
 new mod.ForbidOverlapRemoval(hw80, hh80, { variant: 'forbid' }).step(lFb80Full);
 new mod.ForbidOverlapRemoval(hw80, hh80, { sgdIterations: 5 }).step(lFb80X);
 mod.ForbidOverlapRemoval.fromRadii(hw80).step(lFb80RadDef);
@@ -225,20 +225,20 @@ mod.ForbidOverlapRemoval.fromRadii(hw80, { sgdIterations: 5 }).step(lFb80RadX);
 const lSep = mod.Layout2d.fromCoords(sep);
 const lOv = mod.Layout2d.fromCoords(ov);
 const pa = mod.partitionAgreement(commLabels, predLabels);
-const cqKm = mod.cqKmeans(lSep, commLabels, 5, 50, 42);
+const cqKm = mod.cqKmeans(lSep, commLabels, { nInit: 5, maxIterations: 50, seed: 42 });
 const cqHac = mod.cqHac(lSep, commLabels);
-const cdmRes = mod.classDensityMeasure(lSep, commLabels, 32, null);
+const cdmRes = mod.classDensityMeasure(lSep, commLabels, { gridSize: 32 });
 const norG = mod.norMetrics(gBb, lOv, lGtBox, hw10, hh10);
 const norNoG = mod.norMetricsWithoutGraph(lOv, lGtBox, hw10, hh10);
 const evRep = mod.evaluateMetrics(
   gBb,
   lSep,
   [
-    'distance_consistency', 'distribution_consistency', 'class_density_measure', 'histogram_density_measure',
-    'sepme_knng', 'sepme_rng', 'sepme_gab', 'sepme_gong',
-    'neighborhood_hit', 'silhouette_score', 'calinski_harabasz_score', 'davies_bouldin_score',
-    'cq_kmeans_ari', 'cq_kmeans_ami', 'cq_hac_hom', 'cq_hac_ami',
-    'pairwise_distance_overlap_error', 'sprawlter_nn',
+    'distanceConsistency', 'distributionConsistency', 'classDensityMeasure', 'histogramDensityMeasure',
+    'sepmeKnng', 'sepmeRng', 'sepmeGab', 'sepmeGong',
+    'neighborhoodHit', 'silhouetteScore', 'calinskiHarabaszScore', 'daviesBouldinScore',
+    'cqKmeansAri', 'cqKmeansAmi', 'cqHacHom', 'cqHacAmi',
+    'pairwiseDistanceOverlapError', 'sprawlterNn',
   ],
   {
     labels: commLabels, sepmeKnngK: 2, neighborhoodHitK: 3, dcGridSize: 16, cdmGridSize: 32,
@@ -267,17 +267,17 @@ const out = {
     norG: norG.toRecord(), norNoG: norNoG.toRecord(), ev: evRep.toRecord(),
     standalone: {
       dsc: mod.distanceConsistency(lSep, commLabels),
-      dc: mod.distributionConsistency(lSep, commLabels, 16),
+      dc: mod.distributionConsistency(lSep, commLabels, { gridSize: 16 }),
       cdm: cdmRes.cdm, hdm: cdmRes.hdm,
-      sepmeKnng: mod.sepmeKnng(lSep, commLabels, 2),
+      sepmeKnng: mod.sepmeKnng(lSep, commLabels, { k: 2 }),
       sepmeRng: mod.sepmeRng(lSep, commLabels),
       sepmeGab: mod.sepmeGab(lSep, commLabels),
-      sepmeGong: mod.sepmeGong(lSep, commLabels, 0.35),
-      neighborhoodHit: mod.neighborhoodHit(lSep, commLabels, 3),
+      sepmeGong: mod.sepmeGong(lSep, commLabels, { gamma: 0.35 }),
+      neighborhoodHit: mod.neighborhoodHit(lSep, commLabels, { k: 3 }),
       silhouette: mod.silhouetteScore(lSep, commLabels),
       calinskiHarabasz: mod.calinskiHarabaszScore(lSep, commLabels),
       daviesBouldin: mod.daviesBouldinScore(lSep, commLabels),
-      pdoe: mod.pairwiseDistanceOverlapError(lSep, commLabels, 32),
+      pdoe: mod.pairwiseDistanceOverlapError(lSep, commLabels, { numBins: 32 }),
       sprawlterRect: mod.sprawlterNn(lOv, hw10, hh10),
       sprawlterRad: mod.sprawlterNnRadii(lOv, hw10),
     },
