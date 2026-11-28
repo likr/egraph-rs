@@ -27,15 +27,15 @@ fn seeded_nd_layout<S: Scalar>(n: usize, dims: usize, scale: f64, seed: u64) -> 
     for _ in 0..(n * dims) {
         coords.push(S::from_f64((rng.next_f64() * 2.0 - 1.0) * scale));
     }
-    LayoutNd::from_flat(n, dims, coords).unwrap()
+    LayoutNd::from_flat(n, dims, &coords).unwrap()
 }
 
-fn compute_kk_energy(solver: &KamadaKawaiSolver<f64>, layout: &LayoutNd<f64>) -> f64 {
+fn compute_kk_energy(solver: &KamadaKawaiSolver<LayoutNd<f64>>, layout: &LayoutNd<f64>) -> f64 {
     let n = layout.num_nodes();
     let d = layout.dims();
     let coords = layout.coords();
-    let l = &solver.l;
-    let k = &solver.k;
+    let l = solver.target_distances();
+    let k = solver.spring_weights();
     let mut total = 0.0_f64;
     for i in 0..n {
         for j in (i + 1)..n {
@@ -61,13 +61,13 @@ fn test_kamada_kawai_nd_step_vs_run_bit_exact_3d_5d() {
     let cfg = KamadaKawaiConfig::default();
 
     // f64 in dims=3
-    let mut s_run = KamadaKawaiSolver::<f64>::from_graph(&grid, cfg).unwrap();
-    let mut s_step = KamadaKawaiSolver::<f64>::from_graph(&grid, cfg).unwrap();
+    let mut s_run = KamadaKawaiSolver::<LayoutNd<f64>>::from_graph(&grid, cfg.clone()).unwrap();
+    let mut s_step = KamadaKawaiSolver::<LayoutNd<f64>>::from_graph(&grid, cfg.clone()).unwrap();
     let mut l_run = seeded_nd_layout::<f64>(9, 3, 1.5, 31);
-    let mut l_step = l_run.copy();
+    let mut l_step = l_run.clone();
 
     let energy_before = compute_kk_energy(&s_run, &l_run);
-    assert_eq!(s_run.total_iterations(), 100);
+    assert_eq!(s_run.total_iterations(), Some(100));
     let st_run = s_run.run(&mut l_run).unwrap();
     assert!(st_run.is_finished());
     assert!(l_run.is_all_finite());
@@ -88,10 +88,10 @@ fn test_kamada_kawai_nd_step_vs_run_bit_exact_3d_5d() {
     }
 
     // f32 in dims=3
-    let mut s32_run = KamadaKawaiSolver::<f32>::from_graph(&grid, cfg).unwrap();
-    let mut s32_step = KamadaKawaiSolver::<f32>::from_graph(&grid, cfg).unwrap();
+    let mut s32_run = KamadaKawaiSolver::<LayoutNd<f32>>::from_graph(&grid, cfg.clone()).unwrap();
+    let mut s32_step = KamadaKawaiSolver::<LayoutNd<f32>>::from_graph(&grid, cfg.clone()).unwrap();
     let mut l32_run = seeded_nd_layout::<f32>(9, 3, 1.5, 31);
-    let mut l32_step = l32_run.copy();
+    let mut l32_step = l32_run.clone();
     s32_run.run(&mut l32_run).unwrap();
     while !s32_step.status().is_finished() {
         s32_step.step(&mut l32_step).unwrap();
@@ -102,10 +102,10 @@ fn test_kamada_kawai_nd_step_vs_run_bit_exact_3d_5d() {
     }
 
     // f64 in dims=5
-    let mut s5_run = KamadaKawaiSolver::<f64>::from_graph(&grid, cfg).unwrap();
-    let mut s5_step = KamadaKawaiSolver::<f64>::from_graph(&grid, cfg).unwrap();
+    let mut s5_run = KamadaKawaiSolver::<LayoutNd<f64>>::from_graph(&grid, cfg.clone()).unwrap();
+    let mut s5_step = KamadaKawaiSolver::<LayoutNd<f64>>::from_graph(&grid, cfg.clone()).unwrap();
     let mut l5_run = seeded_nd_layout::<f64>(9, 5, 1.5, 41);
-    let mut l5_step = l5_run.copy();
+    let mut l5_step = l5_run.clone();
     let e5_before = compute_kk_energy(&s5_run, &l5_run);
     s5_run.run(&mut l5_run).unwrap();
     let e5_after = compute_kk_energy(&s5_run, &l5_run);
@@ -119,7 +119,7 @@ fn test_kamada_kawai_nd_step_vs_run_bit_exact_3d_5d() {
     }
 
     // f64 in dims=1
-    let mut s1_run = KamadaKawaiSolver::<f64>::from_graph(&grid, cfg).unwrap();
+    let mut s1_run = KamadaKawaiSolver::<LayoutNd<f64>>::from_graph(&grid, cfg).unwrap();
     let mut l1_run = seeded_nd_layout::<f64>(9, 1, 1.5, 51);
     let e1_before = compute_kk_energy(&s1_run, &l1_run);
     s1_run.run(&mut l1_run).unwrap();
@@ -132,27 +132,27 @@ fn test_kamada_kawai_nd_edge_cases_and_singular_fallbacks() {
 
     // n=0, n=1, edgeless
     let empty = CsrGraph::<f64>::from_edges(0, &[], None, false, false).unwrap();
-    let mut s0 = KamadaKawaiSolver::<f64>::from_graph(&empty, cfg).unwrap();
+    let mut s0 = KamadaKawaiSolver::<LayoutNd<f64>>::from_graph(&empty, cfg.clone()).unwrap();
     let mut l0 = LayoutNd::<f64>::zeros(0, 3).unwrap();
     assert_eq!(s0.run(&mut l0).unwrap(), SolverStatus::Converged);
 
     let single = CsrGraph::<f64>::from_edges(1, &[], None, false, false).unwrap();
-    let mut s1 = KamadaKawaiSolver::<f64>::from_graph(&single, cfg).unwrap();
-    let mut l1 = LayoutNd::from_flat(1, 3, vec![1.0, 2.0, 3.0]).unwrap();
+    let mut s1 = KamadaKawaiSolver::<LayoutNd<f64>>::from_graph(&single, cfg.clone()).unwrap();
+    let mut l1 = LayoutNd::from_flat(1, 3, &[1.0, 2.0, 3.0]).unwrap();
     assert_eq!(s1.run(&mut l1).unwrap(), SolverStatus::Converged);
 
     let edgeless = CsrGraph::<f64>::from_edges(4, &[], None, false, false).unwrap();
-    let mut se = KamadaKawaiSolver::<f64>::from_graph(&edgeless, cfg).unwrap();
+    let mut se = KamadaKawaiSolver::<LayoutNd<f64>>::from_graph(&edgeless, cfg.clone()).unwrap();
     let mut le = seeded_nd_layout::<f64>(4, 3, 1.0, 5);
     assert_eq!(se.run(&mut le).unwrap(), SolverStatus::Converged);
 
     // Disconnected graph
     let disc = CsrGraph::<f64>::from_edges(4, &[(0, 1), (2, 3)], None, false, false).unwrap();
-    let mut s_disc = KamadaKawaiSolver::<f64>::from_graph(&disc, cfg).unwrap();
+    let mut s_disc = KamadaKawaiSolver::<LayoutNd<f64>>::from_graph(&disc, cfg.clone()).unwrap();
     let mut l_disc = LayoutNd::from_flat(
         4,
         3,
-        vec![0.0, 0.0, 0.0, 0.3, 0.2, 0.1, 4.0, 1.0, 0.0, 6.0, 1.3, 0.5],
+        &[0.0, 0.0, 0.0, 0.3, 0.2, 0.1, 4.0, 1.0, 0.0, 6.0, 1.3, 0.5],
     )
     .unwrap();
     assert!(s_disc.run(&mut l_disc).unwrap().is_finished());
@@ -160,7 +160,7 @@ fn test_kamada_kawai_nd_edge_cases_and_singular_fallbacks() {
 
     // Coincident points in 3D
     let g3 = CsrGraph::<f64>::from_edges(3, &[(0, 1), (1, 2)], None, false, false).unwrap();
-    let mut s_coin = KamadaKawaiSolver::<f64>::from_graph(&g3, cfg).unwrap();
+    let mut s_coin = KamadaKawaiSolver::<LayoutNd<f64>>::from_graph(&g3, cfg.clone()).unwrap();
     let mut l_coin = LayoutNd::<f64>::zeros(3, 3).unwrap();
     assert!(s_coin.run(&mut l_coin).unwrap().is_finished());
     assert!(l_coin.is_all_finite());
@@ -172,18 +172,17 @@ fn test_kamada_kawai_nd_edge_cases_and_singular_fallbacks() {
         1.0, 0.0, 1.0, //
         phi_inv, 1.0, 0.0,
     ];
-    let mut s_col = KamadaKawaiSolver::<f64>::from_distance_matrix(
+    let mut s_col = KamadaKawaiSolver::<LayoutNd<f64>>::from_distance_matrix(
         3,
         &dists,
-        KamadaKawaiConfig {
-            eps: 1e-3,
-            max_inner_iters: 50,
-            max_iterations: Some(60),
-        },
+        KamadaKawaiConfig::new()
+            .with_eps(1e-3)
+            .with_max_inner_iters(50)
+            .with_max_iterations(Some(60)),
     )
     .unwrap();
     let mut l_col =
-        LayoutNd::from_flat(3, 3, vec![0.0, 0.0, 0.0, 0.5, 0.0, 0.0, 1.0, 0.0, 0.0]).unwrap();
+        LayoutNd::from_flat(3, 3, &[0.0, 0.0, 0.0, 0.5, 0.0, 0.0, 1.0, 0.0, 0.0]).unwrap();
     let col_before = compute_kk_energy(&s_col, &l_col);
     assert!(s_col.run(&mut l_col).unwrap().is_finished());
     assert!(l_col.is_all_finite());
@@ -191,11 +190,11 @@ fn test_kamada_kawai_nd_edge_cases_and_singular_fallbacks() {
 
     // Planar in 3D
     let g4 = grid_graph(2, 2);
-    let mut s_pln = KamadaKawaiSolver::<f64>::from_graph(&g4, cfg).unwrap();
+    let mut s_pln = KamadaKawaiSolver::<LayoutNd<f64>>::from_graph(&g4, cfg).unwrap();
     let mut l_pln = LayoutNd::from_flat(
         4,
         3,
-        vec![0.0, 0.0, 0.0, 2.5, 0.0, 0.0, 0.0, 2.5, 0.0, 2.5, 2.5, 0.0],
+        &[0.0, 0.0, 0.0, 2.5, 0.0, 0.0, 0.0, 2.5, 0.0, 2.5, 2.5, 0.0],
     )
     .unwrap();
     let pln_before = compute_kk_energy(&s_pln, &l_pln);
@@ -213,14 +212,14 @@ fn test_kamada_kawai_nd_validation_errors() {
         Err(CoreError::InvalidInput(_))
     ));
 
-    let mut s = KamadaKawaiSolver::<f64>::from_graph(&g, cfg).unwrap();
-    let mut l_nan = LayoutNd::from_flat(4, 3, vec![f64::NAN; 12]).unwrap();
+    let mut s = KamadaKawaiSolver::<LayoutNd<f64>>::from_graph(&g, cfg).unwrap();
+    let mut l_nan = LayoutNd::from_flat(4, 3, &[f64::NAN; 12]).unwrap();
     assert!(matches!(
-        s.step(&mut l_nan),
+        s.run_steps(&mut l_nan, 0),
         Err(CoreError::NonFiniteValue { .. })
     ));
 
-    let mut l_inf = LayoutNd::from_flat(4, 3, vec![f64::NEG_INFINITY; 12]).unwrap();
+    let mut l_inf = LayoutNd::from_flat(4, 3, &[f64::NEG_INFINITY; 12]).unwrap();
     assert!(matches!(
         s.step(&mut l_inf),
         Err(CoreError::NonFiniteValue { .. })
@@ -236,7 +235,7 @@ fn test_kamada_kawai_nd_validation_errors() {
     s.step(&mut l3).unwrap();
     let mut l5 = seeded_nd_layout::<f64>(4, 5, 1.0, 9);
     assert!(matches!(
-        s.step(&mut l5),
+        s.run_steps(&mut l5, 0),
         Err(CoreError::DimensionMismatch {
             expected: 3,
             actual: 5,

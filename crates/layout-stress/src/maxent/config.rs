@@ -1,7 +1,8 @@
 use egraph_core::{CoreError, CoreResult};
 
 /// Hyperparameters for [`MaxentStressSolver`](super::MaxentStressSolver).
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq)]
 pub struct MaxentStressConfig {
     /// Optional explicit repulsion exponent $q > -2.0$ (`default: None`).
     ///
@@ -24,9 +25,11 @@ pub struct MaxentStressConfig {
     pub cg_tol: f64,
     /// Maximum PCG iterations per linear solve (`default: 10`).
     pub cg_max_iters: usize,
-    /// Barnes-Hut opening angle $\theta \ge 0.0$ for [`ArenaQuadtree2d`](egraph_spatial_trees::ArenaQuadtree2d) (`default: 1.2`).
+    /// Barnes-Hut opening angle $\theta \ge 0.0$ for `ArenaQuadtree2d` (`Layout2d`) or
+    /// `ArenaOctree3d` (`Layout3d`) (`default: 1.2`).
     pub theta: f64,
-    /// Whether to use Barnes-Hut quadtree approximation (`true`) or exact $O(N^2)$ repulsion (`false`) (`default: true`).
+    /// Whether to use Barnes-Hut spatial-tree approximation (`true` for `Layout2d` / `Layout3d`)
+    /// or exact $O(N^2)$ repulsion (`false`, required for `LayoutNd`) (`default: true`).
     pub use_barnes_hut: bool,
     /// Softening squared distance $\varepsilon^2 > 0.0$ in repulsive denominator (`default: 1e-6`).
     pub eps_sq: f64,
@@ -55,6 +58,90 @@ impl Default for MaxentStressConfig {
 }
 
 impl MaxentStressConfig {
+    /// Creates a new [`MaxentStressConfig`] initialized to [`Self::default`].
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets the optional explicit repulsion exponent `q`.
+    pub fn with_q(mut self, q: Option<f64>) -> Self {
+        self.q = q;
+        self
+    }
+
+    /// Sets the initial annealing repulsion weight `alpha_init`.
+    pub fn with_alpha_init(mut self, alpha_init: f64) -> Self {
+        self.alpha_init = alpha_init;
+        self
+    }
+
+    /// Sets the multiplicative annealing decay factor `alpha_decay`.
+    pub fn with_alpha_decay(mut self, alpha_decay: f64) -> Self {
+        self.alpha_decay = alpha_decay;
+        self
+    }
+
+    /// Sets the minimum floor `alpha_min` for annealing repulsion weight.
+    pub fn with_alpha_min(mut self, alpha_min: f64) -> Self {
+        self.alpha_min = alpha_min;
+        self
+    }
+
+    /// Sets the number of outer annealing stages `stages`.
+    pub fn with_stages(mut self, stages: usize) -> Self {
+        self.stages = stages;
+        self
+    }
+
+    /// Sets the maximum majorization steps per stage `steps_per_stage`.
+    pub fn with_steps_per_stage(mut self, steps_per_stage: usize) -> Self {
+        self.steps_per_stage = steps_per_stage;
+        self
+    }
+
+    /// Sets the relative position change convergence tolerance `tol`.
+    pub fn with_tol(mut self, tol: f64) -> Self {
+        self.tol = tol;
+        self
+    }
+
+    /// Sets the relative residual tolerance `cg_tol` passed to `AmgPcgSolver`.
+    pub fn with_cg_tol(mut self, cg_tol: f64) -> Self {
+        self.cg_tol = cg_tol;
+        self
+    }
+
+    /// Sets the maximum PCG iterations per linear solve `cg_max_iters`.
+    pub fn with_cg_max_iters(mut self, cg_max_iters: usize) -> Self {
+        self.cg_max_iters = cg_max_iters;
+        self
+    }
+
+    /// Sets the Barnes-Hut opening angle `theta`.
+    pub fn with_theta(mut self, theta: f64) -> Self {
+        self.theta = theta;
+        self
+    }
+
+    /// Sets whether Barnes-Hut spatial-tree repulsion (`true`) or exact $O(N^2)$ repulsion
+    /// (`false`) is used.
+    pub fn with_use_barnes_hut(mut self, use_barnes_hut: bool) -> Self {
+        self.use_barnes_hut = use_barnes_hut;
+        self
+    }
+
+    /// Sets the softening squared distance `eps_sq`.
+    pub fn with_eps_sq(mut self, eps_sq: f64) -> Self {
+        self.eps_sq = eps_sq;
+        self
+    }
+
+    /// Sets the deterministic PRNG `seed`.
+    pub fn with_seed(mut self, seed: u64) -> Self {
+        self.seed = seed;
+        self
+    }
+
     /// Validates all Maxent-Stress configuration parameters.
     pub fn validate(&self) -> CoreResult<()> {
         if let Some(qv) = self.q {

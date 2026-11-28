@@ -7,8 +7,10 @@
 //!
 //! where $L_w$ is the weighted graph Laplacian over 1-hop edges $S = E$ ($w_{ij} = d_{ij}^{-2}$),
 //! $b(x)$ is the generalized $q$-power repulsive force over non-adjacent vertex pairs
-//! ($\{i,j\} \notin S$) evaluated via [`ArenaQuadtree2d::compute_maxent_repulsion`](egraph_spatial_trees::ArenaQuadtree2d::compute_maxent_repulsion)
-//! (or exact pairwise summation), and $L_w x = \mathrm{rhs}$ is solved per coordinate via
+//! ($\{i,j\} \notin S$) evaluated via [`RepulsionBackend`](egraph_core::RepulsionBackend)
+//! ([`ArenaQuadtree2d`](egraph_spatial_trees::ArenaQuadtree2d) on [`Layout2d`](egraph_core::Layout2d),
+//! [`ArenaOctree3d`](egraph_spatial_trees::ArenaOctree3d) on [`Layout3d`](egraph_core::Layout3d),
+//! or exact pairwise summation), and $L_w x = \mathrm{rhs}$ is solved per coordinate via
 //! [`AmgPcgSolver`](egraph_linalg_amg::AmgPcgSolver).
 //!
 //! On disconnected or isolated-vertex graphs, $b(x)$ is zeroed on isolated vertices and centered
@@ -16,7 +18,8 @@
 
 mod config;
 mod graph_prep;
-mod nd;
+mod init;
+mod repulsion;
 mod solver;
 mod step;
 #[cfg(test)]

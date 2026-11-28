@@ -1,63 +1,75 @@
+use std::any::TypeId;
 use std::collections::VecDeque;
 use std::marker::PhantomData;
 
 use egraph_core::{
-    CoreError, CoreResult, CsrGraph, DeterministicRng, Layout2d, LayoutNd, Scalar, SolverStatus,
+    CoreError, CoreResult, CsrGraph, EuclideanLayout, IterativeSolver, Layout2d, Layout3d,
+    LayoutNd, Scalar, SolverStatus,
 };
-use egraph_linalg::csr_matrix::CsrMatrix;
-use egraph_linalg_amg::amg_pcg::{AmgPcgConfig, AmgPcgSolver, AmgPcgWorkspace};
-use egraph_linalg_mds::mds::{HdeConfig, PivotMdsConfig, hde_nd, pivot_mds};
-use egraph_spatial_trees::{ArenaOctree3d, ArenaQuadtree2d};
+use egraph_linalg::CsrMatrix;
+use egraph_linalg_amg::{AmgPcgConfig, AmgPcgSolver, AmgPcgWorkspace};
 
 use super::config::MaxentStressConfig;
 use super::graph_prep::{
-    MaxentEdge, extract_canonical_positive_edges, is_layout_collapsed, is_layout_collapsed_nd,
+    MaxentEdge, extract_canonical_positive_edges, extract_canonical_unweighted_edges,
+};
+use super::repulsion::{ExactMaxentBackend, Octree3dMaxentBackend, Quadtree2dMaxentBackend};
+use super::step::{
+    MaxentStepFn, MaxentValidateFn, step_any_2d, step_any_3d, step_any_nd, validate_2d,
+    validate_3d, validate_nd,
 };
 
-/// Cooperative Gansner et al. (2013) Maxent-Stress layout solver.
 #[derive(Debug, Clone)]
-pub struct MaxentStressSolver<S: Scalar = f64> {
+pub(super) struct MaxentCoreState {
     pub(super) config: MaxentStressConfig,
     pub(super) num_nodes: usize,
     pub(super) effective_q: f64,
     pub(super) alpha: f64,
     pub(super) edges: Vec<MaxentEdge>,
-    all_unit_edges: bool,
+    pub(super) all_unit_edges: bool,
     pub(super) comp_id: Vec<u32>,
     pub(super) comp_sizes: Vec<u32>,
-    pub(super) comp_sum_x: Vec<f64>,
-    pub(super) comp_sum_y: Vec<f64>,
+    pub(super) comp_sum: Vec<f64>,
     pub(super) amg: AmgPcgSolver,
     pub(super) amg_ws: AmgPcgWorkspace,
-    pub(super) quadtree: ArenaQuadtree2d<f64>,
-    pub(super) octree: ArenaOctree3d<f64>,
-    pub(super) x_cur: Vec<f64>,
-    pub(super) y_cur: Vec<f64>,
-    pub(super) next_x: Vec<f64>,
-    pub(super) next_y: Vec<f64>,
-    pub(super) stress_rhs_x: Vec<f64>,
-    pub(super) stress_rhs_y: Vec<f64>,
-    pub(super) rep_x: Vec<f64>,
-    pub(super) rep_y: Vec<f64>,
-    pub(super) rhs_x: Vec<f64>,
-    pub(super) rhs_y: Vec<f64>,
-    pub(super) nd_dims: Option<usize>,
-    pub(super) nd_cur: Vec<f64>,
-    pub(super) nd_next: Vec<f64>,
-    pub(super) nd_stress_rhs: Vec<f64>,
-    pub(super) nd_rep: Vec<f64>,
-    pub(super) nd_comp_sum: Vec<f64>,
-    pub(super) nd_rhs_axis: Vec<f64>,
-    pub(super) nd_next_axis: Vec<f64>,
+    pub(super) cur: Vec<f64>,
+    pub(super) next: Vec<f64>,
+    pub(super) stress_rhs: Vec<f64>,
+    pub(super) rep: Vec<f64>,
+    pub(super) rhs_axis: Vec<f64>,
+    pub(super) next_axis: Vec<f64>,
+    pub(super) locked_nd_dims: Option<usize>,
     pub(super) stage_idx: usize,
     pub(super) stage_step: usize,
     pub(super) total_iter_executed: usize,
     pub(super) total_iterations_budget: usize,
     pub(super) status: SolverStatus,
-    _marker: PhantomData<S>,
 }
 
-impl<S: Scalar> MaxentStressSolver<S> {
+#[derive(Debug, Clone)]
+pub(super) struct MaxentState {
+    pub(super) core: MaxentCoreState,
+    pub(super) quadtree_backend: Option<Quadtree2dMaxentBackend>,
+    pub(super) octree_backend: Option<Octree3dMaxentBackend>,
+    pub(super) exact_backend: Option<ExactMaxentBackend>,
+}
+
+/// Cooperative Gansner et al. (2013) Maxent-Stress layout solver implementing [`IterativeSolver`]
+/// for [`EuclideanLayout`] targets (`Layout2d`, `Layout3d`, `LayoutNd`).
+///
+/// Uses `ArenaQuadtree2d` (`Layout2d`) or `ArenaOctree3d` (`Layout3d`) when `use_barnes_hut` is
+/// `true`, and exact $O(N^2)$ repulsion when `use_barnes_hut` is `false`. Requesting
+/// `use_barnes_hut = true` on `LayoutNd` fails fast at construction (use `Layout3d` for 3D
+/// Barnes-Hut or set `use_barnes_hut = false` for arbitrary N-D).
+#[derive(Debug, Clone)]
+pub struct MaxentStressSolver<L: EuclideanLayout = Layout2d<f64>> {
+    state: MaxentState,
+    validate_fn: MaxentValidateFn<L>,
+    step_fn: MaxentStepFn<L>,
+    _layout: PhantomData<fn() -> L>,
+}
+
+impl<L: EuclideanLayout + 'static> MaxentStressSolver<L> {
     /// Constructs a [`MaxentStressSolver`] for `graph` using [`MaxentStressConfig`].
     ///
     /// Weighted graphs use positive finite edge weights as target lengths $d_{ij}$ and spring
@@ -87,6 +99,54 @@ impl<S: Scalar> MaxentStressSolver<S> {
         }
 
         let raw_edges = extract_canonical_positive_edges(graph)?;
+        Self::build_from_raw_edges(n, raw_edges, config)
+    }
+
+    /// Constructs a [`MaxentStressSolver`] from an unweighted [`CsrGraph`] (ignoring edge
+    /// weights and accepting `CsrGraph<()>` directly).
+    pub fn from_unweighted_graph<W>(
+        graph: &CsrGraph<W>,
+        config: MaxentStressConfig,
+    ) -> CoreResult<Self> {
+        config.validate()?;
+        let n = graph.num_nodes();
+        if u32::try_from(n).is_err() {
+            return Err(CoreError::invalid_csr(
+                "MaxentStressSolver node count exceeds u32::MAX",
+            ));
+        }
+        let raw_edges = extract_canonical_unweighted_edges(graph)?;
+        Self::build_from_raw_edges(n, raw_edges, config)
+    }
+
+    fn build_from_raw_edges(
+        n: usize,
+        raw_edges: Vec<(u32, u32, f64)>,
+        config: MaxentStressConfig,
+    ) -> CoreResult<Self> {
+        let tid = TypeId::of::<L>();
+        let is_2d = tid == TypeId::of::<Layout2d<L::Scalar>>();
+        let is_3d = tid == TypeId::of::<Layout3d<L::Scalar>>();
+        let is_nd = tid == TypeId::of::<LayoutNd<L::Scalar>>();
+
+        if is_nd && config.use_barnes_hut {
+            return Err(CoreError::unsupported(
+                "MaxentStressSolver Barnes-Hut is not supported on LayoutNd; use Layout2d for 2D Barnes-Hut, Layout3d for 3D Barnes-Hut, or set use_barnes_hut = false for arbitrary N-D",
+            ));
+        }
+
+        let (validate_fn, step_fn): (MaxentValidateFn<L>, MaxentStepFn<L>) = if is_2d {
+            (validate_2d::<L>, step_any_2d::<L>)
+        } else if is_3d {
+            (validate_3d::<L>, step_any_3d::<L>)
+        } else if is_nd {
+            (validate_nd::<L>, step_any_nd::<L>)
+        } else {
+            return Err(CoreError::unsupported(
+                "MaxentStressSolver supports Layout2d, Layout3d, and LayoutNd",
+            ));
+        };
+
         let mut edges = Vec::with_capacity(raw_edges.len());
         let mut all_unit_edges = true;
         let mut deg = vec![0usize; n];
@@ -149,12 +209,10 @@ impl<S: Scalar> MaxentStressSolver<S> {
         }
         let l_w = CsrMatrix::from_csr(n, indptr, indices, values)?;
 
-        let amg_cfg = AmgPcgConfig {
-            rel_tol: config.cg_tol,
-            max_iterations: config.cg_max_iters,
-            seed: config.seed,
-            ..Default::default()
-        };
+        let amg_cfg = AmgPcgConfig::new()
+            .with_rel_tol(config.cg_tol)
+            .with_max_iterations(config.cg_max_iters)
+            .with_seed(config.seed);
         let amg = AmgPcgSolver::new(&l_w, amg_cfg)?;
         let amg_ws = AmgPcgWorkspace::for_solver(&amg);
 
@@ -183,7 +241,6 @@ impl<S: Scalar> MaxentStressSolver<S> {
             comp_sizes.push(size);
         }
 
-        let num_comps = comp_sizes.len();
         let total_iterations_budget = config.stages.saturating_mul(config.steps_per_stage);
         let status = if total_iterations_budget == 0 {
             SolverStatus::Completed
@@ -191,159 +248,155 @@ impl<S: Scalar> MaxentStressSolver<S> {
             SolverStatus::Initialized
         };
 
-        Ok(Self {
+        let quadtree_backend = if is_2d && config.use_barnes_hut {
+            Some(Quadtree2dMaxentBackend::new(
+                n,
+                config.theta,
+                effective_q,
+                config.eps_sq,
+            ))
+        } else {
+            None
+        };
+        let octree_backend = if is_3d && config.use_barnes_hut {
+            Some(Octree3dMaxentBackend::new(
+                n,
+                config.theta,
+                effective_q,
+                config.eps_sq,
+            ))
+        } else {
+            None
+        };
+        let exact_backend = if !config.use_barnes_hut {
+            Some(ExactMaxentBackend::new(effective_q, config.eps_sq))
+        } else {
+            None
+        };
+
+        let core = MaxentCoreState {
+            alpha: config.alpha_init,
             config,
             num_nodes: n,
             effective_q,
-            alpha: config.alpha_init,
             edges,
             all_unit_edges,
             comp_id,
             comp_sizes,
-            comp_sum_x: vec![0.0; num_comps],
-            comp_sum_y: vec![0.0; num_comps],
+            comp_sum: Vec::new(),
             amg,
             amg_ws,
-            quadtree: ArenaQuadtree2d::new(),
-            octree: ArenaOctree3d::new(),
-            x_cur: vec![0.0; n],
-            y_cur: vec![0.0; n],
-            next_x: vec![0.0; n],
-            next_y: vec![0.0; n],
-            stress_rhs_x: vec![0.0; n],
-            stress_rhs_y: vec![0.0; n],
-            rep_x: vec![0.0; n],
-            rep_y: vec![0.0; n],
-            rhs_x: vec![0.0; n],
-            rhs_y: vec![0.0; n],
-            nd_dims: None,
-            nd_cur: Vec::new(),
-            nd_next: Vec::new(),
-            nd_stress_rhs: Vec::new(),
-            nd_rep: Vec::new(),
-            nd_comp_sum: Vec::new(),
-            nd_rhs_axis: Vec::new(),
-            nd_next_axis: Vec::new(),
+            cur: Vec::new(),
+            next: Vec::new(),
+            stress_rhs: Vec::new(),
+            rep: Vec::new(),
+            rhs_axis: vec![0.0; n],
+            next_axis: vec![0.0; n],
+            locked_nd_dims: None,
             stage_idx: 0,
             stage_step: 0,
             total_iter_executed: 0,
             total_iterations_budget,
             status,
-            _marker: PhantomData,
+        };
+
+        Ok(Self {
+            state: MaxentState {
+                core,
+                quadtree_backend,
+                octree_backend,
+                exact_backend,
+            },
+            validate_fn,
+            step_fn,
+            _layout: PhantomData,
         })
     }
+}
 
+impl<L: EuclideanLayout> MaxentStressSolver<L> {
     /// Returns the solver configuration.
     #[inline]
     pub fn config(&self) -> &MaxentStressConfig {
-        &self.config
+        &self.state.core.config
     }
 
     /// Returns the number of vertices.
     #[inline]
     pub fn num_nodes(&self) -> usize {
-        self.num_nodes
+        self.state.core.num_nodes
     }
 
     /// Returns the active annealing repulsion weight $\alpha$.
     #[inline]
     pub fn current_alpha(&self) -> f64 {
-        self.alpha
+        self.state.core.alpha
     }
 
     /// Returns the effective repulsion exponent $q$ used by the solver.
     #[inline]
     pub fn effective_q(&self) -> f64 {
-        self.effective_q
+        self.state.core.effective_q
     }
 
     /// Returns the current lifecycle status of the solver.
     #[inline]
     pub fn status(&self) -> SolverStatus {
-        self.status
+        self.state.core.status
     }
 
     /// Returns the number of iterations executed so far.
     #[inline]
     pub fn iteration(&self) -> usize {
-        self.total_iter_executed
+        self.state.core.total_iter_executed
     }
 
     /// Returns the configured maximum iteration budget.
     #[inline]
-    pub fn total_iterations(&self) -> usize {
-        self.total_iterations_budget
+    pub fn total_iterations(&self) -> Option<usize> {
+        Some(self.state.core.total_iterations_budget)
+    }
+}
+
+impl<L: EuclideanLayout> IterativeSolver for MaxentStressSolver<L> {
+    type Target = L;
+
+    fn validate_target(&self, target: &Self::Target) -> CoreResult<()> {
+        (self.validate_fn)(&self.state, target)
     }
 
-    pub(super) fn initialize_collapsed_layout(
-        &mut self,
-        layout: &mut Layout2d<S>,
-    ) -> CoreResult<()> {
-        let n = self.num_nodes;
-        let edge_pairs: Vec<(u32, u32)> = self.edges.iter().map(|e| (e.u, e.v)).collect();
-        let edge_dists: Vec<f64> = self.edges.iter().map(|e| e.d).collect();
-        let weights_opt = if self.all_unit_edges {
-            None
-        } else {
-            Some(edge_dists.as_slice())
-        };
-        let init_graph = CsrGraph::from_edges(n, &edge_pairs, weights_opt, false, false)?;
-        let pmds_cfg = PivotMdsConfig {
-            seed: self.config.seed,
-            ..Default::default()
-        };
+    fn step(&mut self, target: &mut Self::Target) -> CoreResult<SolverStatus> {
+        self.validate_target(target)?;
 
-        if let Ok(pmds_layout) = pivot_mds::<f64, S>(&init_graph, &pmds_cfg)
-            && !is_layout_collapsed(&pmds_layout)
-        {
-            let (dst_x, dst_y) = layout.xy_mut();
-            dst_x.copy_from_slice(pmds_layout.x());
-            dst_y.copy_from_slice(pmds_layout.y());
-            return Ok(());
+        if self.state.core.status.is_finished() {
+            return Ok(self.state.core.status);
         }
 
-        // Deterministic fallback if PivotMDS produces a degenerate/collapsed configuration.
-        let mut rng = DeterministicRng::from_seed_u64(self.config.seed);
-        let (dst_x, dst_y) = layout.xy_mut();
-        for i in 0..n {
-            dst_x[i] = S::from_f64(rng.next_f64() - 0.5);
-            dst_y[i] = S::from_f64(rng.next_f64() - 0.5);
+        if let Err(err) = (self.step_fn)(&mut self.state, target) {
+            if matches!(
+                err,
+                CoreError::NumericalBreakdown(_) | CoreError::NonFiniteValue { .. }
+            ) {
+                self.state.core.status = SolverStatus::Failed;
+            }
+            return Err(err);
         }
-        Ok(())
+
+        Ok(self.state.core.status)
     }
 
-    pub(super) fn initialize_collapsed_layout_nd(
-        &mut self,
-        layout: &mut LayoutNd<S>,
-    ) -> CoreResult<()> {
-        let n = self.num_nodes;
-        let d = layout.dims();
-        let edge_pairs: Vec<(u32, u32)> = self.edges.iter().map(|e| (e.u, e.v)).collect();
-        let edge_dists: Vec<f64> = self.edges.iter().map(|e| e.d).collect();
-        let weights_opt = if self.all_unit_edges {
-            None
-        } else {
-            Some(edge_dists.as_slice())
-        };
-        let init_graph = CsrGraph::from_edges(n, &edge_pairs, weights_opt, false, false)?;
-        let hde_cfg = HdeConfig {
-            output_dims: d,
-            seed: self.config.seed,
-            ..Default::default()
-        };
+    #[inline]
+    fn status(&self) -> SolverStatus {
+        self.state.core.status
+    }
 
-        if let Ok(hde_layout) = hde_nd::<f64, S>(&init_graph, &hde_cfg)
-            && !is_layout_collapsed_nd(&hde_layout)
-        {
-            layout.coords_mut().copy_from_slice(hde_layout.coords());
-            return Ok(());
-        }
+    #[inline]
+    fn iteration(&self) -> usize {
+        self.state.core.total_iter_executed
+    }
 
-        // Deterministic fallback if HDE produces a degenerate/collapsed configuration.
-        let mut rng = DeterministicRng::from_seed_u64(self.config.seed);
-        for v in layout.coords_mut().iter_mut() {
-            *v = S::from_f64(rng.next_f64() - 0.5);
-        }
-        Ok(())
+    #[inline]
+    fn total_iterations(&self) -> Option<usize> {
+        Some(self.state.core.total_iterations_budget)
     }
 }

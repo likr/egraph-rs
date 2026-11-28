@@ -2,8 +2,10 @@
 name = "egraph-layout-stress"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+description = "Kamada-Kawai, stress majorization, and maxent-stress graph layout solvers for egraph-rs"
 
 [features]
 default = []

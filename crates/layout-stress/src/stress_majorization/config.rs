@@ -1,7 +1,8 @@
 use egraph_core::{CoreError, CoreResult};
 
 /// Hyperparameters for [`StressMajorizationSolver`](super::StressMajorizationSolver).
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq)]
 pub struct StressMajorizationConfig {
     /// Relative stress convergence tolerance (`default: 1e-4`).
     pub epsilon: f64,
@@ -28,6 +29,41 @@ impl Default for StressMajorizationConfig {
 }
 
 impl StressMajorizationConfig {
+    /// Creates a new [`StressMajorizationConfig`] initialized to [`Self::default`].
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets the relative stress convergence tolerance `epsilon`.
+    pub fn with_epsilon(mut self, epsilon: f64) -> Self {
+        self.epsilon = epsilon;
+        self
+    }
+
+    /// Sets the maximum outer stress majorization iterations `max_iterations`.
+    pub fn with_max_iterations(mut self, max_iterations: usize) -> Self {
+        self.max_iterations = max_iterations;
+        self
+    }
+
+    /// Sets the inner Jacobi-PCG residual tolerance `pcg_tolerance`.
+    pub fn with_pcg_tolerance(mut self, pcg_tolerance: f64) -> Self {
+        self.pcg_tolerance = pcg_tolerance;
+        self
+    }
+
+    /// Sets the optional explicit inner PCG iteration cap `pcg_max_iterations`.
+    pub fn with_pcg_max_iterations(mut self, pcg_max_iterations: Option<usize>) -> Self {
+        self.pcg_max_iterations = pcg_max_iterations;
+        self
+    }
+
+    /// Sets the minimum pair separation `min_norm`.
+    pub fn with_min_norm(mut self, min_norm: f64) -> Self {
+        self.min_norm = min_norm;
+        self
+    }
+
     /// Validates stress majorization parameters.
     pub fn validate(&self) -> CoreResult<()> {
         if !self.epsilon.is_finite() || self.epsilon < 0.0 {

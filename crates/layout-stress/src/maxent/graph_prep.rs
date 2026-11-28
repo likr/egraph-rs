@@ -1,4 +1,4 @@
-use egraph_core::{CoreResult, CsrGraph, Layout2d, LayoutNd, Scalar};
+use egraph_core::{CoreResult, CsrGraph, EuclideanLayout, EuclideanStorageRef, Scalar};
 
 const COLLAPSED_SPAN_EPS: f64 = 1e-12;
 
@@ -11,15 +11,6 @@ pub(super) struct MaxentEdge {
 }
 
 #[inline]
-pub(super) fn norm2_pair(xs: &[f64], ys: &[f64]) -> f64 {
-    let mut sum = 0.0_f64;
-    for (&x, &y) in xs.iter().zip(ys.iter()) {
-        sum += x * x + y * y;
-    }
-    sum.sqrt()
-}
-
-#[inline]
 pub(super) fn norm2_slice(xs: &[f64]) -> f64 {
     let mut sum = 0.0_f64;
     for &x in xs {
@@ -28,48 +19,48 @@ pub(super) fn norm2_slice(xs: &[f64]) -> f64 {
     sum.sqrt()
 }
 
-pub(super) fn is_layout_collapsed<S: Scalar>(layout: &Layout2d<S>) -> bool {
+#[inline]
+fn span_collapsed<S: Scalar>(slice: &[S]) -> bool {
+    let mut min_v = slice[0].to_f64();
+    let mut max_v = min_v;
+    for &v in &slice[1..] {
+        let f = v.to_f64();
+        min_v = min_v.min(f);
+        max_v = max_v.max(f);
+    }
+    (max_v - min_v) < COLLAPSED_SPAN_EPS
+}
+
+pub(super) fn is_layout_collapsed_euclidean<L: EuclideanLayout>(layout: &L) -> bool {
     let n = layout.len();
     if n < 2 {
         return false;
     }
-    let xs = layout.x();
-    let ys = layout.y();
-    let mut min_x = xs[0].to_f64();
-    let mut max_x = min_x;
-    let mut min_y = ys[0].to_f64();
-    let mut max_y = min_y;
-    for i in 1..n {
-        let x = xs[i].to_f64();
-        let y = ys[i].to_f64();
-        min_x = min_x.min(x);
-        max_x = max_x.max(x);
-        min_y = min_y.min(y);
-        max_y = max_y.max(y);
-    }
-    (max_x - min_x) < COLLAPSED_SPAN_EPS && (max_y - min_y) < COLLAPSED_SPAN_EPS
-}
-
-pub(super) fn is_layout_collapsed_nd<S: Scalar>(layout: &LayoutNd<S>) -> bool {
-    let n = layout.num_nodes();
-    if n < 2 {
-        return false;
-    }
-    let d = layout.dims();
-    let coords = layout.coords();
-    for a in 0..d {
-        let mut min_v = coords[a].to_f64();
-        let mut max_v = min_v;
-        for i in 1..n {
-            let v = coords[i * d + a].to_f64();
-            min_v = min_v.min(v);
-            max_v = max_v.max(v);
+    match layout.as_euclidean_storage() {
+        EuclideanStorageRef::Soa2d { x, y } => span_collapsed(x) && span_collapsed(y),
+        EuclideanStorageRef::Soa3d { x, y, z } => {
+            span_collapsed(x) && span_collapsed(y) && span_collapsed(z)
         }
-        if (max_v - min_v) >= COLLAPSED_SPAN_EPS {
-            return false;
+        EuclideanStorageRef::FlatNd {
+            coords,
+            num_nodes,
+            dims,
+        } => {
+            for a in 0..dims {
+                let mut min_v = coords[a].to_f64();
+                let mut max_v = min_v;
+                for i in 1..num_nodes {
+                    let v = coords[i * dims + a].to_f64();
+                    min_v = min_v.min(v);
+                    max_v = max_v.max(v);
+                }
+                if (max_v - min_v) >= COLLAPSED_SPAN_EPS {
+                    return false;
+                }
+            }
+            true
         }
     }
-    true
 }
 
 pub(super) fn extract_canonical_positive_edges<W: Scalar>(
@@ -139,6 +130,68 @@ pub(super) fn extract_canonical_positive_edges<W: Scalar>(
         } else {
             out.push((a, b, w));
         }
+    }
+    Ok(out)
+}
+
+pub(super) fn extract_canonical_unweighted_edges<W>(
+    graph: &CsrGraph<W>,
+) -> CoreResult<Vec<(u32, u32, f64)>> {
+    let n = graph.num_nodes();
+    if n <= 1 || graph.nnz() == 0 {
+        return Ok(Vec::new());
+    }
+    if !graph.is_directed() {
+        let mut edges = Vec::with_capacity(graph.num_edges());
+        let mut is_sorted = true;
+        for u in 0..n {
+            let u32_u = u as u32;
+            let start = graph.indptr()[u] as usize;
+            let end = graph.indptr()[u + 1] as usize;
+            let mut prev_v: Option<u32> = None;
+            for pos in start..end {
+                let v = graph.indices()[pos];
+                if let Some(pv) = prev_v
+                    && v <= pv
+                {
+                    is_sorted = false;
+                }
+                prev_v = Some(v);
+                if u32_u < v {
+                    edges.push((u32_u, v, 1.0));
+                }
+            }
+        }
+        if !is_sorted {
+            edges.sort_unstable_by(|x, y| x.0.cmp(&y.0).then_with(|| x.1.cmp(&y.1)));
+        }
+        return Ok(edges);
+    }
+
+    let mut raw = Vec::with_capacity(graph.nnz());
+    for u in 0..n {
+        let u32_u = u as u32;
+        let start = graph.indptr()[u] as usize;
+        let end = graph.indptr()[u + 1] as usize;
+        for pos in start..end {
+            let v = graph.indices()[pos];
+            if u32_u == v {
+                continue;
+            }
+            let (a, b) = if u32_u < v { (u32_u, v) } else { (v, u32_u) };
+            raw.push((a, b, 1.0));
+        }
+    }
+    raw.sort_unstable_by(|x, y| x.0.cmp(&y.0).then_with(|| x.1.cmp(&y.1)));
+    let mut out: Vec<(u32, u32, f64)> = Vec::with_capacity(raw.len());
+    for (a, b, w) in raw {
+        if let Some(last) = out.last_mut()
+            && last.0 == a
+            && last.1 == b
+        {
+            continue;
+        }
+        out.push((a, b, w));
     }
     Ok(out)
 }

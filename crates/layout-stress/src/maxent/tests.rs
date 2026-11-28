@@ -1,4 +1,4 @@
-use egraph_core::{CoreError, CsrGraph, IterativeSolver, Layout2d, SolverStatus};
+use egraph_core::{CoreError, CsrGraph, IterativeSolver, Layout2d, Layout3d, SolverStatus};
 
 use super::{MaxentStressConfig, MaxentStressSolver};
 
@@ -36,51 +36,27 @@ fn star_graph(leaves: usize) -> CsrGraph<f64> {
 fn test_maxent_config_validation() {
     assert!(MaxentStressConfig::default().validate().is_ok());
     assert!(matches!(
-        MaxentStressConfig {
-            q: Some(-2.0),
-            ..Default::default()
-        }
-        .validate(),
+        MaxentStressConfig::new().with_q(Some(-2.0)).validate(),
         Err(CoreError::InvalidInput(_))
     ));
     assert!(matches!(
-        MaxentStressConfig {
-            q: Some(f64::NAN),
-            ..Default::default()
-        }
-        .validate(),
+        MaxentStressConfig::new().with_q(Some(f64::NAN)).validate(),
         Err(CoreError::NonFiniteValue { .. })
     ));
     assert!(matches!(
-        MaxentStressConfig {
-            alpha_decay: 0.0,
-            ..Default::default()
-        }
-        .validate(),
+        MaxentStressConfig::new().with_alpha_decay(0.0).validate(),
         Err(CoreError::InvalidInput(_))
     ));
     assert!(matches!(
-        MaxentStressConfig {
-            alpha_decay: 1.5,
-            ..Default::default()
-        }
-        .validate(),
+        MaxentStressConfig::new().with_alpha_decay(1.5).validate(),
         Err(CoreError::InvalidInput(_))
     ));
     assert!(matches!(
-        MaxentStressConfig {
-            cg_max_iters: 0,
-            ..Default::default()
-        }
-        .validate(),
+        MaxentStressConfig::new().with_cg_max_iters(0).validate(),
         Err(CoreError::InvalidInput(_))
     ));
     assert!(matches!(
-        MaxentStressConfig {
-            eps_sq: 0.0,
-            ..Default::default()
-        }
-        .validate(),
+        MaxentStressConfig::new().with_eps_sq(0.0).validate(),
         Err(CoreError::InvalidInput(_))
     ));
 }
@@ -89,34 +65,31 @@ fn test_maxent_config_validation() {
 fn test_maxent_adaptive_q_and_annealing() {
     // Grid 4x4 has 4 degree-2 corners and 0 degree-1 vertices -> q = 0.0.
     let grid = grid_graph(4, 4);
-    let solver_grid = MaxentStressSolver::<f64>::new(&grid, MaxentStressConfig::default()).unwrap();
+    let solver_grid =
+        MaxentStressSolver::<Layout2d<f64>>::new(&grid, MaxentStressConfig::default()).unwrap();
     assert_eq!(solver_grid.effective_q(), 0.0);
 
     // Star graph has > 30% degree-1 leaves -> q = 0.8.
     let star = star_graph(6);
-    let solver_star = MaxentStressSolver::<f64>::new(&star, MaxentStressConfig::default()).unwrap();
+    let solver_star =
+        MaxentStressSolver::<Layout2d<f64>>::new(&star, MaxentStressConfig::default()).unwrap();
     assert_eq!(solver_star.effective_q(), 0.8);
 
     // Explicit q overrides automatic selection.
-    let solver_override = MaxentStressSolver::<f64>::new(
+    let solver_override = MaxentStressSolver::<Layout2d<f64>>::new(
         &star,
-        MaxentStressConfig {
-            q: Some(-0.5),
-            ..Default::default()
-        },
+        MaxentStressConfig::new().with_q(Some(-0.5)),
     )
     .unwrap();
     assert_eq!(solver_override.effective_q(), -0.5);
 
     // Annealing alpha decays cleanly from 1.0 -> 0.3 -> 0.09 -> 0.027 -> 0.0081.
-    let mut s = MaxentStressSolver::<f64>::new(
+    let mut s = MaxentStressSolver::<Layout2d<f64>>::new(
         &grid,
-        MaxentStressConfig {
-            stages: 5,
-            steps_per_stage: 2,
-            tol: 0.0,
-            ..Default::default()
-        },
+        MaxentStressConfig::new()
+            .with_stages(5)
+            .with_steps_per_stage(2)
+            .with_tol(0.0),
     )
     .unwrap();
     let mut layout = Layout2d::zeros(grid.num_nodes());
@@ -129,19 +102,17 @@ fn test_maxent_adaptive_q_and_annealing() {
 }
 
 #[test]
-fn test_maxent_step_run_bit_exact_f64_and_f32() {
+fn test_maxent_step_run_bit_exact_f64_f32_and_3d() {
     let g = grid_graph(3, 4);
 
-    // f64 bit-exact step() == run(), both Barnes-Hut and exact O(N^2).
+    // f64 bit-exact step() == run(), both Barnes-Hut and exact O(N^2) on Layout2d and Layout3d.
     for &use_bh in &[true, false] {
-        let cfg = MaxentStressConfig {
-            use_barnes_hut: use_bh,
-            stages: 3,
-            steps_per_stage: 10,
-            ..Default::default()
-        };
-        let mut s1 = MaxentStressSolver::<f64>::new(&g, cfg).unwrap();
-        let mut s2 = MaxentStressSolver::<f64>::new(&g, cfg).unwrap();
+        let cfg = MaxentStressConfig::new()
+            .with_use_barnes_hut(use_bh)
+            .with_stages(3)
+            .with_steps_per_stage(10);
+        let mut s1 = MaxentStressSolver::<Layout2d<f64>>::new(&g, cfg.clone()).unwrap();
+        let mut s2 = MaxentStressSolver::<Layout2d<f64>>::new(&g, cfg.clone()).unwrap();
         let mut l1 = Layout2d::zeros(g.num_nodes());
         let mut l2 = Layout2d::zeros(g.num_nodes());
 
@@ -160,16 +131,29 @@ fn test_maxent_step_run_bit_exact_f64_and_f32() {
             l1.y().iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
             l2.y().iter().map(|v| v.to_bits()).collect::<Vec<_>>()
         );
+
+        let mut s3_1 = MaxentStressSolver::<Layout3d<f64>>::new(&g, cfg.clone()).unwrap();
+        let mut s3_2 = MaxentStressSolver::<Layout3d<f64>>::new(&g, cfg).unwrap();
+        let mut l3_1 = Layout3d::zeros(g.num_nodes());
+        let mut l3_2 = Layout3d::zeros(g.num_nodes());
+        let st3 = s3_1.run(&mut l3_1).unwrap();
+        while !s3_2.status().is_finished() {
+            s3_2.step(&mut l3_2).unwrap();
+        }
+        assert_eq!(st3, s3_2.status());
+        for i in 0..g.num_nodes() {
+            assert_eq!(l3_1.x()[i].to_bits(), l3_2.x()[i].to_bits());
+            assert_eq!(l3_1.y()[i].to_bits(), l3_2.y()[i].to_bits());
+            assert_eq!(l3_1.z()[i].to_bits(), l3_2.z()[i].to_bits());
+        }
     }
 
-    // f32 bit-exact step() == run().
-    let cfg32 = MaxentStressConfig {
-        stages: 3,
-        steps_per_stage: 8,
-        ..Default::default()
-    };
-    let mut s1 = MaxentStressSolver::<f32>::new(&g, cfg32).unwrap();
-    let mut s2 = MaxentStressSolver::<f32>::new(&g, cfg32).unwrap();
+    // f32 bit-exact step() == run() on Layout2d and Layout3d.
+    let cfg32 = MaxentStressConfig::new()
+        .with_stages(3)
+        .with_steps_per_stage(8);
+    let mut s1 = MaxentStressSolver::<Layout2d<f32>>::new(&g, cfg32.clone()).unwrap();
+    let mut s2 = MaxentStressSolver::<Layout2d<f32>>::new(&g, cfg32.clone()).unwrap();
     let mut l1 = Layout2d::<f32>::zeros(g.num_nodes());
     let mut l2 = Layout2d::<f32>::zeros(g.num_nodes());
     let st1 = s1.run(&mut l1).unwrap();
@@ -187,35 +171,46 @@ fn test_maxent_step_run_bit_exact_f64_and_f32() {
         l1.y().iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
         l2.y().iter().map(|v| v.to_bits()).collect::<Vec<_>>()
     );
+
+    let mut s32_3d = MaxentStressSolver::<Layout3d<f32>>::new(&g, cfg32).unwrap();
+    let mut l32_3d = Layout3d::<f32>::zeros(g.num_nodes());
+    assert!(s32_3d.run(&mut l32_3d).unwrap().is_finished());
+    assert!(l32_3d.is_all_finite());
 }
 
 #[test]
-fn test_maxent_edge_cases_disconnected_isolated_weighted_directed() {
+fn test_maxent_edge_cases_disconnected_isolated_weighted_directed_and_validation() {
     // N = 0 and N = 1.
     let g0 = CsrGraph::<f64>::from_edges(0, &[], None, false, false).unwrap();
-    let mut s0 = MaxentStressSolver::<f64>::new(&g0, MaxentStressConfig::default()).unwrap();
+    let mut s0 =
+        MaxentStressSolver::<Layout2d<f64>>::new(&g0, MaxentStressConfig::default()).unwrap();
     let mut l0 = Layout2d::zeros(0);
     assert_eq!(s0.step(&mut l0).unwrap(), SolverStatus::Converged);
 
     let g1 = CsrGraph::<f64>::from_edges(1, &[], None, false, false).unwrap();
-    let mut s1 = MaxentStressSolver::<f64>::new(&g1, MaxentStressConfig::default()).unwrap();
+    let mut s1 =
+        MaxentStressSolver::<Layout2d<f64>>::new(&g1, MaxentStressConfig::default()).unwrap();
     let mut l1 = Layout2d::zeros(1);
     assert_eq!(s1.step(&mut l1).unwrap(), SolverStatus::Converged);
 
     // Edgeless graph (N = 4).
     let g_edgeless = CsrGraph::<f64>::from_edges(4, &[], None, false, false).unwrap();
     let mut s_edgeless =
-        MaxentStressSolver::<f64>::new(&g_edgeless, MaxentStressConfig::default()).unwrap();
+        MaxentStressSolver::<Layout2d<f64>>::new(&g_edgeless, MaxentStressConfig::default())
+            .unwrap();
     let mut l_edgeless = Layout2d::zeros(4);
     s_edgeless.run(&mut l_edgeless).unwrap();
     assert!(l_edgeless.is_all_finite());
 
-    // Disconnected graph: two 3-paths + 2 isolated vertices (N = 8).
+    // Disconnected graph: two 3-paths + 2 isolated vertices (N = 8) with CsrGraph<()>.
     let g_disc =
-        CsrGraph::<f64>::from_edges(8, &[(0, 1), (1, 2), (3, 4), (4, 5)], None, false, false)
+        CsrGraph::<()>::from_unweighted_edges(8, &[(0, 1), (1, 2), (3, 4), (4, 5)], false, false)
             .unwrap();
-    let mut s_disc =
-        MaxentStressSolver::<f64>::new(&g_disc, MaxentStressConfig::default()).unwrap();
+    let mut s_disc = MaxentStressSolver::<Layout2d<f64>>::from_unweighted_graph(
+        &g_disc,
+        MaxentStressConfig::default(),
+    )
+    .unwrap();
     let mut l_disc = Layout2d::from_xy(
         vec![0.0, 1.0, 2.0, 5.0, 6.0, 7.0, -3.0, -4.0],
         vec![0.0, 0.5, 0.0, 2.0, 2.5, 2.0, 8.0, -8.0],
@@ -224,7 +219,6 @@ fn test_maxent_edge_cases_disconnected_isolated_weighted_directed() {
     let st_disc = s_disc.run(&mut l_disc).unwrap();
     assert!(st_disc.is_finished());
     assert!(l_disc.is_all_finite());
-    // Isolated vertices (6, 7) must remain untouched.
     assert_eq!(l_disc.x()[6], -3.0);
     assert_eq!(l_disc.y()[6], 8.0);
     assert_eq!(l_disc.x()[7], -4.0);
@@ -239,20 +233,19 @@ fn test_maxent_edge_cases_disconnected_isolated_weighted_directed() {
         false,
     )
     .unwrap();
-    let mut s_dir = MaxentStressSolver::<f64>::new(&g_dir, MaxentStressConfig::default()).unwrap();
+    let mut s_dir =
+        MaxentStressSolver::<Layout2d<f64>>::new(&g_dir, MaxentStressConfig::default()).unwrap();
     let mut l_dir = Layout2d::zeros(4);
     s_dir.run(&mut l_dir).unwrap();
     assert!(l_dir.is_all_finite());
 
     // Caller-provided non-collapsed layout is refined rather than overwritten by PivotMDS.
     let g_path = path_graph(5);
-    let mut s_custom = MaxentStressSolver::<f64>::new(
+    let mut s_custom = MaxentStressSolver::<Layout2d<f64>>::new(
         &g_path,
-        MaxentStressConfig {
-            stages: 1,
-            steps_per_stage: 0,
-            ..Default::default()
-        },
+        MaxentStressConfig::new()
+            .with_stages(1)
+            .with_steps_per_stage(0),
     )
     .unwrap();
     let mut l_custom = Layout2d::from_xy(
@@ -260,7 +253,23 @@ fn test_maxent_edge_cases_disconnected_isolated_weighted_directed() {
         vec![1.0, 2.0, 3.0, 4.0, 5.0],
     )
     .unwrap();
-    assert_eq!(s_custom.total_iterations(), 0);
+    assert_eq!(s_custom.total_iterations(), Some(0));
     s_custom.run(&mut l_custom).unwrap();
     assert_eq!(l_custom.x(), &[10.0, 20.0, 30.0, 40.0, 50.0]);
+
+    // validate_target & run_steps(target, 0) reject mismatched length and NaN without mutating state.
+    let mut l_wrong_len = Layout2d::<f64>::zeros(3);
+    assert!(matches!(
+        s_dir.validate_target(&l_wrong_len),
+        Err(CoreError::DimensionMismatch { .. })
+    ));
+    assert!(matches!(
+        s_dir.run_steps(&mut l_wrong_len, 0),
+        Err(CoreError::DimensionMismatch { .. })
+    ));
+    let mut l_nan = Layout2d::from_xy(vec![0.0, f64::NAN, 0.0, 0.0], vec![0.0; 4]).unwrap();
+    assert!(matches!(
+        s_dir.run_steps(&mut l_nan, 0),
+        Err(CoreError::NonFiniteValue { .. })
+    ));
 }

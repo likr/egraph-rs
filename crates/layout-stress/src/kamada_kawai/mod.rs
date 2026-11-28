@@ -1,8 +1,7 @@
-//! Pure-Rust Kamada-Kawai (1989) spring layout solver with `|det| <= 1e-12` Hessian
-//! singularity guard and bounded inner/outer iteration limits.
+//! Pure-Rust Kamada-Kawai (1989) spring layout solver with positive-definite Hessian
+//! guard and bounded inner/outer iteration limits over any [`RiemannianLayout`].
 
-mod manifold;
-mod nd;
+mod solver;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
@@ -10,18 +9,22 @@ mod tests_manifold;
 #[cfg(test)]
 mod tests_nd;
 
-use crate::manifold_utils::ActiveLayoutKind;
+use std::any::TypeId;
+use std::marker::PhantomData;
+
 use egraph_core::{
-    CoreError, CoreResult, CsrGraph, IterativeSolver, Layout2d, Scalar, SolverStatus,
+    CoreError, CoreResult, CsrGraph, IterativeSolver, Layout2d, ManifoldKind, ManifoldLayout2d,
+    RiemannianLayout, Scalar, SolverStatus,
 };
 use egraph_linalg::{BfsWorkspace, DijkstraWorkspace};
 
-const HESSIAN_DET_TOL: f64 = 1e-12;
-const MIN_SEPARATION: f64 = 1e-12;
-const MAX_NEWTON_STEP: f64 = 1e6;
+use solver::{
+    KamadaKawaiState, KkStepFn, KkValidateFn, step_unified, validate_manifold, validate_riemannian,
+};
 
 /// Hyperparameters for [`KamadaKawaiSolver`].
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq)]
 pub struct KamadaKawaiConfig {
     /// Outer gradient-norm convergence threshold $\varepsilon > 0$ (`default: 1e-2`).
     pub eps: f64,
@@ -42,6 +45,29 @@ impl Default for KamadaKawaiConfig {
 }
 
 impl KamadaKawaiConfig {
+    /// Creates a new [`KamadaKawaiConfig`] initialized to [`Self::default`].
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets the outer gradient-norm convergence threshold `eps`.
+    pub fn with_eps(mut self, eps: f64) -> Self {
+        self.eps = eps;
+        self
+    }
+
+    /// Sets the maximum Newton-Raphson inner iterations per selected node.
+    pub fn with_max_inner_iters(mut self, max_inner_iters: usize) -> Self {
+        self.max_inner_iters = max_inner_iters;
+        self
+    }
+
+    /// Sets the optional cap on outer node-selection steps.
+    pub fn with_max_iterations(mut self, max_iterations: Option<usize>) -> Self {
+        self.max_iterations = max_iterations;
+        self
+    }
+
     /// Validates Kamada-Kawai hyperparameters.
     pub fn validate(&self) -> CoreResult<()> {
         if !self.eps.is_finite() {
@@ -60,33 +86,23 @@ impl KamadaKawaiConfig {
     }
 }
 
-/// Cooperative pure-Rust Kamada-Kawai (1989) layout solver implementing [`IterativeSolver`].
+/// Cooperative pure-Rust Kamada-Kawai (1989) layout solver implementing [`IterativeSolver`]
+/// over any [`RiemannianLayout`] (`Layout2d`, `Layout3d`, `LayoutNd`, `ManifoldLayout2d`, and
+/// external Riemannian targets).
 ///
 /// Each [`IterativeSolver::step`] selects the vertex with largest gradient norm and moves it
-/// via Newton-Raphson (up to `max_inner_iters`), guarding `|det| <= 1e-12` Hessian
-/// singularities with a bounded steepest-descent fallback so degenerate or collinear
-/// layouts can never produce `NaN`s or infinite loops.
+/// via Newton-Raphson (up to `max_inner_iters`), guarding singular or indefinite tangent
+/// Hessians with a bounded steepest-descent fallback so degenerate or saddle configurations
+/// never step uphill or enter infinite loops.
 #[derive(Debug, Clone)]
-pub struct KamadaKawaiSolver<S: Scalar = f64> {
-    config: KamadaKawaiConfig,
-    num_nodes: usize,
-    max_iterations: usize,
-    l: Vec<f64>,
-    k: Vec<f64>,
-    x_buf: Vec<f64>,
-    y_buf: Vec<f64>,
-    active_layout: ActiveLayoutKind,
-    nd_coords: Vec<f64>,
-    nd_grad: Vec<f64>,
-    nd_hessian: Vec<f64>,
-    nd_delta: Vec<f64>,
-    nd_xm: Vec<f64>,
-    iter: usize,
-    status: SolverStatus,
-    _marker: std::marker::PhantomData<S>,
+pub struct KamadaKawaiSolver<L: RiemannianLayout = Layout2d<f64>> {
+    state: KamadaKawaiState,
+    validate_fn: KkValidateFn<L>,
+    step_fn: KkStepFn<L>,
+    _layout: PhantomData<fn() -> L>,
 }
 
-impl<S: Scalar> KamadaKawaiSolver<S> {
+impl<L: RiemannianLayout + 'static> KamadaKawaiSolver<L> {
     /// Constructs a [`KamadaKawaiSolver`] from a [`CsrGraph`] using [`BfsWorkspace`]
     /// (unweighted) or [`DijkstraWorkspace`] (weighted).
     #[inline]
@@ -133,6 +149,30 @@ impl<S: Scalar> KamadaKawaiSolver<S> {
                 } else if let Some(ws) = dijk.as_mut() {
                     ws.dijkstra_from(graph, u, row)?;
                 }
+            }
+        }
+
+        Self::from_distance_matrix(n, &dists_flat, config)
+    }
+
+    /// Constructs a [`KamadaKawaiSolver`] from an unweighted [`CsrGraph`] (ignoring edge
+    /// weights and accepting `CsrGraph<()>` directly) via [`BfsWorkspace`].
+    pub fn from_unweighted_graph<W>(
+        graph: &CsrGraph<W>,
+        config: KamadaKawaiConfig,
+    ) -> CoreResult<Self> {
+        config.validate()?;
+        let n = graph.num_nodes();
+        let total = n
+            .checked_mul(n)
+            .ok_or_else(|| CoreError::invalid_input("APSP distance matrix overflow"))?;
+        let mut dists_flat = vec![f64::INFINITY; total];
+
+        if n > 0 {
+            let mut bfs = BfsWorkspace::new(n);
+            for u in 0..n {
+                let row = &mut dists_flat[u * n..(u + 1) * n];
+                bfs.bfs_from(graph, u, row)?;
             }
         }
 
@@ -208,251 +248,119 @@ impl<S: Scalar> KamadaKawaiSolver<S> {
             SolverStatus::Initialized
         };
 
+        let is_manifold = TypeId::of::<L>() == TypeId::of::<ManifoldLayout2d<L::Scalar>>();
+        let validate_fn: KkValidateFn<L> = if is_manifold {
+            validate_manifold::<L>
+        } else {
+            validate_riemannian::<L>
+        };
+        let step_fn: KkStepFn<L> = step_unified::<L>;
+
         Ok(Self {
-            config,
-            num_nodes: n,
-            max_iterations,
-            l,
-            k,
-            x_buf: vec![0.0; n],
-            y_buf: vec![0.0; n],
-            active_layout: ActiveLayoutKind::Unset,
-            nd_coords: Vec::new(),
-            nd_grad: Vec::new(),
-            nd_hessian: Vec::new(),
-            nd_delta: Vec::new(),
-            nd_xm: Vec::new(),
-            iter: 0,
-            status,
-            _marker: std::marker::PhantomData,
+            state: KamadaKawaiState {
+                config,
+                num_nodes: n,
+                max_iterations,
+                l,
+                k,
+                log_buf: Vec::new(),
+                grad: Vec::new(),
+                hessian: Vec::new(),
+                delta: Vec::new(),
+                is_manifold,
+                locked_dim: None,
+                locked_manifold: None::<ManifoldKind>,
+                iter: 0,
+                status,
+            },
+            validate_fn,
+            step_fn,
+            _layout: PhantomData,
         })
     }
+}
 
+impl<L: RiemannianLayout> KamadaKawaiSolver<L> {
     /// Returns the solver configuration.
     #[inline]
     pub fn config(&self) -> &KamadaKawaiConfig {
-        &self.config
+        &self.state.config
     }
 
-    /// Returns the expected number of vertices in [`Layout2d`] or [`LayoutNd`](egraph_core::LayoutNd).
+    /// Returns the expected number of vertices in the target layout.
     #[inline]
     pub fn num_nodes(&self) -> usize {
-        self.num_nodes
+        self.state.num_nodes
     }
 
     /// Returns the current lifecycle status of the solver.
     #[inline]
     pub fn status(&self) -> SolverStatus {
-        self.status
+        self.state.status
     }
 
     /// Returns the number of iterations executed so far.
     #[inline]
     pub fn iteration(&self) -> usize {
-        self.iter
+        self.state.iter
     }
 
     /// Returns the configured maximum iteration budget.
     #[inline]
-    pub fn total_iterations(&self) -> usize {
-        self.max_iterations
+    pub fn total_iterations(&self) -> Option<usize> {
+        Some(self.state.max_iterations)
     }
 
-    fn select_node(&self) -> Option<(usize, f64)> {
-        let n = self.num_nodes;
-        let eps_sq = self.config.eps * self.config.eps;
-        let mut best_m = 0usize;
-        let mut best_delta2 = 0.0_f64;
+    #[cfg(test)]
+    pub(super) fn target_distances(&self) -> &[f64] {
+        &self.state.l
+    }
 
-        for m in 0..n {
-            let xm = self.x_buf[m];
-            let ym = self.y_buf[m];
-            let row = m * n;
-            let mut dedx = 0.0_f64;
-            let mut dedy = 0.0_f64;
-            for i in 0..n {
-                if i == m {
-                    continue;
-                }
-                let k_mi = self.k[row + i];
-                if k_mi <= 0.0 {
-                    continue;
-                }
-                let dx = xm - self.x_buf[i];
-                let dy = ym - self.y_buf[i];
-                let d = dx.hypot(dy);
-                if d > MIN_SEPARATION && d.is_finite() {
-                    let f = k_mi * (1.0 - self.l[row + i] / d);
-                    dedx += f * dx;
-                    dedy += f * dy;
-                }
-            }
-            let delta2 = dedx * dedx + dedy * dedy;
-            if delta2.is_finite() && delta2 > best_delta2 {
-                best_delta2 = delta2;
-                best_m = m;
-            }
-        }
-
-        if best_delta2 < eps_sq {
-            None
-        } else {
-            Some((best_m, best_delta2))
-        }
+    #[cfg(test)]
+    pub(super) fn spring_weights(&self) -> &[f64] {
+        &self.state.k
     }
 }
 
-impl<S: Scalar> IterativeSolver<S> for KamadaKawaiSolver<S> {
-    fn step(&mut self, layout: &mut Layout2d<S>) -> CoreResult<SolverStatus> {
-        if layout.len() != self.num_nodes {
-            return Err(CoreError::dimension_mismatch(
-                self.num_nodes,
-                layout.len(),
-                "KamadaKawaiSolver::step",
-            ));
-        }
-        layout.validate_finite()?;
-        self.active_layout.lock_2d("KamadaKawaiSolver")?;
+impl<L: RiemannianLayout> IterativeSolver for KamadaKawaiSolver<L> {
+    type Target = L;
 
-        if self.status.is_finished() {
-            return Ok(self.status);
+    fn validate_target(&self, target: &Self::Target) -> CoreResult<()> {
+        (self.validate_fn)(&self.state, target)
+    }
+
+    fn step(&mut self, target: &mut Self::Target) -> CoreResult<SolverStatus> {
+        self.validate_target(target)?;
+
+        if self.state.status.is_finished() {
+            return Ok(self.state.status);
         }
 
-        let n = self.num_nodes;
-        if n <= 1 {
-            self.status = SolverStatus::Converged;
-            return Ok(self.status);
+        if let Err(err) = (self.step_fn)(&mut self.state, target) {
+            if matches!(
+                err,
+                CoreError::NumericalBreakdown(_) | CoreError::NonFiniteValue { .. }
+            ) {
+                self.state.status = SolverStatus::Failed;
+            }
+            return Err(err);
         }
 
-        {
-            let xs = layout.x();
-            let ys = layout.y();
-            for i in 0..n {
-                self.x_buf[i] = xs[i].to_f64();
-                self.y_buf[i] = ys[i].to_f64();
-            }
-        }
-
-        let Some((m, _)) = self.select_node() else {
-            self.status = SolverStatus::Converged;
-            return Ok(self.status);
-        };
-
-        let eps_sq = self.config.eps * self.config.eps;
-        let row = m * n;
-        let mut xm = self.x_buf[m];
-        let mut ym = self.y_buf[m];
-
-        for _ in 0..self.config.max_inner_iters {
-            let mut hxx = 0.0_f64;
-            let mut hyy = 0.0_f64;
-            let mut hxy = 0.0_f64;
-            let mut dedx = 0.0_f64;
-            let mut dedy = 0.0_f64;
-
-            for i in 0..n {
-                if i == m {
-                    continue;
-                }
-                let k_mi = self.k[row + i];
-                if k_mi <= 0.0 {
-                    continue;
-                }
-                let l_mi = self.l[row + i];
-                let dx = xm - self.x_buf[i];
-                let dy = ym - self.y_buf[i];
-                let d = dx.hypot(dy);
-                if d <= MIN_SEPARATION || !d.is_finite() {
-                    continue;
-                }
-                let d3 = d * d * d;
-                if d3 > 0.0 && d3.is_finite() {
-                    hxx += k_mi * (1.0 - l_mi * dy * dy / d3);
-                    hyy += k_mi * (1.0 - l_mi * dx * dx / d3);
-                    hxy += k_mi * l_mi * dx * dy / d3;
-                }
-                let f = k_mi * (1.0 - l_mi / d);
-                dedx += f * dx;
-                dedy += f * dy;
-            }
-
-            let delta2 = dedx * dedx + dedy * dedy;
-            if !delta2.is_finite() || delta2 < eps_sq {
-                break;
-            }
-
-            let det = hxx * hyy - hxy * hxy;
-            if !det.is_finite() || det.abs() <= HESSIAN_DET_TOL {
-                // Singular or near-singular Hessian: take one bounded steepest-descent fallback step
-                // and exit the inner Newton loop cleanly so degenerate configurations never loop.
-                let g_norm = delta2.sqrt();
-                if g_norm > 0.0 && g_norm.is_finite() {
-                    let step_len = (0.1 / g_norm).min(0.25);
-                    let cand_x = xm - step_len * dedx;
-                    let cand_y = ym - step_len * dedy;
-                    if cand_x.is_finite() && cand_y.is_finite() {
-                        xm = cand_x;
-                        ym = cand_y;
-                    }
-                }
-                break;
-            }
-
-            let mut delta_x = (hyy * dedx - hxy * dedy) / det;
-            let mut delta_y = (hxx * dedy - hxy * dedx) / det;
-            if !delta_x.is_finite() || !delta_y.is_finite() {
-                break;
-            }
-            let step_norm = delta_x.hypot(delta_y);
-            if step_norm > MAX_NEWTON_STEP {
-                let scale = MAX_NEWTON_STEP / step_norm;
-                delta_x *= scale;
-                delta_y *= scale;
-            }
-
-            let cand_x = xm - delta_x;
-            let cand_y = ym - delta_y;
-            if !cand_x.is_finite() || !cand_y.is_finite() {
-                break;
-            }
-            xm = cand_x;
-            ym = cand_y;
-
-            if step_norm <= self.config.eps * 1e-2 {
-                break;
-            }
-        }
-
-        let new_xm = S::from_f64(xm);
-        let new_ym = S::from_f64(ym);
-        if new_xm.is_finite() {
-            layout.x_mut()[m] = new_xm;
-        }
-        if new_ym.is_finite() {
-            layout.y_mut()[m] = new_ym;
-        }
-
-        self.iter += 1;
-        self.status = if self.iter >= self.max_iterations {
-            SolverStatus::Completed
-        } else {
-            SolverStatus::Running
-        };
-        Ok(self.status)
+        Ok(self.state.status)
     }
 
     #[inline]
     fn status(&self) -> SolverStatus {
-        self.status
+        self.state.status
     }
 
     #[inline]
     fn iteration(&self) -> usize {
-        self.iter
+        self.state.iter
     }
 
     #[inline]
-    fn total_iterations(&self) -> usize {
-        self.max_iterations
+    fn total_iterations(&self) -> Option<usize> {
+        Some(self.state.max_iterations)
     }
 }
