@@ -1,4 +1,4 @@
-use egraph_core::{CoreError, CoreResult, CsrGraph, DeterministicRng, Scalar};
+use egraph_core::{CoreError, CoreResult, CsrGraph, DeterministicRng, EdgeWeight};
 use egraph_linalg::LinearOperator;
 
 use crate::amg_pcg::AmgPcgSolver;
@@ -10,7 +10,10 @@ use super::graph_ops::{count_components, extract_canonical_edges};
 /// Computes effective edge resistances $R_e$ and Foster's theorem diagnostics for `graph`
 /// via the Spielman-Srivastava JL projection backed by a pre-built [`AmgPcgSolver`] and
 /// matrix-free [`LinearOperator<f64>`] `op` representing the graph Laplacian.
-pub fn compute_effective_resistances_with_operator<W: Scalar, O: LinearOperator<f64> + ?Sized>(
+pub fn compute_effective_resistances_with_operator<
+    W: EdgeWeight,
+    O: LinearOperator<f64> + ?Sized,
+>(
     graph: &CsrGraph<W>,
     solver: &AmgPcgSolver,
     op: &mut O,

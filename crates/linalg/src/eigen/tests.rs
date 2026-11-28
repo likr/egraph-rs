@@ -285,3 +285,105 @@ fn test_lanczos_operator_largest_smallest_and_builders() {
             .is_err()
     );
 }
+
+#[test]
+fn test_smallest_sym_laplacian_with_config_unit_graph_and_shift_invert() {
+    use crate::operator::FnOperator;
+
+    // CsrGraph<()> works directly for Laplacians and smallest_sym_laplacian_eigenpairs_with_config
+    let mut edges = Vec::new();
+    let rows = 10usize;
+    let cols = 10usize;
+    for r in 0..rows {
+        for c in 0..cols {
+            let u = (r * cols + c) as u32;
+            if c + 1 < cols {
+                edges.push((u, u + 1));
+            }
+            if r + 1 < rows {
+                edges.push((u, u + cols as u32));
+            }
+        }
+    }
+    let g_unit = CsrGraph::<()>::from_unweighted_edges(100, &edges, false, false).unwrap();
+    let g_f64 = CsrGraph::<f64>::from_edges(100, &edges, None, false, false).unwrap();
+
+    let cfg = LanczosEigen::default()
+        .with_tol(1e-7)
+        .with_max_iters(400)
+        .with_subspace_dim(Some(24))
+        .with_seed(42);
+    // Request n_modes = 3 ((1,0), (0,1), (1,1)) to avoid splitting the degenerate (2,0)/(0,2) pair.
+    let n_modes = 3;
+    let res_unit = smallest_sym_laplacian_eigenpairs_with_config(&g_unit, n_modes, &cfg).unwrap();
+    let res_f64 = smallest_sym_laplacian_eigenpairs_with_config(&g_f64, n_modes, &cfg).unwrap();
+    assert_eq!(res_unit, res_f64);
+    assert!(!res_unit.used_dense_fallback);
+
+    // Exact (L_sym + sigma * I)^{-1} operator via spectral decomposition of L_sym
+    let (l_sym, inv_sqrt_deg) = symmetric_normalized_laplacian(&g_unit);
+    let n = g_unit.num_nodes();
+    let dense = l_sym.to_dense().unwrap();
+    let (evals, evecs) = symmetric_eigen_jacobi(&dense, n, 120, 1e-13).unwrap();
+    let sigma = 0.05;
+    let mut tmp_proj = vec![0.0_f64; n];
+    let mut inv_op = FnOperator::new(n, |x: &[f64], y: &mut [f64]| {
+        tmp_proj.fill(0.0);
+        for row in 0..n {
+            let xr = x[row];
+            for k in 0..n {
+                tmp_proj[k] += evecs[row * n + k] * xr;
+            }
+        }
+        for k in 0..n {
+            tmp_proj[k] /= evals[k] + sigma;
+        }
+        for row in 0..n {
+            let mut acc = 0.0_f64;
+            for k in 0..n {
+                acc += evecs[row * n + k] * tmp_proj[k];
+            }
+            y[row] = acc;
+        }
+        Ok(())
+    });
+
+    let res_si =
+        smallest_eigenpairs_from_inverse_operator(&mut inv_op, inv_sqrt_deg, n_modes, sigma, &cfg)
+            .unwrap();
+    assert!(!res_si.used_dense_fallback);
+    assert_eq!(res_si.num_nodes, n);
+    assert_eq!(res_si.num_modes, n_modes);
+    for m in 0..n_modes {
+        assert!(
+            (res_si.lambdas[m] - res_unit.lambdas[m]).abs() < 1e-6,
+            "shift-invert lambda[{m}] mismatch: {} vs {}",
+            res_si.lambdas[m],
+            res_unit.lambdas[m]
+        );
+    }
+    let cos_min = min_principal_angle_cosine(&res_si.vectors, &res_unit.vectors, n, n_modes);
+    assert!(cos_min > 0.9999, "shift-invert principal cosine {cos_min}");
+
+    // Validation errors on smallest_eigenpairs_from_inverse_operator
+    assert!(
+        smallest_eigenpairs_from_inverse_operator(&mut inv_op, vec![1.0; n], 0, sigma, &cfg)
+            .is_err()
+    );
+    assert!(
+        smallest_eigenpairs_from_inverse_operator(&mut inv_op, vec![1.0; n], 4, 0.0, &cfg).is_err()
+    );
+    assert!(
+        smallest_eigenpairs_from_inverse_operator(&mut inv_op, vec![1.0; n], 4, f64::NAN, &cfg)
+            .is_err()
+    );
+    assert!(
+        smallest_eigenpairs_from_inverse_operator(&mut inv_op, vec![1.0; n - 1], 4, sigma, &cfg)
+            .is_err()
+    );
+    let mut bad_inv = vec![1.0; n];
+    bad_inv[0] = f64::NAN;
+    assert!(
+        smallest_eigenpairs_from_inverse_operator(&mut inv_op, bad_inv, 4, sigma, &cfg).is_err()
+    );
+}

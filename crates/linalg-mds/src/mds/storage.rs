@@ -146,7 +146,7 @@ pub(super) fn write_row_major_to_layout<L: EuclideanLayout>(
 
 macro_rules! impl_euclidean_layout_generator {
     ($ty:ident) => {
-        impl<'a, L: super::storage::EuclideanLayoutAlloc, W: egraph_core::Scalar>
+        impl<'a, L: super::storage::EuclideanLayoutAlloc, W: egraph_core::EdgeWeight>
             egraph_core::LayoutGenerator for $ty<'a, L, W>
         {
             type Output = L;

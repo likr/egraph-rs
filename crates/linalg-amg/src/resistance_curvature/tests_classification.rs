@@ -439,3 +439,32 @@ fn test_default_flow_open_planar_grids_euclidean_across_seeds() {
         }
     }
 }
+
+#[test]
+fn test_unit_weighted_csr_graph_effective_resistances_and_flow() {
+    use egraph_linalg::combinatorial_laplacian;
+
+    let edges = vec![(0, 1), (1, 2), (2, 3), (3, 0), (0, 2)];
+    let g_unit = CsrGraph::<()>::from_unweighted_edges(4, &edges, false, false).unwrap();
+    let g_f64 = CsrGraph::<f64>::from_edges(4, &edges, None, false, false).unwrap();
+
+    let er_cfg = EffectiveResistanceConfig::default();
+    let er_unit = compute_effective_resistances(&g_unit, &er_cfg).unwrap();
+    let er_f64 = compute_effective_resistances(&g_f64, &er_cfg).unwrap();
+    assert_eq!(er_unit, er_f64);
+
+    let flow_cfg = ResistanceCurvatureConfig::default();
+    let flow_unit = resistance_curvature_flow(&g_unit, &flow_cfg).unwrap();
+    let flow_f64 = resistance_curvature_flow(&g_f64, &flow_cfg).unwrap();
+    assert_eq!(flow_unit, flow_f64);
+
+    let mut l_mat = combinatorial_laplacian(&g_unit);
+    let jl_cfg = EffectiveResistanceConfig::new().with_exact(Some(false));
+    let solver =
+        crate::AmgPcgSolver::with_near_nullspace(&l_mat, None, jl_cfg.amg_config.clone()).unwrap();
+    let er_op_unit =
+        compute_effective_resistances_with_operator(&g_unit, &solver, &mut l_mat, &jl_cfg).unwrap();
+    let er_op_f64 =
+        compute_effective_resistances_with_operator(&g_f64, &solver, &mut l_mat, &jl_cfg).unwrap();
+    assert_eq!(er_op_unit, er_op_f64);
+}

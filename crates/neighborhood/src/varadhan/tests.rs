@@ -243,3 +243,29 @@ fn test_landmarks_encapsulation_and_validation() {
     assert!(RhghLandmarks::new_validated(2, vec![5], vec![0.0, 1.0]).is_err());
     assert!(RhghLandmarks::new_validated(2, vec![0], vec![0.0, f64::INFINITY]).is_err());
 }
+
+#[test]
+fn test_dog_varadhan_landmarks_unit_weighted_csr_graph() {
+    let edges: Vec<(u32, u32)> = (0..16)
+        .map(|i| (i, (i + 1) % 16))
+        .chain([(0, 8), (4, 12)])
+        .collect();
+    let g_unit = CsrGraph::<()>::from_unweighted_edges(16, &edges, false, false).unwrap();
+    let g_f64 = CsrGraph::<f64>::from_edges(16, &edges, None, false, false).unwrap();
+
+    let cfg = DogVaradhanConfig::default();
+    let (lm_unit, st_unit) = compute_regularized_dog_varadhan_landmarks(&g_unit, &cfg).unwrap();
+    let (lm_f64, st_f64) = compute_regularized_dog_varadhan_landmarks(&g_f64, &cfg).unwrap();
+    assert_eq!(lm_unit, lm_f64);
+    assert_eq!(st_unit, st_f64);
+
+    let l_comb = egraph_linalg::combinatorial_laplacian(&g_unit);
+    let (lm_mat_unit, st_mat_unit) =
+        compute_regularized_dog_varadhan_landmarks_from_matrix(&g_unit, &l_comb, None, &cfg)
+            .unwrap();
+    let (lm_mat_f64, st_mat_f64) =
+        compute_regularized_dog_varadhan_landmarks_from_matrix(&g_f64, &l_comb, None, &cfg)
+            .unwrap();
+    assert_eq!(lm_mat_unit, lm_mat_f64);
+    assert_eq!(st_mat_unit, st_mat_f64);
+}

@@ -1,4 +1,4 @@
-use egraph_core::{CoreError, CoreResult, CsrGraph, Scalar};
+use egraph_core::{CoreError, CoreResult, CsrGraph, EdgeWeight};
 
 use super::matrix::CsrMatrix;
 
@@ -16,7 +16,7 @@ pub enum LaplacianKind {
 
 /// Extracts canonical undirected simple adjacency rows `(col, weight)` and vertex degrees,
 /// filtering self-loops and non-positive or non-finite edge weights.
-pub(super) fn canonical_undirected_adjacency<W: Scalar>(
+pub(super) fn canonical_undirected_adjacency<W: EdgeWeight>(
     graph: &CsrGraph<W>,
     binarize: bool,
 ) -> (Vec<Vec<(u32, f64)>>, Vec<f64>) {
@@ -38,7 +38,7 @@ pub(super) fn canonical_undirected_adjacency<W: Scalar>(
             }
             let w = match weights_opt {
                 Some(ws) => {
-                    let wf = ws[pos].to_f64();
+                    let wf = ws[pos].weight_to_f64();
                     if !wf.is_finite() || wf <= 0.0 {
                         continue;
                     }
@@ -75,13 +75,13 @@ pub(super) fn canonical_undirected_adjacency<W: Scalar>(
 
 /// Checks whether an undirected `CsrGraph` can be streamed in a single zero-bucket pass
 /// (already sorted rows and strictly positive finite weights).
-pub(super) fn is_fast_undirected_clean<W: Scalar>(graph: &CsrGraph<W>) -> bool {
+pub(super) fn is_fast_undirected_clean<W: EdgeWeight>(graph: &CsrGraph<W>) -> bool {
     if graph.is_directed() {
         return false;
     }
     if let Some(ws) = graph.weights()
         && ws.iter().any(|w| {
-            let wf = w.to_f64();
+            let wf = w.weight_to_f64();
             !wf.is_finite() || wf <= 0.0
         })
     {
@@ -101,7 +101,7 @@ pub(super) fn is_fast_undirected_clean<W: Scalar>(graph: &CsrGraph<W>) -> bool {
 ///
 /// Edge weights are filtered to strictly positive finite values (`> 0.0`); unweighted graphs use
 /// unit strength `1.0`. Isolated vertices receive `inv_sqrt_deg[i] = 0.0` and `L_sym[i, i] = 1.0`.
-pub fn symmetric_normalized_laplacian<W: Scalar>(graph: &CsrGraph<W>) -> (CsrMatrix, Vec<f64>) {
+pub fn symmetric_normalized_laplacian<W: EdgeWeight>(graph: &CsrGraph<W>) -> (CsrMatrix, Vec<f64>) {
     let n = graph.num_nodes();
     if n == 0 {
         return (
@@ -117,7 +117,7 @@ pub fn symmetric_normalized_laplacian<W: Scalar>(graph: &CsrGraph<W>) -> (CsrMat
             let start = graph.indptr()[u] as usize;
             let end = graph.indptr()[u + 1] as usize;
             *deg_u = match weights_opt {
-                Some(ws) => ws[start..end].iter().map(|w| w.to_f64()).sum(),
+                Some(ws) => ws[start..end].iter().map(|w| w.weight_to_f64()).sum(),
                 None => (end - start) as f64,
             };
         }
@@ -145,7 +145,7 @@ pub fn symmetric_normalized_laplacian<W: Scalar>(graph: &CsrGraph<W>) -> (CsrMat
                     diag_inserted = true;
                 }
                 let w = match weights_opt {
-                    Some(ws) => ws[pos].to_f64(),
+                    Some(ws) => ws[pos].weight_to_f64(),
                     None => 1.0,
                 };
                 let entry = -w * inv_u * inv_sqrt_deg[v as usize];
@@ -201,7 +201,7 @@ pub fn symmetric_normalized_laplacian<W: Scalar>(graph: &CsrGraph<W>) -> (CsrMat
 }
 
 /// Constructs the combinatorial (unnormalized) graph Laplacian $L = D - A$.
-pub fn combinatorial_laplacian<W: Scalar>(graph: &CsrGraph<W>) -> CsrMatrix {
+pub fn combinatorial_laplacian<W: EdgeWeight>(graph: &CsrGraph<W>) -> CsrMatrix {
     let n = graph.num_nodes();
     if n == 0 {
         return CsrMatrix::from_validated_parts(0, vec![0], Vec::new(), Vec::new(), Vec::new());
@@ -220,7 +220,7 @@ pub fn combinatorial_laplacian<W: Scalar>(graph: &CsrGraph<W>) -> CsrMatrix {
             let start = graph.indptr()[u] as usize;
             let end = graph.indptr()[u + 1] as usize;
             let deg_u: f64 = match weights_opt {
-                Some(ws) => ws[start..end].iter().map(|w| w.to_f64()).sum(),
+                Some(ws) => ws[start..end].iter().map(|w| w.weight_to_f64()).sum(),
                 None => (end - start) as f64,
             };
             diagonal.push(deg_u);
@@ -234,7 +234,7 @@ pub fn combinatorial_laplacian<W: Scalar>(graph: &CsrGraph<W>) -> CsrMatrix {
                     diag_inserted = true;
                 }
                 let w = match weights_opt {
-                    Some(ws) => ws[pos].to_f64(),
+                    Some(ws) => ws[pos].weight_to_f64(),
                     None => 1.0,
                 };
                 indices.push(v);
@@ -284,7 +284,7 @@ pub fn combinatorial_laplacian<W: Scalar>(graph: &CsrGraph<W>) -> CsrMatrix {
 /// Constructs the random-walk normalized graph Laplacian $L_{\mathrm{rw}} = D^{-1}(D - A)$.
 ///
 /// Isolated nodes (`deg == 0`) have zero rows and zero diagonal entries.
-pub fn random_walk_laplacian<W: Scalar>(graph: &CsrGraph<W>) -> CsrMatrix {
+pub fn random_walk_laplacian<W: EdgeWeight>(graph: &CsrGraph<W>) -> CsrMatrix {
     let n = graph.num_nodes();
     if n == 0 {
         return CsrMatrix::from_validated_parts(0, vec![0], Vec::new(), Vec::new(), Vec::new());
@@ -326,7 +326,7 @@ pub fn random_walk_laplacian<W: Scalar>(graph: &CsrGraph<W>) -> CsrMatrix {
 }
 
 /// Constructs a CSR graph Laplacian of the requested [`LaplacianKind`].
-pub fn laplacian<W: Scalar>(graph: &CsrGraph<W>, kind: LaplacianKind) -> CsrMatrix {
+pub fn laplacian<W: EdgeWeight>(graph: &CsrGraph<W>, kind: LaplacianKind) -> CsrMatrix {
     match kind {
         LaplacianKind::Combinatorial => combinatorial_laplacian(graph),
         LaplacianKind::SymmetricNormalized => symmetric_normalized_laplacian(graph).0,

@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use egraph_core::{CoreError, CoreResult, CsrGraph, EuclideanLayout, Layout2d, Scalar};
+use egraph_core::{CoreError, CoreResult, CsrGraph, EdgeWeight, EuclideanLayout, Layout2d, Scalar};
 use egraph_linalg::smallest_sym_laplacian_eigenpairs;
 
 use super::normalize::normalize_euclidean_layout;
@@ -75,6 +75,9 @@ impl KorenSpectralConfig {
 
 /// Koren's degree-normalized spectral layout generator $(D^{-1/2} v_2, \dots, D^{-1/2} v_{d+1})$
 /// implementing [`LayoutGenerator`](egraph_core::LayoutGenerator) for `Layout2d`, `Layout3d`, and `LayoutNd`.
+///
+/// Reference: Koren, Y. (2003/2005), *"On Spectral Graph Drawing"*, *COCOON 2003* /
+/// *Computers & Mathematics with Applications* 49(11–12), 1867–1883.
 #[non_exhaustive]
 #[derive(Debug)]
 pub struct KorenSpectral<'a, L: EuclideanLayout = Layout2d<f64>, W = f64> {
@@ -93,7 +96,7 @@ impl<L: EuclideanLayout, W> Clone for KorenSpectral<'_, L, W> {
     }
 }
 
-impl<'a, L: EuclideanLayout, W: Scalar> KorenSpectral<'a, L, W> {
+impl<'a, L: EuclideanLayout, W: EdgeWeight> KorenSpectral<'a, L, W> {
     /// Creates a [`KorenSpectral`] generator with default configuration on `graph`.
     pub fn new(graph: &'a CsrGraph<W>) -> Self {
         Self {
@@ -193,7 +196,7 @@ impl<L: EuclideanLayoutAlloc, W> KorenSpectral<'_, L, W> {
     }
 }
 
-impl<L: EuclideanLayout, W: Scalar> KorenSpectral<'_, L, W> {
+impl<L: EuclideanLayout, W: EdgeWeight> KorenSpectral<'_, L, W> {
     fn generate_into_layout(&self, layout: &mut L, dims: usize) -> CoreResult<()> {
         self.validate_config()?;
         let n = self.graph.num_nodes();

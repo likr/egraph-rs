@@ -334,3 +334,88 @@ fn test_euclidean_move_pair_radial_parity_and_atomic_guards() {
     ));
     assert_eq!(l2_32, l2_32_snap);
 }
+
+#[test]
+fn test_riemannian_default_stack_fast_path_heap_fallback_and_coincident() {
+    struct WrapperNd(LayoutNd<f64>);
+
+    impl LayoutStorage for WrapperNd {
+        type Scalar = f64;
+
+        fn len(&self) -> usize {
+            LayoutStorage::len(&self.0)
+        }
+
+        fn validate_finite(&self) -> CoreResult<()> {
+            LayoutStorage::validate_finite(&self.0)
+        }
+    }
+
+    impl MetricSpace for WrapperNd {
+        fn distance(&self, i: usize, j: usize) -> f64 {
+            MetricSpace::distance(&self.0, i, j)
+        }
+    }
+
+    impl RiemannianLayout for WrapperNd {
+        fn tangent_dim(&self) -> usize {
+            self.0.dims()
+        }
+
+        fn log_map_into(&self, i: usize, j: usize, out: &mut [f64]) -> CoreResult<()> {
+            RiemannianLayout::log_map_into(&self.0, i, j, out)
+        }
+
+        fn exp_map(&mut self, i: usize, delta: &[f64]) -> CoreResult<()> {
+            RiemannianLayout::exp_map(&mut self.0, i, delta)
+        }
+
+        fn parallel_transport_into(
+            &self,
+            i: usize,
+            delta: &[f64],
+            vec: &mut [f64],
+        ) -> CoreResult<()> {
+            RiemannianLayout::parallel_transport_into(&self.0, i, delta, vec)
+        }
+    }
+
+    // tangent_dim == 8 (stack-buffer fast path boundary)
+    let mut coords_8 = vec![0.0_f64; 16];
+    coords_8[8] = 3.0;
+    coords_8[15] = 4.0;
+    let base_8 = LayoutNd::from_flat(2, 8, &coords_8).unwrap();
+    let mut w8 = WrapperNd(base_8.clone());
+    let mut d8 = base_8;
+    w8.move_pair_radial(0, 1, 1.5, 0.5).unwrap();
+    d8.move_pair_radial(0, 1, 1.5, 0.5).unwrap();
+    assert!((w8.distance(0, 1) - 3.0).abs() < 1e-12);
+    assert_eq!(w8.0.coords(), d8.coords());
+
+    // tangent_dim == 12 (> 8 heap fallback path)
+    let mut coords_12 = vec![0.0_f64; 24];
+    coords_12[12] = 6.0;
+    coords_12[23] = 8.0;
+    let base_12 = LayoutNd::from_flat(2, 12, &coords_12).unwrap();
+    let mut w12 = WrapperNd(base_12.clone());
+    let mut d12 = base_12;
+    w12.move_pair_toward(0, 1, 4.0, 0.25, 0.25).unwrap();
+    d12.move_pair_toward(0, 1, 4.0, 0.25, 0.25).unwrap();
+    assert!((w12.distance(0, 1) - 7.0).abs() < 1e-12);
+    assert_eq!(w12.0.coords(), d12.coords());
+
+    // Exact coincident points (d == 0.0) and near-coincident points (d <= 1e-15) are no-ops
+    let coinc = LayoutNd::from_flat(2, 12, &[2.0_f64; 24]).unwrap();
+    let mut w_coinc = WrapperNd(coinc.clone());
+    w_coinc.move_pair_radial(0, 1, 1.0, 1.0).unwrap();
+    w_coinc.move_pair_toward(0, 1, 5.0, 0.5, 0.5).unwrap();
+    assert_eq!(w_coinc.0, coinc);
+
+    let mut near_coords = vec![2.0_f64; 16];
+    near_coords[8] = 2.0 + 1e-16;
+    let near = LayoutNd::from_flat(2, 8, &near_coords).unwrap();
+    let mut w_near = WrapperNd(near.clone());
+    w_near.move_pair_radial(0, 1, 1.0, 1.0).unwrap();
+    w_near.move_pair_toward(0, 1, 5.0, 0.5, 0.5).unwrap();
+    assert_eq!(w_near.0, near);
+}

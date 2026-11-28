@@ -1,12 +1,12 @@
-use egraph_core::{CoreError, CoreResult, CsrGraph, Scalar};
+use egraph_core::{CoreError, CoreResult, CsrGraph, EdgeWeight};
 use egraph_linalg::symmetric_eigen_jacobi;
 
 use super::hde::HdeConfig;
 
-pub(super) fn validate_positive_weights<W: Scalar>(graph: &CsrGraph<W>) -> CoreResult<()> {
+pub(super) fn validate_positive_weights<W: EdgeWeight>(graph: &CsrGraph<W>) -> CoreResult<()> {
     if let Some(ws) = graph.weights() {
         for &w in ws {
-            let wf = w.to_f64();
+            let wf = w.weight_to_f64();
             if !wf.is_finite() || wf <= 0.0 {
                 return Err(CoreError::invalid_input(
                     "HDE edge weights must be finite and strictly positive",

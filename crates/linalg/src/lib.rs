@@ -38,7 +38,8 @@ pub use csr_matrix::{
     spectral_moment_stats, symmetric_normalized_laplacian,
 };
 pub use eigen::{
-    EigenResult, LanczosEigen, SubspaceEigen, smallest_sym_laplacian_eigenpairs,
+    EigenResult, LanczosEigen, SubspaceEigen, smallest_eigenpairs_from_inverse_operator,
+    smallest_sym_laplacian_eigenpairs, smallest_sym_laplacian_eigenpairs_with_config,
     symmetric_eigen_jacobi,
 };
 pub use operator::{FnOperator, LinearOperator};

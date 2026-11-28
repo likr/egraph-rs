@@ -1,7 +1,7 @@
 //! Regularized Chebyshev DoG Varadhan landmark computation and optional coarse diffusive
 //! scaffold evaluation.
 
-use egraph_core::{CoreError, CoreResult, CsrGraph, Scalar};
+use egraph_core::{CoreError, CoreResult, CsrGraph, EdgeWeight};
 use egraph_linalg::{
     ChebyshevWorkspace, CsrMatrix, DEFAULT_SPECTRUM_LANCZOS_SAFETY_FACTOR,
     DEFAULT_SPECTRUM_LANCZOS_STEPS, SpectralMomentStats, adaptive_chebyshev_degree_scaled,
@@ -50,7 +50,7 @@ fn build_varadhan_table(
 /// tables combining `egraph-linalg`'s R1/R2 PSD-projected DoG filter, single-pass dual tiled
 /// Chebyshev SpMM + JL diagonal estimation, `beta_auto` positivity shift, and an optional
 /// coarse heat scaffold at `config.t_coarse` (`48.0`).
-pub fn compute_regularized_dog_varadhan_landmarks<W: Scalar>(
+pub fn compute_regularized_dog_varadhan_landmarks<W: EdgeWeight>(
     graph: &CsrGraph<W>,
     config: &DogVaradhanConfig,
 ) -> CoreResult<(DogVaradhanLandmarks, DogVaradhanStats)> {
@@ -81,7 +81,7 @@ pub fn compute_regularized_dog_varadhan_landmarks<W: Scalar>(
 /// Lanczos (`1.05` safety margin clamped by Gershgorin) and scales adaptive Chebyshev degrees
 /// to $[0, \hat{\lambda}_{\max}]$. Set `config.t_coarse = 0.0` to evaluate pure $L_\alpha$ DoG
 /// without a coarse scaffold.
-pub fn compute_regularized_dog_varadhan_landmarks_from_matrix<W: Scalar>(
+pub fn compute_regularized_dog_varadhan_landmarks_from_matrix<W: EdgeWeight>(
     graph: &CsrGraph<W>,
     matrix: &CsrMatrix,
     lambda_max: Option<f64>,
@@ -154,7 +154,7 @@ pub fn compute_regularized_dog_varadhan_landmarks_from_matrix<W: Scalar>(
     )
 }
 
-fn compute_dog_varadhan_landmarks_impl<W: Scalar>(
+fn compute_dog_varadhan_landmarks_impl<W: EdgeWeight>(
     graph: &CsrGraph<W>,
     matrix: &CsrMatrix,
     lambda_max: f64,

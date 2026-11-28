@@ -1,4 +1,4 @@
-use egraph_core::{CoreError, CoreResult, CsrGraph, Scalar};
+use egraph_core::{CoreError, CoreResult, CsrGraph, EdgeWeight};
 use egraph_linalg::symmetric_eigen_jacobi;
 
 use crate::amg_pcg::AmgPcgSolver;
@@ -34,7 +34,7 @@ pub(super) struct CurvatureEval {
 }
 
 /// Computes effective edge resistances $R_e$ and Foster's theorem diagnostics for `graph`.
-pub fn compute_effective_resistances<W: Scalar>(
+pub fn compute_effective_resistances<W: EdgeWeight>(
     graph: &CsrGraph<W>,
     config: &EffectiveResistanceConfig,
 ) -> CoreResult<EffectiveResistanceResult> {

@@ -1,4 +1,4 @@
-use egraph_core::{CoreError, CoreResult, CsrGraph, Scalar};
+use egraph_core::{CoreError, CoreResult, CsrGraph, EdgeWeight};
 
 use super::classify::classify_geometry_from_curvature_with_sampling;
 use super::config::{
@@ -14,7 +14,7 @@ use super::graph_ops::{
 };
 
 /// Runs Devriendt-Lambiotte resistance curvature flow on `graph` and classifies geometry.
-pub fn resistance_curvature_flow<W: Scalar>(
+pub fn resistance_curvature_flow<W: EdgeWeight>(
     graph: &CsrGraph<W>,
     config: &ResistanceCurvatureConfig,
 ) -> CoreResult<ResistanceCurvatureFlowResult> {

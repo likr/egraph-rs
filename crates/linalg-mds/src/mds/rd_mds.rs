@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
-use egraph_core::{CoreError, CoreResult, CsrGraph, EuclideanLayout, Layout2d, Scalar};
-use egraph_linalg::smallest_sym_laplacian_eigenpairs;
+use egraph_core::{CoreError, CoreResult, CsrGraph, EdgeWeight, EuclideanLayout, Layout2d, Scalar};
+use egraph_linalg::{LanczosEigen, smallest_sym_laplacian_eigenpairs_with_config};
 
 use super::normalize::normalize_euclidean_layout;
 use super::storage::{
@@ -20,6 +20,8 @@ pub struct RdMdsConfig {
     pub tol: f64,
     /// Maximum number of thick-restart Lanczos cycles (`default: 1000`).
     pub max_iters: usize,
+    /// Optional explicit Krylov subspace size override passed to [`LanczosEigen`] (`default: None`).
+    pub subspace_dim: Option<usize>,
     /// Deterministic PRNG seed (`default: 42`).
     pub seed: u64,
     /// Whether to apply $D^{-1/2}$ degree normalization (`true` for effective resistance, `default: true`).
@@ -35,6 +37,7 @@ impl Default for RdMdsConfig {
             eig_eps: 1e-10,
             tol: 1e-6,
             max_iters: 1000,
+            subspace_dim: None,
             seed: 42,
             degree_normalize: true,
             target_std: None,
@@ -72,6 +75,12 @@ impl RdMdsConfig {
         self
     }
 
+    /// Sets the optional explicit Krylov subspace size override `subspace_dim`.
+    pub fn with_subspace_dim(mut self, subspace_dim: Option<usize>) -> Self {
+        self.subspace_dim = subspace_dim;
+        self
+    }
+
     /// Sets the deterministic PRNG seed `seed`.
     pub fn with_seed(mut self, seed: u64) -> Self {
         self.seed = seed;
@@ -91,17 +100,56 @@ impl RdMdsConfig {
     }
 }
 
+#[derive(Debug)]
+enum RdMdsSource<'a, W> {
+    Graph(&'a CsrGraph<W>),
+    Eigenpairs {
+        lambdas: &'a [f64],
+        vectors_nm: &'a [f64],
+        inv_sqrt_deg: &'a [f64],
+        num_nodes: usize,
+        num_modes: usize,
+    },
+}
+
+impl<W> Clone for RdMdsSource<'_, W> {
+    fn clone(&self) -> Self {
+        match *self {
+            Self::Graph(g) => Self::Graph(g),
+            Self::Eigenpairs {
+                lambdas,
+                vectors_nm,
+                inv_sqrt_deg,
+                num_nodes,
+                num_modes,
+            } => Self::Eigenpairs {
+                lambdas,
+                vectors_nm,
+                inv_sqrt_deg,
+                num_nodes,
+                num_modes,
+            },
+        }
+    }
+}
+
 /// Zero-guarded Resistance-distance MDS (`RdMds`) spectral layout generator implementing
 /// [`LayoutGenerator`](egraph_core::LayoutGenerator) for `Layout2d`, `Layout3d`, and `LayoutNd`.
 ///
 /// Computes $d$-dimensional coordinates $D^{-1/2} U \Lambda^{-1/2}$ (or $U \Lambda^{-1/2}$
 /// when `degree_normalize == false`) from the smallest nontrivial eigenpairs of $L_{\mathrm{sym}}$,
 /// zeroing out modes with $\lambda \le \mathrm{eig\_eps}$ to prevent zero-division blowups on
-/// disconnected or edgeless graphs.
+/// disconnected or edgeless graphs. Rather than the `IC(0)` PCG inverse power iteration in the
+/// reference paper, the graph constructor computes eigenpairs via block thick-restart Lanczos
+/// with `eig_eps` guarding, and [`RdMds::from_eigenpairs`] accepts precomputed eigenpairs from
+/// external or shift-invert solvers (such as [`egraph_linalg::smallest_eigenpairs_from_inverse_operator`]).
+///
+/// Reference: Onoue, Y. (2025), *"Graph Drawing Stress Model with Resistance Distances"*,
+/// `arXiv:2512.21901` (Algorithms 1–2).
 #[non_exhaustive]
 #[derive(Debug)]
 pub struct RdMds<'a, L: EuclideanLayout = Layout2d<f64>, W = f64> {
-    graph: &'a CsrGraph<W>,
+    source: RdMdsSource<'a, W>,
     config: RdMdsConfig,
     _layout: PhantomData<fn() -> L>,
 }
@@ -109,18 +157,18 @@ pub struct RdMds<'a, L: EuclideanLayout = Layout2d<f64>, W = f64> {
 impl<L: EuclideanLayout, W> Clone for RdMds<'_, L, W> {
     fn clone(&self) -> Self {
         Self {
-            graph: self.graph,
+            source: self.source.clone(),
             config: self.config.clone(),
             _layout: PhantomData,
         }
     }
 }
 
-impl<'a, L: EuclideanLayout, W: Scalar> RdMds<'a, L, W> {
+impl<'a, L: EuclideanLayout, W: EdgeWeight> RdMds<'a, L, W> {
     /// Creates a new [`RdMds`] generator with default parameters on `graph`.
     pub fn new(graph: &'a CsrGraph<W>) -> Self {
         Self {
-            graph,
+            source: RdMdsSource::Graph(graph),
             config: RdMdsConfig::default(),
             _layout: PhantomData,
         }
@@ -129,8 +177,33 @@ impl<'a, L: EuclideanLayout, W: Scalar> RdMds<'a, L, W> {
     /// Creates a new [`RdMds`] generator on `graph` with an explicit [`RdMdsConfig`].
     pub fn from_config(graph: &'a CsrGraph<W>, config: RdMdsConfig) -> Self {
         Self {
-            graph,
+            source: RdMdsSource::Graph(graph),
             config,
+            _layout: PhantomData,
+        }
+    }
+}
+
+impl<'a, L: EuclideanLayout> RdMds<'a, L, f64> {
+    /// Creates an [`RdMds`] generator from precomputed smallest nontrivial eigenpairs
+    /// (`lambdas` of length `num_modes`, row-major `(num_nodes, num_modes)` `vectors_nm`,
+    /// and `inv_sqrt_deg` of length `num_nodes`).
+    pub fn from_eigenpairs(
+        lambdas: &'a [f64],
+        vectors_nm: &'a [f64],
+        inv_sqrt_deg: &'a [f64],
+        num_nodes: usize,
+        num_modes: usize,
+    ) -> Self {
+        Self {
+            source: RdMdsSource::Eigenpairs {
+                lambdas,
+                vectors_nm,
+                inv_sqrt_deg,
+                num_nodes,
+                num_modes,
+            },
+            config: RdMdsConfig::default(),
             _layout: PhantomData,
         }
     }
@@ -167,6 +240,12 @@ impl<'a, L: EuclideanLayout, W> RdMds<'a, L, W> {
         self
     }
 
+    /// Sets the optional explicit Krylov subspace size override `subspace_dim`.
+    pub fn with_subspace_dim(mut self, subspace_dim: Option<usize>) -> Self {
+        self.config.subspace_dim = subspace_dim;
+        self
+    }
+
     /// Sets the deterministic PRNG seed `seed`.
     pub fn with_seed(mut self, seed: u64) -> Self {
         self.config.seed = seed;
@@ -191,7 +270,10 @@ impl<'a, L: EuclideanLayout, W> RdMds<'a, L, W> {
     }
 
     fn num_nodes(&self) -> usize {
-        self.graph.num_nodes()
+        match self.source {
+            RdMdsSource::Graph(g) => g.num_nodes(),
+            RdMdsSource::Eigenpairs { num_nodes, .. } => num_nodes,
+        }
     }
 
     fn validate_config(&self) -> CoreResult<()> {
@@ -236,26 +318,83 @@ impl<L: EuclideanLayoutAlloc, W> RdMds<'_, L, W> {
     }
 }
 
-impl<L: EuclideanLayout, W: Scalar> RdMds<'_, L, W> {
+impl<L: EuclideanLayout, W: EdgeWeight> RdMds<'_, L, W> {
     fn generate_into_layout(&self, layout: &mut L, dims: usize) -> CoreResult<()> {
         self.validate_config()?;
-        let n = self.graph.num_nodes();
-        if n <= 1 {
-            return Ok(());
-        }
+        let owned_eig;
+        let (n, m_count, lambdas, vectors, inv_sqrt_deg): (usize, usize, &[f64], &[f64], &[f64]) =
+            match self.source {
+                RdMdsSource::Graph(graph) => {
+                    let n = graph.num_nodes();
+                    if n <= 1 {
+                        return Ok(());
+                    }
+                    let lanczos =
+                        LanczosEigen::new(self.config.tol, self.config.max_iters, self.config.seed)
+                            .with_subspace_dim(self.config.subspace_dim);
+                    owned_eig =
+                        smallest_sym_laplacian_eigenpairs_with_config(graph, dims, &lanczos)?;
+                    (
+                        n,
+                        owned_eig.num_modes,
+                        &owned_eig.lambdas,
+                        &owned_eig.vectors,
+                        &owned_eig.inv_sqrt_deg,
+                    )
+                }
+                RdMdsSource::Eigenpairs {
+                    lambdas,
+                    vectors_nm,
+                    inv_sqrt_deg,
+                    num_nodes,
+                    num_modes,
+                } => {
+                    if lambdas.len() != num_modes {
+                        return Err(CoreError::dimension_mismatch(
+                            num_modes,
+                            lambdas.len(),
+                            "RdMds::from_eigenpairs::lambdas",
+                        ));
+                    }
+                    let expected_vecs = num_nodes.checked_mul(num_modes).ok_or_else(|| {
+                        CoreError::invalid_input("RdMds::from_eigenpairs matrix size overflow")
+                    })?;
+                    if vectors_nm.len() != expected_vecs {
+                        return Err(CoreError::dimension_mismatch(
+                            expected_vecs,
+                            vectors_nm.len(),
+                            "RdMds::from_eigenpairs::vectors_nm",
+                        ));
+                    }
+                    if inv_sqrt_deg.len() != num_nodes {
+                        return Err(CoreError::dimension_mismatch(
+                            num_nodes,
+                            inv_sqrt_deg.len(),
+                            "RdMds::from_eigenpairs::inv_sqrt_deg",
+                        ));
+                    }
+                    if lambdas.iter().any(|v| !v.is_finite()) {
+                        return Err(CoreError::non_finite("RdMds::from_eigenpairs::lambdas"));
+                    }
+                    if vectors_nm.iter().any(|v| !v.is_finite()) {
+                        return Err(CoreError::non_finite("RdMds::from_eigenpairs::vectors_nm"));
+                    }
+                    if inv_sqrt_deg.iter().any(|v| !v.is_finite()) {
+                        return Err(CoreError::non_finite(
+                            "RdMds::from_eigenpairs::inv_sqrt_deg",
+                        ));
+                    }
+                    if num_nodes <= 1 {
+                        return Ok(());
+                    }
+                    (num_nodes, num_modes, lambdas, vectors_nm, inv_sqrt_deg)
+                }
+            };
 
-        let eig = smallest_sym_laplacian_eigenpairs(
-            self.graph,
-            dims,
-            self.config.tol,
-            self.config.max_iters,
-            self.config.seed,
-        )?;
-        let m_count = eig.num_modes;
         let used_dims = dims.min(m_count);
         let mut inv_sqrt_lambda = vec![0.0_f64; used_dims];
         for m in 0..used_dims {
-            let lam = eig.lambdas[m];
+            let lam = lambdas[m];
             inv_sqrt_lambda[m] = if lam > self.config.eig_eps {
                 lam.sqrt().recip()
             } else {
@@ -267,12 +406,12 @@ impl<L: EuclideanLayout, W: Scalar> RdMds<'_, L, W> {
         let mut storage = layout.as_euclidean_storage_mut();
         for i in 0..n {
             let row_scale = if self.config.degree_normalize {
-                eig.inv_sqrt_deg[i]
+                inv_sqrt_deg[i]
             } else {
                 1.0
             };
             for m in 0..used_dims {
-                row_buf[m] = row_scale * eig.vectors[i * m_count + m] * inv_sqrt_lambda[m];
+                row_buf[m] = row_scale * vectors[i * m_count + m] * inv_sqrt_lambda[m];
             }
             set_storage_row(&mut storage, i, &row_buf);
         }

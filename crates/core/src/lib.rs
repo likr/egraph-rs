@@ -37,7 +37,7 @@ pub use manifold::{
 };
 pub use pin_mask::PinMask;
 pub use rng::DeterministicRng;
-pub use scalar::Scalar;
+pub use scalar::{EdgeWeight, Scalar};
 pub use solver::{IterativeSolver, LayoutGenerator, LayoutTransform, SolverStatus};
 pub use visit_stamp::VisitStamp;
 

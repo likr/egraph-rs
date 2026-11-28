@@ -321,3 +321,206 @@ fn test_pivot_mds_streaming_matches_all_pivots_classical_mds() {
         }
     }
 }
+
+#[test]
+fn test_pivot_mds_from_pivot_distances_bit_identical_and_validation() {
+    use egraph_core::Layout3d;
+    use egraph_linalg::BfsWorkspace;
+
+    let edges = vec![(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (0, 3)];
+    let g = CsrGraph::<()>::from_unweighted_edges(6, &edges, false, false).unwrap();
+    let pivots = [0u32, 2, 4];
+    let n = g.num_nodes();
+    let k = pivots.len();
+
+    let mut dists_kn = vec![f64::INFINITY; k * n];
+    let mut ws = BfsWorkspace::new(n);
+    for (p_idx, &p) in pivots.iter().enumerate() {
+        ws.bfs_from(&g, p as usize, &mut dists_kn[p_idx * n..(p_idx + 1) * n])
+            .unwrap();
+    }
+    let mut dists_nk = vec![0.0_f64; n * k];
+    for p_idx in 0..k {
+        for i in 0..n {
+            dists_nk[i * k + p_idx] = dists_kn[p_idx * n + i];
+        }
+    }
+
+    let from_kn_2d: Layout2d<f64> = PivotMds::from_pivot_distances(&dists_kn, n, k)
+        .with_target_std(None)
+        .generate()
+        .unwrap();
+    let from_nk_2d: Layout2d<f64> = PivotMds::from_distances(&dists_nk, n, k)
+        .with_target_std(None)
+        .generate()
+        .unwrap();
+    let from_graph_2d: Layout2d<f64> = PivotMds::new(&g)
+        .with_pivots(&pivots)
+        .with_target_std(None)
+        .generate()
+        .unwrap();
+    assert_eq!(from_kn_2d, from_nk_2d);
+    assert_eq!(from_kn_2d, from_graph_2d);
+
+    let from_kn_3d: Layout3d<f64> = PivotMds::from_pivot_distances(&dists_kn, n, k)
+        .generate()
+        .unwrap();
+    let from_nk_3d: Layout3d<f64> = PivotMds::from_distances(&dists_nk, n, k)
+        .generate()
+        .unwrap();
+    assert_eq!(from_kn_3d, from_nk_3d);
+
+    // Disconnected +f64::INFINITY allowed; validation rejects with_pivots, zero pivots, mismatches, NaN, negative
+    let disc_kn = vec![0.0, 1.0, f64::INFINITY, f64::INFINITY, f64::INFINITY, 0.0];
+    let disc_lay: Layout2d<f64> = PivotMds::from_pivot_distances(&disc_kn, 3, 2)
+        .generate()
+        .unwrap();
+    assert!(disc_lay.is_all_finite());
+
+    assert!(matches!(
+        PivotMds::<Layout2d<f64>>::from_pivot_distances(&dists_kn, n, k)
+            .with_pivots(&pivots)
+            .generate(),
+        Err(CoreError::InvalidInput(_))
+    ));
+    assert!(matches!(
+        PivotMds::<Layout2d<f64>>::from_pivot_distances(&[], n, 0).generate(),
+        Err(CoreError::InvalidInput(_))
+    ));
+    assert!(matches!(
+        PivotMds::<Layout2d<f64>>::from_pivot_distances(&dists_kn[..k * n - 1], n, k).generate(),
+        Err(CoreError::DimensionMismatch { .. })
+    ));
+    assert!(matches!(
+        PivotMds::<Layout2d<f64>>::from_pivot_distances(&[0.0, f64::NAN], 2, 1).generate(),
+        Err(CoreError::NonFiniteValue { .. })
+    ));
+    assert!(matches!(
+        PivotMds::<Layout2d<f64>>::from_pivot_distances(&[0.0, -0.5], 2, 1).generate(),
+        Err(CoreError::InvalidInput(_))
+    ));
+}
+
+#[test]
+fn test_all_mds_generators_unit_graph_and_rd_mds_from_eigenpairs() {
+    use egraph_linalg::{LanczosEigen, smallest_sym_laplacian_eigenpairs_with_config};
+
+    let mut edges = Vec::new();
+    for r in 0..10usize {
+        for c in 0..10usize {
+            let u = (r * 10 + c) as u32;
+            if c + 1 < 10 {
+                edges.push((u, u + 1));
+            }
+            if r + 1 < 10 {
+                edges.push((u, u + 10));
+            }
+        }
+    }
+    let g_unit = CsrGraph::<()>::from_unweighted_edges(100, &edges, false, false).unwrap();
+    let g_f64 = CsrGraph::<f64>::from_edges(100, &edges, None, false, false).unwrap();
+
+    // All 5 generators support CsrGraph<()> and match CsrGraph<f64> bit-for-bit
+    let small_edges = vec![(0, 1), (1, 2), (2, 3), (3, 0), (0, 2)];
+    let s_unit = CsrGraph::<()>::from_unweighted_edges(4, &small_edges, false, false).unwrap();
+    let s_f64 = CsrGraph::<f64>::from_edges(4, &small_edges, None, false, false).unwrap();
+    assert_eq!(
+        ClassicalMds::<Layout2d<f64>, _>::new(&s_unit)
+            .generate()
+            .unwrap(),
+        ClassicalMds::<Layout2d<f64>, _>::new(&s_f64)
+            .generate()
+            .unwrap()
+    );
+    assert_eq!(
+        PivotMds::<Layout2d<f64>, _>::new(&g_unit)
+            .generate()
+            .unwrap(),
+        PivotMds::<Layout2d<f64>, _>::new(&g_f64)
+            .generate()
+            .unwrap()
+    );
+    assert_eq!(
+        Hde::<Layout2d<f64>, _>::new(&g_unit).generate().unwrap(),
+        Hde::<Layout2d<f64>, _>::new(&g_f64).generate().unwrap()
+    );
+    assert_eq!(
+        KorenSpectral::<Layout2d<f64>, _>::new(&g_unit)
+            .generate()
+            .unwrap(),
+        KorenSpectral::<Layout2d<f64>, _>::new(&g_f64)
+            .generate()
+            .unwrap()
+    );
+
+    // RdMds with subspace_dim matches explicit LanczosEigen + RdMds::from_eigenpairs
+    let rd_cfg = RdMdsConfig::new()
+        .with_dims(Some(2))
+        .with_subspace_dim(Some(24))
+        .with_tol(1e-7)
+        .with_max_iters(400)
+        .with_seed(42)
+        .with_target_std(Some(1.5));
+    let rd_unit: Layout2d<f64> = RdMds::from_config(&g_unit, rd_cfg.clone())
+        .generate()
+        .unwrap();
+    let rd_f64: Layout2d<f64> = RdMds::from_config(&g_f64, rd_cfg.clone())
+        .generate()
+        .unwrap();
+    assert_eq!(rd_unit, rd_f64);
+
+    let lanczos = LanczosEigen::new(rd_cfg.tol, rd_cfg.max_iters, rd_cfg.seed)
+        .with_subspace_dim(rd_cfg.subspace_dim);
+    let eig = smallest_sym_laplacian_eigenpairs_with_config(&g_unit, 2, &lanczos).unwrap();
+    let rd_from_eig: Layout2d<f64> = RdMds::from_eigenpairs(
+        &eig.lambdas,
+        &eig.vectors,
+        &eig.inv_sqrt_deg,
+        eig.num_nodes,
+        eig.num_modes,
+    )
+    .with_config(rd_cfg)
+    .generate()
+    .unwrap();
+    assert_eq!(rd_unit, rd_from_eig);
+
+    // RdMds::from_eigenpairs validation errors
+    assert!(matches!(
+        RdMds::<Layout2d<f64>>::from_eigenpairs(&[0.5], &eig.vectors, &eig.inv_sqrt_deg, 100, 2)
+            .generate(),
+        Err(CoreError::DimensionMismatch { .. })
+    ));
+    assert!(matches!(
+        RdMds::<Layout2d<f64>>::from_eigenpairs(
+            &eig.lambdas,
+            &eig.vectors[..10],
+            &eig.inv_sqrt_deg,
+            100,
+            2
+        )
+        .generate(),
+        Err(CoreError::DimensionMismatch { .. })
+    ));
+    assert!(matches!(
+        RdMds::<Layout2d<f64>>::from_eigenpairs(
+            &eig.lambdas,
+            &eig.vectors,
+            &eig.inv_sqrt_deg[..10],
+            100,
+            2
+        )
+        .generate(),
+        Err(CoreError::DimensionMismatch { .. })
+    ));
+    assert!(matches!(
+        RdMds::<Layout2d<f64>>::from_eigenpairs(
+            &[f64::NAN, 0.5],
+            &eig.vectors,
+            &eig.inv_sqrt_deg,
+            100,
+            2
+        )
+        .generate(),
+        Err(CoreError::NonFiniteValue { .. })
+    ));
+}

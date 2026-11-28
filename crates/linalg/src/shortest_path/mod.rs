@@ -4,7 +4,7 @@
 use std::cmp::{Ordering, Reverse};
 use std::collections::BinaryHeap;
 
-use egraph_core::{CoreError, CoreResult, CsrGraph, DeterministicRng, Scalar, VisitStamp};
+use egraph_core::{CoreError, CoreResult, CsrGraph, DeterministicRng, EdgeWeight, VisitStamp};
 
 /// Reusable zero-per-call-allocation Breadth-First Search workspace over [`CsrGraph`].
 #[derive(Debug, Clone)]
@@ -226,7 +226,7 @@ impl DijkstraWorkspace {
     ///
     /// Rejects graphs containing negative or non-finite edge weights. Unweighted graphs treat
     /// every edge as length `1.0`.
-    pub fn dijkstra_from<W: Scalar>(
+    pub fn dijkstra_from<W: EdgeWeight>(
         &mut self,
         graph: &CsrGraph<W>,
         source: usize,
@@ -251,7 +251,7 @@ impl DijkstraWorkspace {
         let weights_opt = graph.weights();
         if let Some(ws) = weights_opt {
             for &w in ws {
-                let wf = w.to_f64();
+                let wf = w.weight_to_f64();
                 if !wf.is_finite() {
                     return Err(CoreError::non_finite(
                         "DijkstraWorkspace::dijkstra_from::weights",
@@ -289,7 +289,7 @@ impl DijkstraWorkspace {
                     continue;
                 }
                 let w = match weights_opt {
-                    Some(ws) => ws[pos].to_f64(),
+                    Some(ws) => ws[pos].weight_to_f64(),
                     None => 1.0,
                 };
                 let cand = d_u + w;
@@ -330,7 +330,7 @@ impl Default for DijkstraWorkspace {
 ///
 /// Unweighted graphs treat every edge as length `1.0`. Rejects negative or non-finite
 /// edge weights and out-of-bounds `source`.
-pub fn dijkstra_single_source<W: Scalar>(
+pub fn dijkstra_single_source<W: EdgeWeight>(
     graph: &CsrGraph<W>,
     source: usize,
 ) -> CoreResult<Vec<f64>> {
@@ -343,7 +343,7 @@ pub fn dijkstra_single_source<W: Scalar>(
 
 /// Computes an all-pairs shortest-path (APSP) distance matrix via repeated single-source
 /// Dijkstra into a reusable flat row-major `out` buffer of length `N * N`.
-pub fn all_pairs_dijkstra_into<W: Scalar>(
+pub fn all_pairs_dijkstra_into<W: EdgeWeight>(
     graph: &CsrGraph<W>,
     out: &mut Vec<f64>,
     ws: &mut DijkstraWorkspace,
@@ -362,7 +362,7 @@ pub fn all_pairs_dijkstra_into<W: Scalar>(
 
 /// Computes an all-pairs shortest-path (APSP) flat row-major `N * N` distance matrix using
 /// repeated single-source Dijkstra (`f64::INFINITY` for unreachable pairs).
-pub fn all_pairs_dijkstra<W: Scalar>(graph: &CsrGraph<W>) -> CoreResult<Vec<f64>> {
+pub fn all_pairs_dijkstra<W: EdgeWeight>(graph: &CsrGraph<W>) -> CoreResult<Vec<f64>> {
     let n = graph.num_nodes();
     let mut out = Vec::new();
     let mut ws = DijkstraWorkspace::new(n);

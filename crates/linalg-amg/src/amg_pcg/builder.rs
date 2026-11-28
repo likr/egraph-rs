@@ -1,4 +1,4 @@
-use egraph_core::{CoreError, CoreResult, CsrGraph, DeterministicRng, Scalar};
+use egraph_core::{CoreError, CoreResult, CsrGraph, DeterministicRng, EdgeWeight};
 use egraph_linalg::{
     CsrMatrix, LaplacianKind, combinatorial_laplacian, symmetric_normalized_laplacian,
 };
@@ -190,7 +190,7 @@ impl AmgPcgSolver {
 
     /// Builds an [`AmgPcgSolver`] for the regularized symmetric normalized Laplacian
     /// $A = I + \gamma L_{\mathrm{sym}}$ ($\gamma \ge 0$) with exact $D^{1/2}\mathbf{1}$ near-nullspace.
-    pub fn from_regularized_sym_laplacian<W: Scalar>(
+    pub fn from_regularized_sym_laplacian<W: EdgeWeight>(
         graph: &CsrGraph<W>,
         gamma: f64,
         config: AmgPcgConfig,
@@ -217,7 +217,7 @@ impl AmgPcgSolver {
     /// Builds an [`AmgPcgSolver`] for the shifted graph Laplacian $L + \mathrm{shift}\cdot I$
     /// (`shift >= 0.0`) with matching near-nullspace ($D^{1/2}\mathbf{1}$ for `SymmetricNormalized`,
     /// $\mathbf{1}$ for `Combinatorial`).
-    pub fn from_laplacian<W: Scalar>(
+    pub fn from_laplacian<W: EdgeWeight>(
         graph: &CsrGraph<W>,
         kind: LaplacianKind,
         shift: f64,

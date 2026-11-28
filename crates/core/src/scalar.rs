@@ -7,6 +7,60 @@ mod private {
     pub trait Sealed {}
     impl Sealed for f32 {}
     impl Sealed for f64 {}
+
+    pub trait WeightSealed {}
+    impl WeightSealed for () {}
+    impl WeightSealed for f32 {}
+    impl WeightSealed for f64 {}
+}
+
+/// Sealed edge-weight trait implemented strictly for `()`, `f32`, and `f64`.
+///
+/// Accepting `W: EdgeWeight` on CSR graph algorithms allows unweighted [`crate::CsrGraph<()>`]
+/// inputs alongside weighted [`crate::CsrGraph<f32>`] and [`crate::CsrGraph<f64>`] without
+/// duplicating `*_unweighted` entry points. Method names avoid collision with [`Scalar`].
+pub trait EdgeWeight: private::WeightSealed + Copy + Debug + Send + Sync + 'static {
+    /// Converts the edge weight to `f64` (`1.0` for `()`).
+    fn weight_to_f64(self) -> f64;
+
+    /// Returns `true` if the edge weight is finite (`true` for `()`).
+    fn weight_is_finite(self) -> bool;
+}
+
+impl EdgeWeight for () {
+    #[inline]
+    fn weight_to_f64(self) -> f64 {
+        1.0
+    }
+
+    #[inline]
+    fn weight_is_finite(self) -> bool {
+        true
+    }
+}
+
+impl EdgeWeight for f32 {
+    #[inline]
+    fn weight_to_f64(self) -> f64 {
+        self as f64
+    }
+
+    #[inline]
+    fn weight_is_finite(self) -> bool {
+        f32::is_finite(self)
+    }
+}
+
+impl EdgeWeight for f64 {
+    #[inline]
+    fn weight_to_f64(self) -> f64 {
+        self
+    }
+
+    #[inline]
+    fn weight_is_finite(self) -> bool {
+        f64::is_finite(self)
+    }
 }
 
 /// Sealed floating-point scalar trait implemented strictly for `f32` and `f64`.
@@ -16,6 +70,7 @@ mod private {
 /// accumulation helpers.
 pub trait Scalar:
     private::Sealed
+    + EdgeWeight
     + Copy
     + Clone
     + Debug
@@ -410,5 +465,24 @@ mod tests {
         assert_eq!(s64, 7.0_f64);
         assert!((h64 - 5.0_f64).abs() < 1e-12);
         assert_eq!(f64::from_f32(1.25).to_f32(), 1.25);
+    }
+
+    fn eval_weight<W: EdgeWeight>(w: W) -> (f64, bool) {
+        (w.weight_to_f64(), w.weight_is_finite())
+    }
+
+    fn eval_scalar_as_weight<W: Scalar>(w: W) -> f64 {
+        eval_weight(w).0
+    }
+
+    #[test]
+    fn test_edge_weight_unit_f32_f64_and_scalar_subtrait() {
+        assert_eq!(eval_weight(()), (1.0, true));
+        assert_eq!(eval_weight(2.5_f32), (2.5, true));
+        assert!(!eval_weight(f32::NAN).1);
+        assert_eq!(eval_weight(3.25_f64), (3.25, true));
+        assert!(!eval_weight(f64::INFINITY).1);
+        assert_eq!(eval_scalar_as_weight(1.5_f32), 1.5);
+        assert_eq!(eval_scalar_as_weight(4.5_f64), 4.5);
     }
 }

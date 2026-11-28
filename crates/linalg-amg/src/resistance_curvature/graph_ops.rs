@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 
-use egraph_core::{CoreError, CoreResult, CsrGraph, Scalar, VisitStamp};
+use egraph_core::{CoreError, CoreResult, CsrGraph, EdgeWeight, VisitStamp};
 use egraph_linalg::CsrMatrix;
 
 pub(super) struct CanonicalEdges {
@@ -10,14 +10,14 @@ pub(super) struct CanonicalEdges {
     pub(super) conductances: Vec<f64>,
 }
 
-pub(super) fn extract_canonical_edges<W: Scalar>(
+pub(super) fn extract_canonical_edges<W: EdgeWeight>(
     graph: &CsrGraph<W>,
     weights_are_lengths: bool,
 ) -> CoreResult<CanonicalEdges> {
     let n = graph.num_nodes();
     if let Some(ws) = graph.weights() {
         for &w in ws {
-            let wf = w.to_f64();
+            let wf = w.weight_to_f64();
             if !wf.is_finite() {
                 return Err(CoreError::non_finite("CsrGraph::weights"));
             }
@@ -51,7 +51,7 @@ pub(super) fn extract_canonical_edges<W: Scalar>(
                 continue;
             }
             let val = match weights_opt {
-                Some(ws) => ws[pos].to_f64(),
+                Some(ws) => ws[pos].weight_to_f64(),
                 None => 1.0,
             };
             let (a, b) = if u32_u < v32 {

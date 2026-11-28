@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use egraph_core::{CoreError, CoreResult, CsrGraph, EuclideanLayout, Layout2d, Scalar};
+use egraph_core::{CoreError, CoreResult, CsrGraph, EdgeWeight, EuclideanLayout, Layout2d, Scalar};
 use egraph_linalg::{BfsWorkspace, DijkstraWorkspace, select_maxmin_sp_pivots};
 
 use super::normalize::normalize_euclidean_layout;
@@ -83,6 +83,11 @@ enum PivotMdsSource<'a, W> {
         num_nodes: usize,
         num_pivots: usize,
     },
+    PivotDistances {
+        distances_kn: &'a [f64],
+        num_nodes: usize,
+        num_pivots: usize,
+    },
 }
 
 impl<W> Clone for PivotMdsSource<'_, W> {
@@ -98,12 +103,24 @@ impl<W> Clone for PivotMdsSource<'_, W> {
                 num_nodes,
                 num_pivots,
             },
+            Self::PivotDistances {
+                distances_kn,
+                num_nodes,
+                num_pivots,
+            } => Self::PivotDistances {
+                distances_kn,
+                num_nodes,
+                num_pivots,
+            },
         }
     }
 }
 
 /// Core-First MaxMin Pivot / Landmark MDS layout generator implementing
 /// [`LayoutGenerator`](egraph_core::LayoutGenerator) for `Layout2d`, `Layout3d`, and `LayoutNd`.
+///
+/// Reference: Brandes, U. & Pich, C. (2006), *"Eigensolver Methods for Progressive
+/// Multidimensional Scaling of Large Data"*, *Graph Drawing (GD 2006)*, LNCS 4372, pp. 42–53.
 #[non_exhaustive]
 #[derive(Debug)]
 pub struct PivotMds<'a, L: EuclideanLayout = Layout2d<f64>, W = f64> {
@@ -124,7 +141,7 @@ impl<L: EuclideanLayout, W> Clone for PivotMds<'_, L, W> {
     }
 }
 
-impl<'a, L: EuclideanLayout, W: Scalar> PivotMds<'a, L, W> {
+impl<'a, L: EuclideanLayout, W: EdgeWeight> PivotMds<'a, L, W> {
     /// Creates a [`PivotMds`] generator selecting MaxMin shortest-path pivots on `graph`.
     pub fn new(graph: &'a CsrGraph<W>) -> Self {
         Self {
@@ -153,6 +170,26 @@ impl<'a, L: EuclideanLayout> PivotMds<'a, L, f64> {
         Self {
             source: PivotMdsSource::Distances {
                 distances_nk,
+                num_nodes,
+                num_pivots,
+            },
+            pivots: None,
+            config: PivotMdsConfig::default(),
+            _layout: PhantomData,
+        }
+    }
+
+    /// Creates a [`PivotMds`] generator from a precomputed pivot-major `(num_pivots, num_nodes)`
+    /// distance matrix (`pivot_distances_kn[k * num_nodes + i]`), reading columns zero-copy
+    /// without transposing into a temporary `(num_nodes, num_pivots)` buffer.
+    pub fn from_pivot_distances(
+        pivot_distances_kn: &'a [f64],
+        num_nodes: usize,
+        num_pivots: usize,
+    ) -> Self {
+        Self {
+            source: PivotMdsSource::PivotDistances {
+                distances_kn: pivot_distances_kn,
                 num_nodes,
                 num_pivots,
             },
@@ -214,7 +251,8 @@ impl<'a, L: EuclideanLayout, W> PivotMds<'a, L, W> {
     fn num_nodes(&self) -> usize {
         match self.source {
             PivotMdsSource::Graph(g) => g.num_nodes(),
-            PivotMdsSource::Distances { num_nodes, .. } => num_nodes,
+            PivotMdsSource::Distances { num_nodes, .. }
+            | PivotMdsSource::PivotDistances { num_nodes, .. } => num_nodes,
         }
     }
 
@@ -239,7 +277,7 @@ impl<L: EuclideanLayoutAlloc, W> PivotMds<'_, L, W> {
     }
 }
 
-impl<L: EuclideanLayout, W: Scalar> PivotMds<'_, L, W> {
+impl<L: EuclideanLayout, W: EdgeWeight> PivotMds<'_, L, W> {
     fn generate_into_layout(&self, layout: &mut L, dims: usize) -> CoreResult<()> {
         self.validate_target_std()?;
         match self.source {
@@ -277,6 +315,48 @@ impl<L: EuclideanLayout, W: Scalar> PivotMds<'_, L, W> {
                             row_buf.copy_from_slice(
                                 &distances_nk[i * num_pivots..(i + 1) * num_pivots],
                             );
+                        },
+                        |i, vals| set_storage_row(&mut storage, i, vals),
+                    )?;
+                }
+            }
+            PivotMdsSource::PivotDistances {
+                distances_kn,
+                num_nodes,
+                num_pivots,
+            } => {
+                if self.pivots.is_some() {
+                    return Err(CoreError::invalid_input(
+                        "PivotMds::with_pivots cannot be combined with from_pivot_distances",
+                    ));
+                }
+                if num_pivots == 0 {
+                    return Err(CoreError::invalid_input("num_pivots must be >= 1"));
+                }
+                let expected = num_pivots.checked_mul(num_nodes).ok_or_else(|| {
+                    CoreError::invalid_input("pivot_mds distance matrix size overflow")
+                })?;
+                if distances_kn.len() != expected {
+                    return Err(CoreError::dimension_mismatch(
+                        expected,
+                        distances_kn.len(),
+                        "PivotMds::from_pivot_distances::pivot_distances_kn",
+                    ));
+                }
+                validate_distance_slice(
+                    distances_kn,
+                    "PivotMds::from_pivot_distances::pivot_distances_kn",
+                )?;
+                if num_nodes > 1 {
+                    let mut storage = layout.as_euclidean_storage_mut();
+                    mds_from_row_major_distances(
+                        num_nodes,
+                        num_pivots,
+                        dims,
+                        |i, row_buf| {
+                            for (k, dst) in row_buf.iter_mut().enumerate() {
+                                *dst = distances_kn[k * num_nodes + i];
+                            }
                         },
                         |i, vals| set_storage_row(&mut storage, i, vals),
                     )?;

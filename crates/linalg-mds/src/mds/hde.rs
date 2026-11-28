@@ -1,6 +1,8 @@
 use std::marker::PhantomData;
 
-use egraph_core::{CoreError, CoreResult, CsrGraph, EuclideanLayout, Layout2d, Scalar, VisitStamp};
+use egraph_core::{
+    CoreError, CoreResult, CsrGraph, EdgeWeight, EuclideanLayout, Layout2d, VisitStamp,
+};
 use egraph_linalg::{BfsWorkspace, DijkstraWorkspace, select_maxmin_sp_pivots};
 
 use super::hde_pca::{hde_pca_project, prepare_unweighted_row_stats, validate_positive_weights};
@@ -86,6 +88,9 @@ impl HdeConfig {
 
 /// Harel-Koren High-Dimensional Embedding (`HDE`) layout generator implementing
 /// [`LayoutGenerator`](egraph_core::LayoutGenerator) for `Layout2d`, `Layout3d`, and `LayoutNd`.
+///
+/// Reference: Harel, D. & Koren, Y. (2002), *"Graph Drawing by High-Dimensional Embedding"*,
+/// *Graph Drawing (GD 2002)*, LNCS 2528, pp. 207–219.
 #[non_exhaustive]
 #[derive(Debug)]
 pub struct Hde<'a, L: EuclideanLayout = Layout2d<f64>, W = f64> {
@@ -106,7 +111,7 @@ impl<L: EuclideanLayout, W> Clone for Hde<'_, L, W> {
     }
 }
 
-impl<'a, L: EuclideanLayout, W: Scalar> Hde<'a, L, W> {
+impl<'a, L: EuclideanLayout, W: EdgeWeight> Hde<'a, L, W> {
     /// Creates an [`Hde`] generator with default configuration on `graph`.
     pub fn new(graph: &'a CsrGraph<W>) -> Self {
         Self {
@@ -221,7 +226,7 @@ impl<L: EuclideanLayoutAlloc, W> Hde<'_, L, W> {
     }
 }
 
-impl<L: EuclideanLayout, W: Scalar> Hde<'_, L, W> {
+impl<L: EuclideanLayout, W: EdgeWeight> Hde<'_, L, W> {
     fn generate_into_layout(&self, layout: &mut L, output_dims: usize) -> CoreResult<()> {
         self.validate_config()?;
         validate_positive_weights(self.graph)?;
@@ -301,7 +306,7 @@ impl<L: EuclideanLayout, W: Scalar> Hde<'_, L, W> {
 
 impl_euclidean_layout_generator!(Hde);
 
-fn compute_hde_projection<W: Scalar>(
+fn compute_hde_projection<W: EdgeWeight>(
     graph: &CsrGraph<W>,
     unique_pivots: &[u32],
     total: usize,

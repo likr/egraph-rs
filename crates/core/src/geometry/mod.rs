@@ -70,6 +70,14 @@ pub trait RiemannianLayout: MetricSpace {
     /// Positive `delta_r_i` moves vertex `i` along the unit geodesic tangent toward `j`, and
     /// positive `delta_r_j` moves vertex `j` along the unit geodesic tangent toward `i`
     /// (negative values move each endpoint away from the other).
+    ///
+    /// # Coincident-point contract
+    ///
+    /// After validating vertex indices and argument finiteness, if `i == j` or
+    /// `self.distance(i, j) <= 1e-15`, this method returns `Ok(())` without mutating coordinates
+    /// because no canonical unit geodesic tangent exists at zero separation. Solvers that separate
+    /// coincident vertices (such as repulsive or hinge solvers) must explicitly jitter collapsed
+    /// pairs using their own [`DeterministicRng`](crate::DeterministicRng).
     fn move_pair_radial(
         &mut self,
         i: usize,
@@ -101,39 +109,65 @@ pub trait RiemannianLayout: MetricSpace {
         if !si.is_finite() || !sj.is_finite() {
             return Err(CoreError::non_finite("RiemannianLayout::move_pair_radial"));
         }
+        const STACK_DIM: usize = 8;
         let dim = self.tangent_dim();
-        let mut delta_i = Vec::new();
-        if delta_r_i != 0.0 {
-            delta_i.resize(dim, 0.0_f64);
-            self.log_map_into(i, j, &mut delta_i)?;
-            for v in &mut delta_i {
+        let mut stack_i = [0.0_f64; STACK_DIM];
+        let mut stack_j = [0.0_f64; STACK_DIM];
+        let mut heap_i = Vec::new();
+        let mut heap_j = Vec::new();
+
+        let delta_i: &[f64] = if delta_r_i != 0.0 {
+            let buf = if dim <= STACK_DIM {
+                &mut stack_i[..dim]
+            } else {
+                heap_i.resize(dim, 0.0_f64);
+                heap_i.as_mut_slice()
+            };
+            self.log_map_into(i, j, buf)?;
+            for v in buf.iter_mut() {
                 *v *= si;
                 if !v.is_finite() {
                     return Err(CoreError::non_finite("RiemannianLayout::move_pair_radial"));
                 }
             }
-        }
-        let mut delta_j = Vec::new();
-        if delta_r_j != 0.0 {
-            delta_j.resize(dim, 0.0_f64);
-            self.log_map_into(j, i, &mut delta_j)?;
-            for v in &mut delta_j {
+            buf
+        } else {
+            &[]
+        };
+
+        let delta_j: &[f64] = if delta_r_j != 0.0 {
+            let buf = if dim <= STACK_DIM {
+                &mut stack_j[..dim]
+            } else {
+                heap_j.resize(dim, 0.0_f64);
+                heap_j.as_mut_slice()
+            };
+            self.log_map_into(j, i, buf)?;
+            for v in buf.iter_mut() {
                 *v *= sj;
                 if !v.is_finite() {
                     return Err(CoreError::non_finite("RiemannianLayout::move_pair_radial"));
                 }
             }
-        }
+            buf
+        } else {
+            &[]
+        };
+
         if delta_r_i != 0.0 {
-            self.exp_map(i, &delta_i)?;
+            self.exp_map(i, delta_i)?;
         }
         if delta_r_j != 0.0 {
-            self.exp_map(j, &delta_j)?;
+            self.exp_map(j, delta_j)?;
         }
         Ok(())
     }
 
     /// Performs a simultaneous pairwise SGD update along the geodesic connecting `i` and `j`.
+    ///
+    /// Follows the same coincident-point contract as [`Self::move_pair_radial`]: after validating
+    /// indices and parameter finiteness, if `i == j` or `self.distance(i, j) <= 1e-15`, this
+    /// method returns `Ok(())` without mutating coordinates.
     fn move_pair_toward(
         &mut self,
         i: usize,

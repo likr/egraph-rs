@@ -3,10 +3,15 @@
 
 mod jacobi;
 mod lanczos;
+mod laplacian_eigen;
 mod subspace;
 
 pub use jacobi::symmetric_eigen_jacobi;
-pub use lanczos::{EigenResult, LanczosEigen, smallest_sym_laplacian_eigenpairs};
+pub use lanczos::LanczosEigen;
+pub use laplacian_eigen::{
+    EigenResult, smallest_eigenpairs_from_inverse_operator, smallest_sym_laplacian_eigenpairs,
+    smallest_sym_laplacian_eigenpairs_with_config,
+};
 pub use subspace::SubspaceEigen;
 
 #[cfg(test)]

@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use egraph_core::{CoreError, CoreResult, CsrGraph, EuclideanLayout, Layout2d, Scalar};
+use egraph_core::{CoreError, CoreResult, CsrGraph, EdgeWeight, EuclideanLayout, Layout2d};
 use egraph_linalg::{BfsWorkspace, DijkstraWorkspace, symmetric_eigen_jacobi};
 
 use super::storage::{
@@ -90,6 +90,10 @@ impl<W> Clone for ClassicalMdsSource<'_, W> {
 
 /// Zero-guarded Classical Multidimensional Scaling (MDS) layout generator implementing
 /// [`LayoutGenerator`](egraph_core::LayoutGenerator) for `Layout2d`, `Layout3d`, and `LayoutNd`.
+///
+/// Reference: Torgerson, W. S. (1952), *"Multidimensional scaling: I. Theory and method"*,
+/// *Psychometrika* 17(4), 401–419; Kruskal, J. B. & Wish, M. (1978), *"Multidimensional Scaling"*,
+/// Sage Publications.
 #[non_exhaustive]
 #[derive(Debug)]
 pub struct ClassicalMds<'a, L: EuclideanLayout = Layout2d<f64>, W = f64> {
@@ -108,7 +112,7 @@ impl<L: EuclideanLayout, W> Clone for ClassicalMds<'_, L, W> {
     }
 }
 
-impl<'a, L: EuclideanLayout, W: Scalar> ClassicalMds<'a, L, W> {
+impl<'a, L: EuclideanLayout, W: EdgeWeight> ClassicalMds<'a, L, W> {
     /// Creates a [`ClassicalMds`] generator computing all-pairs shortest paths on `graph`.
     pub fn new(graph: &'a CsrGraph<W>) -> Self {
         Self {
@@ -218,7 +222,7 @@ impl<L: EuclideanLayoutAlloc, W> ClassicalMds<'_, L, W> {
     }
 }
 
-impl<L: EuclideanLayout, W: Scalar> ClassicalMds<'_, L, W> {
+impl<L: EuclideanLayout, W: EdgeWeight> ClassicalMds<'_, L, W> {
     fn generate_into_layout(&self, layout: &mut L, dims: usize) -> CoreResult<()> {
         self.validate_config()?;
         let num_nodes = self.num_nodes();
