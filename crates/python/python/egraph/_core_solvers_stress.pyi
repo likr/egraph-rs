@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import final
+from typing import Literal, final
 
 import numpy as np
 import numpy.typing as npt
@@ -186,7 +186,8 @@ class StressMajorizationSolver:
         graph: CsrGraph,
         *,
         target: TargetKind = "layout2d",
-        strategy: str = "auto",
+        strategy: Literal["auto", "euclidean_pcg", "geodesic_gradient"] | None = None,
+        backend: Literal["auto", "euclidean_pcg", "geodesic_gradient"] | None = None,
         epsilon: float = 1e-4,
         max_iterations: int = 100,
         pcg_tolerance: float = 1e-6,
@@ -199,7 +200,8 @@ class StressMajorizationSolver:
         graph: CsrGraph,
         *,
         target: TargetKind = "layout2d",
-        strategy: str = "auto",
+        strategy: Literal["auto", "euclidean_pcg", "geodesic_gradient"] | None = None,
+        backend: Literal["auto", "euclidean_pcg", "geodesic_gradient"] | None = None,
         epsilon: float = 1e-4,
         max_iterations: int = 100,
         pcg_tolerance: float = 1e-6,
@@ -212,7 +214,8 @@ class StressMajorizationSolver:
         distances: _MatrixArrayLike,
         *,
         target: TargetKind = "layout2d",
-        strategy: str = "auto",
+        strategy: Literal["auto", "euclidean_pcg", "geodesic_gradient"] | None = None,
+        backend: Literal["auto", "euclidean_pcg", "geodesic_gradient"] | None = None,
         epsilon: float = 1e-4,
         max_iterations: int = 100,
         pcg_tolerance: float = 1e-6,

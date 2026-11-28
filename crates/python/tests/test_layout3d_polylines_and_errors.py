@@ -186,9 +186,17 @@ class TestLayout3dPolylinesAndErrors(unittest.TestCase):
                 eg.LayoutNd.init(n, 4, seed=9, scale=3.0, dtype=dtype_str),
             ):
                 poly_run = eg.EdgePolylines.straight_line(g, target_lay)
+                poly_from_graph = eg.EdgePolylines.straight_line_from_graph(g, target_lay)
+                np.testing.assert_array_equal(
+                    poly_run.edge_offsets(copy=True), poly_from_graph.edge_offsets(copy=True)
+                )
+                np.testing.assert_array_equal(
+                    poly_run.points(copy=True), poly_from_graph.points(copy=True)
+                )
                 poly_step = poly_run.copy()
+                offs_before = poly_run.edge_offsets(copy=False)
                 pts_before = poly_run.points(copy=False)
-                offs_snapshot = poly_run.edge_offsets(copy=True)
+                offs_snapshot = offs_before.copy()
                 old_snapshot = pts_before.copy()
                 self.assertEqual(int(offs_snapshot[-1]), 2 * g.num_edges)
                 self.assertEqual(poly_run.num_edges, g.num_edges)
@@ -200,8 +208,10 @@ class TestLayout3dPolylinesAndErrors(unittest.TestCase):
                 while not f_step.is_finished:
                     f_step.step(poly_step)
 
-                # Old points view must remain valid and intact after FDEB subdivision reallocations.
+                # Retained (edge_offsets, points) snapshot pair must remain intact and synchronized.
+                np.testing.assert_array_equal(offs_before, offs_snapshot)
                 np.testing.assert_array_equal(pts_before, old_snapshot)
+                self.assertEqual(int(offs_before[-1]), pts_before.shape[0])
 
                 pts_after = poly_run.points(copy=False)
                 offs_after = poly_run.edge_offsets(copy=False)

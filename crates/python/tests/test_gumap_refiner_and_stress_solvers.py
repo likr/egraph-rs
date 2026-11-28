@@ -399,6 +399,36 @@ class TestGumapRefinerAndStressSolvers(unittest.TestCase):
             lambda: eg.StressMajorizationSolver.from_distance_matrix([[0.0, -1.0], [-1.0, 0.0]]),
         )
 
+        # Cross-target backend= alias and strategy/backend conflict checks
+        for sm_b in (
+            eg.StressMajorizationSolver(g, backend="euclidean_pcg", max_iterations=10),
+            eg.StressMajorizationSolver.from_graph(g, backend="geodesic_gradient", max_iterations=10),
+            eg.StressMajorizationSolver.from_distance_matrix(
+                dmat_disc, backend="geodesic_gradient", max_iterations=10
+            ),
+            eg.StressMajorizationSolver(
+                g, strategy="euclidean_pcg", backend="euclidean_pcg", max_iterations=10
+            ),
+        ):
+            lay_b = eg.Layout2d.init(sm_b.num_nodes, seed=7)
+            self.assertIn(sm_b.run(lay_b), ("converged", "completed"))
+            self.assertTrue(lay_b.is_all_finite())
+
+        conflict_fns: tuple[Callable[[], eg.StressMajorizationSolver], ...] = (
+            lambda: eg.StressMajorizationSolver(
+                g, strategy="euclidean_pcg", backend="geodesic_gradient"
+            ),
+            lambda: eg.StressMajorizationSolver.from_graph(
+                g, strategy="auto", backend="euclidean_pcg"
+            ),
+            lambda: eg.StressMajorizationSolver.from_distance_matrix(
+                dmat_disc, strategy="geodesic_gradient", backend="euclidean_pcg"
+            ),
+        )
+        for conflict_fn in conflict_fns:
+            with self.assertRaises(eg.InvalidInputError):
+                conflict_fn()
+
     def test_gil_release_concurrent_solver_execution(self) -> None:
         g = _make_grid(5, 5)
         init = _seeded_coords(25, seed=31, scale=1.0)

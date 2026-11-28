@@ -7,7 +7,7 @@ use egraph::layout::{EuclideanPcg, GeodesicGradient, StressMajorizationSolver};
 use pyo3::prelude::*;
 
 use super::layout_dispatch::{DualTargetSolver, SolverTargetKind, TargetLayout};
-use crate::errors::unsupported_operation_err;
+use crate::errors::{invalid_input_err, unsupported_operation_err};
 use crate::ffi_convert::{ScalarDtype, normalize_enum_key};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -17,24 +17,42 @@ pub(super) enum StressStrategyChoice {
     GeodesicGradient,
 }
 
-pub(super) fn resolve_stress_strategy(
+fn parse_stress_strategy_token(raw: &str) -> PyResult<StressStrategyChoice> {
+    match normalize_enum_key(raw).as_str() {
+        "auto" => Ok(StressStrategyChoice::Auto),
+        "euclideanpcg" | "pcg" | "euclidean" => Ok(StressStrategyChoice::EuclideanPcg),
+        "geodesicgradient" | "geodesic" | "riemannian" => {
+            Ok(StressStrategyChoice::GeodesicGradient)
+        }
+        _ => Err(unsupported_operation_err(format!(
+            "unknown StressMajorizationSolver backend/strategy {raw:?}; expected 'auto', 'euclidean_pcg', or 'geodesic_gradient'"
+        ))),
+    }
+}
+
+pub(super) fn resolve_stress_strategy_pair(
     target: SolverTargetKind,
-    raw: &str,
+    strategy: Option<&str>,
+    backend: Option<&str>,
 ) -> PyResult<StressStrategyChoice> {
-    let parsed = match normalize_enum_key(raw).as_str() {
-        "auto" => StressStrategyChoice::Auto,
-        "euclideanpcg" | "pcg" | "euclidean" => StressStrategyChoice::EuclideanPcg,
-        "geodesicgradient" | "geodesic" | "riemannian" => StressStrategyChoice::GeodesicGradient,
-        _ => {
-            return Err(unsupported_operation_err(format!(
-                "unknown StressMajorizationSolver strategy {raw:?}; expected 'auto', 'euclidean_pcg', or 'geodesic_gradient'"
+    let s_choice = strategy.map(parse_stress_strategy_token).transpose()?;
+    let b_choice = backend.map(parse_stress_strategy_token).transpose()?;
+    let parsed = match (s_choice, b_choice) {
+        (Some(s), Some(b)) if s != b => {
+            return Err(invalid_input_err(format!(
+                "conflicting options: strategy={:?} cannot be combined with backend={:?}",
+                strategy.unwrap_or_default(),
+                backend.unwrap_or_default(),
             )));
         }
+        (Some(s), _) => s,
+        (None, Some(b)) => b,
+        (None, None) => StressStrategyChoice::Auto,
     };
     match (target, parsed) {
         (SolverTargetKind::Manifold2d, StressStrategyChoice::EuclideanPcg) => {
             Err(unsupported_operation_err(
-                "EuclideanPcg strategy does not support target='manifold2d'; use strategy='geodesic_gradient' (or 'auto') or target='layout2d'/'layout3d'/'layout_nd'",
+                "EuclideanPcg backend does not support target='manifold2d'; use backend='geodesic_gradient' (or 'auto') or target='layout2d'/'layout3d'/'layout_nd'",
             ))
         }
         (SolverTargetKind::Manifold2d, StressStrategyChoice::Auto) => {

@@ -18,7 +18,7 @@ use super::layout_dispatch::{
 };
 use super::stress_majorization_inner::{
     StressMajorizationInner, StressStrategyChoice, match_stress_inner, match_stress_target,
-    resolve_stress_strategy,
+    resolve_stress_strategy_pair,
 };
 
 /// Cooperative Gansner-Koren-North (2004) Stress Majorization layout solver.
@@ -37,7 +37,8 @@ impl PyStressMajorizationSolver {
             graph,
             *,
             target = SolverTargetKind::Layout2d,
-            strategy = "auto",
+            strategy = None,
+            backend = None,
             epsilon = StrictF64(1e-4),
             max_iterations = StrictUsize(100),
             pcg_tolerance = StrictF64(1e-6),
@@ -45,13 +46,14 @@ impl PyStressMajorizationSolver {
             min_norm = StrictF64(1e-4),
             dtype = ScalarDtype::F64
         ),
-        text_signature = "(graph, *, target='layout2d', strategy='auto', epsilon=1e-4, max_iterations=100, pcg_tolerance=1e-6, pcg_max_iterations=None, min_norm=1e-4, dtype='float64')"
+        text_signature = "(graph, *, target='layout2d', strategy=None, backend=None, epsilon=1e-4, max_iterations=100, pcg_tolerance=1e-6, pcg_max_iterations=None, min_norm=1e-4, dtype='float64')"
     )]
     fn new(
         py: Python<'_>,
         graph: &PyCsrGraph,
         target: SolverTargetKind,
-        strategy: &str,
+        strategy: Option<&str>,
+        backend: Option<&str>,
         epsilon: StrictF64,
         max_iterations: StrictUsize,
         pcg_tolerance: StrictF64,
@@ -64,6 +66,7 @@ impl PyStressMajorizationSolver {
             graph,
             target,
             strategy,
+            backend,
             epsilon,
             max_iterations,
             pcg_tolerance,
@@ -80,7 +83,8 @@ impl PyStressMajorizationSolver {
             graph,
             *,
             target = SolverTargetKind::Layout2d,
-            strategy = "auto",
+            strategy = None,
+            backend = None,
             epsilon = StrictF64(1e-4),
             max_iterations = StrictUsize(100),
             pcg_tolerance = StrictF64(1e-6),
@@ -88,13 +92,14 @@ impl PyStressMajorizationSolver {
             min_norm = StrictF64(1e-4),
             dtype = ScalarDtype::F64
         ),
-        text_signature = "(graph, *, target='layout2d', strategy='auto', epsilon=1e-4, max_iterations=100, pcg_tolerance=1e-6, pcg_max_iterations=None, min_norm=1e-4, dtype='float64')"
+        text_signature = "(graph, *, target='layout2d', strategy=None, backend=None, epsilon=1e-4, max_iterations=100, pcg_tolerance=1e-6, pcg_max_iterations=None, min_norm=1e-4, dtype='float64')"
     )]
     fn from_graph(
         py: Python<'_>,
         graph: &PyCsrGraph,
         target: SolverTargetKind,
-        strategy: &str,
+        strategy: Option<&str>,
+        backend: Option<&str>,
         epsilon: StrictF64,
         max_iterations: StrictUsize,
         pcg_tolerance: StrictF64,
@@ -102,7 +107,7 @@ impl PyStressMajorizationSolver {
         min_norm: StrictF64,
         dtype: ScalarDtype,
     ) -> PyResult<Self> {
-        let strat = resolve_stress_strategy(target, strategy)?;
+        let strat = resolve_stress_strategy_pair(target, strategy, backend)?;
         let cfg = StressMajorizationConfig::new()
             .with_epsilon(epsilon.0)
             .with_max_iterations(max_iterations.0)
@@ -199,7 +204,8 @@ impl PyStressMajorizationSolver {
             distances,
             *,
             target = SolverTargetKind::Layout2d,
-            strategy = "auto",
+            strategy = None,
+            backend = None,
             epsilon = StrictF64(1e-4),
             max_iterations = StrictUsize(100),
             pcg_tolerance = StrictF64(1e-6),
@@ -207,13 +213,14 @@ impl PyStressMajorizationSolver {
             min_norm = StrictF64(1e-4),
             dtype = ScalarDtype::F64
         ),
-        text_signature = "(distances, *, target='layout2d', strategy='auto', epsilon=1e-4, max_iterations=100, pcg_tolerance=1e-6, pcg_max_iterations=None, min_norm=1e-4, dtype='float64')"
+        text_signature = "(distances, *, target='layout2d', strategy=None, backend=None, epsilon=1e-4, max_iterations=100, pcg_tolerance=1e-6, pcg_max_iterations=None, min_norm=1e-4, dtype='float64')"
     )]
     fn from_distance_matrix(
         py: Python<'_>,
         distances: &Bound<'_, PyAny>,
         target: SolverTargetKind,
-        strategy: &str,
+        strategy: Option<&str>,
+        backend: Option<&str>,
         epsilon: StrictF64,
         max_iterations: StrictUsize,
         pcg_tolerance: StrictF64,
@@ -221,7 +228,7 @@ impl PyStressMajorizationSolver {
         min_norm: StrictF64,
         dtype: ScalarDtype,
     ) -> PyResult<Self> {
-        let strat = resolve_stress_strategy(target, strategy)?;
+        let strat = resolve_stress_strategy_pair(target, strategy, backend)?;
         let cfg = StressMajorizationConfig::new()
             .with_epsilon(epsilon.0)
             .with_max_iterations(max_iterations.0)

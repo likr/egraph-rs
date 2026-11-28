@@ -186,6 +186,10 @@ class EdgePolylines:
         graph: CsrGraph, layout: Layout2d | Layout3d | LayoutNd
     ) -> EdgePolylines: ...
     @staticmethod
+    def straight_line_from_graph(
+        graph: CsrGraph, layout: Layout2d | Layout3d | LayoutNd
+    ) -> EdgePolylines: ...
+    @staticmethod
     def from_parts(
         edge_offsets: _IndexArrayLike,
         points: Layout2d | Layout3d | LayoutNd | _CoordArrayLike,

@@ -121,6 +121,17 @@ impl PyEdgePolylines {
         Self::straight_line_impl(py, graph, layout)
     }
 
+    /// Initialize 2-point straight-line edge polylines from `graph` and node positions `layout`.
+    #[staticmethod]
+    #[pyo3(signature = (graph, layout), text_signature = "(graph, layout)")]
+    fn straight_line_from_graph(
+        py: Python<'_>,
+        graph: &PyCsrGraph,
+        layout: &Bound<'_, PyAny>,
+    ) -> PyResult<Self> {
+        Self::straight_line_impl(py, graph, layout)
+    }
+
     /// Construct `EdgePolylines` from `edge_offsets` and control-point coordinates `points`.
     #[staticmethod]
     #[pyo3(

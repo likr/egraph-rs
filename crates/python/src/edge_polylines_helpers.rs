@@ -103,6 +103,14 @@ impl PyEdgePolylines {
         EdgePolylines::from_parts_vec(offsets, pts).map_err(core_error_to_py)
     }
 
+    fn offsets_differ(&self, py: Python<'_>, offsets: &[u32]) -> bool {
+        let ro = self.offsets_ref().bind(py).readonly();
+        match ro.as_slice() {
+            Ok(cur) => cur != offsets,
+            Err(_) => ro.as_array().iter().copied().ne(offsets.iter().copied()),
+        }
+    }
+
     pub(crate) fn write_back_f64(
         &mut self,
         py: Python<'_>,
@@ -111,24 +119,23 @@ impl PyEdgePolylines {
         dims: usize,
     ) -> PyResult<()> {
         let k = flat.len().checked_div(dims).unwrap_or(0);
-        let old_offs_len = self.offsets_ref().bind(py).len();
-        if old_offs_len == offsets.len() {
-            let mut rw = self.offsets_ref().bind(py).readwrite();
-            rw.as_array_mut()
-                .as_slice_mut()
-                .ok_or_else(|| dimension_mismatch_err("edge_offsets buffer must be contiguous"))?
-                .copy_from_slice(&offsets);
-        } else {
-            *self.offsets_mut() = PyArray1::from_vec(py, offsets).unbind();
-        }
-        if let PolylinePointsArray::F64(arr) = self.points_ref() {
-            let bound = arr.bind(py);
-            if bound.shape() == [k, dims] {
-                let mut rw = bound.readwrite();
-                if let Some(dst) = rw.as_array_mut().as_slice_mut() {
-                    dst.copy_from_slice(&flat);
-                    return Ok(());
+        let offsets_differ = self.offsets_differ(py, &offsets);
+        let points_reusable = !offsets_differ
+            && match self.points_ref() {
+                PolylinePointsArray::F64(arr) => {
+                    let bound = arr.bind(py);
+                    bound.shape() == [k, dims] && bound.is_c_contiguous()
                 }
+                PolylinePointsArray::F32(_) => false,
+            };
+        if !points_reusable || offsets_differ {
+            *self.offsets_mut() = PyArray1::from_slice(py, &offsets).unbind();
+        }
+        if points_reusable && let PolylinePointsArray::F64(arr) = self.points_ref() {
+            let mut rw = arr.bind(py).readwrite();
+            if let Some(dst) = rw.as_array_mut().as_slice_mut() {
+                dst.copy_from_slice(&flat);
+                return Ok(());
             }
         }
         let arr = Array2::from_shape_vec((k, dims), flat)
@@ -146,24 +153,23 @@ impl PyEdgePolylines {
         dims: usize,
     ) -> PyResult<()> {
         let k = flat.len().checked_div(dims).unwrap_or(0);
-        let old_offs_len = self.offsets_ref().bind(py).len();
-        if old_offs_len == offsets.len() {
-            let mut rw = self.offsets_ref().bind(py).readwrite();
-            rw.as_array_mut()
-                .as_slice_mut()
-                .ok_or_else(|| dimension_mismatch_err("edge_offsets buffer must be contiguous"))?
-                .copy_from_slice(&offsets);
-        } else {
-            *self.offsets_mut() = PyArray1::from_vec(py, offsets).unbind();
-        }
-        if let PolylinePointsArray::F32(arr) = self.points_ref() {
-            let bound = arr.bind(py);
-            if bound.shape() == [k, dims] {
-                let mut rw = bound.readwrite();
-                if let Some(dst) = rw.as_array_mut().as_slice_mut() {
-                    dst.copy_from_slice(&flat);
-                    return Ok(());
+        let offsets_differ = self.offsets_differ(py, &offsets);
+        let points_reusable = !offsets_differ
+            && match self.points_ref() {
+                PolylinePointsArray::F32(arr) => {
+                    let bound = arr.bind(py);
+                    bound.shape() == [k, dims] && bound.is_c_contiguous()
                 }
+                PolylinePointsArray::F64(_) => false,
+            };
+        if !points_reusable || offsets_differ {
+            *self.offsets_mut() = PyArray1::from_slice(py, &offsets).unbind();
+        }
+        if points_reusable && let PolylinePointsArray::F32(arr) = self.points_ref() {
+            let mut rw = arr.bind(py).readwrite();
+            if let Some(dst) = rw.as_array_mut().as_slice_mut() {
+                dst.copy_from_slice(&flat);
+                return Ok(());
             }
         }
         let arr = Array2::from_shape_vec((k, dims), flat)
