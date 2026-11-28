@@ -1,4 +1,4 @@
-mod util;
+use crate::util;
 
 use egraph_wasm::csr_graph::JsCsrGraph;
 use egraph_wasm::layout_buffers::JsLayout2d;

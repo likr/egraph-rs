@@ -1,4 +1,4 @@
-mod util;
+use crate::util;
 
 use egraph_wasm::force_classic::JsLinLogSolver;
 use egraph_wasm::force_fr::JsFruchtermanReingoldSolver;

@@ -1,4 +1,4 @@
-mod util;
+use crate::util;
 
 use egraph_wasm::linalg_amg::JsAmgPcgSolver;
 use egraph_wasm::linalg_chebyshev::{

@@ -169,13 +169,17 @@ jobs:
           working-directory: crates/python
           manylinux: "2_28"
 
+      - uses: astral-sh/setup-uv@v5
+        if: matrix.run_tests
+        with:
+          enable-cache: true
+
       - name: Verify built wheel
         if: matrix.run_tests
         shell: bash
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install --force-reinstall crates/python/dist/*.whl
-          python -m pip install "numpy>=1.26" "pytest>=8.0" "scipy>=1.11" "networkx>=3.0" "igraph>=0.11"
+          uv pip install --system --force-reinstall crates/python/dist/*.whl
+          uv pip install --system "numpy>=1.26" "pytest>=8.0" "scipy>=1.11" "networkx>=3.0" "igraph>=0.11"
           cd crates/python
           python -m pytest tests
           cd ../..
@@ -202,14 +206,16 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
       - name: Build sdist and test source installation
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install "maturin>=1.7,<2.0" "numpy>=1.26"
+          uv pip install --system "maturin>=1.7,<2.0" "numpy>=1.26"
           maturin sdist --manifest-path crates/python/Cargo.toml --out dist
-          python -m venv /tmp/sdist-venv
-          /tmp/sdist-venv/bin/pip install --upgrade pip
-          /tmp/sdist-venv/bin/pip install dist/*.tar.gz
+          uv venv /tmp/sdist-venv
+          uv pip install --python /tmp/sdist-venv/bin/python dist/*.tar.gz
           /tmp/sdist-venv/bin/python -c "import egraph; print('sdist import OK:', egraph.__file__)"
 
       - name: Upload sdist artifact
@@ -237,6 +243,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            crates/wasm/package-lock.json
+            package-lock.json
 
       - uses: actions/setup-python@v5
         with:
@@ -273,6 +283,13 @@ jobs:
           fi
           python3 scripts/parity_harness.py --wasm-pkg crates/wasm/pkg --wasm-only
 
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('examples/web/package.json') }}
+
       - name: Build examples/web and run Playwright browser smoke
         run: |
           if [[ -f examples/web/package-lock.json ]]; then
@@ -281,7 +298,11 @@ jobs:
             npm --prefix examples/web install --no-audit --no-fund --no-package-lock
           fi
           npm --prefix examples/web run build
-          npx --prefix examples/web playwright install --with-deps chromium
+          if [[ "${{ steps.playwright-cache.outputs.cache-hit }}" == "true" ]]; then
+            npx --prefix examples/web playwright install-deps chromium
+          else
+            npx --prefix examples/web playwright install --with-deps chromium
+          fi
           node crates/wasm/tests/playwright_smoke.mjs
 
       - name: Pack npm tarball
@@ -363,6 +384,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            crates/wasm/package-lock.json
+            package-lock.json
 
       - name: Download built WASM pkg
         uses: actions/download-artifact@v4

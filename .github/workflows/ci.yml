@@ -29,8 +29,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -39,7 +37,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - uses: taiki-e/install-action@cargo-semver-checks
+      - uses: taiki-e/install-action@nextest
 
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -53,14 +51,49 @@ jobs:
           cargo clippy --no-deps --all-targets --no-default-features --features baselines -p egraph-layout-constraints -p egraph-layout-stress -p egraph-layout-force -p egraph-layout-multilevel -p egraph-layout-refine -p egraph-layout-composite -- -D warnings
           cargo clippy --no-deps --all-targets --features embedded -p egraph-dataset -- -D warnings
 
-      - name: Run release workspace tests
+      - name: Run release tests & doctests (all-features)
         run: |
-          cargo test --release --workspace
           NON_BINDING_PKGS=$(python3 scripts/verify_helpers.py list-packages --exclude egraph-python --exclude egraph-wasm --format clippy-args)
-          cargo test --release --all-features $NON_BINDING_PKGS
-          cargo test --release --no-default-features -p egraph-edge-routing -p egraph-layout-constraints -p egraph-layout-stress -p egraph-layout-force -p egraph-layout-sgd -p egraph-layout-embedding -p egraph-layout-multilevel -p egraph-layout-refine -p egraph-layout-composite -p egraph-metrics-cluster -p egraph-metrics -p egraph -p egraph-dataset
-          cargo test --release --no-default-features --features baselines -p egraph-layout-constraints -p egraph-layout-stress -p egraph-layout-force -p egraph-layout-multilevel -p egraph-layout-refine -p egraph-layout-composite
-          cargo test --release --features embedded -p egraph-dataset
+          cargo nextest run --release --all-features $NON_BINDING_PKGS
+          cargo test --release --doc --all-features $NON_BINDING_PKGS
+
+      - name: Check single-thread invariants and dependency hygiene
+        run: |
+          test -f clippy.toml
+          grep -q "std::thread::spawn" clippy.toml
+          ./scripts/check_invariants.sh --mode strict
+
+  rust-feature-matrix:
+    name: Rust Feature Matrix Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: taiki-e/install-action@nextest
+
+      - name: Run feature-combination release tests
+        run: |
+          cargo nextest run --release --no-default-features -p egraph-edge-routing -p egraph-layout-constraints -p egraph-layout-stress -p egraph-layout-force -p egraph-layout-sgd -p egraph-layout-embedding -p egraph-layout-multilevel -p egraph-layout-refine -p egraph-layout-composite -p egraph-metrics-cluster -p egraph-metrics -p egraph -p egraph-dataset
+          cargo nextest run --release --no-default-features --features baselines -p egraph-layout-constraints -p egraph-layout-stress -p egraph-layout-force -p egraph-layout-multilevel -p egraph-layout-refine -p egraph-layout-composite
+          cargo nextest run --release -p egraph -p egraph-cli -p egraph-dataset --features embedded
+
+  semver-checks:
+    name: SemVer Compatibility
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: taiki-e/install-action@cargo-semver-checks
 
       - name: Check SemVer compatibility (cargo-semver-checks)
         run: |
@@ -85,63 +118,6 @@ jobs:
           if [[ "${#EXISTING_PKGS[@]}" -gt 0 ]]; then
             cargo semver-checks check-release "${EXISTING_PKGS[@]}" --baseline-rev "$BASE_REV" ${EXTRA_FLAGS[@]+"${EXTRA_FLAGS[@]}"}
           fi
-
-      - name: Check single-thread invariants and dependency hygiene
-        run: |
-          test -f clippy.toml
-          grep -q "std::thread::spawn" clippy.toml
-          if cargo tree --workspace --edges normal -e features | grep -E '(^|[^[:alnum:]_-])(rayon|linfa|linfa-nn|linfa-clustering|wgpu)([^[:alnum:]_-]|$)'; then
-            echo "::error::workspace dependency tree pulls rayon/linfa/wgpu"
-            exit 1
-          fi
-          for crate in $(python3 scripts/verify_helpers.py list-packages); do
-            if cargo tree -p "$crate" --edges normal -e features | grep -E '(^|[^[:alnum:]_-])(rayon|linfa|linfa-nn|linfa-clustering|getrandom|wgpu)([^[:alnum:]_-]|$)'; then
-              echo "::error::$crate dependency tree pulls forbidden crate"
-              exit 1
-            fi
-          done
-          for spec in \
-            "egraph --no-default-features" \
-            "egraph --no-default-features --features dataset" \
-            "egraph --no-default-features --features edge-routing" \
-            "egraph --all-features" \
-            "egraph-dataset --no-default-features" \
-            "egraph-dataset --features embedded" \
-            "egraph-dataset --all-features" \
-            "egraph-metrics --no-default-features" \
-            "egraph-metrics --all-features" \
-            "egraph-metrics-cluster --no-default-features" \
-            "egraph-metrics-cluster --all-features" \
-            "egraph-edge-routing --no-default-features" \
-            "egraph-edge-routing --all-features" \
-            "egraph-layout-constraints --no-default-features" \
-            "egraph-layout-constraints --no-default-features --features baselines" \
-            "egraph-layout-constraints --all-features" \
-            "egraph-layout-stress --no-default-features" \
-            "egraph-layout-stress --no-default-features --features baselines" \
-            "egraph-layout-stress --all-features" \
-            "egraph-layout-force --no-default-features" \
-            "egraph-layout-force --no-default-features --features baselines" \
-            "egraph-layout-force --all-features" \
-            "egraph-layout-sgd --no-default-features" \
-            "egraph-layout-sgd --all-features" \
-            "egraph-layout-embedding --no-default-features" \
-            "egraph-layout-embedding --all-features" \
-            "egraph-layout-multilevel --no-default-features" \
-            "egraph-layout-multilevel --no-default-features --features baselines" \
-            "egraph-layout-multilevel --all-features" \
-            "egraph-layout-refine --no-default-features" \
-            "egraph-layout-refine --no-default-features --features baselines" \
-            "egraph-layout-refine --all-features" \
-            "egraph-layout-composite --no-default-features" \
-            "egraph-layout-composite --no-default-features --features baselines" \
-            "egraph-layout-composite --all-features"; do
-            if cargo tree -p $spec --edges normal -e features | grep -E '(^|[^[:alnum:]_-])(rayon|linfa|linfa-nn|linfa-clustering|getrandom|wgpu)([^[:alnum:]_-]|$)'; then
-              echo "::error::$spec dependency tree pulls forbidden crate"
-              exit 1
-            fi
-          done
-          ./scripts/check_invariants.sh --mode strict
 
   msrv:
     name: Rust MSRV (1.88.0)
@@ -184,12 +160,15 @@ jobs:
           working-directory: crates/python
           manylinux: "2_28"
 
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
       - name: Install wheel and test dependencies
         shell: bash
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install --force-reinstall crates/python/dist/*.whl
-          python -m pip install "numpy>=1.26" "pytest>=8.0" "scipy>=1.11" "networkx>=3.0" "igraph>=0.11" "mypy>=1.11"
+          uv pip install --system --force-reinstall crates/python/dist/*.whl
+          uv pip install --system "numpy>=1.26" "pytest>=8.0" "scipy>=1.11" "networkx>=3.0" "igraph>=0.11" "mypy>=1.11"
 
       - name: Run Python test suite and parity harness
         shell: bash
@@ -264,6 +243,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            crates/wasm/package-lock.json
+            package-lock.json
 
       - uses: actions/setup-python@v5
         with:
@@ -301,6 +284,13 @@ jobs:
           python3 scripts/parity_harness.py --wasm-pkg crates/wasm/pkg --wasm-only
           (cd crates/wasm && npm pack --dry-run)
 
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('examples/web/package.json') }}
+
       - name: Build examples/web and run Playwright browser smoke
         run: |
           if [[ -f examples/web/package-lock.json ]]; then
@@ -309,7 +299,11 @@ jobs:
             npm --prefix examples/web install --no-audit --no-fund --no-package-lock
           fi
           npm --prefix examples/web run build
-          npx --prefix examples/web playwright install --with-deps chromium
+          if [[ "${{ steps.playwright-cache.outputs.cache-hit }}" == "true" ]]; then
+            npx --prefix examples/web playwright install-deps chromium
+          else
+            npx --prefix examples/web playwright install --with-deps chromium
+          fi
           node crates/wasm/tests/playwright_smoke.mjs
 
       - name: Upload built WASM pkg for docs-check
@@ -332,6 +326,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            crates/wasm/package-lock.json
+            package-lock.json
 
       - uses: actions/download-artifact@v4
         with:
@@ -343,11 +341,14 @@ jobs:
           name: wasm-pkg
           path: crates/wasm/pkg
 
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
       - name: Build Sphinx HTML documentation and doctests
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install crates/python/dist/*.whl
-          python -m pip install -r crates/python/docs/requirements.txt
+          uv pip install --system crates/python/dist/*.whl
+          uv pip install --system -r crates/python/docs/requirements.txt
           python -m sphinx -b html crates/python/docs/source crates/python/docs/_build/html
           python -m sphinx -b doctest crates/python/docs/source crates/python/docs/_build/doctest
 

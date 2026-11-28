@@ -1,4 +1,4 @@
-mod util;
+use crate::util;
 
 use egraph_wasm::coarsen_backbone::{
     js_align_clustered_centroids, js_coarse_backbone_init, js_louvain_coarsen,

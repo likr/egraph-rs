@@ -1,4 +1,4 @@
-mod util;
+use crate::util;
 
 use egraph_wasm::neighborhood_knn::{
     js_build_pure_2hop_knn, js_compute_knn_probabilities, js_compute_nodewise_2hop_perplexities,

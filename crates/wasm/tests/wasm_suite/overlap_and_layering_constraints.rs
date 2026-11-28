@@ -1,4 +1,4 @@
-mod util;
+use crate::util;
 
 use egraph_wasm::constraints_layering::{
     JsSeparationConstraint, js_assign_layers, js_cycle_edges, js_generate_layered_constraints,

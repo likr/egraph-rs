@@ -1,4 +1,4 @@
-mod util;
+use crate::util;
 
 use egraph_wasm::constraints_layering::js_transitive_reduction;
 use egraph_wasm::constraints_twin_declutter::{JsTwinDeclutterer, js_declutter_twins_2d};

@@ -1,4 +1,4 @@
-mod util;
+use crate::util;
 
 use egraph_wasm::edge_polylines::JsEdgePolylines;
 use egraph_wasm::fdeb::JsFdebSolver;

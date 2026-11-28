@@ -247,6 +247,34 @@ check_wasm32_target() {
   esac
 }
 
+check_wasm32_batch() {
+  local label="$1"
+  shift
+  local flags=() crates=() arg in_crates=0
+  for arg in "$@"; do
+    if [[ "$arg" == "--" ]]; then
+      in_crates=1
+      continue
+    fi
+    if [[ "$in_crates" -eq 1 ]]; then
+      if has_workspace_pkg "$arg"; then
+        crates+=(-p "$arg")
+      fi
+    else
+      flags+=("$arg")
+    fi
+  done
+  if [[ "${#crates[@]}" -eq 0 ]]; then
+    return 0
+  fi
+  if cargo check "${crates[@]}" ${flags[@]+"${flags[@]}"} --target wasm32-unknown-unknown >/dev/null 2>&1; then
+    pass "wasm32 batch ($label: ${#crates[@]} crates/flags) compiles cleanly"
+  else
+    fail_hard "wasm32 batch ($label) failed cargo check --target wasm32-unknown-unknown"
+    cargo check "${crates[@]}" ${flags[@]+"${flags[@]}"} --target wasm32-unknown-unknown || true
+  fi
+}
+
 if [[ -n "$TARGET_CRATE" ]]; then
   case "$TARGET_CRATE" in
     egraph-python|egraph-cli)
@@ -257,7 +285,7 @@ if [[ -n "$TARGET_CRATE" ]]; then
       ;;
   esac
 else
-  for wasm_crate in \
+  check_wasm32_batch "default" -- \
     egraph-core \
     egraph-ffi \
     egraph-dataset \
@@ -283,9 +311,44 @@ else
     egraph-layout-refine \
     egraph-layout-composite \
     egraph \
-    egraph-wasm; do
-    check_wasm32_target "$wasm_crate"
-  done
+    egraph-wasm
+  check_wasm32_batch "--all-features" --all-features -- \
+    egraph \
+    egraph-dataset \
+    egraph-metrics \
+    egraph-metrics-cluster \
+    egraph-edge-routing \
+    egraph-layout-constraints \
+    egraph-layout-stress \
+    egraph-layout-force \
+    egraph-layout-sgd \
+    egraph-layout-embedding \
+    egraph-layout-multilevel \
+    egraph-layout-refine \
+    egraph-layout-composite
+  check_wasm32_batch "--no-default-features" --no-default-features -- \
+    egraph \
+    egraph-dataset \
+    egraph-metrics-cluster \
+    egraph-edge-routing \
+    egraph-layout-constraints \
+    egraph-layout-stress \
+    egraph-layout-force \
+    egraph-layout-sgd \
+    egraph-layout-embedding \
+    egraph-layout-multilevel \
+    egraph-layout-refine \
+    egraph-layout-composite
+  check_wasm32_batch "--no-default-features --features baselines" --no-default-features --features baselines -- \
+    egraph-layout-constraints \
+    egraph-layout-stress \
+    egraph-layout-force \
+    egraph-layout-multilevel \
+    egraph-layout-refine \
+    egraph-layout-composite
+  check_wasm32_batch "egraph-dataset --features embedded" --features embedded -- egraph-dataset
+  check_wasm32_batch "egraph --no-default-features --features dataset" --no-default-features --features dataset -- egraph
+  check_wasm32_batch "egraph --no-default-features --features edge-routing" --no-default-features --features edge-routing -- egraph
 fi
 
 # 4. WASM artifact size report (informational; no gzip upper-bound enforced)

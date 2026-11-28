@@ -1,4 +1,4 @@
-mod util;
+use crate::util;
 
 use egraph_wasm::backbone::{JsBackboneSolver, js_extract_quadrilateral_backbone};
 use egraph_wasm::cluster_layout::{

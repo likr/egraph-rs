@@ -317,9 +317,13 @@ fi
 if [[ "$RUN_WASM" -eq 1 ]]; then
   run_step "wasm32_check" cargo check -p egraph-wasm --target wasm32-unknown-unknown
   if [[ -n "$TEST_FILTER" ]]; then
-    run_step "wasm_test_$TEST_FILTER" wasm-pack test --node "$REPO_ROOT/crates/wasm" --test "$TEST_FILTER"
+    if [[ "$TEST_FILTER" == "wasm_suite" ]]; then
+      run_step "wasm_test_wasm_suite" wasm-pack test --node "$REPO_ROOT/crates/wasm" --test wasm_suite
+    else
+      run_step "wasm_test_$TEST_FILTER" wasm-pack test --node "$REPO_ROOT/crates/wasm" --test wasm_suite -- "$TEST_FILTER"
+    fi
   else
-    run_step "wasm_test_all" wasm-pack test --node "$REPO_ROOT/crates/wasm"
+    run_step "wasm_test_all" wasm-pack test --node "$REPO_ROOT/crates/wasm" --test wasm_suite
   fi
 
   if [[ "$BUILD_WASM" -eq 1 ]]; then
