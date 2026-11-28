@@ -13,19 +13,20 @@ Use this skill whenever preparing, bumping, tagging, publishing, or verifying a 
 
 Update every file below atomically when bumping `X.Y.Z-alpha.N` / `X.Y.Z-beta.N` / `X.Y.Z-rc.N` / `X.Y.Z` (PEP 440 PyPI equivalent: `X.Y.ZaN` / `X.Y.ZbN` / `X.Y.ZrcN` / `X.Y.Z`):
 
-1. `Cargo.toml` (`[workspace.package].version`)
+1. `Cargo.toml` (`[workspace.package].version` AND all 23 internal publishable `egraph*` version pins under `[workspace.dependencies]`, enforced by `scripts/verify_helpers.py`)
 2. `crates/python/Cargo.toml` (`package.version`)
 3. `crates/wasm/Cargo.toml` (`package.version`)
 4. `crates/wasm/package.json` (`"version"`)
 5. **`crates/wasm/package-lock.json` (`"version"` at root AND `packages[""].version`)** — tracked in git; omitting this causes CI `docs-check` (`npm ci --prefix crates/wasm`) or lockfile drift failures.
 6. `examples/web/package.json` (`"version"`)
-7. `CHANGELOG.md` (Keep a Changelog section matching the release version and date)
-8. `crates/python/README.md` (`Version:` header and `pip install` examples)
-9. `crates/python/docs/source/getting_started/installation.rst` (`pip install` version pins)
-10. `crates/python/docs/source/getting_started/migration_v6.rst` (version mention)
-11. `docs/MIGRATION_V6.md` (title and summary table header)
+7. **Root `package-lock.json` (`packages["crates/wasm"].version` AND `packages["examples/web"].version`)** — npm workspace lockfile at repository root; keep aligned with `crates/wasm/package.json` and `examples/web/package.json`.
+8. `CHANGELOG.md` (Keep a Changelog section matching the release version and date)
+9. `crates/python/README.md` (`Version:` header and `pip install` examples)
+10. `crates/python/docs/source/getting_started/installation.rst` (`pip install` version pins)
+11. `crates/python/docs/source/getting_started/migration_v6.rst` (version mention)
+12. `docs/MIGRATION_V6.md` (title and summary table header)
 
-For `beta`, `rc`, or GA tags (`pre_kind != "alpha"`), also remove `"Development Status :: 3 - Alpha"` from `crates/python/pyproject.toml` (`classifiers`) and update it appropriately; `.github/workflows/release.yml` explicitly fails if an alpha classifier remains on non-alpha tags. Keep `crates/wasm/package.json` `"repository": {"type": "git", "url": "git+https://github.com/likr/egraph-rs.git", "directory": "crates/wasm"}` intact for `npm publish --provenance`.
+For `beta`, `rc`, or GA tags (`pre_kind != "alpha"`), also replace `"Development Status :: 3 - Alpha"` in `crates/python/pyproject.toml` (`classifiers`)—for example with `"Development Status :: 4 - Beta"` on beta tags (or `"Development Status :: 5 - Production/Stable"` for GA); `.github/workflows/release.yml` explicitly fails if an alpha classifier remains on non-alpha tags. Keep `crates/wasm/package.json` `"repository": {"type": "git", "url": "git+https://github.com/likr/egraph-rs.git", "directory": "crates/wasm"}` intact for `npm publish --provenance`.
 
 ## 2. Pre-Tag Verification & Hygiene
 
@@ -37,8 +38,9 @@ Run single-threaded before committing or tagging:
    ```bash
    EGRAPH_PARALLEL_WORKERS=1 ./scripts/verify.sh --invariants --docs
    ```
-   Confirm `Cross-target packaging metadata is aligned`, `hard_fails=0`, Sphinx HTML + `doctest`, TypeDoc, and `npm --prefix examples/web run build` all pass, and `jp_cjk=0` across all modified files.
-   - **Version-Bump-Only Scope Guard**: If the release bump commit changes only the 11 version/changelog/doc files (verified via `git diff --stat <verified_parent>..HEAD` touching zero `.rs`/`.py`/`.mjs` logic files), `--invariants --docs` + `npx tsc --noEmit` + local clean-env `maturin build`/`sdist`/`npm pack` smoke is sufficient prior to pushing `origin/master`; do not duplicate the parent commit's full Rust/Python/WASM test suite locally because `ci.yml` (`6/6`) runs the full matrix remotely before tagging.
+   Confirm `Cross-target packaging metadata is aligned` (all 28 crates: `24` publishable library crates + `4` `publish = false` crates `egraph-ffi`, `egraph-python`, `egraph-wasm`, `egraph-cli`), `hard_fails=0`, Sphinx HTML + `doctest`, TypeDoc, and `npm --prefix examples/web run build` all pass, and `jp_cjk=0` across all modified files.
+   - Verify publishable Rust crate packaging across the 24 publishable crates with `cargo publish --workspace --dry-run --allow-dirty` (or clean tree) when validating `Cargo.toml` metadata and `[workspace.dependencies]` pins.
+   - **Version-Bump-Only Scope Guard**: If the release bump commit changes only the version/lockfile/changelog/doc files (verified via `git diff --stat <verified_parent>..HEAD` touching zero `.rs`/`.py`/`.mjs` logic files), `--invariants --docs` + `npx tsc --noEmit` + local clean-env `maturin build`/`sdist`/`npm pack` smoke is sufficient prior to pushing `origin/master`; do not duplicate the parent commit's full Rust/Python/WASM test suite locally because `ci.yml` runs the full matrix remotely before tagging.
    - **Distribution Build Profile**: `.github/workflows/release.yml` builds published PyPI wheels with `maturin build --profile dist-release` (`lto = "thin"`, `codegen-units = 1`), distinct from the fast parallel `[profile.release]` (`lto = false`) used by `ci.yml` and local `verify.sh --rust`/`--python` checks.
 4. Commit (`chore(release): bump version to <version>`), push `origin/master`, and wait for `.github/workflows/ci.yml` (`6/6` jobs) to complete green before creating a release tag.
 
@@ -67,12 +69,14 @@ After `release.yml` completes `success` across all 11 jobs:
 - **Important v6 Python API facts**:
   - Check installed version with `import importlib.metadata as md, egraph as eg; assert eg.__version__ == md.version("egraph") == "<pep440>"` (`egraph.__version__` is exported in PEP 440 form, e.g. `6.0.0a8`, matching `CARGO_PKG_VERSION`, and intentionally omitted from `egraph.__all__`).
   - `eg.SgdSolver.sparse_barrier_dog(...)` returns `SgdSolver` directly (not a tuple).
-  - `eg.evaluate_metrics(g, lay, ["sns", "np2", "crossing_number"])` accepts short aliases as input, but returned `dict[str, float]` keys are canonical snake_case names: `"scale_normalized_stress"`, `"neighborhood_preservation_2hop"`, `"crossing_number"`.
+  - `report = eg.evaluate_metrics(g, lay, ["sns", "np2", "crossing_number"])` accepts short aliases as input and returns a frozen `MetricReport` supporting typed properties (`report.scale_normalized_stress`, `report.neighborhood_preservation_2hop`, `report.crossing_number`), mapping lookup (`report["scale_normalized_stress"]`), and `report.to_dict()`.
+  - Smoke-test `Layout3d` (`target="layout3d"` on `ForceAtlas2Solver` / `TsNetSolver`), `EdgePolylines.straight_line_from_graph(g, lay)` + `FdebSolver(polylines)`, and fail-fast `UnsupportedOperationError` on illegal `(target, backend)` pairs (e.g. `TsNetSolver(g, target="layout3d", backend="fit_fft")`).
 - **Downstream `uv`-Managed `.venv` Upgrade (`diffusion-kernel-experiments`)**: Downstream worktrees provisioned via `uv` do not bundle `pip`. Upgrade them to the published release with `uv pip install --python .venv/bin/python --pre --no-cache "egraph==<pep440>"`.
 
 ### npm (`npm install egraph@next` / `--tag next` for prereleases)
 - Verify `npm view egraph dist-tags --json` shows updated `next` while keeping existing `latest` untouched for prereleases.
 - Install into a clean `"type": "module"` directory (`npm install egraph@next`), confirm `node_modules/egraph/package.json` `"version"`, and smoke-run via Node.js ESM (`import init, { ... } from "egraph"`):
   - `evaluateMetrics(g, lay, ["sns", "np2", "crossingNumber"]).toRecord()` returns camelCase fields (`scaleNormalizedStress`, `neighborhoodPreservation2Hop`, `crossingNumber`).
+  - Smoke-test `Layout3d.init(n, { seed: 42n })` (`BigInt` seed + `coordsView()`), `EdgePolylines.straightLineFromGraph(g, lay)` + `new FdebSolver(polylines)`, and structured `.code` (`"UnsupportedOperation"`) on invalid `(target, backend)` combinations.
 
 Remove all temporary smoke directories under `/tmp` afterwards and verify clean `git status -sb`.
