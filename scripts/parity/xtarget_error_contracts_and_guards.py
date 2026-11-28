@@ -36,12 +36,18 @@ def run_cross_target_error_contracts_parity(
 
     # 1. Option 1 illegal (target, backend) fail-fast checks in Python -> UnsupportedOperationError
     illegal_pairs: list[tuple[str, Any]] = [
+        ("tsnet/2d/auto3d", lambda: eg.TsNetSolver.pure_2hop(g8, target="layout2d", backend="auto3d")),
+        ("tsnet/3d/auto2d", lambda: eg.TsNetSolver.pure_2hop(g8, target="layout3d", backend="auto2d")),
         ("tsnet/3d/fit_fft", lambda: eg.TsNetSolver.pure_2hop(g8, target="layout3d", backend="fit_fft")),
         ("tsnet/3d/linear_fft", lambda: eg.TsNetSolver.pure_2hop(g8, target="layout3d", backend="linear_fft")),
         ("tfdp/3d/ib_fft", lambda: eg.TFdpSolver(g8, target="layout3d", backend="ib_fft")),
+        ("tsnet/nd/auto2d", lambda: eg.TsNetSolver.pure_2hop(g8, target="layout_nd", backend="auto2d")),
+        ("tsnet/nd/auto3d", lambda: eg.TsNetSolver.pure_2hop(g8, target="layout_nd", backend="auto3d")),
         ("tsnet/nd/bh", lambda: eg.TsNetSolver.pure_2hop(g8, target="layout_nd", backend="barnes_hut")),
         ("tsnet/nd/fit_fft", lambda: eg.TsNetSolver.pure_2hop(g8, target="layout_nd", backend="fit_fft")),
         ("tsnet/nd/linear_fft", lambda: eg.TsNetSolver.pure_2hop(g8, target="layout_nd", backend="linear_fft")),
+        ("tsnet/mani/auto2d", lambda: eg.TsNetSolver.pure_2hop(g8, target="manifold2d", backend="auto2d")),
+        ("tsnet/mani/auto3d", lambda: eg.TsNetSolver.pure_2hop(g8, target="manifold2d", backend="auto3d")),
         ("fr/nd/bh", lambda: eg.FruchtermanReingoldSolver(g8, target="layout_nd", backend="barnes_hut")),
         ("fr/nd/grid", lambda: eg.FruchtermanReingoldSolver(g8, target="layout_nd", backend="grid")),
         ("fa2/nd/bh", lambda: eg.ForceAtlas2Solver(g8, target="layout_nd", backend="barnes_hut")),
@@ -130,6 +136,28 @@ def run_cross_target_error_contracts_parity(
     eg.TsNetSolver.pure_2hop(g16, backend="exact", stage_iterations=(2, 2, 2), seed=seed64_b, dtype="float32").run(l2_ts)
     ts_seed_py = l2_ts.coords(copy=True).ravel()
 
+    l2_ts_auto2d = eg.Layout2d.init(16, seed=17, dtype="float32")
+    eg.TsNetSolver.pure_2hop(g16, target="layout2d", backend="auto2d", stage_iterations=(2, 2, 2), seed=42, dtype="float32").run(l2_ts_auto2d)
+    ts_auto2d_py = l2_ts_auto2d.coords(copy=True).ravel()
+
+    l3_ts_auto3d = eg.Layout3d.init(16, seed=17, dtype="float32")
+    eg.TsNetSolver.pure_2hop(g16, target="layout3d", backend="auto3d", stage_iterations=(2, 2, 2), seed=42, dtype="float32").run(l3_ts_auto3d)
+    ts_auto3d_py = l3_ts_auto3d.coords(copy=True).ravel()
+
+    # 5. SelLayoutSolver nested t_fdp_config / fr_config fail-fast & backend differentiation in Python
+    _assert_py_error("py/sel/tfdp/min_grid_dim", eg.InvalidInputError, lambda: eg.SelLayoutSolver(g8, layout_backend="t_fdp", t_fdp_config={"min_grid_dim": 50}))
+    _assert_py_error("py/sel/tfdp/theta", eg.InvalidInputError, lambda: eg.SelLayoutSolver(g8, layout_backend="t_fdp", t_fdp_config={"theta": -1.0}))
+    _assert_py_error("py/sel/tfdp/backend_bogus", eg.UnsupportedOperationError, lambda: eg.SelLayoutSolver(g8, layout_backend="t_fdp", t_fdp_config={"backend": "bogus"}))
+    _assert_py_error("py/sel/fr/theta", eg.InvalidInputError, lambda: eg.SelLayoutSolver(g8, layout_backend="fr", fr_config={"theta": -1.0}))
+    _assert_py_error("py/sel/fr/backend_bogus", eg.UnsupportedOperationError, lambda: eg.SelLayoutSolver(g8, layout_backend="fr", fr_config={"backend": "bogus"}))
+    l2_sel_ex = eg.Layout2d.init(16, seed=17, dtype="float32")
+    eg.SelLayoutSolver(g16, layout_backend="t_fdp", t_fdp_config={"backend": "exact", "iterations": 20, "seed": 42}, dtype="float32").run(l2_sel_ex)
+    l2_sel_fft = eg.Layout2d.init(16, seed=17, dtype="float32")
+    eg.SelLayoutSolver(g16, layout_backend="t_fdp", t_fdp_config={"backend": "ib_fft", "iterations": 20, "seed": 42}, dtype="float32").run(l2_sel_fft)
+    sel_ex_py = l2_sel_ex.coords(copy=True).ravel()
+    sel_fft_py = l2_sel_fft.coords(copy=True).ravel()
+    assert not np.allclose(sel_ex_py, sel_fft_py), "py/sel: exact vs ib_fft should diverge"
+
     spec_payload = {"g8_edges": [int(v) for e in g8_edges for v in e], "g16_edges": [int(v) for e in make_grid_edges(4, 4) for v in e]}
     node_body = """
 const g8 = mod.CsrGraph.fromEdgeList(8, new Uint32Array(spec.g8_edges));
@@ -150,12 +178,18 @@ const expectCode = (label, expectedCode, fn) => {
 
 // Option 1 illegal (target, backend) -> UnsupportedOperation
 const illegalWasm = [
+  ['tsnet/2d/auto3d', () => mod.TsNetSolver.pure2Hop(g8, { target: 'layout2d', backend: 'auto3d' })],
+  ['tsnet/3d/auto2d', () => mod.TsNetSolver.pure2Hop(g8, { target: 'layout3d', backend: 'auto2d' })],
   ['tsnet/3d/fitFft', () => mod.TsNetSolver.pure2Hop(g8, { target: 'layout3d', backend: 'fitFft' })],
   ['tsnet/3d/linearFft', () => mod.TsNetSolver.pure2Hop(g8, { target: 'layout3d', backend: 'linearFft' })],
   ['tfdp/3d/ibFft', () => new mod.TFdpSolver(g8, { target: 'layout3d', backend: 'ibFft' })],
+  ['tsnet/nd/auto2d', () => mod.TsNetSolver.pure2Hop(g8, { target: 'layoutNd', backend: 'auto2d' })],
+  ['tsnet/nd/auto3d', () => mod.TsNetSolver.pure2Hop(g8, { target: 'layoutNd', backend: 'auto3d' })],
   ['tsnet/nd/bh', () => mod.TsNetSolver.pure2Hop(g8, { target: 'layoutNd', backend: 'barnesHut' })],
   ['tsnet/nd/fitFft', () => mod.TsNetSolver.pure2Hop(g8, { target: 'layoutNd', backend: 'fitFft' })],
   ['tsnet/nd/linearFft', () => mod.TsNetSolver.pure2Hop(g8, { target: 'layoutNd', backend: 'linearFft' })],
+  ['tsnet/mani/auto2d', () => mod.TsNetSolver.pure2Hop(g8, { target: 'manifold2d', backend: 'auto2d' })],
+  ['tsnet/mani/auto3d', () => mod.TsNetSolver.pure2Hop(g8, { target: 'manifold2d', backend: 'auto3d' })],
   ['fr/nd/bh', () => new mod.FruchtermanReingoldSolver(g8, { target: 'layoutNd', backend: 'barnesHut' })],
   ['fr/nd/grid', () => new mod.FruchtermanReingoldSolver(g8, { target: 'layoutNd', backend: 'grid' })],
   ['fa2/nd/bh', () => new mod.ForceAtlas2Solver(g8, { target: 'layoutNd', backend: 'barnesHut' })],
@@ -222,12 +256,42 @@ const l2Ts = mod.Layout2d.init(16, { seed: 17n });
 const svTs = mod.TsNetSolver.pure2Hop(g16, { backend: 'exact', stageIterations: [2, 2, 2], seed: sB });
 svTs.run(l2Ts);
 
+const l2Auto2d = mod.Layout2d.init(16, { seed: 17n });
+const svAuto2d = mod.TsNetSolver.pure2Hop(g16, { target: 'layout2d', backend: 'auto2d', stageIterations: [2, 2, 2], seed: 42 });
+svAuto2d.run(l2Auto2d);
+const l3Auto3d = mod.Layout3d.init(16, { seed: 17n });
+const svAuto3d = mod.TsNetSolver.pure2Hop(g16, { target: 'layout3d', backend: 'auto3d', stageIterations: [2, 2, 2], seed: 42 });
+svAuto3d.run(l3Auto3d);
+
+// SelLayoutSolver nested tFdpConfig / frConfig fail-fast & backend differentiation
+expectCode('wasm/sel/tfdp/minGridDim', 'InvalidInput', () => new mod.SelLayoutSolver(g8, { layoutBackend: 'tFdp', tFdpConfig: { minGridDim: 50 } }));
+expectCode('wasm/sel/tfdp/theta', 'InvalidInput', () => new mod.SelLayoutSolver(g8, { layoutBackend: 'tFdp', tFdpConfig: { theta: -1.0 } }));
+expectCode('wasm/sel/tfdp/backend_bogus', 'InvalidInput', () => new mod.SelLayoutSolver(g8, { layoutBackend: 'tFdp', tFdpConfig: { backend: 'bogus' } }));
+expectCode('wasm/sel/fr/theta', 'InvalidInput', () => new mod.SelLayoutSolver(g8, { layoutBackend: 'fr', frConfig: { theta: -1.0 } }));
+expectCode('wasm/sel/fr/backend_bogus', 'InvalidInput', () => new mod.SelLayoutSolver(g8, { layoutBackend: 'fr', frConfig: { backend: 'bogus' } }));
+
+const l2SelEx = mod.Layout2d.init(16, { seed: 17n });
+const svSelEx = new mod.SelLayoutSolver(g16, { layoutBackend: 'tFdp', tFdpConfig: { backend: 'exact', iterations: 20, seed: 42 } });
+svSelEx.run(l2SelEx);
+const l2SelFft = mod.Layout2d.init(16, { seed: 17n });
+const svSelFft = new mod.SelLayoutSolver(g16, { layoutBackend: 'tFdp', tFdpConfig: { backend: 'ibFft', iterations: 20, seed: 42 } });
+svSelFft.run(l2SelFft);
+const selExArr = Array.from(l2SelEx.coordsView());
+const selFftArr = Array.from(l2SelFft.coordsView());
+assert.ok(selExArr.some((v, i) => Math.abs(v - selFftArr[i]) > 1e-6), 'wasm/sel: exact vs ibFft should diverge');
+
 const out = {
   l2Seed: Array.from(l2Seed.coordsView()),
   l3Seed: Array.from(l3Seed.coordsView()),
   sgdSeed: Array.from(l2Sgd.coordsView()),
   tsSeed: Array.from(l2Ts.coordsView()),
+  tsAuto2d: Array.from(l2Auto2d.coordsView()),
+  tsAuto3d: Array.from(l3Auto3d.coordsView()),
+  selEx: selExArr,
+  selFft: selFftArr,
 };
+svSelFft.free?.(); l2SelFft.free?.(); svSelEx.free?.(); l2SelEx.free?.();
+svAuto3d.free?.(); l3Auto3d.free?.(); svAuto2d.free?.(); l2Auto2d.free?.();
 svTs.free?.(); l2Ts.free?.(); svSgd.free?.(); l2Sgd.free?.(); l3Seed.free?.(); l2Seed.free?.();
 g2.free?.(); g16.free?.(); g8.free?.();
 console.log(JSON.stringify(out));
@@ -239,6 +303,10 @@ console.log(JSON.stringify(out));
     max_f32_diff = max(max_f32_diff, check_array_close("bigint/l3_init", l3_seed_py, ws["l3Seed"], 1e-6))
     max_f32_diff = max(max_f32_diff, check_array_close("bigint/sgd", sgd_seed_py, ws["sgdSeed"], 1e-5))
     max_f32_diff = max(max_f32_diff, check_array_close("bigint/tsnet", ts_seed_py, ws["tsSeed"], 1e-5))
+    max_f32_diff = max(max_f32_diff, check_array_close("tsnet/auto2d", ts_auto2d_py, ws["tsAuto2d"], 1e-5))
+    max_f32_diff = max(max_f32_diff, check_array_close("tsnet/auto3d", ts_auto3d_py, ws["tsAuto3d"], 1e-5))
+    max_f32_diff = max(max_f32_diff, check_array_close("sel/tfdp/exact", sel_ex_py, ws["selEx"], 1e-5))
+    max_f32_diff = max(max_f32_diff, check_array_close("sel/tfdp/ib_fft", sel_fft_py, ws["selFft"], 1e-5))
 
     return [{
         "case": "cross_target_error_contracts_and_guards_py_vs_wasm",
