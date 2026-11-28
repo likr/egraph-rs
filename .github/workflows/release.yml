@@ -27,13 +27,13 @@ jobs:
       npm_tag: ${{ steps.parse.outputs.npm_tag }}
       is_prerelease: ${{ steps.parse.outputs.is_prerelease }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -149,9 +149,9 @@ jobs:
             maturin_args: --profile dist-release -o dist
             run_tests: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -169,7 +169,7 @@ jobs:
           working-directory: crates/python
           manylinux: "2_28"
 
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7
         if: matrix.run_tests
         with:
           enable-cache: true
@@ -186,7 +186,7 @@ jobs:
           python scripts/parity_harness.py
 
       - name: Upload wheel artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dist-wheels-${{ matrix.name }}
           path: crates/python/dist/*.whl
@@ -196,9 +196,9 @@ jobs:
     needs: [verify-tag-and-version]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -206,7 +206,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
 
@@ -219,7 +219,7 @@ jobs:
           /tmp/sdist-venv/bin/python -c "import egraph; print('sdist import OK:', egraph.__file__)"
 
       - name: Upload sdist artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dist-sdist
           path: dist/*.tar.gz
@@ -232,7 +232,7 @@ jobs:
       wasm_raw_bytes: ${{ steps.size.outputs.raw_bytes }}
       wasm_gzip_kib: ${{ steps.size.outputs.gzip_kib }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -240,7 +240,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: npm
@@ -248,7 +248,7 @@ jobs:
             crates/wasm/package-lock.json
             package-lock.json
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -285,7 +285,7 @@ jobs:
 
       - name: Cache Playwright browsers
         id: playwright-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-playwright-${{ hashFiles('examples/web/package.json') }}
@@ -309,13 +309,13 @@ jobs:
         run: (cd crates/wasm && npm pack --dry-run && npm pack)
 
       - name: Upload WASM pkg artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dist-wasm-pkg
           path: crates/wasm/pkg
 
       - name: Upload npm tarball artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dist-npm-tgz
           path: crates/wasm/*.tgz
@@ -331,14 +331,14 @@ jobs:
       id-token: write
     steps:
       - name: Download Python wheels
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: dist-wheels-*
           merge-multiple: true
           path: dist
 
       - name: Download Python sdist
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: dist-sdist
           path: dist
@@ -379,18 +379,14 @@ jobs:
     permissions:
       id-token: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
-          cache: npm
-          cache-dependency-path: |
-            crates/wasm/package-lock.json
-            package-lock.json
 
       - name: Download built WASM pkg
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: dist-wasm-pkg
           path: crates/wasm/pkg
@@ -422,7 +418,7 @@ jobs:
       contents: write
     steps:
       - name: Download release artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: dist-*
           merge-multiple: true
@@ -435,7 +431,7 @@ jobs:
           ls -la upload-assets
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: upload-assets/*
           prerelease: ${{ needs.verify-tag-and-version.outputs.is_prerelease == 'true' }}
