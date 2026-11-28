@@ -73,7 +73,7 @@ impl BarnesHut {
 /// repulsion backends without modifying `egraph-layout-stress`.
 pub trait MaxentRepulsion<L: LayoutStorage + ?Sized> {
     /// Reusable per-solver repulsion evaluator (e.g. spatial tree + scratch buffers).
-    type Evaluator: RepulsionBackend<L> + Clone;
+    type Evaluator: RepulsionBackend<L>;
 
     /// Validates backend-specific hyperparameters before solver construction.
     fn validate(&self) -> CoreResult<()> {

@@ -95,6 +95,7 @@ impl<L, B> Clone for MaxentStressSolver<L, B>
 where
     L: EuclideanLayout + DefaultMaxentBackend,
     B: MaxentRepulsion<L> + Clone,
+    B::Evaluator: Clone,
 {
     fn clone(&self) -> Self {
         Self {
@@ -418,6 +419,36 @@ where
     #[inline]
     pub fn total_iterations(&self) -> Option<usize> {
         Some(self.core.total_iterations_budget)
+    }
+
+    /// Returns the number of canonical positive-weight undirected 1-hop edges.
+    #[inline]
+    pub fn num_edges(&self) -> usize {
+        self.core.edges.len()
+    }
+
+    /// Iterates over canonical positive-weight 1-hop edges as `(u, v, target_distance, weight)`.
+    #[inline]
+    pub fn iter_edges(&self) -> impl Iterator<Item = (u32, u32, f64, f64)> + '_ {
+        self.core.edges.iter().map(|e| (e.u, e.v, e.d, e.w))
+    }
+
+    /// Returns the per-vertex connected component index (`0..component_sizes().len()`).
+    #[inline]
+    pub fn component_ids(&self) -> &[u32] {
+        &self.core.comp_id
+    }
+
+    /// Returns the vertex count of each connected component.
+    #[inline]
+    pub fn component_sizes(&self) -> &[u32] {
+        &self.core.comp_sizes
+    }
+
+    /// Returns the preconditioned Algebraic Multigrid (`AmgPcgSolver`) instance for $L_w$.
+    #[inline]
+    pub fn amg_solver(&self) -> &AmgPcgSolver {
+        &self.core.amg
     }
 }
 

@@ -39,7 +39,7 @@ impl GeodesicGradient {
 pub trait StressMajorizationStrategy<L: RiemannianLayout + ?Sized> {
     /// Reusable per-solver workspace state owned by
     /// [`StressMajorizationSolver`](super::StressMajorizationSolver).
-    type State: Clone;
+    type State;
 
     /// Validates strategy-specific hyperparameters before solver construction.
     fn validate(&self) -> CoreResult<()> {

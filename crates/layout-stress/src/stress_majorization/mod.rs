@@ -93,6 +93,7 @@ impl<L, B> Clone for StressMajorizationSolver<L, B>
 where
     L: RiemannianLayout + DefaultStressStrategy,
     B: StressMajorizationStrategy<L> + Clone,
+    B::State: Clone,
 {
     fn clone(&self) -> Self {
         Self {
@@ -334,6 +335,19 @@ where
     #[inline]
     pub fn total_iterations(&self) -> Option<usize> {
         Some(self.config.max_iterations)
+    }
+
+    /// Returns the flat symmetric row-major `(num_nodes, num_nodes)` target distance matrix.
+    #[inline]
+    pub fn distances(&self) -> &[f64] {
+        &self.dists
+    }
+
+    /// Returns the flat symmetric row-major `(num_nodes, num_nodes)` stress weight matrix
+    /// ($w_{ij} = d_{ij}^{-2}$ for reachable off-diagonal pairs, `0.0` otherwise).
+    #[inline]
+    pub fn weights(&self) -> &[f64] {
+        &self.weights
     }
 
     /// Evaluates total weighted stress $\sum_{i < j} w_{ij} (d(x_i, x_j) - d_{ij})^2$ for `layout`.
