@@ -7,10 +7,6 @@ license.workspace = true
 repository.workspace = true
 description = "Single-threaded stochastic gradient descent stress and sparse barrier layout solvers for egraph-rs"
 
-[features]
-# Temporary empty stub for Batch 1 workspace resolution while layout-multilevel still forwards delaunay.
-delaunay = []
-
 [dependencies]
 egraph-core.workspace = true
 egraph-linalg.workspace = true
