@@ -18,7 +18,7 @@ Update every file below atomically when bumping `X.Y.Z-alpha.N` / `X.Y.Z-beta.N`
 3. `crates/wasm/Cargo.toml` (`package.version`)
 4. `crates/wasm/package.json` (`"version"`)
 5. **`crates/wasm/package-lock.json` (`"version"` at root AND `packages[""].version`)** — tracked in git; omitting this causes CI `docs-check` (`npm ci --prefix crates/wasm`) or lockfile drift failures.
-6. `js/examples/package.json` (`"version"`)
+6. `examples/web/package.json` (`"version"`)
 7. `CHANGELOG.md` (Keep a Changelog section matching the release version and date)
 8. `crates/python/README.md` (`Version:` header and `pip install` examples)
 9. `crates/python/docs/source/getting_started/installation.rst` (`pip install` version pins)
@@ -37,7 +37,7 @@ Run single-threaded before committing or tagging:
    ```bash
    EGRAPH_PARALLEL_WORKERS=1 ./scripts/verify.sh --invariants --docs
    ```
-   Confirm `Cross-target packaging metadata is aligned`, `hard_fails=0`, Sphinx HTML + `doctest`, TypeDoc, and `npm --prefix js/examples run build` all pass, and `jp_cjk=0` across all modified files.
+   Confirm `Cross-target packaging metadata is aligned`, `hard_fails=0`, Sphinx HTML + `doctest`, TypeDoc, and `npm --prefix examples/web run build` all pass, and `jp_cjk=0` across all modified files.
    - **Version-Bump-Only Scope Guard**: If the release bump commit changes only the 11 version/changelog/doc files (verified via `git diff --stat <verified_parent>..HEAD` touching zero `.rs`/`.py`/`.mjs` logic files), `--invariants --docs` + `npx tsc --noEmit` + local clean-env `maturin build`/`sdist`/`npm pack` smoke is sufficient prior to pushing `origin/master`; do not duplicate the parent commit's full Rust/Python/WASM test suite locally because `ci.yml` (`6/6`) runs the full matrix remotely before tagging.
    - **Distribution Build Profile**: `.github/workflows/release.yml` builds published PyPI wheels with `maturin build --profile dist-release` (`lto = "thin"`, `codegen-units = 1`), distinct from the fast parallel `[profile.release]` (`lto = false`) used by `ci.yml` and local `verify.sh --rust`/`--python` checks.
 4. Commit (`chore(release): bump version to <version>`), push `origin/master`, and wait for `.github/workflows/ci.yml` (`6/6` jobs) to complete green before creating a release tag.
@@ -46,7 +46,7 @@ Run single-threaded before committing or tagging:
 
 - **Trusted Publishing (No Long-Lived API Tokens)**: `.github/workflows/release.yml` publishes via OIDC using GitHub Environments `pypi-release` and `npm-release` (deployment tag rule `v6.*`) and matching Trusted Publishers configured on PyPI and npmjs.com with workflow filename `release.yml`.
 - **Permission Boundary**: Standard developer PATs typically return HTTP 403 on repository Environments APIs. Never attempt to bypass permission checks; if `pypi-release` / `npm-release` or Trusted Publishers are missing, stop and ask the repository owner to provision them in GitHub / PyPI / npm web settings.
-- **Failed Tag Policy (`docs/V6_RELEASE_PLAN.md` §8.2)**: Never force-move (`git tag -f` / `git push --force`) an already-pushed release tag after a workflow failure (e.g., `v6.0.0-alpha.4` stayed unpublished due to a pre-`fbfd70c` `check_invariants.sh` stderr bug). Fix `master`, verify green remote CI, bump to the next version (`v6.0.0-alpha.5`), and push a new annotated tag (`git tag -a v<version> -m "Release v<version>" && git push origin v<version>`).
+- **Failed Tag Policy (`docs/archive/V6_RELEASE_PLAN.md` §8.2)**: Never force-move (`git tag -f` / `git push --force`) an already-pushed release tag after a workflow failure (e.g., `v6.0.0-alpha.4` stayed unpublished due to a pre-`fbfd70c` `check_invariants.sh` stderr bug). Fix `master`, verify green remote CI, bump to the next version (`v6.0.0-alpha.5`), and push a new annotated tag (`git tag -a v<version> -m "Release v<version>" && git push origin v<version>`).
 
 ## 4. Non-Polling GitHub Actions Monitoring
 

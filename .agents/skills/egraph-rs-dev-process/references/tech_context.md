@@ -1,6 +1,6 @@
 # Technical Context: `egraph-rs`
 
-This reference document outlines the technical environment, folder architecture, toolchain, and constraints for `egraph-rs` (active roadmap: `docs/V6_RELEASE_PLAN.md`, latest v6 release `v6.0.0-alpha.8`).
+This reference document outlines the technical environment, folder architecture, toolchain, and constraints for `egraph-rs` (active spec: `docs/V6_API_FREEZE_SPEC.md`, archived roadmap: `docs/archive/V6_RELEASE_PLAN.md`).
 
 ## Technologies Used
 
@@ -11,10 +11,10 @@ This reference document outlines the technical environment, folder architecture,
 - **WebAssembly (`wasm32-unknown-unknown`, `wasm-bindgen`, `wasm-pack`, `binaryen`/`wasm-opt`) + Node.js / ESM**: Browser and Node.js WASM integration targeting a single-binary ESM bundle.
 
 ### Key Directories
-- `crates/` — 45 workspace crates: 27 modern `egraph*` crates (`egraph-core`, `egraph-ffi`, `egraph-petgraph`, `egraph-dataset`, `egraph-spatial-{trees,fft,crossings}` + `egraph-spatial` umbrella, `egraph-linalg` + `egraph-linalg-{mds,amg}`, `egraph-neighborhood`, `egraph-clustering`, `egraph-metrics-{geometry,cluster}` + `egraph-metrics` umbrella, `egraph-layout-{constraints,stress,force,neighbor,sgd,multilevel}` + `egraph-layout` umbrella, unified `egraph` facade, `egraph-cli`, `egraph-python`, `egraph-wasm`) plus 18 legacy v5 `petgraph-*` crates.
+- `crates/` — 28 workspace crates (`24` publishable + `4` `publish = false`: `egraph-ffi`, `egraph-python`, `egraph-wasm`, `egraph-cli`).
 - `scripts/` — Worktree, venv, invariant-check, tiered verification (`verify.sh`, `verify_helpers.py`), and cross-target parity harness (`parity_harness.py`, `parity/*.py` 30 modules) scripts.
-- `docs/` — Release plan and migration guide (`docs/V6_RELEASE_PLAN.md`, `docs/MIGRATION_V6.md`).
-- `js/dataset`, `js/examples` — JavaScript/ESM datasets and Vite interactive examples.
+- `docs/` — API freeze spec, migration guide, and archived plans (`docs/V6_API_FREEZE_SPEC.md`, `docs/MIGRATION_V6.md`, `docs/archive/`).
+- `examples/web/` — JavaScript/ESM Vite interactive examples and datasets (`examples/web/dataset/`).
 - `.agents/` — Workspace knowledge index (`AGENTS.md`) and agent skills (`skills/*`).
 
 ## Hard Architectural Constraints

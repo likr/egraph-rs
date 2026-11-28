@@ -14,7 +14,7 @@ This skill details the general development rules, comment conventions, parallel 
 
 ## Single-Thread & Cross-Target Engineering Rules
 - `egraph-rs` targets **Native Rust, Python (PyO3), and WebAssembly (`wasm-bindgen`)** under strictly **single-threaded plain CPU execution** (no `rayon`, `std::thread`, Web Workers, GPU, or C/Fortran FFI).
-- Consult [`.agents/AGENTS.md`](../../AGENTS.md) and [`docs/V6_RELEASE_PLAN.md`](../../../docs/V6_RELEASE_PLAN.md) before modifying crates or bindings.
+- Consult [`.agents/AGENTS.md`](../../AGENTS.md) and [`docs/V6_API_FREEZE_SPEC.md`](../../../docs/V6_API_FREEZE_SPEC.md) (plus [`docs/archive/V6_RELEASE_PLAN.md`](../../../docs/archive/V6_RELEASE_PLAN.md)) before modifying crates or bindings.
 
 ## Crate Granularity, Module Size & Snapshot Naming Rules
 - **Crate Granularity for Fast Compilation**:

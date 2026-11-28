@@ -18,7 +18,7 @@ Follow these conventions alongside [`.agents/AGENTS.md`](../../AGENTS.md), [`egr
 1. **Pre-Commit Hygiene**:
    - Inspect `git status -sb` and `git --no-pager diff --cached --stat` before committing.
    - Split unrelated edits (e.g., library code vs. `.github/` templates vs. `.agents/` updates) into separate atomic commits.
-   - Verify no secrets, credentials, gitignored outputs (`target/`, `.venv/`, `Cargo.lock`, `crates/wasm/pkg/`, `js/examples/dist/`), non-English code/doc/commit text (`jp_cjk=0`), or files `> 100 MB` are staged.
+   - Verify no secrets, credentials, gitignored outputs (`target/`, `.venv/`, `Cargo.lock`, `crates/wasm/pkg/`, `examples/web/dist/`), non-English code/doc/commit text (`jp_cjk=0`), or files `> 100 MB` are staged.
 2. **Autonomous Verified Commits & Pre-Completion Push Gate**:
    - Commit verified changes atomically (staging explicit file paths only) and push to `origin/master` autonomously once scope-matched `./scripts/verify.sh` passes.
    - Before delivering the final task completion report, ensure all verified task commits are pushed to `origin/master` (`git rev-parse HEAD origin/master` aligned).
