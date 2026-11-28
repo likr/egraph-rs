@@ -2,13 +2,12 @@
 
 use egraph::neighborhood::{self as nb, HybridKnnConfig, TwoHopSamplingMode};
 use numpy::PyArray1;
-use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
 
-use super::types::{PyKnnGraph, PySparse12HopPairs, knn_stats_to_py_dict};
+use super::types::{PyKnnBuildResult, PyKnnGraph, PySparse12HopPairs};
 use crate::array_extract::{extract_f64_1d, extract_perplexities};
 use crate::csr_graph::PyCsrGraph;
+use crate::errors::{dimension_mismatch_err, invalid_input_err};
 use crate::ffi_convert::{
     StrictF64, StrictU64, StrictUsize, core_error_to_py, extract_coords_any, extract_u32_1d,
     normalize_enum_key,
@@ -20,7 +19,7 @@ pub(crate) fn parse_two_hop_mode(raw: &str) -> PyResult<TwoHopSamplingMode> {
             Ok(TwoHopSamplingMode::DegreeOrderedHubSuppressed)
         }
         "twosteprandomwalk" | "randomwalk" => Ok(TwoHopSamplingMode::TwoStepRandomWalk),
-        _ => Err(PyValueError::new_err(format!(
+        _ => Err(invalid_input_err(format!(
             "unknown 2-hop sampling mode {raw:?}; expected 'degree_ordered_hub_suppressed' or 'two_step_random_walk'"
         ))),
     }
@@ -45,8 +44,8 @@ fn extract_1hop_2hop_csr(py: Python<'_>, graph: &PyCsrGraph) -> PyResult<(PyCsrG
 /// Extract canonical undirected 1-hop and hub-safe capped 2-hop vertex pairs ``Sparse12HopPairs``.
 #[pyfunction]
 #[pyo3(
-    signature = (graph, max_2hop_per_node = StrictUsize(32), seed = StrictU64(42), *, mode = "degree_ordered_hub_suppressed", max_bridge_degree = None),
-    text_signature = "(graph, max_2hop_per_node=32, seed=42, *, mode='degree_ordered_hub_suppressed', max_bridge_degree=None)"
+    signature = (graph, *, max_2hop_per_node = StrictUsize(32), seed = StrictU64(42), mode = "degree_ordered_hub_suppressed", max_bridge_degree = None),
+    text_signature = "(graph, *, max_2hop_per_node=32, seed=42, mode='degree_ordered_hub_suppressed', max_bridge_degree=None)"
 )]
 fn extract_sparse_1hop_2hop_pairs(
     py: Python<'_>,
@@ -78,46 +77,33 @@ fn extract_sparse_1hop_2hop_pairs(
 /// Build a pure 1+2-hop `KnnGraph` with `{1.0, 2.0}` distances, `k2_deg`, and summary `stats`.
 #[pyfunction]
 #[pyo3(signature = (graph), text_signature = "(graph)")]
-fn build_pure_2hop_knn<'py>(
-    py: Python<'py>,
-    graph: &PyCsrGraph,
-) -> PyResult<(PyKnnGraph, Bound<'py, PyArray1<u32>>, Py<PyDict>)> {
+fn build_pure_2hop_knn(py: Python<'_>, graph: &PyCsrGraph) -> PyResult<PyKnnBuildResult> {
     let g = graph.inner();
     let (knn, k2_deg, stats) = py
         .detach(|| nb::build_pure_2hop_knn(&*g))
         .map_err(core_error_to_py)?;
-    let stats_dict = knn_stats_to_py_dict(py, &stats)?;
-    Ok((
-        PyKnnGraph::from_inner(knn),
-        PyArray1::from_vec(py, k2_deg),
-        stats_dict,
-    ))
+    Ok(PyKnnBuildResult::new(knn, Some(k2_deg), stats))
 }
 
 /// Build a hub-safe capped 1+2-hop `KnnGraph` with `{1.0, 2.0}` distances, `k2_deg`, and summary `stats`.
 #[pyfunction]
 #[pyo3(
-    signature = (graph, max_2hop_per_node = StrictUsize(32), *, seed = StrictU64(42)),
-    text_signature = "(graph, max_2hop_per_node=32, *, seed=42)"
+    signature = (graph, *, max_2hop_per_node = StrictUsize(32), seed = StrictU64(42)),
+    text_signature = "(graph, *, max_2hop_per_node=32, seed=42)"
 )]
-fn build_capped_12hop_knn<'py>(
-    py: Python<'py>,
+fn build_capped_12hop_knn(
+    py: Python<'_>,
     graph: &PyCsrGraph,
     max_2hop_per_node: StrictUsize,
     seed: StrictU64,
-) -> PyResult<(PyKnnGraph, Bound<'py, PyArray1<u32>>, Py<PyDict>)> {
+) -> PyResult<PyKnnBuildResult> {
     let g = graph.inner();
     let cap = max_2hop_per_node.0;
     let seed_val = seed.0;
     let (knn, k2_deg, stats) = py
         .detach(|| nb::build_capped_12hop_knn(&*g, cap, seed_val))
         .map_err(core_error_to_py)?;
-    let stats_dict = knn_stats_to_py_dict(py, &stats)?;
-    Ok((
-        PyKnnGraph::from_inner(knn),
-        PyArray1::from_vec(py, k2_deg),
-        stats_dict,
-    ))
+    Ok(PyKnnBuildResult::new(knn, Some(k2_deg), stats))
 }
 
 /// Compute exact distinct 1-hop + 2-hop neighborhood sizes for every vertex in `graph`.
@@ -192,29 +178,27 @@ fn build_hybrid_adaptive_knn(
     coarse_dim: StrictUsize,
     rerank_factor: StrictUsize,
     max_row_k: Option<StrictUsize>,
-) -> PyResult<(PyKnnGraph, Py<PyDict>)> {
+) -> PyResult<PyKnnBuildResult> {
     let g = graph.inner();
     let n = g.num_nodes();
     let (coords_flat, nrows, dim) = extract_coords_any(coords, "coords")?;
     if nrows != n {
-        return Err(PyValueError::new_err(format!(
+        return Err(dimension_mismatch_err(format!(
             "coords row count {nrows} does not match graph.num_nodes ({n})"
         )));
     }
     let perps_vec = extract_perplexities(perplexities, n)?;
-    let cfg = HybridKnnConfig {
-        k_factor: k_factor.0,
-        k_override: k.map(|v| v.0),
-        margin_gap: margin_gap.0,
-        coarse_dim: coarse_dim.0,
-        rerank_factor: rerank_factor.0,
-        max_row_k: max_row_k.map(|v| v.0),
-    };
+    let cfg = HybridKnnConfig::new()
+        .with_k_factor(k_factor.0)
+        .with_k_override(k.map(|v| v.0))
+        .with_margin_gap(margin_gap.0)
+        .with_coarse_dim(coarse_dim.0)
+        .with_rerank_factor(rerank_factor.0)
+        .with_max_row_k(max_row_k.map(|v| v.0));
     let (knn, stats) = py
         .detach(|| nb::build_hybrid_adaptive_knn(&*g, &coords_flat, dim, &perps_vec, &cfg))
         .map_err(core_error_to_py)?;
-    let stats_dict = knn_stats_to_py_dict(py, &stats)?;
-    Ok((PyKnnGraph::from_inner(knn), stats_dict))
+    Ok(PyKnnBuildResult::new(knn, None, stats))
 }
 
 /// Build an unweighted hop-shell `KnnGraph` via Partial BFS with deterministic tie-breaking.

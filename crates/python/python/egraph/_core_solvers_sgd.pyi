@@ -1,21 +1,41 @@
 from __future__ import annotations
 
-from typing import Any, Sequence, final
+from typing import Sequence, final
 
-from ._core_core import CsrGraph, Layout2d, LayoutNd
+from ._core_core import CsrGraph, Layout2d, Layout3d, LayoutNd
 from ._core_manifold import ManifoldLayout2d
 from ._core_neighborhood import DogVaradhanLandmarks
+from ._core_solvers_sgd_variants import (
+    DogVaradhanStats as DogVaradhanStats,
+    DrGraphSolver as DrGraphSolver,
+    GraphCneSolver as GraphCneSolver,
+    LargeVisSolver as LargeVisSolver,
+    PacmapGraphSolver as PacmapGraphSolver,
+    Sgd2Solver as Sgd2Solver,
+    SnapTFdpSolver as SnapTFdpSolver,
+    SparseBarrierStats as SparseBarrierStats,
+)
 from ._core_types import (
+    SolverStatus,
+    TargetKind,
     _DtypeLike,
     _IndexArrayLike,
     _MatrixArrayLike,
     _WeightArrayLike,
 )
 
-_AnyLayout = Layout2d | LayoutNd | ManifoldLayout2d
+_AnyLayout = Layout2d | Layout3d | LayoutNd | ManifoldLayout2d
 
 __all__ = [
+    "DogVaradhanStats",
+    "DrGraphSolver",
+    "GraphCneSolver",
+    "LargeVisSolver",
+    "PacmapGraphSolver",
+    "Sgd2Solver",
     "SgdSolver",
+    "SnapTFdpSolver",
+    "SparseBarrierStats",
 ]
 
 @final
@@ -24,6 +44,7 @@ class SgdSolver:
         cls,
         graph: CsrGraph,
         *,
+        target: TargetKind = "layout2d",
         iterations: int = 60,
         eps: float = 0.01,
         schedule: str = "exponential",
@@ -42,6 +63,7 @@ class SgdSolver:
         dji: _WeightArrayLike | None = None,
         wij: _WeightArrayLike | None = None,
         wji: _WeightArrayLike | None = None,
+        target: TargetKind = "layout2d",
         iterations: int = 60,
         eps: float = 0.01,
         schedule: str = "exponential",
@@ -66,6 +88,7 @@ class SgdSolver:
         hinge_dji: _WeightArrayLike | None = None,
         hinge_wij: _WeightArrayLike | None = None,
         hinge_wji: _WeightArrayLike | None = None,
+        target: TargetKind = "layout2d",
         iterations: int = 60,
         eps: float = 0.01,
         schedule: str = "exponential",
@@ -83,6 +106,7 @@ class SgdSolver:
         weights: _WeightArrayLike,
         is_hinge: Sequence[bool],
         *,
+        target: TargetKind = "layout2d",
         iterations: int = 60,
         eps: float = 0.01,
         schedule: str = "exponential",
@@ -95,6 +119,7 @@ class SgdSolver:
     def full(
         graph: CsrGraph,
         *,
+        target: TargetKind = "layout2d",
         iterations: int = 60,
         eps: float = 0.01,
         schedule: str = "exponential",
@@ -109,6 +134,7 @@ class SgdSolver:
         landmarks: DogVaradhanLandmarks,
         pivots: _IndexArrayLike | None = None,
         *,
+        target: TargetKind = "layout2d",
         max_2hop_per_node: int = 32,
         hinge_repulsion: bool = True,
         delta_rel: float = 0.25,
@@ -135,6 +161,7 @@ class SgdSolver:
     def sparse_barrier_dog(
         graph: CsrGraph,
         *,
+        target: TargetKind = "layout2d",
         degree: int | None = None,
         num_landmarks: int = 64,
         degree_normalize: bool = True,
@@ -173,6 +200,7 @@ class SgdSolver:
     def streaming_negatives(
         graph: CsrGraph,
         *,
+        target: TargetKind = "layout2d",
         negatives_per_node: int = 5,
         target_distance: float = 2.0,
         weight: float = 0.25,
@@ -190,6 +218,7 @@ class SgdSolver:
         graph: CsrGraph,
         pairs_per_node: int = 30,
         *,
+        target: TargetKind = "layout2d",
         iterations: int = 60,
         eps: float = 0.01,
         schedule: str = "exponential",
@@ -201,10 +230,11 @@ class SgdSolver:
     @staticmethod
     def omega(
         graph: CsrGraph,
-        embedding: _MatrixArrayLike | Layout2d | LayoutNd,
+        embedding: _MatrixArrayLike | Layout2d | Layout3d | LayoutNd,
         k: int = 30,
         min_dist: float = 1e-3,
         *,
+        target: TargetKind = "layout2d",
         iterations: int = 60,
         eps: float = 0.01,
         schedule: str = "exponential",
@@ -214,114 +244,10 @@ class SgdSolver:
         dtype: _DtypeLike = "float64",
     ) -> SgdSolver: ...
     @staticmethod
-    def sgd2(
-        graph: CsrGraph,
-        *,
-        iterations: int = 60,
-        eps: float = 0.01,
-        step_scale: float = 1.0,
-        batch_size: int = 4096,
-        damping: float = 1e-4,
-        seed: int = 42,
-        dtype: _DtypeLike = "float64",
-    ) -> SgdSolver: ...
-    @staticmethod
-    def pacmap_graph(
-        graph: CsrGraph,
-        *,
-        n_neighbors: int = 10,
-        mn_ratio: float = 0.5,
-        fp_ratio: float = 2.0,
-        phase_iterations: tuple[int, int, int] = (100, 100, 250),
-        learning_rate: float = 1.0,
-        keep_all_1hop: bool = False,
-        max_1hop_per_node: int | None = None,
-        degree_weight_beta: float = 0.0,
-        num_landmarks: int = 16,
-        landmarks: DogVaradhanLandmarks | _MatrixArrayLike | None = None,
-        seed: int = 42,
-        dtype: _DtypeLike = "float64",
-    ) -> SgdSolver: ...
-    @staticmethod
-    def pacmap_graph_with_landmarks(
-        graph: CsrGraph,
-        landmarks: DogVaradhanLandmarks | _MatrixArrayLike,
-        *,
-        n_neighbors: int = 10,
-        mn_ratio: float = 0.5,
-        fp_ratio: float = 2.0,
-        phase_iterations: tuple[int, int, int] = (100, 100, 250),
-        learning_rate: float = 1.0,
-        keep_all_1hop: bool = False,
-        max_1hop_per_node: int | None = None,
-        degree_weight_beta: float = 0.0,
-        num_landmarks: int = 16,
-        seed: int = 42,
-        dtype: _DtypeLike = "float64",
-    ) -> SgdSolver: ...
-    @staticmethod
-    def pacmap_graph_with_backbone(
-        graph: CsrGraph,
-        *,
-        n_neighbors: int = 10,
-        mn_ratio: float = 0.5,
-        fp_ratio: float = 2.0,
-        phase_iterations: tuple[int, int, int] = (100, 100, 250),
-        learning_rate: float = 1.0,
-        keep_all_1hop: bool = False,
-        max_1hop_per_node: int | None = None,
-        degree_weight_beta: float = 0.0,
-        num_landmarks: int = 16,
-        max_coarse_nodes: int = 10000,
-        resolution: float = 1.0,
-        resolution_decay: float = 0.5,
-        max_passes: int = 100,
-        min_modularity_gain: float = 1e-7,
-        max_outer_rounds: int = 16,
-        edge_length_mode: str = "conductance_inverse",
-        distance_backend: str = "rhgh",
-        alpha: float = 0.75,
-        c0: float = 0.5,
-        kappa: float = 1.0,
-        gamma_w: float = 0.5,
-        gamma_m: float = 0.5,
-        mu_ov: float = 1.0,
-        m_gap: float = 0.1,
-        coarse_pivots: int = 64,
-        coarse_neg_per_node: int = 16,
-        coarse_t_max: int = 80,
-        rhgh_gamma: float | None = None,
-        rhgh_p: float | None = None,
-        rcf_steps: int = 2,
-        rcf_eta: float = 0.2,
-        jitter_scale: float = 0.5,
-        gamma_tether: float = 0.5,
-        target_std: float | None = 1.0,
-        robust_quantile: float = 0.95,
-        seed: int = 42,
-        dtype: _DtypeLike = "float64",
-    ) -> tuple[SgdSolver, Layout2d, dict[str, Any]]: ...
-    @staticmethod
-    def snap_t_fdp(
-        graph: CsrGraph,
-        *,
-        iterations: int = 200,
-        negatives_per_edge: int = 3,
-        learning_rate: float = 1.0,
-        alpha: float = 1.0,
-        repulsion_scale: float = 1.0,
-        rho_start: float = 1.0,
-        rho_end: float = 0.1,
-        rho_power: float = 1.0,
-        degree_beta: float = 0.0,
-        bounded_attraction: bool = True,
-        seed: int = 42,
-        dtype: _DtypeLike = "float64",
-    ) -> SgdSolver: ...
-    @staticmethod
     def ortmann_sparse_stress(
         graph: CsrGraph,
         *,
+        target: TargetKind = "layout2d",
         num_pivots: int = 100,
         pivot_strategy: str = "kmeans_sp",
         iterations: int = 200,
@@ -331,52 +257,9 @@ class SgdSolver:
         seed: int = 42,
         dtype: _DtypeLike = "float64",
     ) -> SgdSolver: ...
-    @staticmethod
-    def largevis(
-        graph: CsrGraph,
-        *,
-        iterations: int = 200,
-        negative_samples: int = 5,
-        gamma: float = 7.0,
-        initial_lr: float = 1.0,
-        min_lr: float = 1e-4,
-        degree_exponent: float = 0.75,
-        seed: int = 42,
-        dtype: _DtypeLike = "float64",
-    ) -> SgdSolver: ...
-    @staticmethod
-    def drgraph(
-        graph: CsrGraph,
-        *,
-        k_order: int = 1,
-        negative_samples: int = 5,
-        b: float = 2.0,
-        gamma_coarse: float = 0.01,
-        gamma_fine: float = 0.1,
-        coarsen_stop_ratio: float = 0.8,
-        iterations: int = 400,
-        initial_lr: float = 1.0,
-        min_lr: float = 1e-4,
-        seed: int = 42,
-        dtype: _DtypeLike = "float64",
-    ) -> SgdSolver: ...
-    @staticmethod
-    def graph_cne(
-        graph: CsrGraph,
-        *,
-        objective: str = "infonce",
-        negative_samples: int = 5,
-        iterations: int = 400,
-        initial_lr: float = 1.0,
-        min_lr: float = 1e-4,
-        repulsion_weight: float = 1.0,
-        row_normalize: bool = True,
-        seed: int = 42,
-        dtype: _DtypeLike = "float64",
-    ) -> SgdSolver: ...
-    def step(self, layout: _AnyLayout) -> str: ...
-    def run_steps(self, layout: _AnyLayout, steps: int) -> str: ...
-    def run(self, layout: _AnyLayout) -> str: ...
+    def step(self, layout: _AnyLayout) -> SolverStatus: ...
+    def run_steps(self, layout: _AnyLayout, steps: int) -> SolverStatus: ...
+    def run(self, layout: _AnyLayout) -> SolverStatus: ...
     def reset_schedule(
         self,
         *,
@@ -389,18 +272,20 @@ class SgdSolver:
     ) -> None: ...
     def run_schedule_window(
         self,
-        layout: Layout2d | ManifoldLayout2d,
+        layout: _AnyLayout,
         start_iter: int,
         count: int,
-    ) -> str: ...
-    def stats(self) -> dict[str, Any] | None: ...
-    def dog_stats(self) -> dict[str, Any] | None: ...
+    ) -> SolverStatus: ...
+    def stats(self) -> SparseBarrierStats | None: ...
+    def dog_stats(self) -> DogVaradhanStats | None: ...
     @property
-    def status(self) -> str: ...
+    def target(self) -> TargetKind: ...
+    @property
+    def status(self) -> SolverStatus: ...
     @property
     def iteration(self) -> int: ...
     @property
-    def total_iterations(self) -> int: ...
+    def total_iterations(self) -> int | None: ...
     @property
     def is_finished(self) -> bool: ...
     @property

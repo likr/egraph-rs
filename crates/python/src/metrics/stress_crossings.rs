@@ -2,23 +2,24 @@
 
 use egraph::core::CoreResult;
 use egraph::metrics as egraph_metrics;
+use egraph::spatial::TorusView;
 use numpy::ndarray::Array2;
 use numpy::{PyArray1, PyArray2};
-use pyo3::exceptions::{PyTypeError, PyValueError};
+use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyDict};
 
 use crate::csr_graph::PyCsrGraph;
-use crate::ffi_convert::{
-    StrictF64, StrictU64, StrictUsize, core_error_to_py, is_non_sequence_container,
-};
+use crate::errors::{core_error_to_py, dimension_mismatch_err, non_finite_value_err};
+use crate::ffi_convert::{StrictF64, StrictU64, StrictUsize, is_non_sequence_container};
 use crate::layout_buffers::{Layout2dInner, PyLayout2d, dispatch_layout2d};
 use crate::manifold::{ManifoldLayout2dInner, TorusLayoutInput, build_core_f32, build_core_f64};
 
 use super::nd_manifold_helpers::{
-    MetricLayoutInput, crossing_pairs_to_py_dicts, dispatch_owned_metric_layout,
-    layout_degeneracy_to_py_dict, torus_crossings_to_py_dicts,
+    MetricLayoutInput, crossing_pairs_to_py_dicts, dispatch_owned_metric,
+    torus_crossings_to_py_dicts,
 };
+use super::result_types::{PyCrossingSummary, PyLayoutDegeneracy, PyMinimumAngleSummary};
 
 /// Count exact non-adjacent edge crossings in `graph` under `layout`.
 ///
@@ -87,7 +88,7 @@ fn extract_crossing_cos_sq(pairs: &Bound<'_, PyAny>, fn_name: &str) -> PyResult<
             .extract::<f64>()
             .map_err(|_| PyTypeError::new_err(format!("{fn_name}: 'cos_sq' must be numeric")))?;
         if !val.is_finite() {
-            return Err(PyValueError::new_err(format!(
+            return Err(non_finite_value_err(format!(
                 "{fn_name}: 'cos_sq' must be finite"
             )));
         }
@@ -182,40 +183,26 @@ fn minimum_angle_summary(
     py: Python<'_>,
     graph: &PyCsrGraph,
     layout: &PyLayout2d,
-) -> PyResult<Py<PyDict>> {
+) -> PyResult<PyMinimumAngleSummary> {
     let g = graph.inner();
-    let summary = dispatch_layout2d!(py, layout, |soa| {
+    let inner = dispatch_layout2d!(py, layout, |soa| {
         egraph_metrics::minimum_angle_summary(&*g, &soa)
     })?;
-    let dict = PyDict::new(py);
-    dict.set_item("a1", summary.a1)?;
-    dict.set_item("a2", summary.a2)?;
-    Ok(dict.unbind())
+    Ok(PyMinimumAngleSummary { inner })
 }
 
 /// Evaluate coordinate-collapse, near-collision, zero-length edge, and bbox degeneracies.
-///
-/// Supports `Layout2d`, `LayoutNd`, and `ManifoldLayout2d`. Releases the Python GIL during computation.
 #[pyfunction]
 #[pyo3(signature = (graph, layout), text_signature = "(graph, layout)")]
 fn layout_degeneracy(
     py: Python<'_>,
     graph: &PyCsrGraph,
     layout: MetricLayoutInput<'_>,
-) -> PyResult<Py<PyDict>> {
+) -> PyResult<PyLayoutDegeneracy> {
     let owned = layout.extract_owned()?;
     let g = graph.inner();
-    let deg = dispatch_owned_metric_layout(
-        py,
-        owned,
-        |l| egraph_metrics::layout_degeneracy(&*g, l),
-        |l| egraph_metrics::layout_degeneracy(&*g, l),
-        |l| egraph_metrics::layout_degeneracy_nd(&*g, l),
-        |l| egraph_metrics::layout_degeneracy_nd(&*g, l),
-        |l| egraph_metrics::layout_degeneracy_manifold(&*g, l),
-        |l| egraph_metrics::layout_degeneracy_manifold(&*g, l),
-    )?;
-    layout_degeneracy_to_py_dict(py, deg)
+    let inner = dispatch_owned_metric!(py, owned, |l| egraph_metrics::layout_degeneracy(&*g, l))?;
+    Ok(PyLayoutDegeneracy { inner })
 }
 
 /// Count exact non-adjacent edge crossings using the `O((|E| + K) log |E|)` sweep-line detector.
@@ -267,13 +254,19 @@ fn find_torus_crossings_impl(
             match b.inner() {
                 Layout2dInner::F64(buf) => {
                     let soa = buf.to_layout2d();
-                    py.detach(|| egraph_metrics::crossing_edges_torus(&*g, &soa))
-                        .map_err(core_error_to_py)
+                    py.detach(|| {
+                        let tv = TorusView::new(&soa, 1.0, 1.0)?;
+                        egraph_metrics::crossing_edges_torus(&*g, &tv)
+                    })
+                    .map_err(core_error_to_py)
                 }
                 Layout2dInner::F32(buf) => {
                     let soa = buf.to_layout2d();
-                    py.detach(|| egraph_metrics::crossing_edges_torus(&*g, &soa))
-                        .map_err(core_error_to_py)
+                    py.detach(|| {
+                        let tv = TorusView::new(&soa, 1.0, 1.0)?;
+                        egraph_metrics::crossing_edges_torus(&*g, &tv)
+                    })
+                    .map_err(core_error_to_py)
                 }
             }
         }
@@ -281,12 +274,12 @@ fn find_torus_crossings_impl(
             let b = ml.try_borrow()?;
             match b.inner() {
                 ManifoldLayout2dInner::F64 { kind, metric, buf } => {
-                    let core_m = build_core_f64(*kind, *metric, buf).map_err(core_error_to_py)?;
+                    let core_m = build_core_f64(*kind, metric, buf).map_err(core_error_to_py)?;
                     py.detach(|| egraph_metrics::crossing_edges_torus(&*g, &core_m))
                         .map_err(core_error_to_py)
                 }
                 ManifoldLayout2dInner::F32 { kind, metric, buf } => {
-                    let core_m = build_core_f32(*kind, *metric, buf).map_err(core_error_to_py)?;
+                    let core_m = build_core_f32(*kind, metric, buf).map_err(core_error_to_py)?;
                     py.detach(|| egraph_metrics::crossing_edges_torus(&*g, &core_m))
                         .map_err(core_error_to_py)
                 }
@@ -331,16 +324,12 @@ fn crossing_summary(
     py: Python<'_>,
     graph: &PyCsrGraph,
     layout: &PyLayout2d,
-) -> PyResult<Py<PyDict>> {
+) -> PyResult<PyCrossingSummary> {
     let g = graph.inner();
-    let summary = dispatch_layout2d!(py, layout, |soa| {
+    let inner = dispatch_layout2d!(py, layout, |soa| {
         egraph_metrics::crossing_summary(&*g, &soa)
     })?;
-    let dict = PyDict::new(py);
-    dict.set_item("count", summary.count)?;
-    dict.set_item("angle_cos_sq_sum", summary.angle_cos_sq_sum)?;
-    dict.set_item("min_angle_rad", summary.min_angle_rad)?;
-    Ok(dict.unbind())
+    Ok(PyCrossingSummary { inner })
 }
 
 /// Compute an all-pairs shortest-path `(N, N)` `float64` distance matrix via BFS.
@@ -361,7 +350,7 @@ fn all_pairs_bfs<'py>(
         .detach(|| egraph_metrics::all_pairs_bfs(&*g, unit))
         .map_err(core_error_to_py)?;
     let arr =
-        Array2::from_shape_vec((n, n), dists).map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Array2::from_shape_vec((n, n), dists).map_err(|e| dimension_mismatch_err(e.to_string()))?;
     Ok(PyArray2::from_owned_array(py, arr))
 }
 

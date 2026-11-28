@@ -1,6 +1,5 @@
 //! Regularized DoG Varadhan landmark table and ALT lower-bound distance bindings.
 
-use egraph::linalg::SpectralMomentStats;
 use egraph::neighborhood::{
     DogVaradhanConfig, DogVaradhanLandmarks, DogVaradhanStats, RhghLandmarkStats,
     compute_regularized_dog_varadhan_landmarks as nb_compute_regularized_dog_varadhan_landmarks,
@@ -8,12 +7,39 @@ use egraph::neighborhood::{
 };
 use numpy::ndarray::Array2;
 use numpy::{PyArray1, PyArray2};
-use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
 use crate::csr_graph::PyCsrGraph;
+use crate::errors::invalid_input_err;
 use crate::ffi_convert::{StrictF64, StrictU64, StrictUsize, core_error_to_py, extract_u32_1d};
 use crate::linalg::PyCsrMatrix;
+
+#[derive(Clone)]
+struct DogLandmarkMeta {
+    t1: f64,
+    t2: f64,
+    alpha: f64,
+    degree: usize,
+    delta_psd: f64,
+    beta_auto: f64,
+    beta_eff: f64,
+    used_coarse_scaffold: bool,
+}
+
+impl From<&DogVaradhanStats> for DogLandmarkMeta {
+    fn from(st: &DogVaradhanStats) -> Self {
+        Self {
+            t1: st.t1,
+            t2: st.t2,
+            alpha: st.alpha,
+            degree: st.degree,
+            delta_psd: st.delta_psd,
+            beta_auto: st.beta_auto,
+            beta_eff: st.beta_eff,
+            used_coarse_scaffold: st.used_coarse_scaffold,
+        }
+    }
+}
 
 /// Regularized DoG Varadhan landmark distance table (plus optional coarse diffusive scaffold)
 /// supporting fast ALT lower-bound distance queries.
@@ -21,7 +47,7 @@ use crate::linalg::PyCsrMatrix;
 #[derive(Clone)]
 pub struct PyDogVaradhanLandmarks {
     inner: DogVaradhanLandmarks,
-    stats: DogVaradhanStats,
+    stats: DogLandmarkMeta,
 }
 
 impl PyDogVaradhanLandmarks {
@@ -30,26 +56,14 @@ impl PyDogVaradhanLandmarks {
     }
 
     pub(crate) fn from_rhgh_parts(inner: DogVaradhanLandmarks, rhgh: &RhghLandmarkStats) -> Self {
-        let stats = DogVaradhanStats {
-            moment_stats: SpectralMomentStats {
-                sigma_lambda_sq: 0.0,
-                sigma_lambda: 0.0,
-                deg_cv: rhgh.deg_cv,
-                mean_degree: rhgh.mean_degree,
-                leaf_fraction: rhgh.leaf_fraction,
-            },
+        let stats = DogLandmarkMeta {
             t1: rhgh.gamma,
             t2: rhgh.gamma,
             alpha: rhgh.p_exp,
             degree: 0,
             delta_psd: 0.0,
-            h_min: 0.0,
-            k_min: 0.0,
-            k_med: 0.0,
             beta_auto: 0.0,
             beta_eff: 0.0,
-            n_landmarks: rhgh.n_landmarks,
-            t_coarse: 0.0,
             used_coarse_scaffold: false,
         };
         Self { inner, stats }
@@ -81,7 +95,7 @@ impl PyDogVaradhanLandmarks {
             (self.inner.num_nodes(), self.inner.num_landmarks()),
             self.inner.d_dog().to_vec(),
         )
-        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        .map_err(|e| invalid_input_err(e.to_string()))?;
         Ok(PyArray2::from_owned_array(py, arr))
     }
 
@@ -94,7 +108,7 @@ impl PyDogVaradhanLandmarks {
             (self.inner.num_nodes(), self.inner.num_landmarks()),
             dc.to_vec(),
         )
-        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        .map_err(|e| invalid_input_err(e.to_string()))?;
         Ok(Some(PyArray2::from_owned_array(py, arr)))
     }
 
@@ -208,25 +222,26 @@ fn compute_regularized_dog_varadhan_landmarks(
     alpha: Option<StrictF64>,
     beta_floor: Option<StrictF64>,
 ) -> PyResult<PyDogVaradhanLandmarks> {
-    let cfg = DogVaradhanConfig {
-        t1: t1.map(|v| v.0),
-        t2: t2.map(|v| v.0),
-        alpha: alpha.map(|v| v.0),
-        beta_floor: beta_floor.map(|v| v.0),
-        degree: degree.map(|d| d.0),
-        n_landmarks: num_landmarks.0,
-        eps_psd: eps_psd.0,
-        degree_normalize,
-        p_exp: p_exp.0,
-        t_coarse: t_coarse.0,
-        seed: seed.0,
-        ..DogVaradhanConfig::default()
-    };
+    let cfg = DogVaradhanConfig::new()
+        .with_t1(t1.map(|v| v.0))
+        .with_t2(t2.map(|v| v.0))
+        .with_alpha(alpha.map(|v| v.0))
+        .with_beta_floor(beta_floor.map(|v| v.0))
+        .with_degree(degree.map(|d| d.0))
+        .with_n_landmarks(num_landmarks.0)
+        .with_eps_psd(eps_psd.0)
+        .with_degree_normalize(degree_normalize)
+        .with_p_exp(p_exp.0)
+        .with_t_coarse(t_coarse.0)
+        .with_seed(seed.0);
     let g = graph.inner();
     let (inner, stats) = py
         .detach(|| nb_compute_regularized_dog_varadhan_landmarks(&*g, &cfg))
         .map_err(core_error_to_py)?;
-    Ok(PyDogVaradhanLandmarks { inner, stats })
+    Ok(PyDogVaradhanLandmarks {
+        inner,
+        stats: DogLandmarkMeta::from(&stats),
+    })
 }
 
 /// Compute regularized DoG Varadhan landmark tables from a custom symmetric PSD `CsrMatrix`
@@ -258,22 +273,20 @@ fn compute_regularized_dog_varadhan_landmarks_from_matrix(
     alpha: Option<StrictF64>,
     beta_floor: Option<StrictF64>,
 ) -> PyResult<PyDogVaradhanLandmarks> {
-    let cfg = DogVaradhanConfig {
-        t1: t1.map(|v| v.0),
-        t2: t2.map(|v| v.0),
-        alpha: alpha.map(|v| v.0),
-        beta_floor: beta_floor.map(|v| v.0),
-        degree: degree.map(|d| d.0),
-        n_landmarks: num_landmarks.0,
-        min_degree: min_degree.0,
-        jl_dim: jl_dim.0,
-        eps_psd: eps_psd.0,
-        degree_normalize,
-        p_exp: p_exp.0,
-        t_coarse: t_coarse.0,
-        seed: seed.0,
-        ..DogVaradhanConfig::default()
-    };
+    let cfg = DogVaradhanConfig::new()
+        .with_t1(t1.map(|v| v.0))
+        .with_t2(t2.map(|v| v.0))
+        .with_alpha(alpha.map(|v| v.0))
+        .with_beta_floor(beta_floor.map(|v| v.0))
+        .with_degree(degree.map(|d| d.0))
+        .with_n_landmarks(num_landmarks.0)
+        .with_min_degree(min_degree.0)
+        .with_jl_dim(jl_dim.0)
+        .with_eps_psd(eps_psd.0)
+        .with_degree_normalize(degree_normalize)
+        .with_p_exp(p_exp.0)
+        .with_t_coarse(t_coarse.0)
+        .with_seed(seed.0);
     let g = graph.inner();
     let mat = matrix.inner();
     let lmax_opt = lambda_max.map(|v| v.0);
@@ -282,7 +295,10 @@ fn compute_regularized_dog_varadhan_landmarks_from_matrix(
             nb_compute_regularized_dog_varadhan_landmarks_from_matrix(&*g, mat, lmax_opt, &cfg)
         })
         .map_err(core_error_to_py)?;
-    Ok(PyDogVaradhanLandmarks { inner, stats })
+    Ok(PyDogVaradhanLandmarks {
+        inner,
+        stats: DogLandmarkMeta::from(&stats),
+    })
 }
 
 pub(super) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {

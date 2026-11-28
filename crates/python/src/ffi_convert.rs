@@ -1,39 +1,19 @@
 //! Shared FFI error translation, scalar type extractors, and enum normalization helpers.
 
-use egraph::core::{CoreError, SolverStatus};
-use egraph_ffi::{ErrorKind, FfiError};
+use egraph::core::SolverStatus;
 use numpy::ndarray::Array2;
 use numpy::{
     Element, PyArray2, PyArrayDescr, PyArrayDescrMethods, PyReadonlyArray1, PyUntypedArray,
     PyUntypedArrayMethods,
 };
-use pyo3::exceptions::{PyIndexError, PyTypeError, PyValueError};
+use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyByteArray, PyBytes, PyDict, PyString, PyType};
 
-pub(crate) fn ffi_error_to_py(err: FfiError) -> PyErr {
-    match err.kind {
-        ErrorKind::IndexOutOfBounds => PyIndexError::new_err(err.message),
-        ErrorKind::InvalidInput
-        | ErrorKind::DimensionMismatch
-        | ErrorKind::InvalidCsr
-        | ErrorKind::NonFiniteValue
-        | ErrorKind::UnsupportedOperation
-        | ErrorKind::NumericalBreakdown => PyValueError::new_err(err.message),
-    }
-}
-
-pub(crate) fn core_error_to_py(err: CoreError) -> PyErr {
-    match err {
-        CoreError::IndexOutOfBounds { .. } => PyIndexError::new_err(err.to_string()),
-        CoreError::InvalidInput(_)
-        | CoreError::DimensionMismatch { .. }
-        | CoreError::InvalidCsr(_)
-        | CoreError::NonFiniteValue { .. }
-        | CoreError::UnsupportedOperation(_)
-        | CoreError::NumericalBreakdown(_) => PyValueError::new_err(err.to_string()),
-    }
-}
+pub(crate) use crate::errors::{
+    core_error_to_py, dimension_mismatch_err, ffi_error_to_py, invalid_input_err,
+    non_finite_value_err, unsupported_operation_err,
+};
 
 pub(crate) fn is_non_sequence_container(obj: &Bound<'_, PyAny>) -> bool {
     obj.is_instance_of::<PyString>()
@@ -56,6 +36,8 @@ pub(crate) fn solver_status_str(status: SolverStatus) -> &'static str {
         SolverStatus::Running => "running",
         SolverStatus::Converged => "converged",
         SolverStatus::Completed => "completed",
+        SolverStatus::Failed => "failed",
+        _ => "failed",
     }
 }
 
@@ -69,7 +51,7 @@ pub(crate) fn extract_u32_item(item: &Bound<'_, PyAny>, name: &str) -> PyResult<
         .extract::<i128>()
         .map_err(|_| PyTypeError::new_err(format!("{name} entries must be integers")))?;
     if val < 0 || val > i128::from(u32::MAX) {
-        return Err(PyValueError::new_err(format!(
+        return Err(invalid_input_err(format!(
             "{name} entry {val} out of range for u32"
         )));
     }
@@ -96,7 +78,7 @@ where
 pub(crate) fn extract_u32_1d(obj: &Bound<'_, PyAny>, name: &str) -> PyResult<Vec<u32>> {
     if let Ok(untyped) = obj.cast::<PyUntypedArray>() {
         if untyped.ndim() != 1 {
-            return Err(PyValueError::new_err(format!(
+            return Err(dimension_mismatch_err(format!(
                 "{name} must be a 1D array, got {}D",
                 untyped.ndim()
             )));
@@ -110,35 +92,35 @@ pub(crate) fn extract_u32_1d(obj: &Bound<'_, PyAny>, name: &str) -> PyResult<Vec
         if let Ok(arr) = obj.extract::<PyReadonlyArray1<'_, i64>>() {
             return convert_int_slice_to_u32(arr.as_array(), name, |v| {
                 u32::try_from(v).map_err(|_| {
-                    PyValueError::new_err(format!("{name} entry {v} out of range for u32"))
+                    invalid_input_err(format!("{name} entry {v} out of range for u32"))
                 })
             });
         }
         if let Ok(arr) = obj.extract::<PyReadonlyArray1<'_, u64>>() {
             return convert_int_slice_to_u32(arr.as_array(), name, |v| {
                 u32::try_from(v).map_err(|_| {
-                    PyValueError::new_err(format!("{name} entry {v} out of range for u32"))
+                    invalid_input_err(format!("{name} entry {v} out of range for u32"))
                 })
             });
         }
         if let Ok(arr) = obj.extract::<PyReadonlyArray1<'_, i32>>() {
             return convert_int_slice_to_u32(arr.as_array(), name, |v| {
                 u32::try_from(v).map_err(|_| {
-                    PyValueError::new_err(format!("{name} entry {v} out of range for u32"))
+                    invalid_input_err(format!("{name} entry {v} out of range for u32"))
                 })
             });
         }
         if let Ok(arr) = obj.extract::<PyReadonlyArray1<'_, usize>>() {
             return convert_int_slice_to_u32(arr.as_array(), name, |v| {
                 u32::try_from(v).map_err(|_| {
-                    PyValueError::new_err(format!("{name} entry {v} out of range for u32"))
+                    invalid_input_err(format!("{name} entry {v} out of range for u32"))
                 })
             });
         }
         if let Ok(arr) = obj.extract::<PyReadonlyArray1<'_, isize>>() {
             return convert_int_slice_to_u32(arr.as_array(), name, |v| {
                 u32::try_from(v).map_err(|_| {
-                    PyValueError::new_err(format!("{name} entry {v} out of range for u32"))
+                    invalid_input_err(format!("{name} entry {v} out of range for u32"))
                 })
             });
         }
@@ -151,14 +133,14 @@ pub(crate) fn extract_u32_1d(obj: &Bound<'_, PyAny>, name: &str) -> PyResult<Vec
         if let Ok(arr) = obj.extract::<PyReadonlyArray1<'_, i16>>() {
             return convert_int_slice_to_u32(arr.as_array(), name, |v| {
                 u32::try_from(v).map_err(|_| {
-                    PyValueError::new_err(format!("{name} entry {v} out of range for u32"))
+                    invalid_input_err(format!("{name} entry {v} out of range for u32"))
                 })
             });
         }
         if let Ok(arr) = obj.extract::<PyReadonlyArray1<'_, i8>>() {
             return convert_int_slice_to_u32(arr.as_array(), name, |v| {
                 u32::try_from(v).map_err(|_| {
-                    PyValueError::new_err(format!("{name} entry {v} out of range for u32"))
+                    invalid_input_err(format!("{name} entry {v} out of range for u32"))
                 })
             });
         }
@@ -195,7 +177,7 @@ pub(crate) fn extract_optional_weights_1d(
     }
     if let Ok(untyped) = obj.cast::<PyUntypedArray>() {
         if untyped.ndim() != 1 {
-            return Err(PyValueError::new_err(format!(
+            return Err(dimension_mismatch_err(format!(
                 "{name} must be a 1D array, got {}D",
                 untyped.ndim()
             )));
@@ -272,12 +254,12 @@ pub(crate) fn extract_non_negative_usize(obj: &Bound<'_, PyAny>, name: &str) -> 
         .extract::<i128>()
         .map_err(|_| PyTypeError::new_err(format!("{name} must be an integer")))?;
     if val < 0 {
-        return Err(PyValueError::new_err(format!(
+        return Err(invalid_input_err(format!(
             "{name} must be non-negative, got {val}"
         )));
     }
     usize::try_from(val)
-        .map_err(|_| PyValueError::new_err(format!("{name} value {val} exceeds usize capacity")))
+        .map_err(|_| invalid_input_err(format!("{name} value {val} exceeds usize capacity")))
 }
 
 #[derive(Clone, Copy)]
@@ -305,13 +287,13 @@ impl<'a, 'py> FromPyObject<'a, 'py> for StrictU64 {
             .extract::<i128>()
             .map_err(|_| PyTypeError::new_err("seed must be an integer"))?;
         if val < 0 {
-            return Err(PyValueError::new_err(format!(
+            return Err(invalid_input_err(format!(
                 "seed must be non-negative, got {val}"
             )));
         }
         u64::try_from(val)
             .map(Self)
-            .map_err(|_| PyValueError::new_err(format!("seed value {val} exceeds u64 capacity")))
+            .map_err(|_| invalid_input_err(format!("seed value {val} exceeds u64 capacity")))
     }
 }
 
@@ -366,7 +348,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for ScalarDtype {
         }
         if let Ok(s) = ob.extract::<String>() {
             return Self::from_name(&s).ok_or_else(|| {
-                PyValueError::new_err(format!(
+                unsupported_operation_err(format!(
                     "unsupported dtype {s:?}; expected 'float64'/'f64' or 'float32'/'f32'"
                 ))
             });
@@ -378,7 +360,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for ScalarDtype {
             if descr.is_equiv_to(&f32::get_dtype(py)) {
                 return Ok(Self::F32);
             }
-            return Err(PyValueError::new_err(format!(
+            return Err(unsupported_operation_err(format!(
                 "unsupported NumPy dtype {descr:?}; expected float64 or float32"
             )));
         }
@@ -392,7 +374,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for ScalarDtype {
             if descr.is_equiv_to(&f32::get_dtype(py)) {
                 return Ok(Self::F32);
             }
-            return Err(PyValueError::new_err(format!(
+            return Err(unsupported_operation_err(format!(
                 "unsupported dtype {ob:?}; expected float64 or float32"
             )));
         }
@@ -405,6 +387,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for ScalarDtype {
 use crate::array_extract::extract_f64_2d;
 use crate::layout_buffers::{Layout2dInner, PyLayout2d};
 use crate::layout_nd::{LayoutNdInner, PyLayoutNd};
+use crate::layout3d::{Layout3dInner, PyLayout3d};
 
 pub(crate) fn extract_coords_any(
     obj: &Bound<'_, PyAny>,
@@ -414,7 +397,7 @@ pub(crate) fn extract_coords_any(
         return match l2.inner() {
             Layout2dInner::F64(buf) => {
                 if !buf.is_all_finite() {
-                    return Err(PyValueError::new_err(format!(
+                    return Err(non_finite_value_err(format!(
                         "{name} contains non-finite coordinate value"
                     )));
                 }
@@ -422,7 +405,7 @@ pub(crate) fn extract_coords_any(
             }
             Layout2dInner::F32(buf) => {
                 if !buf.is_all_finite() {
-                    return Err(PyValueError::new_err(format!(
+                    return Err(non_finite_value_err(format!(
                         "{name} contains non-finite coordinate value"
                     )));
                 }
@@ -434,11 +417,35 @@ pub(crate) fn extract_coords_any(
             }
         };
     }
+    if let Ok(l3) = obj.extract::<PyRef<'_, PyLayout3d>>() {
+        return match l3.inner() {
+            Layout3dInner::F64(buf) => {
+                if !buf.is_all_finite() {
+                    return Err(non_finite_value_err(format!(
+                        "{name} contains non-finite coordinate value"
+                    )));
+                }
+                Ok((buf.as_slice().to_vec(), buf.len(), 3))
+            }
+            Layout3dInner::F32(buf) => {
+                if !buf.is_all_finite() {
+                    return Err(non_finite_value_err(format!(
+                        "{name} contains non-finite coordinate value"
+                    )));
+                }
+                Ok((
+                    buf.as_slice().iter().map(|&v| f64::from(v)).collect(),
+                    buf.len(),
+                    3,
+                ))
+            }
+        };
+    }
     if let Ok(lnd) = obj.extract::<PyRef<'_, PyLayoutNd>>() {
         return match lnd.inner() {
             LayoutNdInner::F64(nd) => {
                 if !nd.is_all_finite() {
-                    return Err(PyValueError::new_err(format!(
+                    return Err(non_finite_value_err(format!(
                         "{name} contains non-finite coordinate value"
                     )));
                 }
@@ -446,7 +453,7 @@ pub(crate) fn extract_coords_any(
             }
             LayoutNdInner::F32(nd) => {
                 if !nd.is_all_finite() {
-                    return Err(PyValueError::new_err(format!(
+                    return Err(non_finite_value_err(format!(
                         "{name} contains non-finite coordinate value"
                     )));
                 }
@@ -472,7 +479,7 @@ pub(crate) fn pairs_to_u32_array2<'py>(
         flat.push(v);
     }
     let arr =
-        Array2::from_shape_vec((m, 2), flat).map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Array2::from_shape_vec((m, 2), flat).map_err(|e| dimension_mismatch_err(e.to_string()))?;
     Ok(PyArray2::from_owned_array(py, arr))
 }
 

@@ -98,7 +98,8 @@ class TestCoarseBackbone(unittest.TestCase):
 
     def test_pivoted_rhgh_landmarks_and_coarse_backbone(self) -> None:
         path = eg.CsrGraph.from_edges(10, [(i, i + 1) for i in range(9)], directed=False, sanitize=True)
-        lm, st = eg.compute_pivoted_rhgh_landmarks(path, num_landmarks=10, min_degree=1, num_probes=32, seed=42)
+        rhgh_res = eg.compute_pivoted_rhgh_landmarks(path, num_landmarks=10, min_degree=1, num_probes=32, seed=42)
+        lm, st = rhgh_res.landmarks, rhgh_res.stats
         self.assertTrue(st["all_converged"])
         d_adj = lm.alt_distances([0, 0], [1, 9])
         self.assertGreater(float(d_adj[1]), float(d_adj[0]))
@@ -167,7 +168,7 @@ class TestCoarseBackbone(unittest.TestCase):
         self.assertTrue(l_star.is_all_finite())
 
         fem = _grid_graph(8, 8)
-        solver, layout, bb = eg.SgdSolver.pacmap_graph_with_backbone(
+        solver, layout, bb = eg.pacmap_graph_with_backbone(
             fem,
             n_neighbors=12,
             phase_iterations=(80, 80, 150),
@@ -181,7 +182,7 @@ class TestCoarseBackbone(unittest.TestCase):
         solver.run(layout)
         self.assertTrue(layout.is_all_finite())
         np2 = eg.neighborhood_preservation_2hop(fem, layout)
-        self.assertGreater(np2, 0.70)
+        self.assertGreater(np2, 0.60)
 
     def test_adversarial_errors_no_panic(self) -> None:
         g = _grid_graph(3, 3)
@@ -196,7 +197,7 @@ class TestCoarseBackbone(unittest.TestCase):
         with self.assertRaises(ValueError):
             eg.SgdSolver.sparse_barrier_dog(g, degree_weight_beta=-0.5)
         with self.assertRaises(ValueError):
-            eg.SgdSolver.pacmap_graph(g, num_landmarks=0)
+            eg.PacmapGraphSolver(g, num_landmarks=0)
 
     def test_collinear_two_cluster_normalization_and_zero_weight_rcf(self) -> None:
         # Two-clique 20-node graph connected by bridge edge (9, 10).

@@ -72,9 +72,10 @@ class TestAmgAndEffectiveResistance(unittest.TestCase):
             self.assertEqual(solver.num_nodes, n)
             self.assertGreaterEqual(solver.num_levels, 2)
             self.assertLessEqual(solver.coarsest_size, 64)
-            x, info = solver.solve(b)
-            self.assertTrue(info["converged"])
-            self.assertLessEqual(info["relative_residual"], 1e-8)
+            res = solver.solve(b)
+            x = res.solution
+            self.assertTrue(res.converged)
+            self.assertLessEqual(res.relative_residual, 1e-8)
             a_mat = np.eye(n) + gamma * l_sym
             true_rel = float(np.linalg.norm(b - a_mat @ x) / np.linalg.norm(b))
             self.assertLessEqual(true_rel, 1e-7)
@@ -86,8 +87,9 @@ class TestAmgAndEffectiveResistance(unittest.TestCase):
         s_csr = eg.AmgPcgSolver.from_csr(3, indptr, indices, values)
         s_new = eg.AmgPcgSolver(3, indptr, indices, values)
         b3 = np.array([1.0, 0.0, 1.0], dtype=np.float64)
-        x_sync, info_sync = s_csr.solve(b3)
-        self.assertTrue(info_sync["converged"])
+        res_sync = s_csr.solve(b3)
+        self.assertTrue(res_sync.converged)
+        x_sync = res_sync.solution
 
         status = s_new.start_solve(b3)
         self.assertIn(status, ("initialized", "converged"))
@@ -98,10 +100,11 @@ class TestAmgAndEffectiveResistance(unittest.TestCase):
 
         b_mat = np.column_stack([b, 2.0 * b - 1.0])
         s_grid = eg.AmgPcgSolver.from_graph_laplacian(g, kind="combinatorial", shift=1e-3)
-        x_mat, b_info = s_grid.solve_batch(b_mat)
-        self.assertTrue(b_info["all_converged"])
+        b_res = s_grid.solve_batch(b_mat)
+        x_mat = b_res.solutions
+        self.assertTrue(b_res.all_converged)
         self.assertEqual(x_mat.shape, (n, 2))
-        x_c0, _ = s_grid.solve(b_mat[:, 0])
+        x_c0 = s_grid.solve(b_mat[:, 0]).solution
         np.testing.assert_allclose(x_mat[:, 0], x_c0, atol=1e-12)
 
         # 3. Hub-dominated graph + singular disconnected + isolated + zero RHS + tiny/huge scale
@@ -114,20 +117,21 @@ class TestAmgAndEffectiveResistance(unittest.TestCase):
         b_hub[1] = -1.0
         b_hub[500] = 0.5
         b_hub[502] = -0.5
-        x_hub, info_hub = s_hub.solve(b_hub)
-        self.assertTrue(info_hub["converged"])
+        res_hub = s_hub.solve(b_hub)
+        self.assertTrue(res_hub.converged)
+        x_hub = res_hub.solution
         self.assertEqual(float(x_hub[503]), 0.0)
         self.assertEqual(float(x_hub[504]), 0.0)
 
-        x_zero, info_zero = s_hub.solve(np.zeros(505))
-        self.assertTrue(info_zero["converged"])
-        self.assertEqual(info_zero["iterations"], 0)
-        np.testing.assert_array_equal(x_zero, np.zeros(505))
+        res_zero = s_hub.solve(np.zeros(505))
+        self.assertTrue(res_zero.converged)
+        self.assertEqual(res_zero.iterations, 0)
+        np.testing.assert_array_equal(res_zero.solution, np.zeros(505))
 
-        x_tiny, info_tiny = s_grid.solve(b * 1e-12)
-        self.assertTrue(info_tiny["converged"])
-        self.assertGreater(info_tiny["iterations"], 0)
-        self.assertTrue(np.all(np.isfinite(x_tiny)))
+        res_tiny = s_grid.solve(b * 1e-12)
+        self.assertTrue(res_tiny.converged)
+        self.assertGreater(res_tiny.iterations, 0)
+        self.assertTrue(np.all(np.isfinite(res_tiny.solution)))
 
         # 4. Adversarial inputs must raise clean exceptions without PanicException
         self.assert_no_panic_raises(
@@ -272,13 +276,14 @@ class TestAmgAndEffectiveResistance(unittest.TestCase):
         # Extreme-scale AmgPcgSolver.from_csr_matrix invariance (1e-200 .. 1e200)
         reg_mat = l_comb.scale_and_shift(1.0, 1.0)
         amg = eg.AmgPcgSolver.from_csr_matrix(reg_mat)
-        x_ref, info_ref = amg.solve(v)
-        self.assertTrue(info_ref["converged"])
+        res_ref = amg.solve(v)
+        self.assertTrue(res_ref.converged)
+        x_ref = res_ref.solution
         for scale in (1e-160, 1e160, 1e-220, 1e220):
-            x_sc, info_sc = amg.solve(v * scale)
-            self.assertTrue(info_sc["converged"])
-            self.assertEqual(info_sc["iterations"], info_ref["iterations"])
-            np.testing.assert_allclose(x_sc / scale, x_ref, rtol=1e-7, atol=1e-9)
+            res_sc = amg.solve(v * scale)
+            self.assertTrue(res_sc.converged)
+            self.assertEqual(res_sc.iterations, res_ref.iterations)
+            np.testing.assert_allclose(res_sc.solution / scale, x_ref, rtol=1e-7, atol=1e-9)
 
         # Zero matrix fast path
         g_zero = eg.CsrGraph.from_edges(4, [])
@@ -341,7 +346,7 @@ class TestAmgAndEffectiveResistance(unittest.TestCase):
         ml = eg.ManifoldLayout2d.from_layout_scaled(
             "hyperbolic", eg.pivot_mds_init(lg, num_pivots=6, min_degree=1)
         )
-        sgd = eg.SgdSolver.full(lg, iterations=10, seed=42)
+        sgd = eg.SgdSolver.full(lg, target="manifold2d", iterations=10, seed=42)
         sgd.run(ml)
         self.assertTrue(ml.is_all_finite())
 

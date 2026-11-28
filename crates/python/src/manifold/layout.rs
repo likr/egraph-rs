@@ -3,10 +3,11 @@
 use egraph::core as egraph_core;
 use egraph_core::{ManifoldKind, ManifoldLayout2d, ManifoldMetric};
 use egraph_ffi::InterleavedLayout2d;
-use pyo3::exceptions::{PyIndexError, PyValueError};
+use pyo3::exceptions::PyIndexError;
 use pyo3::prelude::*;
 
 use crate::csr_graph::PyCsrGraph;
+use crate::errors::{invalid_input_err, non_finite_value_err, unsupported_operation_err};
 use crate::ffi_convert::{
     ScalarDtype, StrictF64, StrictU64, StrictUsize, core_error_to_py, ffi_error_to_py,
 };
@@ -71,7 +72,7 @@ impl PyManifoldLayout2d {
         text_signature = "(kind, n, dtype='float64')"
     )]
     fn zeros(kind: &str, n: StrictUsize, dtype: ScalarDtype) -> PyResult<Self> {
-        let mk = parse_manifold_kind(kind).map_err(PyValueError::new_err)?;
+        let mk = parse_manifold_kind(kind).map_err(unsupported_operation_err)?;
         let inner = match dtype {
             ScalarDtype::F64 => inner_from_core_f64(ManifoldLayout2d::zeros(mk, n.0)),
             ScalarDtype::F32 => inner_from_core_f32(ManifoldLayout2d::zeros(mk, n.0)),
@@ -261,10 +262,11 @@ impl PyManifoldLayout2d {
     /// Set the physical geodesic scale factor (`> 0`) without altering stored coordinates.
     #[pyo3(signature = (scale), text_signature = "($self, scale)")]
     fn set_scale(&mut self, scale: StrictF64) -> PyResult<()> {
-        if !scale.0.is_finite() || scale.0 <= 0.0 {
-            return Err(PyValueError::new_err(
-                "scale must be finite and strictly positive",
-            ));
+        if !scale.0.is_finite() {
+            return Err(non_finite_value_err("scale must be finite"));
+        }
+        if scale.0 <= 0.0 {
+            return Err(invalid_input_err("scale must be strictly positive"));
         }
         match &mut self.inner {
             ManifoldLayout2dInner::F64 { metric, .. } => metric.scale = scale.0,
@@ -276,10 +278,11 @@ impl PyManifoldLayout2d {
     /// Set the physical aspect ratio (`> 0`) without altering stored coordinates.
     #[pyo3(signature = (aspect), text_signature = "($self, aspect)")]
     fn set_aspect(&mut self, aspect: StrictF64) -> PyResult<()> {
-        if !aspect.0.is_finite() || aspect.0 <= 0.0 {
-            return Err(PyValueError::new_err(
-                "aspect must be finite and strictly positive",
-            ));
+        if !aspect.0.is_finite() {
+            return Err(non_finite_value_err("aspect must be finite"));
+        }
+        if aspect.0 <= 0.0 {
+            return Err(invalid_input_err("aspect must be strictly positive"));
         }
         match &mut self.inner {
             ManifoldLayout2dInner::F64 { metric, .. } => metric.aspect = aspect.0,
@@ -407,11 +410,11 @@ impl PyManifoldLayout2d {
     fn geodesic_distance(&self, i: StrictUsize, j: StrictUsize) -> PyResult<f64> {
         match &self.inner {
             ManifoldLayout2dInner::F64 { kind, metric, buf } => {
-                let m = build_core_f64(*kind, *metric, buf).map_err(core_error_to_py)?;
+                let m = build_core_f64(*kind, metric, buf).map_err(core_error_to_py)?;
                 m.geodesic_distance(i.0, j.0).map_err(core_error_to_py)
             }
             ManifoldLayout2dInner::F32 { kind, metric, buf } => {
-                let m = build_core_f32(*kind, *metric, buf).map_err(core_error_to_py)?;
+                let m = build_core_f32(*kind, metric, buf).map_err(core_error_to_py)?;
                 m.geodesic_distance(i.0, j.0)
                     .map(f64::from)
                     .map_err(core_error_to_py)
@@ -424,11 +427,11 @@ impl PyManifoldLayout2d {
     fn tangent_delta(&self, i: StrictUsize, j: StrictUsize) -> PyResult<(f64, f64)> {
         match &self.inner {
             ManifoldLayout2dInner::F64 { kind, metric, buf } => {
-                let m = build_core_f64(*kind, *metric, buf).map_err(core_error_to_py)?;
+                let m = build_core_f64(*kind, metric, buf).map_err(core_error_to_py)?;
                 m.tangent_delta(i.0, j.0).map_err(core_error_to_py)
             }
             ManifoldLayout2dInner::F32 { kind, metric, buf } => {
-                let m = build_core_f32(*kind, *metric, buf).map_err(core_error_to_py)?;
+                let m = build_core_f32(*kind, metric, buf).map_err(core_error_to_py)?;
                 m.tangent_delta(i.0, j.0)
                     .map(|(vx, vy)| (f64::from(vx), f64::from(vy)))
                     .map_err(core_error_to_py)
@@ -451,11 +454,11 @@ impl PyManifoldLayout2d {
     fn poincare_centroid(&self) -> PyResult<(f64, f64)> {
         match &self.inner {
             ManifoldLayout2dInner::F64 { kind, metric, buf } => {
-                let m = build_core_f64(*kind, *metric, buf).map_err(core_error_to_py)?;
+                let m = build_core_f64(*kind, metric, buf).map_err(core_error_to_py)?;
                 m.poincare_centroid().map_err(core_error_to_py)
             }
             ManifoldLayout2dInner::F32 { kind, metric, buf } => {
-                let m = build_core_f32(*kind, *metric, buf).map_err(core_error_to_py)?;
+                let m = build_core_f32(*kind, metric, buf).map_err(core_error_to_py)?;
                 m.poincare_centroid()
                     .map(|(x, y)| (f64::from(x), f64::from(y)))
                     .map_err(core_error_to_py)

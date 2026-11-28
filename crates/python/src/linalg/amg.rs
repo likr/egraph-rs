@@ -1,15 +1,15 @@
 //! Algebraic Multigrid Preconditioned Conjugate Gradient (`AmgPcgSolver`) Python bindings.
 
 use egraph::linalg::{AmgPcgSolver, AmgPcgWorkspace};
-use numpy::{PyArray1, PyArray2};
+use numpy::PyArray1;
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
 
 use super::amg_helpers::{
     build_amg_pcg_config, create_amg_from_csr, create_amg_from_csr_matrix,
     create_amg_from_laplacian, create_amg_from_regularized_laplacian, solve_amg, solve_batch_amg,
     start_solve_amg,
 };
+use super::amg_results::{PyAmgBatchSolveResult, PyAmgSolveResult};
 use super::matrix::PyCsrMatrix;
 use crate::csr_graph::PyCsrGraph;
 use crate::ffi_convert::{StrictF64, StrictU64, StrictUsize, core_error_to_py, solver_status_str};
@@ -267,25 +267,25 @@ impl PyAmgPcgSolver {
         Ok(Self { inner, ws })
     }
 
-    /// Solve `A x = b` synchronously and return `(x, info_dict)` while releasing the GIL.
+    /// Solve `A x = b` synchronously and return `AmgSolveResult` while releasing the GIL.
     #[pyo3(signature = (b, x0 = None), text_signature = "($self, b, x0=None)")]
-    fn solve<'py>(
+    fn solve(
         &mut self,
-        py: Python<'py>,
+        py: Python<'_>,
         b: &Bound<'_, PyAny>,
         x0: Option<&Bound<'_, PyAny>>,
-    ) -> PyResult<(Bound<'py, PyArray1<f64>>, Bound<'py, PyDict>)> {
+    ) -> PyResult<PyAmgSolveResult> {
         solve_amg(&self.inner, &mut self.ws, py, b, x0)
     }
 
-    /// Solve `A X = B` for a 2D `(num_nodes, ncols)` RHS matrix and return `(X, info_dict)`.
+    /// Solve `A X = B` for a 2D `(num_nodes, ncols)` RHS matrix and return `AmgBatchSolveResult`.
     #[pyo3(signature = (b, x0 = None), text_signature = "($self, b, x0=None)")]
-    fn solve_batch<'py>(
+    fn solve_batch(
         &mut self,
-        py: Python<'py>,
+        py: Python<'_>,
         b: &Bound<'_, PyAny>,
         x0: Option<&Bound<'_, PyAny>>,
-    ) -> PyResult<(Bound<'py, PyArray2<f64>>, Bound<'py, PyDict>)> {
+    ) -> PyResult<PyAmgBatchSolveResult> {
         solve_batch_amg(&self.inner, &mut self.ws, py, b, x0)
     }
 

@@ -1,64 +1,232 @@
-//! Force-directed edge bundling (`FdebSolver`) bindings.
+//! Force-directed edge bundling (`FdebSolver`) bindings over UAF-safe `EdgePolylines`.
 
-use egraph::{core as egraph_core, layout as egraph_layout};
-use egraph_layout::{FdebConfig, FdebSolver};
-use numpy::ndarray::Array2;
-use numpy::{PyArray1, PyArray2};
-use pyo3::exceptions::PyValueError;
+use egraph::core::{IterativeSolver, Layout2d, Layout3d, LayoutNd, SolverStatus};
+use egraph::edge_routing::{FdebConfig, FdebSolver};
 use pyo3::prelude::*;
 
-use crate::csr_graph::PyCsrGraph;
-use crate::ffi_convert::{
-    ScalarDtype, StrictF64, StrictUsize, core_error_to_py, solver_status_str,
-};
-use crate::solver_common::{DualIterativeSolver, SolverAction, impl_dual_solver};
+use crate::edge_polylines::{PolylineTarget, PyEdgePolylines};
+use crate::errors::{core_error_to_py, dimension_mismatch_err};
+use crate::ffi_convert::{ScalarDtype, StrictF64, StrictUsize, solver_status_str};
+use crate::solver_common::SolverAction;
 
-use super::layout_dispatch::{execute_euclid_action, impl_dual_nd_solver};
-
-impl_dual_solver!(FdebInner, FdebSolver);
-impl_dual_nd_solver!(FdebInner, FdebSolver);
+enum FdebInner {
+    L2F64(FdebSolver<Layout2d<f64>>),
+    L2F32(FdebSolver<Layout2d<f32>>),
+    L3F64(FdebSolver<Layout3d<f64>>),
+    L3F32(FdebSolver<Layout3d<f32>>),
+    NdF64(FdebSolver<LayoutNd<f64>>),
+    NdF32(FdebSolver<LayoutNd<f32>>),
+}
 
 impl FdebInner {
-    fn num_nodes(&self) -> usize {
+    fn target_kind(&self) -> PolylineTarget {
         match self {
-            Self::F64(s) => s.num_nodes(),
-            Self::F32(s) => s.num_nodes(),
+            Self::L2F64(_) | Self::L2F32(_) => PolylineTarget::Layout2d,
+            Self::L3F64(_) | Self::L3F32(_) => PolylineTarget::Layout3d,
+            Self::NdF64(_) | Self::NdF32(_) => PolylineTarget::LayoutNd,
+        }
+    }
+
+    fn dtype(&self) -> ScalarDtype {
+        match self {
+            Self::L2F64(_) | Self::L3F64(_) | Self::NdF64(_) => ScalarDtype::F64,
+            Self::L2F32(_) | Self::L3F32(_) | Self::NdF32(_) => ScalarDtype::F32,
         }
     }
 
     fn num_edges(&self) -> usize {
         match self {
-            Self::F64(s) => s.num_edges(),
-            Self::F32(s) => s.num_edges(),
+            Self::L2F64(s) => s.num_edges(),
+            Self::L2F32(s) => s.num_edges(),
+            Self::L3F64(s) => s.num_edges(),
+            Self::L3F32(s) => s.num_edges(),
+            Self::NdF64(s) => s.num_edges(),
+            Self::NdF32(s) => s.num_edges(),
         }
     }
 
-    fn point_dims(&self) -> usize {
+    fn current_cycle(&self) -> usize {
         match self {
-            Self::F64(s) => s.point_dims(),
-            Self::F32(s) => s.point_dims(),
+            Self::L2F64(s) => s.current_cycle(),
+            Self::L2F32(s) => s.current_cycle(),
+            Self::L3F64(s) => s.current_cycle(),
+            Self::L3F32(s) => s.current_cycle(),
+            Self::NdF64(s) => s.current_cycle(),
+            Self::NdF32(s) => s.current_cycle(),
+        }
+    }
+
+    fn pts_per_edge(&self) -> usize {
+        match self {
+            Self::L2F64(s) => s.pts_per_edge(),
+            Self::L2F32(s) => s.pts_per_edge(),
+            Self::L3F64(s) => s.pts_per_edge(),
+            Self::L3F32(s) => s.pts_per_edge(),
+            Self::NdF64(s) => s.pts_per_edge(),
+            Self::NdF32(s) => s.pts_per_edge(),
+        }
+    }
+
+    fn status(&self) -> SolverStatus {
+        match self {
+            Self::L2F64(s) => s.status(),
+            Self::L2F32(s) => s.status(),
+            Self::L3F64(s) => s.status(),
+            Self::L3F32(s) => s.status(),
+            Self::NdF64(s) => s.status(),
+            Self::NdF32(s) => s.status(),
+        }
+    }
+
+    fn iteration(&self) -> usize {
+        match self {
+            Self::L2F64(s) => s.iteration(),
+            Self::L2F32(s) => s.iteration(),
+            Self::L3F64(s) => s.iteration(),
+            Self::L3F32(s) => s.iteration(),
+            Self::NdF64(s) => s.iteration(),
+            Self::NdF32(s) => s.iteration(),
+        }
+    }
+
+    fn total_iterations(&self) -> Option<usize> {
+        match self {
+            Self::L2F64(s) => s.total_iterations(),
+            Self::L2F32(s) => s.total_iterations(),
+            Self::L3F64(s) => s.total_iterations(),
+            Self::L3F32(s) => s.total_iterations(),
+            Self::NdF64(s) => s.total_iterations(),
+            Self::NdF32(s) => s.total_iterations(),
+        }
+    }
+
+    fn execute_action(
+        &mut self,
+        py: Python<'_>,
+        polylines: &Bound<'_, PyEdgePolylines>,
+        action: SolverAction,
+    ) -> PyResult<&'static str> {
+        let (p_target, p_dtype, dims) = {
+            let b = polylines.try_borrow()?;
+            (b.target_kind(), b.dtype_kind(), b.dims_count())
+        };
+        if p_target != self.target_kind() || p_dtype != self.dtype() {
+            return Err(dimension_mismatch_err(format!(
+                "FdebSolver expected target='{}' dtype='{}', got target='{}' dtype='{}'",
+                self.target_kind().as_str(),
+                self.dtype().as_str(),
+                p_target.as_str(),
+                p_dtype.as_str()
+            )));
+        }
+
+        macro_rules! run_target {
+            ($solver:expr, $core_poly:expr, $to_flat:expr, $write_fn:ident, $dims_val:expr) => {{
+                let mut poly = $core_poly;
+                let status = py
+                    .detach(|| match action {
+                        SolverAction::Step => IterativeSolver::step($solver, &mut poly),
+                        SolverAction::RunSteps(steps) => {
+                            IterativeSolver::run_steps($solver, &mut poly, steps)
+                        }
+                        SolverAction::Run => IterativeSolver::run($solver, &mut poly),
+                    })
+                    .map_err(core_error_to_py)?;
+                let (offs, pts) = poly.into_parts();
+                let flat = $to_flat(&pts);
+                let mut borrowed_mut = polylines.try_borrow_mut()?;
+                borrowed_mut.$write_fn(py, offs, flat, $dims_val)?;
+                Ok(solver_status_str(status))
+            }};
+        }
+
+        let b = polylines.try_borrow()?;
+        match self {
+            Self::L2F64(s) => {
+                let core_poly = b.to_core_2d_f64(py)?;
+                drop(b);
+                run_target!(
+                    s,
+                    core_poly,
+                    |p: &Layout2d<f64>| p.to_interleaved(),
+                    write_back_f64,
+                    2
+                )
+            }
+            Self::L2F32(s) => {
+                let core_poly = b.to_core_2d_f32(py)?;
+                drop(b);
+                run_target!(
+                    s,
+                    core_poly,
+                    |p: &Layout2d<f32>| p.to_interleaved(),
+                    write_back_f32,
+                    2
+                )
+            }
+            Self::L3F64(s) => {
+                let core_poly = b.to_core_3d_f64(py)?;
+                drop(b);
+                run_target!(
+                    s,
+                    core_poly,
+                    |p: &Layout3d<f64>| p.to_interleaved(),
+                    write_back_f64,
+                    3
+                )
+            }
+            Self::L3F32(s) => {
+                let core_poly = b.to_core_3d_f32(py)?;
+                drop(b);
+                run_target!(
+                    s,
+                    core_poly,
+                    |p: &Layout3d<f32>| p.to_interleaved(),
+                    write_back_f32,
+                    3
+                )
+            }
+            Self::NdF64(s) => {
+                let core_poly = b.to_core_nd_f64(py)?;
+                drop(b);
+                run_target!(
+                    s,
+                    core_poly,
+                    |p: &LayoutNd<f64>| p.coords().to_vec(),
+                    write_back_f64,
+                    dims
+                )
+            }
+            Self::NdF32(s) => {
+                let core_poly = b.to_core_nd_f32(py)?;
+                drop(b);
+                run_target!(
+                    s,
+                    core_poly,
+                    |p: &LayoutNd<f32>| p.coords().to_vec(),
+                    write_back_f32,
+                    dims
+                )
+            }
         }
     }
 }
 
-/// Cooperative Force-Directed Edge Bundling (`FDEB`) solver with flat polyline outputs.
-///
-/// Constructed from a `CsrGraph` and lazily initialized on first `step(layout)` / `run(layout)`
-/// against either `Layout2d` or `LayoutNd`, supporting `"float64"` and `"float32"` precision
-/// while releasing the Python GIL.
+/// Cooperative Force-Directed Edge Bundling (`FDEB`) solver mutating an `EdgePolylines` buffer.
 #[pyclass(name = "FdebSolver", module = "egraph._core")]
 pub struct PyFdebSolver {
     inner: FdebInner,
+    point_dims: usize,
 }
 
 #[pymethods]
 impl PyFdebSolver {
-    /// Construct an `FdebSolver` from `graph` (polylines initialize lazily on first step).
+    /// Construct an `FdebSolver` from an initial `EdgePolylines` buffer.
     #[new]
     #[allow(clippy::too_many_arguments)]
     #[pyo3(
         signature = (
-            graph,
+            polylines,
             *,
             cycles = StrictUsize(6),
             s0 = StrictF64(0.1),
@@ -66,14 +234,13 @@ impl PyFdebSolver {
             s_step = StrictF64(0.5),
             i_step = StrictF64(0.6666666666666666),
             spring_k = StrictF64(0.1),
-            minimum_edge_compatibility = StrictF64(0.6),
-            dtype = ScalarDtype::F64
+            minimum_edge_compatibility = StrictF64(0.6)
         ),
-        text_signature = "(graph, *, cycles=6, s0=0.1, steps_per_cycle=90, s_step=0.5, i_step=0.6666666666666666, spring_k=0.1, minimum_edge_compatibility=0.6, dtype='float64')"
+        text_signature = "(polylines, *, cycles=6, s0=0.1, steps_per_cycle=90, s_step=0.5, i_step=0.6666666666666666, spring_k=0.1, minimum_edge_compatibility=0.6)"
     )]
     fn new(
         py: Python<'_>,
-        graph: &PyCsrGraph,
+        polylines: &PyEdgePolylines,
         cycles: StrictUsize,
         s0: StrictF64,
         steps_per_cycle: StrictUsize,
@@ -81,172 +248,178 @@ impl PyFdebSolver {
         i_step: StrictF64,
         spring_k: StrictF64,
         minimum_edge_compatibility: StrictF64,
-        dtype: ScalarDtype,
     ) -> PyResult<Self> {
-        let cfg = FdebConfig {
-            cycles: cycles.0,
-            s0: s0.0,
-            steps_per_cycle: steps_per_cycle.0,
-            s_step: s_step.0,
-            i_step: i_step.0,
-            spring_k: spring_k.0,
-            minimum_edge_compatibility: minimum_edge_compatibility.0,
-        };
+        let cfg = FdebConfig::new()
+            .with_cycles(cycles.0)
+            .with_s0(s0.0)
+            .with_steps_per_cycle(steps_per_cycle.0)
+            .with_s_step(s_step.0)
+            .with_i_step(i_step.0)
+            .with_spring_k(spring_k.0)
+            .with_minimum_edge_compatibility(minimum_edge_compatibility.0);
         cfg.validate().map_err(core_error_to_py)?;
-        let g = graph.inner();
-        let inner = py
-            .detach(|| match dtype {
-                ScalarDtype::F64 => FdebSolver::<f64>::new(&*g, cfg).map(FdebInner::F64),
-                ScalarDtype::F32 => FdebSolver::<f32>::new(&*g, cfg).map(FdebInner::F32),
-            })
-            .map_err(core_error_to_py)?;
-        Ok(Self { inner })
+        let dims = polylines.dims_count();
+        let inner = match (polylines.target_kind(), polylines.dtype_kind()) {
+            (PolylineTarget::Layout2d, ScalarDtype::F64) => {
+                let core_poly = polylines.to_core_2d_f64(py)?;
+                py.detach(|| FdebSolver::new(&core_poly, cfg).map(FdebInner::L2F64))
+                    .map_err(core_error_to_py)?
+            }
+            (PolylineTarget::Layout2d, ScalarDtype::F32) => {
+                let core_poly = polylines.to_core_2d_f32(py)?;
+                py.detach(|| FdebSolver::new(&core_poly, cfg).map(FdebInner::L2F32))
+                    .map_err(core_error_to_py)?
+            }
+            (PolylineTarget::Layout3d, ScalarDtype::F64) => {
+                let core_poly = polylines.to_core_3d_f64(py)?;
+                py.detach(|| FdebSolver::new(&core_poly, cfg).map(FdebInner::L3F64))
+                    .map_err(core_error_to_py)?
+            }
+            (PolylineTarget::Layout3d, ScalarDtype::F32) => {
+                let core_poly = polylines.to_core_3d_f32(py)?;
+                py.detach(|| FdebSolver::new(&core_poly, cfg).map(FdebInner::L3F32))
+                    .map_err(core_error_to_py)?
+            }
+            (PolylineTarget::LayoutNd, ScalarDtype::F64) => {
+                let core_poly = polylines.to_core_nd_f64(py)?;
+                py.detach(|| FdebSolver::new(&core_poly, cfg).map(FdebInner::NdF64))
+                    .map_err(core_error_to_py)?
+            }
+            (PolylineTarget::LayoutNd, ScalarDtype::F32) => {
+                let core_poly = polylines.to_core_nd_f32(py)?;
+                py.detach(|| FdebSolver::new(&core_poly, cfg).map(FdebInner::NdF32))
+                    .map_err(core_error_to_py)?
+            }
+        };
+        Ok(Self {
+            inner,
+            point_dims: dims,
+        })
     }
 
-    /// Execute a single FDEB force iteration against `layout` (`Layout2d | LayoutNd`).
-    #[pyo3(signature = (layout), text_signature = "($self, layout)")]
-    fn step(&mut self, py: Python<'_>, layout: &Bound<'_, PyAny>) -> PyResult<&'static str> {
-        execute_euclid_action(&mut self.inner, py, layout, SolverAction::Step)
+    #[pyo3(signature = (polylines), text_signature = "($self, polylines)")]
+    fn validate_target(&self, py: Python<'_>, polylines: &PyEdgePolylines) -> PyResult<()> {
+        if polylines.target_kind() != self.inner.target_kind()
+            || polylines.dtype_kind() != self.inner.dtype()
+        {
+            return Err(dimension_mismatch_err(format!(
+                "FdebSolver expected target='{}' dtype='{}', got target='{}' dtype='{}'",
+                self.inner.target_kind().as_str(),
+                self.inner.dtype().as_str(),
+                polylines.target_kind().as_str(),
+                polylines.dtype_kind().as_str()
+            )));
+        }
+        match &self.inner {
+            FdebInner::L2F64(s) => {
+                let p = polylines.to_core_2d_f64(py)?;
+                py.detach(|| s.validate_target(&p))
+                    .map_err(core_error_to_py)
+            }
+            FdebInner::L2F32(s) => {
+                let p = polylines.to_core_2d_f32(py)?;
+                py.detach(|| s.validate_target(&p))
+                    .map_err(core_error_to_py)
+            }
+            FdebInner::L3F64(s) => {
+                let p = polylines.to_core_3d_f64(py)?;
+                py.detach(|| s.validate_target(&p))
+                    .map_err(core_error_to_py)
+            }
+            FdebInner::L3F32(s) => {
+                let p = polylines.to_core_3d_f32(py)?;
+                py.detach(|| s.validate_target(&p))
+                    .map_err(core_error_to_py)
+            }
+            FdebInner::NdF64(s) => {
+                let p = polylines.to_core_nd_f64(py)?;
+                py.detach(|| s.validate_target(&p))
+                    .map_err(core_error_to_py)
+            }
+            FdebInner::NdF32(s) => {
+                let p = polylines.to_core_nd_f32(py)?;
+                py.detach(|| s.validate_target(&p))
+                    .map_err(core_error_to_py)
+            }
+        }
     }
 
-    /// Execute up to `steps` FDEB force iterations against `layout` (`Layout2d | LayoutNd`).
-    #[pyo3(signature = (layout, steps), text_signature = "($self, layout, steps)")]
+    #[pyo3(signature = (polylines), text_signature = "($self, polylines)")]
+    fn step(
+        &mut self,
+        py: Python<'_>,
+        polylines: &Bound<'_, PyEdgePolylines>,
+    ) -> PyResult<&'static str> {
+        self.inner.execute_action(py, polylines, SolverAction::Step)
+    }
+
+    #[pyo3(signature = (polylines, steps), text_signature = "($self, polylines, steps)")]
     fn run_steps(
         &mut self,
         py: Python<'_>,
-        layout: &Bound<'_, PyAny>,
+        polylines: &Bound<'_, PyEdgePolylines>,
         steps: StrictUsize,
     ) -> PyResult<&'static str> {
-        execute_euclid_action(&mut self.inner, py, layout, SolverAction::RunSteps(steps.0))
+        self.inner
+            .execute_action(py, polylines, SolverAction::RunSteps(steps.0))
     }
 
-    /// Run all remaining FDEB subdivision cycles against `layout` (`Layout2d | LayoutNd`).
-    #[pyo3(signature = (layout), text_signature = "($self, layout)")]
-    fn run(&mut self, py: Python<'_>, layout: &Bound<'_, PyAny>) -> PyResult<&'static str> {
-        execute_euclid_action(&mut self.inner, py, layout, SolverAction::Run)
+    #[pyo3(signature = (polylines), text_signature = "($self, polylines)")]
+    fn run(
+        &mut self,
+        py: Python<'_>,
+        polylines: &Bound<'_, PyEdgePolylines>,
+    ) -> PyResult<&'static str> {
+        self.inner.execute_action(py, polylines, SolverAction::Run)
     }
 
-    /// Current solver status (`"initialized"`, `"running"`, `"converged"`, or `"completed"`).
     #[getter]
-    fn status(&self) -> &'static str {
-        solver_status_str(self.inner.solver_status())
+    fn target(&self) -> &'static str {
+        self.inner.target_kind().as_str()
     }
-
-    /// Number of iterations executed so far.
-    #[getter]
-    fn iteration(&self) -> usize {
-        self.inner.solver_iteration()
-    }
-
-    /// Total scheduled iterations across all subdivision cycles.
-    #[getter]
-    fn total_iterations(&self) -> usize {
-        self.inner.solver_total_iterations()
-    }
-
-    /// Whether the solver has reached `"converged"` or `"completed"`.
-    #[getter]
-    fn is_finished(&self) -> bool {
-        self.inner.solver_status().is_finished()
-    }
-
-    /// Expected number of graph vertices.
-    #[getter]
-    fn num_nodes(&self) -> usize {
-        self.inner.num_nodes()
-    }
-
-    /// Number of edges being bundled.
-    #[getter]
-    fn num_edges(&self) -> usize {
-        self.inner.num_edges()
-    }
-
-    /// Active coordinate dimensionality of bundled edge polylines (`0` before first `step`).
-    #[getter]
-    fn point_dims(&self) -> usize {
-        self.inner.point_dims()
-    }
-
-    /// Scalar coordinate precision (`"float64"` or `"float32"`).
     #[getter]
     fn dtype(&self) -> &'static str {
         self.inner.dtype().as_str()
     }
-
-    /// Return a `uint32` NumPy copy of CSR-style polyline offsets of length `num_edges + 1`.
-    fn edge_offsets<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<u32>> {
-        match &self.inner {
-            FdebInner::F64(s) => PyArray1::from_slice(py, s.edge_offsets()),
-            FdebInner::F32(s) => PyArray1::from_slice(py, s.edge_offsets()),
-        }
+    #[getter]
+    fn num_edges(&self) -> usize {
+        self.inner.num_edges()
     }
-
-    /// Return a `(K, point_dims)` NumPy array of all edge polyline points matching `self.dtype`.
-    fn points<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        match &self.inner {
-            FdebInner::F64(s) => {
-                let d = s.point_dims();
-                if d == 0 {
-                    let arr = Array2::<f64>::zeros((0, 0));
-                    return Ok(PyArray2::from_owned_array(py, arr).into_any());
-                }
-                let flat = s.to_interleaved_points_nd();
-                let k = flat.len() / d;
-                let arr = Array2::from_shape_vec((k, d), flat)
-                    .map_err(|e| PyValueError::new_err(e.to_string()))?;
-                Ok(PyArray2::from_owned_array(py, arr).into_any())
-            }
-            FdebInner::F32(s) => {
-                let d = s.point_dims();
-                if d == 0 {
-                    let arr = Array2::<f32>::zeros((0, 0));
-                    return Ok(PyArray2::from_owned_array(py, arr).into_any());
-                }
-                let flat = s.to_interleaved_points_nd();
-                let k = flat.len() / d;
-                let arr = Array2::from_shape_vec((k, d), flat)
-                    .map_err(|e| PyValueError::new_err(e.to_string()))?;
-                Ok(PyArray2::from_owned_array(py, arr).into_any())
-            }
-        }
+    #[getter]
+    fn point_dims(&self) -> usize {
+        self.point_dims
     }
-
-    /// Extract a single coordinate `axis` (`0..point_dims`) across all bundled edge control points.
-    #[pyo3(signature = (axis), text_signature = "($self, axis)")]
-    fn points_axis<'py>(&self, py: Python<'py>, axis: StrictUsize) -> PyResult<Bound<'py, PyAny>> {
-        match &self.inner {
-            FdebInner::F64(s) => {
-                let vec = s.points_axis(axis.0).map_err(core_error_to_py)?;
-                Ok(PyArray1::from_vec(py, vec).into_any())
-            }
-            FdebInner::F32(s) => {
-                let vec = s.points_axis(axis.0).map_err(core_error_to_py)?;
-                Ok(PyArray1::from_vec(py, vec).into_any())
-            }
-        }
+    #[getter]
+    fn current_cycle(&self) -> usize {
+        self.inner.current_cycle()
     }
-
-    /// Extract the `z` coordinate (`axis=2`) across all bundled edge control points.
-    #[pyo3(signature = (), text_signature = "($self)")]
-    fn points_z<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        match &self.inner {
-            FdebInner::F64(s) => {
-                let vec = s.points_z().map_err(core_error_to_py)?;
-                Ok(PyArray1::from_vec(py, vec).into_any())
-            }
-            FdebInner::F32(s) => {
-                let vec = s.points_z().map_err(core_error_to_py)?;
-                Ok(PyArray1::from_vec(py, vec).into_any())
-            }
-        }
+    #[getter]
+    fn pts_per_edge(&self) -> usize {
+        self.inner.pts_per_edge()
+    }
+    #[getter]
+    fn status(&self) -> &'static str {
+        solver_status_str(self.inner.status())
+    }
+    #[getter]
+    fn iteration(&self) -> usize {
+        self.inner.iteration()
+    }
+    #[getter]
+    fn total_iterations(&self) -> Option<usize> {
+        self.inner.total_iterations()
+    }
+    #[getter]
+    fn is_finished(&self) -> bool {
+        self.inner.status().is_finished()
     }
 
     fn __repr__(&self) -> String {
         format!(
-            "FdebSolver(num_edges={}, point_dims={}, status='{}', iteration={}/{}, dtype='{}')",
+            "FdebSolver(num_edges={}, point_dims={}, target='{}', status='{}', iteration={}/{:?}, dtype='{}')",
             self.num_edges(),
             self.point_dims(),
+            self.target(),
             self.status(),
             self.iteration(),
             self.total_iterations(),
@@ -254,6 +427,3 @@ impl PyFdebSolver {
         )
     }
 }
-
-#[allow(dead_code)]
-fn _check_core_err(_: egraph_core::CoreError) {}

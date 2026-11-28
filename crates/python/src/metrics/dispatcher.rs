@@ -1,18 +1,20 @@
 //! Selective multi-metric evaluation dispatcher (`evaluate_metrics`).
 
+use egraph::core::{CoreResult, NodeExtents2d, Scalar};
 use egraph::metrics as egraph_metrics;
 use egraph_metrics::{
     ClusterAreaConfig, ClusterBaselineConfig, MetricConfig, MetricInputs, MetricTarget,
     evaluate_metrics_with_inputs,
 };
-use pyo3::exceptions::{PyTypeError, PyValueError};
+use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 
 use crate::array_extract::extract_f64_1d;
 use crate::csr_graph::PyCsrGraph;
+use crate::errors::{core_error_to_py, unsupported_operation_err};
 use crate::ffi_convert::{
-    StrictF64, StrictU64, StrictUsize, core_error_to_py, extract_optional_weights_1d,
-    extract_u32_1d, is_non_sequence_container,
+    StrictF64, StrictU64, StrictUsize, extract_optional_weights_1d, extract_u32_1d,
+    is_non_sequence_container,
 };
 use crate::layout_buffers::{Layout2dInner, PyLayout2d, layout_f32_to_f64};
 use crate::solver_common::vec_f64_to_f32_checked;
@@ -109,7 +111,7 @@ fn extract_metric_targets(targets: &Bound<'_, PyAny>) -> PyResult<Vec<MetricTarg
         let raw = item
             .extract::<String>()
             .map_err(|_| PyTypeError::new_err("metric target entries must be strings"))?;
-        parsed.push(parse_metric_target(&raw).map_err(PyValueError::new_err)?);
+        parsed.push(parse_metric_target(&raw).map_err(unsupported_operation_err)?);
     }
     Ok(parsed)
 }
@@ -190,46 +192,48 @@ fn evaluate_metrics(
     });
     let owned_layout = layout.extract_owned()?;
 
-    let config = MetricConfig {
-        sns_num_pivots: num_pivots.0,
-        sns_seed: seed.0,
-        crossing_num_samples: num_samples.0,
-        crossing_seed: seed.0,
-        ideal_edge_length: ideal_edge_length.0,
-        rta_num_landmarks: num_landmarks.0,
-        rta_num_triplets: num_triplets.0,
-        rta_min_degree: min_degree.0,
-        rta_seed: seed.0,
-        patch_nig_radius: patch_radius.0,
-        patch_nig_canvas_size: canvas_size.0,
-        patch_nig_pad_frac: pad_frac.0,
-        patch_nig_seed: seed.0,
-        cluster_area: ClusterAreaConfig {
-            g_max: g_max.0,
-            sigma_cells: sigma_cells.0,
-            kappa: kappa.0,
-            tau_frac: tau_frac.0,
-            boundary_r95: boundary_r95.0,
-            stevens_gamma: stevens_gamma.0,
-        },
-        cluster_baselines: ClusterBaselineConfig {
-            sepme_knng_k: sepme_knng_k.0,
-            neighborhood_hit_k: neighborhood_hit_k.0,
-            dc_grid_size: dc_grid_size.0,
-            cdm_grid_size: cdm_grid_size.0,
-            cdm_bandwidth: cdm_bandwidth.map(|v| v.0),
-            num_bins: num_bins.0,
-            gong_gamma: gong_gamma.0,
-            kmeans_n_init: kmeans_n_init.0,
-            kmeans_max_iters: kmeans_max_iterations.0,
-            seed: seed.0,
-            sprawlter_node_radius: sprawlter_node_radius.0,
-        },
-    };
+    let cluster_area = ClusterAreaConfig::new()
+        .with_g_max(g_max.0)
+        .with_sigma_cells(sigma_cells.0)
+        .with_kappa(kappa.0)
+        .with_tau_frac(tau_frac.0)
+        .with_boundary_r95(boundary_r95.0)
+        .with_stevens_gamma(stevens_gamma.0);
+    let cluster_baselines = ClusterBaselineConfig::new()
+        .with_sepme_knng_k(sepme_knng_k.0)
+        .with_neighborhood_hit_k(neighborhood_hit_k.0)
+        .with_dc_grid_size(dc_grid_size.0)
+        .with_cdm_grid_size(cdm_grid_size.0)
+        .with_cdm_bandwidth(cdm_bandwidth.map(|v| v.0))
+        .with_num_bins(num_bins.0)
+        .with_gong_gamma(gong_gamma.0)
+        .with_kmeans_n_init(kmeans_n_init.0)
+        .with_kmeans_max_iters(kmeans_max_iterations.0)
+        .with_seed(seed.0)
+        .with_sprawlter_node_radius(sprawlter_node_radius.0);
+    let config = MetricConfig::new()
+        .with_sns_num_pivots(num_pivots.0)
+        .with_sns_seed(seed.0)
+        .with_crossing_num_samples(num_samples.0)
+        .with_crossing_seed(seed.0)
+        .with_np_num_samples(num_samples.0)
+        .with_np_seed(seed.0)
+        .with_ideal_edge_length(ideal_edge_length.0)
+        .with_rta_num_landmarks(num_landmarks.0)
+        .with_rta_num_triplets(num_triplets.0)
+        .with_rta_min_degree(min_degree.0)
+        .with_rta_seed(seed.0)
+        .with_patch_nig_radius(patch_radius.0)
+        .with_patch_nig_canvas_size(canvas_size.0)
+        .with_patch_nig_pad_frac(pad_frac.0)
+        .with_patch_nig_seed(seed.0)
+        .with_cluster_area(cluster_area)
+        .with_baseline_config(cluster_baselines);
 
     let hw_f32 = match (&owned_layout, hw_f64.as_deref()) {
         (
             OwnedMetricLayout::F32_2d(_)
+            | OwnedMetricLayout::F32_3d(_)
             | OwnedMetricLayout::F32Nd(_)
             | OwnedMetricLayout::F32Manifold(_),
             Some(hw),
@@ -241,6 +245,7 @@ fn evaluate_metrics(
     let hh_f32 = match (&owned_layout, hh_f64.as_deref()) {
         (
             OwnedMetricLayout::F32_2d(_)
+            | OwnedMetricLayout::F32_3d(_)
             | OwnedMetricLayout::F32Nd(_)
             | OwnedMetricLayout::F32Manifold(_),
             Some(hh),
@@ -249,6 +254,17 @@ fn evaluate_metrics(
         }
         _ => None,
     };
+
+    fn opt_extents<'a, S: Scalar>(
+        hw: Option<&'a [S]>,
+        hh: Option<&'a [S]>,
+    ) -> CoreResult<Option<NodeExtents2d<'a, S>>> {
+        match (hw, hh) {
+            (Some(w), Some(h)) => NodeExtents2d::new(w, h).map(Some),
+            (Some(w), None) => NodeExtents2d::from_radii(w).map(Some),
+            (None, _) => Ok(None),
+        }
+    }
 
     let g = graph.inner();
     let report = py
@@ -263,26 +279,22 @@ fn evaluate_metrics(
                     }
                     None => None,
                 };
-                let inputs = MetricInputs {
-                    labels: comm_labels_vec.as_deref(),
-                    node_weights: nw.as_deref(),
-                    cluster_weights: cw.as_deref(),
-                    original_layout: orig_ref,
-                    sprawlter_half_widths: hw_f64.as_deref(),
-                    sprawlter_half_heights: hh_f64.as_deref(),
-                };
+                let mut inputs = MetricInputs::default();
+                inputs.labels = comm_labels_vec.as_deref();
+                inputs.node_weights = nw.as_deref();
+                inputs.cluster_weights = cw.as_deref();
+                inputs.original_layout = orig_ref;
+                inputs.sprawlter_extents = opt_extents(hw_f64.as_deref(), hh_f64.as_deref())?;
                 evaluate_metrics_with_inputs(&*g, soa, &target_list, &config, &inputs)
             }
             (OwnedMetricLayout::F32_2d(soa), Some(ExtractedOriginal::F64(o))) => {
                 let soa64 = layout_f32_to_f64(soa);
-                let inputs = MetricInputs {
-                    labels: comm_labels_vec.as_deref(),
-                    node_weights: nw.as_deref(),
-                    cluster_weights: cw.as_deref(),
-                    original_layout: Some(o),
-                    sprawlter_half_widths: hw_f64.as_deref(),
-                    sprawlter_half_heights: hh_f64.as_deref(),
-                };
+                let mut inputs = MetricInputs::default();
+                inputs.labels = comm_labels_vec.as_deref();
+                inputs.node_weights = nw.as_deref();
+                inputs.cluster_weights = cw.as_deref();
+                inputs.original_layout = Some(o);
+                inputs.sprawlter_extents = opt_extents(hw_f64.as_deref(), hh_f64.as_deref())?;
                 evaluate_metrics_with_inputs(&*g, &soa64, &target_list, &config, &inputs)
             }
             (OwnedMetricLayout::F32_2d(soa), opt_orig) => {
@@ -290,58 +302,60 @@ fn evaluate_metrics(
                     Some(ExtractedOriginal::F32(o)) => Some(o),
                     _ => None,
                 };
-                let inputs = MetricInputs {
-                    labels: comm_labels_vec.as_deref(),
-                    node_weights: nw.as_deref(),
-                    cluster_weights: cw.as_deref(),
-                    original_layout: orig_ref,
-                    sprawlter_half_widths: hw_f32.as_deref(),
-                    sprawlter_half_heights: hh_f32.as_deref(),
-                };
+                let mut inputs = MetricInputs::default();
+                inputs.labels = comm_labels_vec.as_deref();
+                inputs.node_weights = nw.as_deref();
+                inputs.cluster_weights = cw.as_deref();
+                inputs.original_layout = orig_ref;
+                inputs.sprawlter_extents = opt_extents(hw_f32.as_deref(), hh_f32.as_deref())?;
+                evaluate_metrics_with_inputs(&*g, soa, &target_list, &config, &inputs)
+            }
+            (OwnedMetricLayout::F64_3d(soa), _) => {
+                let mut inputs = MetricInputs::default();
+                inputs.labels = comm_labels_vec.as_deref();
+                inputs.node_weights = nw.as_deref();
+                inputs.cluster_weights = cw.as_deref();
+                inputs.sprawlter_extents = opt_extents(hw_f64.as_deref(), hh_f64.as_deref())?;
+                evaluate_metrics_with_inputs(&*g, soa, &target_list, &config, &inputs)
+            }
+            (OwnedMetricLayout::F32_3d(soa), _) => {
+                let mut inputs = MetricInputs::default();
+                inputs.labels = comm_labels_vec.as_deref();
+                inputs.node_weights = nw.as_deref();
+                inputs.cluster_weights = cw.as_deref();
+                inputs.sprawlter_extents = opt_extents(hw_f32.as_deref(), hh_f32.as_deref())?;
                 evaluate_metrics_with_inputs(&*g, soa, &target_list, &config, &inputs)
             }
             (OwnedMetricLayout::F64Nd(nd), _) => {
-                let inputs = MetricInputs {
-                    labels: comm_labels_vec.as_deref(),
-                    node_weights: nw.as_deref(),
-                    cluster_weights: cw.as_deref(),
-                    original_layout: None,
-                    sprawlter_half_widths: hw_f64.as_deref(),
-                    sprawlter_half_heights: hh_f64.as_deref(),
-                };
+                let mut inputs = MetricInputs::default();
+                inputs.labels = comm_labels_vec.as_deref();
+                inputs.node_weights = nw.as_deref();
+                inputs.cluster_weights = cw.as_deref();
+                inputs.sprawlter_extents = opt_extents(hw_f64.as_deref(), hh_f64.as_deref())?;
                 evaluate_metrics_with_inputs(&*g, nd, &target_list, &config, &inputs)
             }
             (OwnedMetricLayout::F32Nd(nd), _) => {
-                let inputs = MetricInputs {
-                    labels: comm_labels_vec.as_deref(),
-                    node_weights: nw.as_deref(),
-                    cluster_weights: cw.as_deref(),
-                    original_layout: None,
-                    sprawlter_half_widths: hw_f32.as_deref(),
-                    sprawlter_half_heights: hh_f32.as_deref(),
-                };
+                let mut inputs = MetricInputs::default();
+                inputs.labels = comm_labels_vec.as_deref();
+                inputs.node_weights = nw.as_deref();
+                inputs.cluster_weights = cw.as_deref();
+                inputs.sprawlter_extents = opt_extents(hw_f32.as_deref(), hh_f32.as_deref())?;
                 evaluate_metrics_with_inputs(&*g, nd, &target_list, &config, &inputs)
             }
             (OwnedMetricLayout::F64Manifold(m), _) => {
-                let inputs = MetricInputs {
-                    labels: comm_labels_vec.as_deref(),
-                    node_weights: nw.as_deref(),
-                    cluster_weights: cw.as_deref(),
-                    original_layout: None,
-                    sprawlter_half_widths: hw_f64.as_deref(),
-                    sprawlter_half_heights: hh_f64.as_deref(),
-                };
+                let mut inputs = MetricInputs::default();
+                inputs.labels = comm_labels_vec.as_deref();
+                inputs.node_weights = nw.as_deref();
+                inputs.cluster_weights = cw.as_deref();
+                inputs.sprawlter_extents = opt_extents(hw_f64.as_deref(), hh_f64.as_deref())?;
                 evaluate_metrics_with_inputs(&*g, m, &target_list, &config, &inputs)
             }
             (OwnedMetricLayout::F32Manifold(m), _) => {
-                let inputs = MetricInputs {
-                    labels: comm_labels_vec.as_deref(),
-                    node_weights: nw.as_deref(),
-                    cluster_weights: cw.as_deref(),
-                    original_layout: None,
-                    sprawlter_half_widths: hw_f32.as_deref(),
-                    sprawlter_half_heights: hh_f32.as_deref(),
-                };
+                let mut inputs = MetricInputs::default();
+                inputs.labels = comm_labels_vec.as_deref();
+                inputs.node_weights = nw.as_deref();
+                inputs.cluster_weights = cw.as_deref();
+                inputs.sprawlter_extents = opt_extents(hw_f32.as_deref(), hh_f32.as_deref())?;
                 evaluate_metrics_with_inputs(&*g, m, &target_list, &config, &inputs)
             }
         })

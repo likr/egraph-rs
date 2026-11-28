@@ -103,7 +103,7 @@ class TestTsNetAndSgdSolvers(unittest.TestCase):
             self.assertIsNone(params["stage_iterations"].default)
 
         # Verify TsNetSolver(g) __new__ matches pure_2hop and stage_iterations overrides across all constructors
-        knn, _, _ = eg.build_pure_2hop_knn(g)
+        knn = eg.build_pure_2hop_knn(g).knn
         perps = eg.compute_nodewise_2hop_perplexities(g)
         probs = eg.compute_knn_probabilities(knn, perps)
         for dtype_str, np_dtype in (("float64", np.float64), ("float32", np.float32)):
@@ -136,8 +136,12 @@ class TestTsNetAndSgdSolvers(unittest.TestCase):
                     eg.TsNetSolver.from_probabilities(probs, backend="exact", stage_iterations=si_list, dtype=dtype_str),
                 ),
                 (
-                    eg.TsNetSolver.from_graph_partial_bfs(g, 8, 6.0, backend="exact", stage_iterations=si_tuple, dtype=dtype_str),
-                    eg.TsNetSolver.from_graph_partial_bfs(g, 8, 6.0, backend="exact", stage_iterations=si_list, dtype=dtype_str),
+                    eg.TsNetSolver.from_graph_partial_bfs(
+                        g, k=8, uniform_perplexity=6.0, backend="exact", stage_iterations=si_tuple, dtype=dtype_str
+                    ),
+                    eg.TsNetSolver.from_graph_partial_bfs(
+                        g, k=8, uniform_perplexity=6.0, backend="exact", stage_iterations=si_list, dtype=dtype_str
+                    ),
                 ),
                 (
                     eg.TsNetSolver.from_graph_row_normalized(g, backend="exact", stage_iterations=si_tuple, dtype=dtype_str),
@@ -162,10 +166,10 @@ class TestTsNetAndSgdSolvers(unittest.TestCase):
             )
 
         # from_knn (per-node & scalar perplexity), from_probabilities, and from_graph_row_normalized
-        s_knn_vec = eg.TsNetSolver.from_knn(knn, perps, backend="fit", stage_iterations=(2, 2, 2))
-        s_knn_scalar = eg.TsNetSolver.from_knn(knn, 8.0, backend="bh", stage_iterations=(2, 2, 2))
+        s_knn_vec = eg.TsNetSolver.from_knn(knn, perps, backend="fit", stage_iterations=(2, 2, 2))  # type: ignore[arg-type]
+        s_knn_scalar = eg.TsNetSolver.from_knn(knn, 8.0, backend="bh", stage_iterations=(2, 2, 2))  # type: ignore[arg-type]
         probs = eg.compute_knn_probabilities(knn, perps)
-        s_probs = eg.TsNetSolver.from_probabilities(probs, backend="l", stage_iterations=(2, 2, 2))
+        s_probs = eg.TsNetSolver.from_probabilities(probs, backend="l", stage_iterations=(2, 2, 2))  # type: ignore[arg-type]
 
         for solver in (s_knn_vec, s_knn_scalar, s_probs):
             lay = eg.Layout2d.from_coords(init_coords)
@@ -178,7 +182,7 @@ class TestTsNetAndSgdSolvers(unittest.TestCase):
                     g,
                     w2=0.5,
                     max_2hop_per_node=max_2hop,
-                    backend="fft",
+                    backend="fit_fft",
                     stage_iterations=(2, 2, 2),
                     seed=42,
                     dtype=dtype_str,
@@ -187,7 +191,7 @@ class TestTsNetAndSgdSolvers(unittest.TestCase):
                     g,
                     w2=0.5,
                     max_2hop_per_node=max_2hop,
-                    backend="fft",
+                    backend="fit_fft",
                     stage_iterations=(2, 2, 2),
                     seed=42,
                     dtype=dtype_str,
@@ -202,14 +206,14 @@ class TestTsNetAndSgdSolvers(unittest.TestCase):
                 self.assertLessEqual(rn_run.current_stage_lr, 2.0 * g.num_nodes)
 
         # Validation errors
-        self.assert_no_panic_raises((ValueError,), lambda: eg.TsNetSolver.pure_2hop(g, backend="bad"))
+        self.assert_no_panic_raises((ValueError,), lambda: eg.TsNetSolver.pure_2hop(g, backend="bad"))  # type: ignore[arg-type]
         self.assert_no_panic_raises((TypeError,), lambda: eg.TsNetSolver.pure_2hop(g, backend=123))  # type: ignore[arg-type]
         self.assert_no_panic_raises((ValueError,), lambda: eg.TsNetSolver.pure_2hop(g, interpolation_order=2))
         self.assert_no_panic_raises((TypeError,), lambda: eg.TsNetSolver.pure_2hop(g, learning_rate=True))
         self.assert_no_panic_raises((ValueError,), lambda: eg.TsNetSolver.from_graph_row_normalized(g, w2=-0.1))
         self.assert_no_panic_raises((ValueError,), lambda: eg.TsNetSolver.from_graph_row_normalized(g, degree_beta=-0.1))
         rn_beta = eg.TsNetSolver.from_graph_row_normalized(
-            g, w2=0.5, max_2hop_per_node=4, degree_beta=0.35, backend="fft", stage_iterations=(2, 2, 2), seed=42
+            g, w2=0.5, max_2hop_per_node=4, degree_beta=0.35, backend="fit_fft", stage_iterations=(2, 2, 2), seed=42
         )
         l_rn_beta = eg.Layout2d.from_coords(init_coords)
         self.assertEqual(rn_beta.run(l_rn_beta), "completed")
@@ -227,7 +231,7 @@ class TestTsNetAndSgdSolvers(unittest.TestCase):
         init_coords[0] = [1.0, 0.0]
         init_coords -= init_coords.mean(axis=0, keepdims=True)
 
-        knn, _, _ = eg.build_pure_2hop_knn(star)
+        knn = eg.build_pure_2hop_knn(star).knn
         perps = eg.compute_nodewise_2hop_perplexities(star)
         probs = eg.graph_row_normalized_probabilities(star)
 
@@ -250,7 +254,7 @@ class TestTsNetAndSgdSolvers(unittest.TestCase):
 
             def _mk_bfs(jp: bool, cfg: dict[str, Any] = common) -> eg.TsNetSolver:
                 return eg.TsNetSolver.from_graph_partial_bfs(
-                    star, 8, 6.0, jacobi_precondition=jp, **cfg
+                    star, k=8, uniform_perplexity=6.0, jacobi_precondition=jp, **cfg
                 )
 
             def _mk_rn(jp: bool, cfg: dict[str, Any] = common) -> eg.TsNetSolver:
@@ -408,8 +412,8 @@ class TestTsNetAndSgdSolvers(unittest.TestCase):
         # 3. Non-Euclidean manifold stepping across all 3 manifolds & both dtypes
         for kind in ("hyperbolic", "spherical", "torus"):
             for dtype_str, np_dtype in (("float64", np.float64), ("float32", np.float32)):
-                ms_run = eg.SgdSolver.full(g, iterations=10, seed=42, dtype=dtype_str)
-                ms_step = eg.SgdSolver.full(g, iterations=10, seed=42, dtype=dtype_str)
+                ms_run = eg.SgdSolver.full(g, target="manifold2d", iterations=10, seed=42, dtype=dtype_str)
+                ms_step = eg.SgdSolver.full(g, target="manifold2d", iterations=10, seed=42, dtype=dtype_str)
                 ml_run = eg.ManifoldLayout2d.from_coords(kind, (init_coords * 0.25).astype(np_dtype))
                 ml_step = eg.ManifoldLayout2d.from_coords(kind, (init_coords * 0.25).astype(np_dtype))
 

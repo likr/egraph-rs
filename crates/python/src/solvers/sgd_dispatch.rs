@@ -1,26 +1,27 @@
-//! Additional `SgdSolver` dispatch helpers (`from_packed_symmetric`, schedule window/reset, `phase_iterations`).
+//! Additional `SgdSolver` dispatch helpers (`from_packed_symmetric`, schedule window/reset).
 
-use egraph::core::{CoreError, Layout2d, ManifoldLayout2d, SolverStatus};
-use egraph::layout::sgd::PackedSymPair;
-use egraph::layout::{SgdScheduleWindowLayout, SgdSolver};
+use egraph::core::{CoreError, ManifoldKind};
+use egraph::layout::{SgdPairBuffer, SgdSolver};
 use numpy::{PyUntypedArray, PyUntypedArrayMethods};
-use pyo3::exceptions::{PyTypeError, PyValueError};
+use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 
 use crate::array_extract::extract_f64_1d;
+use crate::errors::{
+    core_error_to_py, dimension_mismatch_err, index_out_of_bounds_err, invalid_input_err,
+    unsupported_operation_err,
+};
 use crate::ffi_convert::{
-    ScalarDtype, StrictF64, StrictU64, StrictUsize, core_error_to_py, extract_u32_1d,
-    is_non_sequence_container, solver_status_str,
+    ScalarDtype, StrictF64, StrictU64, StrictUsize, extract_u32_1d, is_non_sequence_container,
+    solver_status_str,
 };
-use crate::layout_buffers::{Layout2dInner, PyLayout2d};
-use crate::manifold::{
-    ExtractedManifold, PyManifoldLayout2d, extract_manifold_for_solver, write_back_manifold,
-};
-use crate::solver_common::{
-    DualIterativeSolver, SolverLayout, extract_solver_layout, vec_f64_to_f32_checked,
-    write_back_solver_layout,
-};
+use crate::manifold::manifold_kind_str;
+use crate::solver_common::vec_f64_to_f32_checked;
 
+use super::layout_dispatch::{
+    DualTargetSolver, SolverTargetKind, TargetLayout, dispatch_riemannian_target,
+    extract_target_layout, match_riemannian_target, write_back_target_layout,
+};
 use super::sgd::PySgdSolver;
 use super::sgd_core::{SgdInner, build_schedule_config};
 
@@ -33,7 +34,7 @@ fn extract_bool_1d(obj: &Bound<'_, PyAny>, name: &str) -> PyResult<Vec<bool>> {
     if let Ok(untyped) = obj.cast::<PyUntypedArray>()
         && untyped.ndim() != 1
     {
-        return Err(PyValueError::new_err(format!(
+        return Err(dimension_mismatch_err(format!(
             "{name} must be a 1D array, got {}D",
             untyped.ndim()
         )));
@@ -52,7 +53,7 @@ fn extract_bool_1d(obj: &Bound<'_, PyAny>, name: &str) -> PyResult<Vec<bool>> {
             } else if v == 1 {
                 out.push(true);
             } else {
-                return Err(PyValueError::new_err(format!(
+                return Err(invalid_input_err(format!(
                     "{name} integer entries must be 0 or 1, got {v}"
                 )));
             }
@@ -74,6 +75,7 @@ pub(super) fn build_from_packed_symmetric(
     dists: &Bound<'_, PyAny>,
     weights: &Bound<'_, PyAny>,
     is_hinge: &Bound<'_, PyAny>,
+    target: SolverTargetKind,
     iterations: StrictUsize,
     eps: StrictF64,
     schedule: &str,
@@ -103,7 +105,7 @@ pub(super) fn build_from_packed_symmetric(
         ("is_hinge", hinge_vec.len()),
     ] {
         if actual != len {
-            return Err(PyValueError::new_err(format!(
+            return Err(dimension_mismatch_err(format!(
                 "{name} length ({actual}) must match src length ({len})"
             )));
         }
@@ -111,61 +113,58 @@ pub(super) fn build_from_packed_symmetric(
     let num_nodes_val = num_nodes.0;
     for (idx, (&u, &v)) in src_u32.iter().zip(tgt_u32.iter()).enumerate() {
         if (u as usize) >= num_nodes_val || (v as usize) >= num_nodes_val {
-            return Err(PyValueError::new_err(format!(
+            return Err(index_out_of_bounds_err(format!(
                 "packed pair ({u}, {v}) at index {idx} out of bounds for num_nodes={num_nodes_val}"
             )));
         }
     }
-    let num_hinges = hinge_vec.iter().filter(|&&h| h).count();
-    let num_springs = len - num_hinges;
 
     let inner = match dtype {
-        ScalarDtype::F64 => py
-            .detach(|| {
-                let mut pairs = Vec::with_capacity(len);
-                for idx in 0..len {
-                    pairs.push(PackedSymPair::new(
-                        src_u32[idx],
-                        tgt_u32[idx],
-                        hinge_vec[idx],
-                        d_f64[idx],
-                        w_f64[idx],
-                    ));
+        ScalarDtype::F64 => {
+            let mut buffer = SgdPairBuffer::<f64>::with_capacity(len);
+            for idx in 0..len {
+                if hinge_vec[idx] {
+                    buffer
+                        .push_hinge(src_u32[idx], tgt_u32[idx], d_f64[idx], w_f64[idx])
+                        .map_err(core_error_to_py)?;
+                } else {
+                    buffer
+                        .push_spring(src_u32[idx], tgt_u32[idx], d_f64[idx], w_f64[idx])
+                        .map_err(core_error_to_py)?;
                 }
-                SgdSolver::<f64>::from_packed_symmetric(
-                    num_nodes_val,
-                    pairs,
-                    num_springs,
-                    num_hinges,
-                    sched,
-                    seed.0,
+            }
+            py.detach(|| {
+                dispatch_riemannian_target!(
+                    @f64
+                    SgdInner,
+                    target,
+                    SgdSolver::from_pair_buffer(num_nodes_val, buffer, sched, seed.0)
                 )
-                .map(SgdInner::F64)
             })
-            .map_err(core_error_to_py)?,
+            .map_err(core_error_to_py)?
+        }
         ScalarDtype::F32 => {
             let d_f32 = vec_f64_to_f32_checked(&d_f64, "dists")?;
             let w_f32 = vec_f64_to_f32_checked(&w_f64, "weights")?;
-            py.detach(|| {
-                let mut pairs = Vec::with_capacity(len);
-                for idx in 0..len {
-                    pairs.push(PackedSymPair::new(
-                        src_u32[idx],
-                        tgt_u32[idx],
-                        hinge_vec[idx],
-                        d_f32[idx],
-                        w_f32[idx],
-                    ));
+            let mut buffer = SgdPairBuffer::<f32>::with_capacity(len);
+            for idx in 0..len {
+                if hinge_vec[idx] {
+                    buffer
+                        .push_hinge(src_u32[idx], tgt_u32[idx], d_f32[idx], w_f32[idx])
+                        .map_err(core_error_to_py)?;
+                } else {
+                    buffer
+                        .push_spring(src_u32[idx], tgt_u32[idx], d_f32[idx], w_f32[idx])
+                        .map_err(core_error_to_py)?;
                 }
-                SgdSolver::<f32>::from_packed_symmetric(
-                    num_nodes_val,
-                    pairs,
-                    num_springs,
-                    num_hinges,
-                    sched,
-                    seed.0,
+            }
+            py.detach(|| {
+                dispatch_riemannian_target!(
+                    @f32
+                    SgdInner,
+                    target,
+                    SgdSolver::from_pair_buffer(num_nodes_val, buffer, sched, seed.0)
                 )
-                .map(SgdInner::F32)
             })
             .map_err(core_error_to_py)?
         }
@@ -189,70 +188,65 @@ pub(super) fn execute_reset_schedule(
         step_scale.0,
         max_mu.map(|v| v.0),
     )?;
-    match inner {
-        SgdInner::F64(s) => s.reset_schedule(sched, seed.0),
-        SgdInner::F32(s) => s.reset_schedule(sched, seed.0),
-    }
-    .map_err(core_error_to_py)
-}
-
-fn run_window_on<S: egraph::core::Scalar, L: SgdScheduleWindowLayout<S> + ?Sized>(
-    solver: &mut SgdSolver<S>,
-    layout: &mut L,
-    start_iter: usize,
-    count: usize,
-) -> egraph::core::CoreResult<SolverStatus> {
-    solver.run_schedule_window(layout, start_iter, count)
+    match_riemannian_target!(SgdInner, inner, s => s.reset_schedule(sched, seed.0))
+        .map_err(core_error_to_py)
 }
 
 pub(super) fn execute_schedule_window(
     inner: &mut SgdInner,
+    locked_manifold: &mut Option<ManifoldKind>,
     py: Python<'_>,
     layout: &Bound<'_, PyAny>,
     start_iter: StrictUsize,
     count: StrictUsize,
 ) -> PyResult<&'static str> {
-    let target_dtype = inner.dtype();
-    if let Ok(l2) = layout.cast::<PyLayout2d>() {
-        let mut soa = extract_solver_layout(l2, target_dtype)?;
-        let status = py
-            .detach(|| match (inner, &mut soa) {
-                (SgdInner::F64(s), SolverLayout::F64(l)) => {
-                    run_window_on::<f64, Layout2d<f64>>(s, l, start_iter.0, count.0)
-                }
-                (SgdInner::F32(s), SolverLayout::F32(l)) => {
-                    run_window_on::<f32, Layout2d<f32>>(s, l, start_iter.0, count.0)
-                }
-                _ => Err(CoreError::invalid_input(
-                    "internal solver layout dtype mismatch",
-                )),
-            })
-            .map_err(core_error_to_py)?;
-        write_back_solver_layout(l2, &soa)?;
-        return Ok(solver_status_str(status));
+    let mut extracted = extract_target_layout(layout, inner.target_kind(), inner.dtype())?;
+    if let (Some(prev), Some(curr)) = (*locked_manifold, extracted.manifold_kind())
+        && prev != curr
+    {
+        return Err(unsupported_operation_err(format!(
+            "manifold solver is locked to '{}', got '{}'",
+            manifold_kind_str(prev),
+            manifold_kind_str(curr)
+        )));
     }
-    if let Ok(lm) = layout.cast::<PyManifoldLayout2d>() {
-        let mut extracted = extract_manifold_for_solver(lm, target_dtype)?;
-        let status = py
-            .detach(|| match (inner, &mut extracted) {
-                (SgdInner::F64(s), ExtractedManifold::F64(m)) => {
-                    run_window_on::<f64, ManifoldLayout2d<f64>>(s, m, start_iter.0, count.0)
-                }
-                (SgdInner::F32(s), ExtractedManifold::F32(m)) => {
-                    run_window_on::<f32, ManifoldLayout2d<f32>>(s, m, start_iter.0, count.0)
-                }
-                _ => Err(CoreError::invalid_input(
-                    "internal solver manifold dtype mismatch",
-                )),
-            })
-            .map_err(core_error_to_py)?;
-        write_back_manifold(lm, extracted)?;
-        return Ok(solver_status_str(status));
+    let kind_opt = extracted.manifold_kind();
+    let status = py
+        .detach(|| match (inner, &mut extracted) {
+            (SgdInner::L2F64(s), TargetLayout::L2F64(l)) => {
+                s.run_schedule_window(l, start_iter.0, count.0)
+            }
+            (SgdInner::L2F32(s), TargetLayout::L2F32(l)) => {
+                s.run_schedule_window(l, start_iter.0, count.0)
+            }
+            (SgdInner::L3F64(s), TargetLayout::L3F64(l)) => {
+                s.run_schedule_window(l, start_iter.0, count.0)
+            }
+            (SgdInner::L3F32(s), TargetLayout::L3F32(l)) => {
+                s.run_schedule_window(l, start_iter.0, count.0)
+            }
+            (SgdInner::NdF64(s), TargetLayout::NdF64(l)) => {
+                s.run_schedule_window(l, start_iter.0, count.0)
+            }
+            (SgdInner::NdF32(s), TargetLayout::NdF32(l)) => {
+                s.run_schedule_window(l, start_iter.0, count.0)
+            }
+            (SgdInner::M2F64(s), TargetLayout::M2F64(l)) => {
+                s.run_schedule_window(l, start_iter.0, count.0)
+            }
+            (SgdInner::M2F32(s), TargetLayout::M2F32(l)) => {
+                s.run_schedule_window(l, start_iter.0, count.0)
+            }
+            _ => Err(CoreError::invalid_input(
+                "internal solver target/dtype mismatch",
+            )),
+        })
+        .map_err(core_error_to_py)?;
+    if locked_manifold.is_none()
+        && let Some(curr) = kind_opt
+    {
+        *locked_manifold = Some(curr);
     }
-    Err(PyTypeError::new_err(
-        "layout must be a Layout2d or ManifoldLayout2d instance",
-    ))
+    write_back_target_layout(layout, extracted)?;
+    Ok(solver_status_str(status))
 }
-
-#[allow(dead_code)]
-fn _check_layout2d_inner(_: &Layout2dInner) {}

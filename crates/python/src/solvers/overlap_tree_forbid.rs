@@ -1,20 +1,20 @@
 //! Tree and SGD-based node overlap removal (`GTreeOverlapRemoval`, `ForbidOverlapRemoval`).
 
-use egraph::layout as egraph_layout;
-use egraph_layout::{
+use egraph::core::NodeExtents2d;
+use egraph::layout::{
     ForbidConfig, ForbidOverlapRemoval, ForbidVariant, GTreeConfig, GTreeOverlapRemoval,
 };
-use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
 use crate::array_extract::extract_f64_1d;
+use crate::errors::{core_error_to_py, unsupported_operation_err};
 use crate::ffi_convert::{
-    ScalarDtype, StrictF64, StrictU64, StrictUsize, core_error_to_py, normalize_enum_key,
-    solver_status_str,
+    ScalarDtype, StrictF64, StrictU64, StrictUsize, normalize_enum_key, solver_status_str,
 };
+use crate::impl_dual_solver;
 use crate::layout_buffers::PyLayout2d;
 use crate::solver_common::{
-    DualIterativeSolver, SolverAction, execute_solver_action, impl_dual_solver,
+    DualIterativeSolver, SolverAction, execute_solver_action, format_optional_usize,
     vec_f64_to_f32_checked,
 };
 
@@ -33,10 +33,6 @@ impl_dual_solver!(GTreeInner, GTreeOverlapRemoval);
 impl_dual_solver!(ForbidInner, ForbidOverlapRemoval);
 
 /// Cooperative Nachmanson et al. (2016) GTree proximity-MST node overlap removal solver.
-///
-/// Supports both `"float64"` and `"float32"` `Layout2d` while releasing the Python GIL.
-/// When `compact_t_max` is provided, it must satisfy `compact_t_max > 1.0` (`None` disables
-/// compact per-step expansion capping; values `<= 1.0` raise `ValueError`).
 #[pyclass(name = "GTreeOverlapRemoval", module = "egraph._core")]
 pub struct PyGTreeOverlapRemoval {
     inner: GTreeInner,
@@ -44,10 +40,6 @@ pub struct PyGTreeOverlapRemoval {
 
 #[pymethods]
 impl PyGTreeOverlapRemoval {
-    /// Create a `GTreeOverlapRemoval` solver from per-node `half_widths` and `half_heights`.
-    ///
-    /// When `compact_t_max` is provided, it must satisfy `compact_t_max > 1.0` (`None` disables
-    /// compact per-step expansion capping). Values `<= 1.0` raise `ValueError`.
     #[new]
     #[allow(clippy::too_many_arguments)]
     #[pyo3(
@@ -73,26 +65,27 @@ impl PyGTreeOverlapRemoval {
         seed: StrictU64,
         dtype: ScalarDtype,
     ) -> PyResult<Self> {
-        let cfg = GTreeConfig {
-            max_iterations: max_iterations.0,
-            padding: padding.0,
-            compact_t_max: compact_t_max.map(|v| v.0),
-            seed: seed.0,
-        };
+        let cfg = GTreeConfig::new()
+            .with_max_iterations(max_iterations.0)
+            .with_padding(padding.0)
+            .with_compact_t_max(compact_t_max.map(|v| v.0))
+            .with_seed(seed.0);
         cfg.validate().map_err(core_error_to_py)?;
         let hw_f64 = extract_f64_1d(half_widths, "half_widths")?;
         let hh_f64 = extract_f64_1d(half_heights, "half_heights")?;
         let inner = match dtype {
             ScalarDtype::F64 => py
                 .detach(|| {
-                    GTreeOverlapRemoval::<f64>::new(hw_f64, hh_f64, cfg).map(GTreeInner::F64)
+                    let ext = NodeExtents2d::new(&hw_f64, &hh_f64)?;
+                    GTreeOverlapRemoval::<f64>::new(ext, cfg).map(GTreeInner::F64)
                 })
                 .map_err(core_error_to_py)?,
             ScalarDtype::F32 => {
                 let hw_f32 = vec_f64_to_f32_checked(&hw_f64, "half_widths")?;
                 let hh_f32 = vec_f64_to_f32_checked(&hh_f64, "half_heights")?;
                 py.detach(|| {
-                    GTreeOverlapRemoval::<f32>::new(hw_f32, hh_f32, cfg).map(GTreeInner::F32)
+                    let ext = NodeExtents2d::new(&hw_f32, &hh_f32)?;
+                    GTreeOverlapRemoval::<f32>::new(ext, cfg).map(GTreeInner::F32)
                 })
                 .map_err(core_error_to_py)?
             }
@@ -100,11 +93,8 @@ impl PyGTreeOverlapRemoval {
         Ok(Self { inner })
     }
 
-    /// Create a `GTreeOverlapRemoval` solver for square/circular nodes with equal half-widths and half-heights.
-    ///
-    /// When `compact_t_max` is provided, it must satisfy `compact_t_max > 1.0` (`None` disables
-    /// compact per-step expansion capping). Values `<= 1.0` raise `ValueError`.
     #[staticmethod]
+    #[allow(clippy::too_many_arguments)]
     #[pyo3(
         signature = (
             radii,
@@ -126,22 +116,21 @@ impl PyGTreeOverlapRemoval {
         seed: StrictU64,
         dtype: ScalarDtype,
     ) -> PyResult<Self> {
-        let cfg = GTreeConfig {
-            max_iterations: max_iterations.0,
-            padding: padding.0,
-            compact_t_max: compact_t_max.map(|v| v.0),
-            seed: seed.0,
-        };
+        let cfg = GTreeConfig::new()
+            .with_max_iterations(max_iterations.0)
+            .with_padding(padding.0)
+            .with_compact_t_max(compact_t_max.map(|v| v.0))
+            .with_seed(seed.0);
         cfg.validate().map_err(core_error_to_py)?;
         let r_f64 = extract_f64_1d(radii, "radii")?;
         let inner = match dtype {
             ScalarDtype::F64 => py
-                .detach(|| GTreeOverlapRemoval::<f64>::from_radii(r_f64, cfg).map(GTreeInner::F64))
+                .detach(|| GTreeOverlapRemoval::<f64>::from_radii(&r_f64, cfg).map(GTreeInner::F64))
                 .map_err(core_error_to_py)?,
             ScalarDtype::F32 => {
                 let r_f32 = vec_f64_to_f32_checked(&r_f64, "radii")?;
                 py.detach(|| {
-                    GTreeOverlapRemoval::<f32>::from_radii(r_f32, cfg).map(GTreeInner::F32)
+                    GTreeOverlapRemoval::<f32>::from_radii(&r_f32, cfg).map(GTreeInner::F32)
                 })
                 .map_err(core_error_to_py)?
             }
@@ -149,13 +138,11 @@ impl PyGTreeOverlapRemoval {
         Ok(Self { inner })
     }
 
-    /// Execute one GTree overlap removal round in place on `layout` while releasing the GIL.
     #[pyo3(signature = (layout), text_signature = "($self, layout)")]
     fn step(&mut self, py: Python<'_>, layout: &Bound<'_, PyLayout2d>) -> PyResult<&'static str> {
         execute_solver_action(&mut self.inner, py, layout, SolverAction::Step)
     }
 
-    /// Execute up to `steps` GTree overlap removal rounds in place on `layout` while releasing the GIL.
     #[pyo3(signature = (layout, steps), text_signature = "($self, layout, steps)")]
     fn run_steps(
         &mut self,
@@ -166,13 +153,11 @@ impl PyGTreeOverlapRemoval {
         execute_solver_action(&mut self.inner, py, layout, SolverAction::RunSteps(steps.0))
     }
 
-    /// Run GTree overlap removal to completion in place on `layout` while releasing the GIL.
     #[pyo3(signature = (layout), text_signature = "($self, layout)")]
     fn run(&mut self, py: Python<'_>, layout: &Bound<'_, PyLayout2d>) -> PyResult<&'static str> {
         execute_solver_action(&mut self.inner, py, layout, SolverAction::Run)
     }
 
-    /// Number of overlapping rectangle pairs remaining after the most recent step.
     #[getter]
     fn last_overlap_count(&self) -> usize {
         match &self.inner {
@@ -181,31 +166,26 @@ impl PyGTreeOverlapRemoval {
         }
     }
 
-    /// Current solver status (`"initialized"`, `"running"`, `"converged"`, or `"completed"`).
     #[getter]
     fn status(&self) -> &'static str {
         solver_status_str(self.inner.solver_status())
     }
 
-    /// Number of GTree rounds executed so far.
     #[getter]
     fn iteration(&self) -> usize {
         self.inner.solver_iteration()
     }
 
-    /// Configured maximum number of GTree rounds.
     #[getter]
-    fn total_iterations(&self) -> usize {
+    fn total_iterations(&self) -> Option<usize> {
         self.inner.solver_total_iterations()
     }
 
-    /// Whether the solver has reached `"converged"` or `"completed"`.
     #[getter]
     fn is_finished(&self) -> bool {
         self.inner.solver_status().is_finished()
     }
 
-    /// Expected number of vertices in `Layout2d`.
     #[getter]
     fn num_nodes(&self) -> usize {
         match &self.inner {
@@ -214,13 +194,11 @@ impl PyGTreeOverlapRemoval {
         }
     }
 
-    /// Solver scalar precision (`"float64"` or `"float32"`).
     #[getter]
     fn dtype(&self) -> &'static str {
         self.inner.dtype().as_str()
     }
 
-    /// Return a concise string representation of the `GTreeOverlapRemoval` solver.
     fn __repr__(&self) -> String {
         format!(
             "GTreeOverlapRemoval(num_nodes={}, last_overlap_count={}, status='{}', iteration={}/{}, dtype='{}')",
@@ -228,16 +206,13 @@ impl PyGTreeOverlapRemoval {
             self.last_overlap_count(),
             self.status(),
             self.iteration(),
-            self.total_iterations(),
+            format_optional_usize(self.total_iterations()),
             self.dtype()
         )
     }
 }
 
 /// Cooperative Giovannangeli et al. (2022) FORBID stochastic gradient descent overlap removal solver.
-///
-/// Supports `"forbid"`, `"forbid_prime"`, and `"sparse_forbid"` variants across both
-/// `"float64"` and `"float32"` `Layout2d` while releasing the Python GIL.
 #[pyclass(name = "ForbidOverlapRemoval", module = "egraph._core")]
 pub struct PyForbidOverlapRemoval {
     inner: ForbidInner,
@@ -245,7 +220,6 @@ pub struct PyForbidOverlapRemoval {
 
 #[pymethods]
 impl PyForbidOverlapRemoval {
-    /// Create a `ForbidOverlapRemoval` solver from per-node `half_widths` and `half_heights`.
     #[new]
     #[allow(clippy::too_many_arguments)]
     #[pyo3(
@@ -279,31 +253,32 @@ impl PyForbidOverlapRemoval {
         seed: StrictU64,
         dtype: ScalarDtype,
     ) -> PyResult<Self> {
-        let parsed_variant = parse_forbid_variant(variant).map_err(PyValueError::new_err)?;
-        let cfg = ForbidConfig {
-            variant: parsed_variant,
-            max_scale_iters: max_scale_iters.0,
-            sgd_iterations: sgd_iterations.0,
-            sparse_k: sparse_k.0,
-            overlap_weight_k: overlap_weight_k.0,
-            scale_step: scale_step.0,
-            padding: padding.0,
-            seed: seed.0,
-        };
+        let parsed_variant = parse_forbid_variant(variant).map_err(unsupported_operation_err)?;
+        let cfg = ForbidConfig::new()
+            .with_variant(parsed_variant)
+            .with_max_scale_iters(max_scale_iters.0)
+            .with_sgd_iterations(sgd_iterations.0)
+            .with_sparse_k(sparse_k.0)
+            .with_overlap_weight_k(overlap_weight_k.0)
+            .with_scale_step(scale_step.0)
+            .with_padding(padding.0)
+            .with_seed(seed.0);
         cfg.validate().map_err(core_error_to_py)?;
         let hw_f64 = extract_f64_1d(half_widths, "half_widths")?;
         let hh_f64 = extract_f64_1d(half_heights, "half_heights")?;
         let inner = match dtype {
             ScalarDtype::F64 => py
                 .detach(|| {
-                    ForbidOverlapRemoval::<f64>::new(hw_f64, hh_f64, cfg).map(ForbidInner::F64)
+                    let ext = NodeExtents2d::new(&hw_f64, &hh_f64)?;
+                    ForbidOverlapRemoval::<f64>::new(ext, cfg).map(ForbidInner::F64)
                 })
                 .map_err(core_error_to_py)?,
             ScalarDtype::F32 => {
                 let hw_f32 = vec_f64_to_f32_checked(&hw_f64, "half_widths")?;
                 let hh_f32 = vec_f64_to_f32_checked(&hh_f64, "half_heights")?;
                 py.detach(|| {
-                    ForbidOverlapRemoval::<f32>::new(hw_f32, hh_f32, cfg).map(ForbidInner::F32)
+                    let ext = NodeExtents2d::new(&hw_f32, &hh_f32)?;
+                    ForbidOverlapRemoval::<f32>::new(ext, cfg).map(ForbidInner::F32)
                 })
                 .map_err(core_error_to_py)?
             }
@@ -311,7 +286,6 @@ impl PyForbidOverlapRemoval {
         Ok(Self { inner })
     }
 
-    /// Create a `ForbidOverlapRemoval` solver for square/circular nodes with equal half-widths and half-heights.
     #[staticmethod]
     #[allow(clippy::too_many_arguments)]
     #[pyo3(
@@ -343,29 +317,28 @@ impl PyForbidOverlapRemoval {
         seed: StrictU64,
         dtype: ScalarDtype,
     ) -> PyResult<Self> {
-        let parsed_variant = parse_forbid_variant(variant).map_err(PyValueError::new_err)?;
-        let cfg = ForbidConfig {
-            variant: parsed_variant,
-            max_scale_iters: max_scale_iters.0,
-            sgd_iterations: sgd_iterations.0,
-            sparse_k: sparse_k.0,
-            overlap_weight_k: overlap_weight_k.0,
-            scale_step: scale_step.0,
-            padding: padding.0,
-            seed: seed.0,
-        };
+        let parsed_variant = parse_forbid_variant(variant).map_err(unsupported_operation_err)?;
+        let cfg = ForbidConfig::new()
+            .with_variant(parsed_variant)
+            .with_max_scale_iters(max_scale_iters.0)
+            .with_sgd_iterations(sgd_iterations.0)
+            .with_sparse_k(sparse_k.0)
+            .with_overlap_weight_k(overlap_weight_k.0)
+            .with_scale_step(scale_step.0)
+            .with_padding(padding.0)
+            .with_seed(seed.0);
         cfg.validate().map_err(core_error_to_py)?;
         let r_f64 = extract_f64_1d(radii, "radii")?;
         let inner = match dtype {
             ScalarDtype::F64 => py
                 .detach(|| {
-                    ForbidOverlapRemoval::<f64>::from_radii(r_f64, cfg).map(ForbidInner::F64)
+                    ForbidOverlapRemoval::<f64>::from_radii(&r_f64, cfg).map(ForbidInner::F64)
                 })
                 .map_err(core_error_to_py)?,
             ScalarDtype::F32 => {
                 let r_f32 = vec_f64_to_f32_checked(&r_f64, "radii")?;
                 py.detach(|| {
-                    ForbidOverlapRemoval::<f32>::from_radii(r_f32, cfg).map(ForbidInner::F32)
+                    ForbidOverlapRemoval::<f32>::from_radii(&r_f32, cfg).map(ForbidInner::F32)
                 })
                 .map_err(core_error_to_py)?
             }
@@ -373,13 +346,11 @@ impl PyForbidOverlapRemoval {
         Ok(Self { inner })
     }
 
-    /// Execute one FORBID binary-search scaling iteration in place on `layout` while releasing the GIL.
     #[pyo3(signature = (layout), text_signature = "($self, layout)")]
     fn step(&mut self, py: Python<'_>, layout: &Bound<'_, PyLayout2d>) -> PyResult<&'static str> {
         execute_solver_action(&mut self.inner, py, layout, SolverAction::Step)
     }
 
-    /// Execute up to `steps` FORBID scaling iterations in place on `layout` while releasing the GIL.
     #[pyo3(signature = (layout, steps), text_signature = "($self, layout, steps)")]
     fn run_steps(
         &mut self,
@@ -390,13 +361,11 @@ impl PyForbidOverlapRemoval {
         execute_solver_action(&mut self.inner, py, layout, SolverAction::RunSteps(steps.0))
     }
 
-    /// Run FORBID overlap removal to completion in place on `layout` while releasing the GIL.
     #[pyo3(signature = (layout), text_signature = "($self, layout)")]
     fn run(&mut self, py: Python<'_>, layout: &Bound<'_, PyLayout2d>) -> PyResult<&'static str> {
         execute_solver_action(&mut self.inner, py, layout, SolverAction::Run)
     }
 
-    /// Number of overlapping rectangle pairs remaining after the most recent step.
     #[getter]
     fn last_overlap_count(&self) -> usize {
         match &self.inner {
@@ -405,31 +374,26 @@ impl PyForbidOverlapRemoval {
         }
     }
 
-    /// Current solver status (`"initialized"`, `"running"`, `"converged"`, or `"completed"`).
     #[getter]
     fn status(&self) -> &'static str {
         solver_status_str(self.inner.solver_status())
     }
 
-    /// Number of FORBID scaling iterations executed so far.
     #[getter]
     fn iteration(&self) -> usize {
         self.inner.solver_iteration()
     }
 
-    /// Configured maximum number of FORBID scaling iterations.
     #[getter]
-    fn total_iterations(&self) -> usize {
+    fn total_iterations(&self) -> Option<usize> {
         self.inner.solver_total_iterations()
     }
 
-    /// Whether the solver has reached `"converged"` or `"completed"`.
     #[getter]
     fn is_finished(&self) -> bool {
         self.inner.solver_status().is_finished()
     }
 
-    /// Expected number of vertices in `Layout2d`.
     #[getter]
     fn num_nodes(&self) -> usize {
         match &self.inner {
@@ -438,13 +402,11 @@ impl PyForbidOverlapRemoval {
         }
     }
 
-    /// Solver scalar precision (`"float64"` or `"float32"`).
     #[getter]
     fn dtype(&self) -> &'static str {
         self.inner.dtype().as_str()
     }
 
-    /// Return a concise string representation of the `ForbidOverlapRemoval` solver.
     fn __repr__(&self) -> String {
         format!(
             "ForbidOverlapRemoval(num_nodes={}, last_overlap_count={}, status='{}', iteration={}/{}, dtype='{}')",
@@ -452,7 +414,7 @@ impl PyForbidOverlapRemoval {
             self.last_overlap_count(),
             self.status(),
             self.iteration(),
-            self.total_iterations(),
+            format_optional_usize(self.total_iterations()),
             self.dtype()
         )
     }

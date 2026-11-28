@@ -1,15 +1,15 @@
 //! Geometric aesthetic, PRISM distortion, and ideal edge-length metric bindings.
 
 use egraph::metrics as egraph_metrics;
-use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
 use crate::array_extract::extract_f64_2d_raw;
 use crate::csr_graph::{PyCsrGraph, extract_flat_edges};
-use crate::ffi_convert::{StrictF64, core_error_to_py};
+use crate::errors::{core_error_to_py, dimension_mismatch_err};
+use crate::ffi_convert::StrictF64;
 use crate::layout_buffers::{Layout2dInner, PyLayout2d, dispatch_layout2d, layout_f32_to_f64};
 
-use super::nd_manifold_helpers::{MetricLayoutInput, dispatch_owned_metric_layout};
+use super::nd_manifold_helpers::{MetricLayoutInput, dispatch_owned_metric};
 
 /// Compute the undirected angle in `[0.0, pi]` radians between 2D vectors `(x1, y1)` and `(x2, y2)`.
 ///
@@ -140,21 +140,10 @@ fn ideal_edge_lengths(
 ) -> PyResult<f64> {
     let owned = layout.extract_owned()?;
     let g = graph.inner();
-    dispatch_owned_metric_layout(
-        py,
-        owned,
-        |l| egraph_metrics::ideal_edge_lengths(&*g, l),
-        |l| egraph_metrics::ideal_edge_lengths(&*g, l),
-        |l| egraph_metrics::ideal_edge_lengths_nd(&*g, l),
-        |l| egraph_metrics::ideal_edge_lengths_nd(&*g, l),
-        |l| egraph_metrics::ideal_edge_lengths_manifold(&*g, l),
-        |l| egraph_metrics::ideal_edge_lengths_manifold(&*g, l),
-    )
+    dispatch_owned_metric!(py, owned, |l| egraph_metrics::ideal_edge_lengths(&*g, l))
 }
 
 /// Evaluate relative squared ideal edge-length error against uniform `unit_edge_length`.
-///
-/// Supports `Layout2d`, `LayoutNd`, and `ManifoldLayout2d`. Releases the Python GIL during computation.
 #[pyfunction]
 #[pyo3(
     signature = (graph, layout, unit_edge_length = StrictF64(1.0)),
@@ -169,21 +158,12 @@ fn ideal_edge_lengths_with_unit(
     let owned = layout.extract_owned()?;
     let g = graph.inner();
     let unit = unit_edge_length.0;
-    dispatch_owned_metric_layout(
-        py,
-        owned,
-        |l| egraph_metrics::ideal_edge_lengths_with_unit(&*g, l, unit),
-        |l| egraph_metrics::ideal_edge_lengths_with_unit(&*g, l, unit),
-        |l| egraph_metrics::ideal_edge_lengths_with_unit_nd(&*g, l, unit),
-        |l| egraph_metrics::ideal_edge_lengths_with_unit_nd(&*g, l, unit),
-        |l| egraph_metrics::ideal_edge_lengths_with_unit_manifold(&*g, l, unit),
-        |l| egraph_metrics::ideal_edge_lengths_with_unit_manifold(&*g, l, unit),
-    )
+    dispatch_owned_metric!(py, owned, |l| {
+        egraph_metrics::ideal_edge_lengths_with_unit(&*g, l, unit)
+    })
 }
 
 /// Evaluate ideal edge-length error scaled by `unit_edge_length` (using `weights * unit_edge_length`).
-///
-/// Supports `Layout2d`, `LayoutNd`, and `ManifoldLayout2d`. Releases the Python GIL during computation.
 #[pyfunction]
 #[pyo3(
     signature = (graph, layout, unit_edge_length = StrictF64(1.0)),
@@ -198,21 +178,12 @@ fn ideal_edge_lengths_scaled(
     let owned = layout.extract_owned()?;
     let g = graph.inner();
     let unit = unit_edge_length.0;
-    dispatch_owned_metric_layout(
-        py,
-        owned,
-        |l| egraph_metrics::ideal_edge_lengths_scaled(&*g, l, unit),
-        |l| egraph_metrics::ideal_edge_lengths_scaled(&*g, l, unit),
-        |l| egraph_metrics::ideal_edge_lengths_scaled_nd(&*g, l, unit),
-        |l| egraph_metrics::ideal_edge_lengths_scaled_nd(&*g, l, unit),
-        |l| egraph_metrics::ideal_edge_lengths_scaled_manifold(&*g, l, unit),
-        |l| egraph_metrics::ideal_edge_lengths_scaled_manifold(&*g, l, unit),
-    )
+    dispatch_owned_metric!(py, owned, |l| {
+        egraph_metrics::ideal_edge_lengths_scaled(&*g, l, unit)
+    })
 }
 
 /// Evaluate relative squared ideal edge-length error using a `(N, N)` target distance matrix.
-///
-/// Supports `Layout2d`, `LayoutNd`, and `ManifoldLayout2d`. Releases the Python GIL during computation.
 #[pyfunction]
 #[pyo3(
     signature = (graph, layout, distances),
@@ -226,22 +197,15 @@ fn ideal_edge_lengths_from_distances(
 ) -> PyResult<f64> {
     let (dists_flat, d_rows, d_cols) = extract_f64_2d_raw(distances, "distances")?;
     if d_rows != d_cols {
-        return Err(PyValueError::new_err(format!(
+        return Err(dimension_mismatch_err(format!(
             "distances must be square (N, N), got ({d_rows}, {d_cols})"
         )));
     }
     let owned = layout.extract_owned()?;
     let g = graph.inner();
-    dispatch_owned_metric_layout(
-        py,
-        owned,
-        |l| egraph_metrics::ideal_edge_lengths_from_distances(&*g, l, &dists_flat),
-        |l| egraph_metrics::ideal_edge_lengths_from_distances(&*g, l, &dists_flat),
-        |l| egraph_metrics::ideal_edge_lengths_from_distances_nd(&*g, l, &dists_flat),
-        |l| egraph_metrics::ideal_edge_lengths_from_distances_nd(&*g, l, &dists_flat),
-        |l| egraph_metrics::ideal_edge_lengths_from_distances_manifold(&*g, l, &dists_flat),
-        |l| egraph_metrics::ideal_edge_lengths_from_distances_manifold(&*g, l, &dists_flat),
-    )
+    dispatch_owned_metric!(py, owned, |l| {
+        egraph_metrics::ideal_edge_lengths_from_distances(&*g, l, &dists_flat)
+    })
 }
 
 pub(super) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {

@@ -172,21 +172,19 @@ fn compute_effective_resistances(
     rel_tol: StrictF64,
     max_iterations: StrictUsize,
 ) -> PyResult<PyEffectiveResistanceResult> {
-    let cfg = EffectiveResistanceConfig {
-        jl_dim: jl_dim.0,
-        seed: seed.0,
-        weights_are_lengths,
-        exact,
-        exact_max_nodes: exact_max_nodes.0,
-        eig_eps: eig_eps.0,
-        amg_config: AmgPcgConfig {
-            rel_tol: rel_tol.0,
-            max_iterations: max_iterations.0,
-            eig_eps: eig_eps.0,
-            seed: seed.0,
-            ..AmgPcgConfig::default()
-        },
-    };
+    let amg_cfg = AmgPcgConfig::new()
+        .with_rel_tol(rel_tol.0)
+        .with_max_iterations(max_iterations.0)
+        .with_eig_eps(eig_eps.0)
+        .with_seed(seed.0);
+    let cfg = EffectiveResistanceConfig::new()
+        .with_jl_dim(jl_dim.0)
+        .with_seed(seed.0)
+        .with_weights_are_lengths(weights_are_lengths)
+        .with_exact(exact)
+        .with_exact_max_nodes(exact_max_nodes.0)
+        .with_eig_eps(eig_eps.0)
+        .with_amg_config(amg_cfg);
     let g = graph.inner();
     let res = py
         .detach(|| linalg_compute_effective_resistances(&*g, &cfg))

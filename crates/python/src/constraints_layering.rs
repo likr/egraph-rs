@@ -1,7 +1,7 @@
 //! Separation constraint, 1D/2D overlap projection, and directed layering bindings.
 
 use egraph::{core as egraph_core, layout as egraph_layout};
-use egraph_core::{CoreError, CoreResult};
+use egraph_core::NodeExtents2d;
 use egraph_layout::{
     ConstraintProjector, LayeringMethod, SeparationConstraint,
     assign_layers as layout_assign_layers, cycle_edges as layout_cycle_edges,
@@ -12,11 +12,12 @@ use egraph_layout::{
 };
 use numpy::ndarray::Array2;
 use numpy::{PyArray1, PyArray2, PyArrayMethods, PyUntypedArray, PyUntypedArrayMethods};
-use pyo3::exceptions::{PyTypeError, PyValueError};
+use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 
-use crate::array_extract::{extract_f64_1d, extract_usize_1d};
+use crate::array_extract::extract_f64_1d;
 use crate::csr_graph::PyCsrGraph;
+use crate::errors::{dimension_mismatch_err, invalid_input_err, non_finite_value_err};
 use crate::ffi_convert::{
     ScalarDtype, StrictF64, StrictUsize, core_error_to_py, extract_u32_1d,
     is_non_sequence_container, normalize_enum_key,
@@ -56,42 +57,39 @@ impl PySeparationConstraint {
     #[pyo3(signature = (left, right, gap), text_signature = "(left, right, gap)")]
     fn new(left: StrictUsize, right: StrictUsize, gap: StrictF64) -> PyResult<Self> {
         let left_u32 = u32::try_from(left.0)
-            .map_err(|_| PyValueError::new_err(format!("left index {} exceeds u32", left.0)))?;
+            .map_err(|_| invalid_input_err(format!("left index {} exceeds u32", left.0)))?;
         let right_u32 = u32::try_from(right.0)
-            .map_err(|_| PyValueError::new_err(format!("right index {} exceeds u32", right.0)))?;
-        if !gap.0.is_finite() {
-            return Err(PyValueError::new_err(
-                "SeparationConstraint gap must be finite",
-            ));
-        }
-        Ok(Self {
-            inner: SeparationConstraint::new(left_u32, right_u32, gap.0),
-        })
+            .map_err(|_| invalid_input_err(format!("right index {} exceeds u32", right.0)))?;
+        let inner =
+            SeparationConstraint::new(left_u32, right_u32, gap.0).map_err(core_error_to_py)?;
+        Ok(Self { inner })
     }
 
     /// Left (preceding) variable index.
     #[getter]
     fn left(&self) -> u32 {
-        self.inner.left
+        self.inner.left()
     }
 
     /// Right (following) variable index.
     #[getter]
     fn right(&self) -> u32 {
-        self.inner.right
+        self.inner.right()
     }
 
     /// Minimum required separation distance `gap`.
     #[getter]
     fn gap(&self) -> f64 {
-        self.inner.gap
+        self.inner.gap()
     }
 
     /// Return a concise string representation of the `SeparationConstraint`.
     fn __repr__(&self) -> String {
         format!(
             "SeparationConstraint(left={}, right={}, gap={})",
-            self.inner.left, self.inner.right, self.inner.gap
+            self.inner.left(),
+            self.inner.right(),
+            self.inner.gap()
         )
     }
 }
@@ -123,19 +121,19 @@ fn constraints_to_f32(
 ) -> PyResult<Vec<SeparationConstraint<f32>>> {
     let mut out = Vec::with_capacity(constraints.len());
     for c in constraints {
-        if !c.gap.is_finite() {
-            return Err(PyValueError::new_err(
+        let gap = c.gap();
+        if !gap.is_finite() {
+            return Err(non_finite_value_err(
                 "non-finite value in SeparationConstraint.gap",
             ));
         }
-        let g32 = c.gap as f32;
+        let g32 = gap as f32;
         if !g32.is_finite() {
-            return Err(PyValueError::new_err(format!(
-                "SeparationConstraint.gap {} overflows float32",
-                c.gap
+            return Err(non_finite_value_err(format!(
+                "SeparationConstraint.gap {gap} overflows float32"
             )));
         }
-        out.push(SeparationConstraint::new(c.left, c.right, g32));
+        out.push(SeparationConstraint::new(c.left(), c.right(), g32).map_err(core_error_to_py)?);
     }
     Ok(out)
 }
@@ -159,7 +157,7 @@ fn project_1d(
         )
     })?;
     if untyped.ndim() != 1 {
-        return Err(PyValueError::new_err(format!(
+        return Err(dimension_mismatch_err(format!(
             "coords must be a 1D array, got {}D",
             untyped.ndim()
         )));
@@ -277,9 +275,9 @@ fn generate_layered_constraints(
     min_layer_distance: StrictF64,
 ) -> PyResult<Vec<PySeparationConstraint>> {
     if !min_layer_distance.0.is_finite() {
-        return Err(PyValueError::new_err("min_layer_distance must be finite"));
+        return Err(non_finite_value_err("min_layer_distance must be finite"));
     }
-    let layers_vec = extract_usize_1d(layers, "layers")?;
+    let layers_vec = extract_u32_1d(layers, "layers")?;
     let g = graph.inner();
     let dist = min_layer_distance.0;
     let raw = py
@@ -314,13 +312,19 @@ fn project_rectangle_no_overlap_2d(
     let mut soa = extract_solver_layout(layout, target_dtype)?;
     match &mut soa {
         SolverLayout::F64(l64) => py
-            .detach(|| layout_project_rectangle_no_overlap_2d(l64, &hw_f64, &hh_f64))
+            .detach(|| {
+                let ext = NodeExtents2d::new(&hw_f64, &hh_f64)?;
+                layout_project_rectangle_no_overlap_2d(l64, ext)
+            })
             .map_err(core_error_to_py)?,
         SolverLayout::F32(l32) => {
             let hw_f32 = vec_f64_to_f32_checked(&hw_f64, "half_widths")?;
             let hh_f32 = vec_f64_to_f32_checked(&hh_f64, "half_heights")?;
-            py.detach(|| layout_project_rectangle_no_overlap_2d(l32, &hw_f32, &hh_f32))
-                .map_err(core_error_to_py)?;
+            py.detach(|| {
+                let ext = NodeExtents2d::new(&hw_f32, &hh_f32)?;
+                layout_project_rectangle_no_overlap_2d(l32, ext)
+            })
+            .map_err(core_error_to_py)?;
         }
     }
     write_back_solver_layout(layout, &soa)
@@ -355,14 +359,16 @@ fn project_clustered_rectangle_no_overlap_2d(
     match &mut soa {
         SolverLayout::F64(l64) => py
             .detach(|| {
-                layout_project_clustered_rectangle_no_overlap_2d(l64, &cids, &hw_f64, &hh_f64)
+                let ext = NodeExtents2d::new(&hw_f64, &hh_f64)?;
+                layout_project_clustered_rectangle_no_overlap_2d(l64, &cids, ext)
             })
             .map_err(core_error_to_py)?,
         SolverLayout::F32(l32) => {
             let hw_f32 = vec_f64_to_f32_checked(&hw_f64, "half_widths")?;
             let hh_f32 = vec_f64_to_f32_checked(&hh_f64, "half_heights")?;
             py.detach(|| {
-                layout_project_clustered_rectangle_no_overlap_2d(l32, &cids, &hw_f32, &hh_f32)
+                let ext = NodeExtents2d::new(&hw_f32, &hh_f32)?;
+                layout_project_clustered_rectangle_no_overlap_2d(l32, &cids, ext)
             })
             .map_err(core_error_to_py)?;
         }
@@ -386,8 +392,7 @@ fn cycle_edges<'py>(py: Python<'py>, graph: &PyCsrGraph) -> PyResult<Bound<'py, 
         flat.push(u);
         flat.push(v);
     }
-    let arr =
-        Array2::from_shape_vec((m, 2), flat).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let arr = Array2::from_shape_vec((m, 2), flat).map_err(|e| invalid_input_err(e.to_string()))?;
     Ok(PyArray2::from_owned_array(py, arr))
 }
 
@@ -401,7 +406,7 @@ fn remove_cycles(py: Python<'_>, graph: &PyCsrGraph) -> PyResult<PyCsrGraph> {
     let dag = py
         .detach(|| layout_remove_cycles(&*g))
         .map_err(core_error_to_py)?;
-    Ok(PyCsrGraph::from_csr_graph(dag))
+    PyCsrGraph::from_unit_csr_graph(dag).map_err(core_error_to_py)
 }
 
 /// Assign hierarchical layer indices (`0, 1, ...`) to all vertices of a directed `CsrGraph`.
@@ -418,19 +423,12 @@ fn assign_layers<'py>(
     graph: &PyCsrGraph,
     method: &str,
 ) -> PyResult<Bound<'py, PyArray1<u32>>> {
-    let parsed_method = parse_layering_method(method).map_err(PyValueError::new_err)?;
+    let parsed_method = parse_layering_method(method).map_err(invalid_input_err)?;
     let g = graph.inner();
     let layers = py
         .detach(|| layout_assign_layers(&*g, parsed_method))
         .map_err(core_error_to_py)?;
-    let layers_u32: Vec<u32> = layers
-        .into_iter()
-        .map(|l| {
-            u32::try_from(l).map_err(|_| CoreError::invalid_input("layer index exceeds u32::MAX"))
-        })
-        .collect::<CoreResult<Vec<u32>>>()
-        .map_err(core_error_to_py)?;
-    Ok(PyArray1::from_vec(py, layers_u32))
+    Ok(PyArray1::from_vec(py, layers))
 }
 
 /// Register separation constraint, overlap projection, and layering bindings on `egraph._core`.

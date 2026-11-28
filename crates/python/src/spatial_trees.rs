@@ -3,10 +3,10 @@
 use egraph::spatial::ArenaOctree3d;
 use numpy::PyArray2;
 use numpy::ndarray::Array2;
-use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
 use crate::array_extract::{extract_f64_1d, extract_f64_2d_raw};
+use crate::errors::{dimension_mismatch_err, invalid_input_err};
 use crate::ffi_convert::{ScalarDtype, StrictF64, core_error_to_py, extract_optional_weights_1d};
 use crate::layout_nd::{LayoutNdInner, PyLayoutNd};
 
@@ -36,13 +36,13 @@ fn octree_to_py_array<'py>(
     match dtype {
         ScalarDtype::F64 => {
             let arr = Array2::from_shape_vec((n, 3), flat)
-                .map_err(|e| PyValueError::new_err(e.to_string()))?;
+                .map_err(|e| invalid_input_err(e.to_string()))?;
             Ok(PyArray2::from_owned_array(py, arr).into_any())
         }
         ScalarDtype::F32 => {
             let flat32: Vec<f32> = flat.into_iter().map(|v| v as f32).collect();
             let arr = Array2::from_shape_vec((n, 3), flat32)
-                .map_err(|e| PyValueError::new_err(e.to_string()))?;
+                .map_err(|e| invalid_input_err(e.to_string()))?;
             Ok(PyArray2::from_owned_array(py, arr).into_any())
         }
     }
@@ -160,7 +160,7 @@ impl PyArenaOctree3d {
             OctreeBuildInput::Coords(obj) => {
                 let (flat, nrows, ncols) = extract_f64_2d_raw(&obj, "coords")?;
                 if ncols != 3 {
-                    return Err(PyValueError::new_err(format!(
+                    return Err(dimension_mismatch_err(format!(
                         "ArenaOctree3d.build requires shape (N, 3), got ({nrows}, {ncols})"
                     )));
                 }
@@ -219,8 +219,8 @@ impl PyArenaOctree3d {
 
     /// Compute weighted Barnes-Hut Coulomb repulsive forces of shape `(N, 3)`.
     #[pyo3(
-        signature = (theta = StrictF64(0.5), eps_sq = StrictF64(1e-6)),
-        text_signature = "($self, theta=0.5, eps_sq=1e-6)"
+        signature = (*, theta = StrictF64(0.5), eps_sq = StrictF64(1e-6)),
+        text_signature = "($self, *, theta=0.5, eps_sq=1e-6)"
     )]
     fn compute_coulomb_repulsion<'py>(
         &self,
@@ -248,8 +248,8 @@ impl PyArenaOctree3d {
 
     /// Compute weighted Barnes-Hut generalized MaxEnt `q`-power repulsion forces of shape `(N, 3)`.
     #[pyo3(
-        signature = (q, theta = StrictF64(0.5), eps_sq = StrictF64(1e-6)),
-        text_signature = "($self, q, theta=0.5, eps_sq=1e-6)"
+        signature = (q, *, theta = StrictF64(0.5), eps_sq = StrictF64(1e-6)),
+        text_signature = "($self, q, *, theta=0.5, eps_sq=1e-6)"
     )]
     fn compute_maxent_repulsion<'py>(
         &self,
@@ -282,7 +282,7 @@ impl PyArenaOctree3d {
     }
 
     /// Compute normalized Barnes-Hut KL repulsive forces `(forces (N, 3), total_z)`.
-    #[pyo3(signature = (theta = StrictF64(0.5)), text_signature = "($self, theta=0.5)")]
+    #[pyo3(signature = (*, theta = StrictF64(0.5)), text_signature = "($self, *, theta=0.5)")]
     fn compute_kl_repulsion<'py>(
         &self,
         py: Python<'py>,
@@ -313,8 +313,8 @@ impl PyArenaOctree3d {
 
     /// Compute Barnes-Hut entropy repulsive forces of shape `(N, 3)`.
     #[pyo3(
-        signature = (theta = StrictF64(0.5), epsilon_r = StrictF64(0.05)),
-        text_signature = "($self, theta=0.5, epsilon_r=0.05)"
+        signature = (*, theta = StrictF64(0.5), epsilon_r = StrictF64(0.05)),
+        text_signature = "($self, *, theta=0.5, epsilon_r=0.05)"
     )]
     fn compute_entropy_repulsion<'py>(
         &self,

@@ -2,9 +2,11 @@
 
 use numpy::ndarray::{ArrayView1, ArrayView2};
 use numpy::{PyReadonlyArray1, PyReadonlyArray2, PyUntypedArray, PyUntypedArrayMethods};
-use pyo3::exceptions::{PyTypeError, PyValueError};
+use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::PyBool;
+
+use crate::errors::{dimension_mismatch_err, invalid_input_err, non_finite_value_err};
 
 use crate::ffi_convert::{
     extract_non_negative_usize, extract_optional_weights_1d, is_non_sequence_container,
@@ -25,7 +27,7 @@ where
 pub(crate) fn extract_usize_1d(obj: &Bound<'_, PyAny>, name: &str) -> PyResult<Vec<usize>> {
     if let Ok(untyped) = obj.cast::<PyUntypedArray>() {
         if untyped.ndim() != 1 {
-            return Err(PyValueError::new_err(format!(
+            return Err(dimension_mismatch_err(format!(
                 "{name} must be a 1D array, got {}D",
                 untyped.ndim()
             )));
@@ -39,14 +41,14 @@ pub(crate) fn extract_usize_1d(obj: &Bound<'_, PyAny>, name: &str) -> PyResult<V
         if let Ok(arr) = obj.extract::<PyReadonlyArray1<'_, u64>>() {
             return convert_int_slice_to_usize(arr.as_array(), |v| {
                 usize::try_from(v).map_err(|_| {
-                    PyValueError::new_err(format!("{name} entry {v} out of range for usize"))
+                    invalid_input_err(format!("{name} entry {v} out of range for usize"))
                 })
             });
         }
         if let Ok(arr) = obj.extract::<PyReadonlyArray1<'_, i64>>() {
             return convert_int_slice_to_usize(arr.as_array(), |v| {
                 usize::try_from(v).map_err(|_| {
-                    PyValueError::new_err(format!("{name} entry {v} out of range for usize"))
+                    invalid_input_err(format!("{name} entry {v} out of range for usize"))
                 })
             });
         }
@@ -56,14 +58,14 @@ pub(crate) fn extract_usize_1d(obj: &Bound<'_, PyAny>, name: &str) -> PyResult<V
         if let Ok(arr) = obj.extract::<PyReadonlyArray1<'_, i32>>() {
             return convert_int_slice_to_usize(arr.as_array(), |v| {
                 usize::try_from(v).map_err(|_| {
-                    PyValueError::new_err(format!("{name} entry {v} out of range for usize"))
+                    invalid_input_err(format!("{name} entry {v} out of range for usize"))
                 })
             });
         }
         if let Ok(arr) = obj.extract::<PyReadonlyArray1<'_, isize>>() {
             return convert_int_slice_to_usize(arr.as_array(), |v| {
                 usize::try_from(v).map_err(|_| {
-                    PyValueError::new_err(format!("{name} entry {v} out of range for usize"))
+                    invalid_input_err(format!("{name} entry {v} out of range for usize"))
                 })
             });
         }
@@ -76,14 +78,14 @@ pub(crate) fn extract_usize_1d(obj: &Bound<'_, PyAny>, name: &str) -> PyResult<V
         if let Ok(arr) = obj.extract::<PyReadonlyArray1<'_, i16>>() {
             return convert_int_slice_to_usize(arr.as_array(), |v| {
                 usize::try_from(v).map_err(|_| {
-                    PyValueError::new_err(format!("{name} entry {v} out of range for usize"))
+                    invalid_input_err(format!("{name} entry {v} out of range for usize"))
                 })
             });
         }
         if let Ok(arr) = obj.extract::<PyReadonlyArray1<'_, i8>>() {
             return convert_int_slice_to_usize(arr.as_array(), |v| {
                 usize::try_from(v).map_err(|_| {
-                    PyValueError::new_err(format!("{name} entry {v} out of range for usize"))
+                    invalid_input_err(format!("{name} entry {v} out of range for usize"))
                 })
             });
         }
@@ -145,12 +147,12 @@ pub(crate) fn extract_perplexities(obj: &Bound<'_, PyAny>, num_nodes: usize) -> 
                 PyTypeError::new_err("perplexities must be a 1D numeric array or scalar float")
             })?;
             if !scalar.is_finite() {
-                return Err(PyValueError::new_err(
+                return Err(non_finite_value_err(
                     "non-finite floating-point value in perplexities",
                 ));
             }
             if scalar <= 0.0 {
-                return Err(PyValueError::new_err(format!(
+                return Err(invalid_input_err(format!(
                     "perplexities must be > 0, got {scalar}"
                 )));
             }
@@ -160,12 +162,12 @@ pub(crate) fn extract_perplexities(obj: &Bound<'_, PyAny>, num_nodes: usize) -> 
     }
     if let Ok(scalar) = obj.extract::<f64>() {
         if !scalar.is_finite() {
-            return Err(PyValueError::new_err(
+            return Err(non_finite_value_err(
                 "non-finite floating-point value in perplexities",
             ));
         }
         if scalar <= 0.0 {
-            return Err(PyValueError::new_err(format!(
+            return Err(invalid_input_err(format!(
                 "perplexities must be > 0, got {scalar}"
             )));
         }
@@ -190,7 +192,7 @@ where
         for &val in row.iter() {
             let f = to_f64(val);
             if !f.is_finite() {
-                return Err(PyValueError::new_err(format!(
+                return Err(non_finite_value_err(format!(
                     "{name} contains non-finite value at row {r_idx}"
                 )));
             }
@@ -206,7 +208,7 @@ fn extract_numeric_ndarray_2d(
     name: &str,
 ) -> PyResult<(Vec<f64>, usize, usize)> {
     if untyped.ndim() != 2 {
-        return Err(PyValueError::new_err(format!(
+        return Err(dimension_mismatch_err(format!(
             "{name} must be a 2D numeric array, got {}D",
             untyped.ndim()
         )));
@@ -295,7 +297,7 @@ pub(crate) fn extract_f64_2d(
                 .extract::<f64>()
                 .map_err(|_| PyTypeError::new_err(format!("{name} entries must be numeric")))?;
             if !val.is_finite() {
-                return Err(PyValueError::new_err(format!(
+                return Err(non_finite_value_err(format!(
                     "{name} contains non-finite value at row {nrows}"
                 )));
             }
@@ -305,7 +307,7 @@ pub(crate) fn extract_f64_2d(
         match ncols {
             None => ncols = Some(row_len),
             Some(expected) if row_len != expected => {
-                return Err(PyValueError::new_err(format!(
+                return Err(dimension_mismatch_err(format!(
                     "{name} has ragged row {nrows}: expected {expected} columns, got {row_len}"
                 )));
             }
@@ -342,7 +344,7 @@ pub(crate) fn extract_f64_2d_raw(
 ) -> PyResult<(Vec<f64>, usize, usize)> {
     if let Ok(untyped) = obj.cast::<PyUntypedArray>() {
         if untyped.ndim() != 2 {
-            return Err(PyValueError::new_err(format!(
+            return Err(dimension_mismatch_err(format!(
                 "{name} must be a 2D numeric array, got {}D",
                 untyped.ndim()
             )));
@@ -410,7 +412,7 @@ pub(crate) fn extract_f64_2d_raw(
         match ncols {
             None => ncols = Some(row_len),
             Some(expected) if row_len != expected => {
-                return Err(PyValueError::new_err(format!(
+                return Err(dimension_mismatch_err(format!(
                     "{name} has ragged row {nrows}: expected {expected} columns, got {row_len}"
                 )));
             }
@@ -432,7 +434,7 @@ pub(crate) fn extract_f64_1d_or_2d(
                 let vec = extract_f64_1d(obj, name)?;
                 for (idx, &val) in vec.iter().enumerate() {
                     if !val.is_finite() {
-                        return Err(PyValueError::new_err(format!(
+                        return Err(non_finite_value_err(format!(
                             "{name} contains non-finite value at index {idx}"
                         )));
                     }
@@ -444,7 +446,7 @@ pub(crate) fn extract_f64_1d_or_2d(
                 let (flat, nrows, ncols) = extract_numeric_ndarray_2d(obj, untyped, name)?;
                 Ok((flat, nrows, ncols, true))
             }
-            other => Err(PyValueError::new_err(format!(
+            other => Err(dimension_mismatch_err(format!(
                 "{name} must be a 1D (N,) or 2D (N, C) array, got {other}D"
             ))),
         };
@@ -483,7 +485,7 @@ pub(crate) fn extract_f64_1d_or_2d(
             .extract::<f64>()
             .map_err(|_| PyTypeError::new_err(format!("{name} entries must be numeric")))?;
         if !val.is_finite() {
-            return Err(PyValueError::new_err(format!(
+            return Err(non_finite_value_err(format!(
                 "{name} contains non-finite value at index {idx}"
             )));
         }

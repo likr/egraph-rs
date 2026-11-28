@@ -1,17 +1,18 @@
 from __future__ import annotations
 
-from typing import Any, Sequence, final
+from typing import Sequence, final
 
 import numpy as np
 import numpy.typing as npt
 
 from ._core_core import CsrGraph
-from ._core_linalg import CsrMatrix
+from ._core_linalg import CsrMatrix, SpectralMomentStats
 from ._core_types import _IndexArrayLike, _VectorArrayLike, _WeightArrayLike
 
 __all__ = [
     "ChebyshevDogKernel",
     "DijkstraWorkspace",
+    "SpectralFilterProjection",
     "adaptive_chebyshev_degree",
     "adaptive_chebyshev_degree_scaled",
     "all_pairs_dijkstra",
@@ -25,6 +26,20 @@ __all__ = [
     "dijkstra_single_source",
     "project_psd_spectral_filter",
 ]
+
+@final
+class SpectralFilterProjection:
+    @property
+    def terms(self) -> list[tuple[float, float]]: ...
+    @property
+    def delta_psd(self) -> float: ...
+    @property
+    def h_min(self) -> float: ...
+    def to_dict(self) -> dict[str, object]: ...
+    def keys(self) -> list[str]: ...
+    def __getitem__(self, key: str, /) -> object: ...
+    def __contains__(self, key: object, /) -> bool: ...
+    def __repr__(self) -> str: ...
 
 @final
 class ChebyshevDogKernel:
@@ -85,10 +100,11 @@ class ChebyshevDogKernel:
     def landmark_kernel_matrix(self) -> npt.NDArray[np.float64]: ...
     def diag_estimate(self) -> npt.NDArray[np.float64]: ...
     def jl_embedding(self) -> npt.NDArray[np.float64]: ...
-    def moment_stats(self) -> dict[str, float]: ...
+    def moment_stats(self) -> SpectralMomentStats: ...
     def terms_psd(self) -> list[tuple[float, float]]: ...
     def varadhan_landmark_table(
         self,
+        *,
         p_exp: float = 0.5,
         degree_normalize: bool = True,
         eps_sim: float = 1e-6,
@@ -114,31 +130,33 @@ def dijkstra_single_source(
 def all_pairs_dijkstra(graph: CsrGraph) -> npt.NDArray[np.float64]: ...
 
 def build_dog_terms(
-    t1: float, t2: float, alpha: float, beta_floor: float = 0.0
+    t1: float, t2: float, alpha: float, *, beta_floor: float = 0.0
 ) -> list[tuple[float, float]]: ...
 
 def build_regularized_dog_terms(
-    sigma_lambda: float, beta_floor: float = 0.0
+    sigma_lambda: float, *, beta_floor: float = 0.0
 ) -> list[tuple[float, float]]: ...
 
 def adaptive_chebyshev_degree(max_t: float) -> int: ...
 
 def adaptive_chebyshev_degree_scaled(
-    max_t: float, lambda_max: float = 2.0
+    max_t: float, *, lambda_max: float = 2.0
 ) -> int: ...
 
 def compute_chebyshev_bandpass_coefficients(
     terms: Sequence[tuple[float, float]],
+    *,
     lambda_max: float = 2.0,
     degree: int = 40,
 ) -> npt.NDArray[np.float64]: ...
 
 def project_psd_spectral_filter(
     terms: Sequence[tuple[float, float]],
+    *,
     lambda_max: float = 2.0,
     degree: int = 40,
     eps_psd: float = 1e-4,
-) -> tuple[list[tuple[float, float]], float, float]: ...
+) -> SpectralFilterProjection: ...
 
 def chebyshev_dog_jl_embedding(
     graph: CsrGraph,

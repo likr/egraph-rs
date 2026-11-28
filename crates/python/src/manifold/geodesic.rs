@@ -15,10 +15,10 @@ use egraph_core::{
 use egraph_ffi::InterleavedLayout2d;
 use numpy::PyArray2;
 use numpy::ndarray::Array2;
-use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
 use crate::array_extract::extract_f64_1d;
+use crate::errors::{invalid_input_err, non_finite_value_err};
 use crate::ffi_convert::{ScalarDtype, StrictF64, core_error_to_py, normalize_enum_key};
 use crate::solver_common::{layout_f32_to_f64_checked, layout_f64_to_f32_checked};
 
@@ -36,7 +36,7 @@ pub(super) fn parse_manifold_kind(raw: &str) -> Result<ManifoldKind, String> {
     }
 }
 
-pub(super) fn manifold_kind_str(kind: ManifoldKind) -> &'static str {
+pub(crate) fn manifold_kind_str(kind: ManifoldKind) -> &'static str {
     match kind {
         ManifoldKind::HyperbolicPoincare => "hyperbolic",
         ManifoldKind::HyperbolicLorentz => "hyperbolic_lorentz",
@@ -64,7 +64,7 @@ pub(super) fn inner_from_core_f32(m: ManifoldLayout2d<f32>) -> ManifoldLayout2dI
 
 pub(crate) fn build_core_f64(
     kind: ManifoldKind,
-    metric: ManifoldMetric,
+    metric: &ManifoldMetric,
     buf: &InterleavedLayout2d<f64>,
 ) -> CoreResult<ManifoldLayout2d<f64>> {
     let mut m = ManifoldLayout2d::from_layout(kind, buf.to_layout2d())?;
@@ -75,7 +75,7 @@ pub(crate) fn build_core_f64(
 
 pub(crate) fn build_core_f32(
     kind: ManifoldKind,
-    metric: ManifoldMetric,
+    metric: &ManifoldMetric,
     buf: &InterleavedLayout2d<f32>,
 ) -> CoreResult<ManifoldLayout2d<f32>> {
     let mut m = ManifoldLayout2d::from_layout(kind, buf.to_layout2d())?;
@@ -94,12 +94,12 @@ pub(super) fn manifold_coords_array<'py>(
         return match borrowed.inner() {
             ManifoldLayout2dInner::F64 { buf, .. } => {
                 let arr = Array2::from_shape_vec((buf.len(), 2), buf.as_slice().to_vec())
-                    .map_err(|e| PyValueError::new_err(e.to_string()))?;
+                    .map_err(|e| invalid_input_err(e.to_string()))?;
                 Ok(PyArray2::from_owned_array(py, arr).into_any())
             }
             ManifoldLayout2dInner::F32 { buf, .. } => {
                 let arr = Array2::from_shape_vec((buf.len(), 2), buf.as_slice().to_vec())
-                    .map_err(|e| PyValueError::new_err(e.to_string()))?;
+                    .map_err(|e| invalid_input_err(e.to_string()))?;
                 Ok(PyArray2::from_owned_array(py, arr).into_any())
             }
         };
@@ -111,7 +111,7 @@ pub(super) fn manifold_coords_array<'py>(
         ManifoldLayout2dInner::F64 { buf, .. } => {
             let n = buf.len();
             let view = numpy::ndarray::ArrayViewMut2::from_shape((n, 2), buf.as_mut_slice())
-                .map_err(|e| PyValueError::new_err(e.to_string()))?;
+                .map_err(|e| invalid_input_err(e.to_string()))?;
             // SAFETY: `container` is `slf` (`PyManifoldLayout2d`), registered as the NumPy
             // array's `base` object so `buf` outlives any view and never reallocates.
             Ok(unsafe { PyArray2::borrow_from_array(&view, container) }.into_any())
@@ -119,7 +119,7 @@ pub(super) fn manifold_coords_array<'py>(
         ManifoldLayout2dInner::F32 { buf, .. } => {
             let n = buf.len();
             let view = numpy::ndarray::ArrayViewMut2::from_shape((n, 2), buf.as_mut_slice())
-                .map_err(|e| PyValueError::new_err(e.to_string()))?;
+                .map_err(|e| invalid_input_err(e.to_string()))?;
             // SAFETY: `container` is `slf` (`PyManifoldLayout2d`), registered as the NumPy
             // array's `base` object so `buf` outlives any view and never reallocates.
             Ok(unsafe { PyArray2::borrow_from_array(&view, container) }.into_any())
@@ -130,7 +130,7 @@ pub(super) fn manifold_coords_array<'py>(
 pub(super) fn checked_f64_to_f32(val: f64, ctx: &str) -> PyResult<f32> {
     let f = val as f32;
     if val.is_finite() && !f.is_finite() {
-        return Err(PyValueError::new_err(format!(
+        return Err(non_finite_value_err(format!(
             "{ctx}={val} overflows float32"
         )));
     }
@@ -150,11 +150,11 @@ pub(crate) fn extract_manifold_for_solver(
     let borrowed = layout.try_borrow()?;
     match (borrowed.inner(), target_dtype) {
         (ManifoldLayout2dInner::F64 { kind, metric, buf }, ScalarDtype::F64) => {
-            let m = build_core_f64(*kind, *metric, buf).map_err(core_error_to_py)?;
+            let m = build_core_f64(*kind, metric, buf).map_err(core_error_to_py)?;
             Ok(ExtractedManifold::F64(m))
         }
         (ManifoldLayout2dInner::F32 { kind, metric, buf }, ScalarDtype::F32) => {
-            let m = build_core_f32(*kind, *metric, buf).map_err(core_error_to_py)?;
+            let m = build_core_f32(*kind, metric, buf).map_err(core_error_to_py)?;
             Ok(ExtractedManifold::F32(m))
         }
         (ManifoldLayout2dInner::F32 { kind, metric, buf }, ScalarDtype::F64) => {

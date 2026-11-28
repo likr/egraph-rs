@@ -4,11 +4,11 @@ use egraph::core::{CoreError, CoreResult};
 use egraph::spatial::{Delaunay2d, RectangleOverlapSweep};
 use numpy::PyArray2;
 use numpy::ndarray::Array2;
-use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
 use crate::array_extract::extract_f64_1d;
 use crate::csr_graph::PyCsrGraph;
+use crate::errors::{index_out_of_bounds_err, invalid_input_err};
 use crate::ffi_convert::core_error_to_py;
 use crate::layout_buffers::{Layout2dInner, PyLayout2d, dispatch_layout2d};
 
@@ -48,9 +48,9 @@ fn delaunay_triangulation<'py>(
         .map_err(core_error_to_py)?;
 
     let edges_arr = Array2::from_shape_vec((e_len, 2), flat_edges)
-        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        .map_err(|e| invalid_input_err(e.to_string()))?;
     let tris_arr = Array2::from_shape_vec((t_len, 3), flat_tris)
-        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        .map_err(|e| invalid_input_err(e.to_string()))?;
     Ok((
         PyArray2::from_owned_array(py, edges_arr),
         PyArray2::from_owned_array(py, tris_arr),
@@ -104,14 +104,14 @@ fn rectangle_overlaps<'py>(
     let mut flat = Vec::with_capacity(pairs.len() * 2);
     for (i, j) in &pairs {
         let iu = u32::try_from(*i)
-            .map_err(|_| PyValueError::new_err(format!("rectangle index {i} exceeds u32")))?;
+            .map_err(|_| index_out_of_bounds_err(format!("rectangle index {i} exceeds u32")))?;
         let ju = u32::try_from(*j)
-            .map_err(|_| PyValueError::new_err(format!("rectangle index {j} exceeds u32")))?;
+            .map_err(|_| index_out_of_bounds_err(format!("rectangle index {j} exceeds u32")))?;
         flat.push(iu);
         flat.push(ju);
     }
     let arr = Array2::from_shape_vec((pairs.len(), 2), flat)
-        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        .map_err(|e| invalid_input_err(e.to_string()))?;
     Ok(PyArray2::from_owned_array(py, arr))
 }
 

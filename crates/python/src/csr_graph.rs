@@ -33,6 +33,17 @@ impl PyCsrGraph {
             inner: CsrGraphInner::F64(inner),
         }
     }
+
+    pub(crate) fn from_unit_csr_graph(inner: CsrGraph<()>) -> egraph::core::CoreResult<Self> {
+        let converted = CsrGraph::<f64>::from_csr(
+            inner.indptr(),
+            inner.indices(),
+            None,
+            inner.is_directed(),
+            false,
+        )?;
+        Ok(Self::from_csr_graph(converted))
+    }
 }
 
 #[pymethods]

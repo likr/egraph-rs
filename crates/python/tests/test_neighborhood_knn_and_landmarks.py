@@ -100,7 +100,11 @@ class TestNeighborhoodKnnAndLandmarks(unittest.TestCase):
             hop2.indices()[hop2.indptr()[0] : hop2.indptr()[1]], np.array([9], dtype=np.uint32)
         )
 
-        knn2, k2_deg, stats2 = eg.build_pure_2hop_knn(g)
+        res2 = eg.build_pure_2hop_knn(g)
+        knn2 = res2.knn
+        k2_deg = res2.k2_deg
+        assert k2_deg is not None
+        stats2 = res2.stats
         sizes = eg.compute_2hop_neighborhood_sizes(g)
         self.assertEqual(k2_deg.dtype, np.uint32)
         self.assertEqual(sizes.dtype, np.uint32)
@@ -146,7 +150,9 @@ class TestNeighborhoodKnnAndLandmarks(unittest.TestCase):
 
         # Capped 1+2-hop k-NN constructor & 1+2-hop degree-decayed row-normalized probabilities
         g_star = eg.CsrGraph.from_edges(50, [(0, i) for i in range(1, 50)], directed=False, sanitize=True)
-        cknn, ck2, cstats = eg.build_capped_12hop_knn(g_star, max_2hop_per_node=4, seed=42)
+        cres = eg.build_capped_12hop_knn(g_star, max_2hop_per_node=4, seed=42)
+        cknn, ck2, cstats = cres.knn, cres.k2_deg, cres.stats
+        assert ck2 is not None
         self.assertEqual(len(ck2), 50)
         self.assertEqual(cstats["n_1hop"], 98)
         self.assertLessEqual(cstats["n_2hop"], 2 * 50 * 4)
@@ -185,9 +191,10 @@ class TestNeighborhoodKnnAndLandmarks(unittest.TestCase):
         coords = eg.chebyshev_dog_jl_embedding(g, jl_dim=14, seed=42)
         perps = np.full(13, 3.0, dtype=np.float64)
         perps[0] = 1.0  # target k=3 < hub's 9 1+2-hop neighbors -> must NOT truncate!
-        h_knn, h_stats = eg.build_hybrid_adaptive_knn(
+        h_res = eg.build_hybrid_adaptive_knn(
             g, coords, perps, k_factor=3.0, margin_gap=0.15, coarse_dim=10, rerank_factor=4
         )
+        h_knn, h_stats = h_res.knn, h_res.stats
         self.assertEqual(h_stats["n_truncated_1hop"], 0)
         self.assertEqual(h_stats["n_truncated_2hop"], 0)
         h_indptr = h_knn.indptr()
@@ -203,7 +210,7 @@ class TestNeighborhoodKnnAndLandmarks(unittest.TestCase):
                 self.assertLess(float(np.max(row_d[:deg12])), float(np.min(row_d[deg12:])))
 
         # Scalar broadcast perplexity in build_hybrid_adaptive_knn and k override / max_row_k
-        h_knn_ov, _ = eg.build_hybrid_adaptive_knn(g, coords, 3.0, k=4, max_row_k=6)
+        h_knn_ov = eg.build_hybrid_adaptive_knn(g, coords, 3.0, k=4, max_row_k=6).knn
         for i in range(13):
             row_len = int(h_knn_ov.indptr()[i + 1] - h_knn_ov.indptr()[i])
             self.assertLessEqual(row_len, 6)
@@ -211,8 +218,8 @@ class TestNeighborhoodKnnAndLandmarks(unittest.TestCase):
         # Layout2d and LayoutNd inputs accepted directly by build_hybrid_adaptive_knn and build_rerank_knn
         coords_2d = eg.Layout2d.from_coords(coords[:, :2])
         coords_nd = eg.LayoutNd.from_coords(coords)
-        h_knn_2d, _ = eg.build_hybrid_adaptive_knn(g, coords_2d, 3.0, k=4, max_row_k=6)
-        h_knn_nd, _ = eg.build_hybrid_adaptive_knn(g, coords_nd, perps, k=4, max_row_k=6)
+        h_knn_2d = eg.build_hybrid_adaptive_knn(g, coords_2d, 3.0, k=4, max_row_k=6).knn
+        h_knn_nd = eg.build_hybrid_adaptive_knn(g, coords_nd, perps, k=4, max_row_k=6).knn
         self.assertEqual(h_knn_2d.num_nodes, 13)
         self.assertEqual(h_knn_nd.num_nodes, 13)
         np.testing.assert_array_equal(h_knn_nd.indices(), h_knn_ov.indices())
@@ -370,10 +377,10 @@ class TestNeighborhoodKnnAndLandmarks(unittest.TestCase):
 
         g13 = eg.CsrGraph.from_edges(13, [(0, i) for i in range(1, 9)] + [(8, 9), (9, 10), (10, 11)])
         coords13 = eg.chebyshev_dog_jl_embedding(g13, jl_dim=14, seed=42)
-        h_0d, _ = eg.build_hybrid_adaptive_knn(g13, coords13, np.array(3.0), k=4, max_row_k=6)
+        h_0d = eg.build_hybrid_adaptive_knn(g13, coords13, np.array(3.0), k=4, max_row_k=6).knn
         self.assertEqual(h_0d.num_nodes, 13)
         ts_0d = eg.TsNetSolver.from_knn(
-            knn, np.array(3.0), backend="bh", stage_iterations=(1, 1, 1)
+            knn, np.array(3.0), backend="barnes_hut", stage_iterations=(1, 1, 1)
         )
         self.assertEqual(ts_0d.num_nodes, 16)
 

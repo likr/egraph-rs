@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 from egraph._core import (
+    AdjustedPatchNigDetail as AdjustedPatchNigDetail,
+    ClusterAreaReport as ClusterAreaReport,
+    NorMetrics as NorMetrics,
+    PartitionAgreement as PartitionAgreement,
     adjusted_patch_nig as adjusted_patch_nig,
     adjusted_patch_nig_detail as adjusted_patch_nig_detail,
     adjusted_patch_nig_multiscale as adjusted_patch_nig_multiscale,
@@ -31,6 +35,10 @@ from egraph._core import (
 )
 
 __all__ = [
+    "AdjustedPatchNigDetail",
+    "ClusterAreaReport",
+    "NorMetrics",
+    "PartitionAgreement",
     "adjusted_patch_nig",
     "adjusted_patch_nig_detail",
     "adjusted_patch_nig_multiscale",

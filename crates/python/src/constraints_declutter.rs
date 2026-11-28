@@ -1,6 +1,7 @@
 //! Twin/near-twin decluttering (`TwinDeclutterer`, `declutter_twins_2d`) and transitive reduction bindings.
 
-use egraph::layout as egraph_layout;
+use egraph::{core as egraph_core, layout as egraph_layout};
+use egraph_core::LayoutTransform;
 use egraph_layout::{
     TwinDeclutterConfig, TwinDeclutterer, declutter_twins_2d as layout_declutter_twins_2d,
     transitive_reduction as layout_transitive_reduction,
@@ -8,16 +9,23 @@ use egraph_layout::{
 use pyo3::prelude::*;
 
 use crate::csr_graph::PyCsrGraph;
-use crate::ffi_convert::{
-    ScalarDtype, StrictF64, StrictUsize, core_error_to_py, solver_status_str,
-};
+use crate::ffi_convert::{ScalarDtype, StrictF64, StrictUsize, core_error_to_py};
 use crate::layout_buffers::{Layout2dInner, PyLayout2d};
-use crate::solver_common::{
-    DualIterativeSolver, SolverAction, SolverLayout, execute_solver_action, extract_solver_layout,
-    impl_dual_solver, write_back_solver_layout,
-};
+use crate::solver_common::{SolverLayout, extract_solver_layout, write_back_solver_layout};
 
-impl_dual_solver!(TwinDecluttererInner, TwinDeclutterer);
+enum TwinDecluttererInner {
+    F64(TwinDeclutterer<f64>),
+    F32(TwinDeclutterer<f32>),
+}
+
+impl TwinDecluttererInner {
+    fn dtype(&self) -> ScalarDtype {
+        match self {
+            Self::F64(_) => ScalarDtype::F64,
+            Self::F32(_) => ScalarDtype::F32,
+        }
+    }
+}
 
 fn build_twin_declutter_config(
     eps_rel: StrictF64,
@@ -26,19 +34,18 @@ fn build_twin_declutter_config(
     min_pair_rel: StrictF64,
     iterations: StrictUsize,
 ) -> PyResult<TwinDeclutterConfig> {
-    let cfg = TwinDeclutterConfig {
-        eps_rel: eps_rel.0,
-        r_frac: r_frac.0,
-        r_cap_rel: r_cap_rel.0,
-        min_pair_rel: min_pair_rel.0,
-        iterations: iterations.0,
-    };
+    let cfg = TwinDeclutterConfig::new()
+        .with_eps_rel(eps_rel.0)
+        .with_r_frac(r_frac.0)
+        .with_r_cap_rel(r_cap_rel.0)
+        .with_min_pair_rel(min_pair_rel.0)
+        .with_iterations(iterations.0);
     cfg.validate().map_err(core_error_to_py)?;
     Ok(cfg)
 }
 
-/// Cooperative 2D solver that resolves exact duplicate and near-twin node overlaps using a
-/// spatial hash, cluster-centroid k-d tree clearance queries, and golden-angle Vogel spirals.
+/// Cooperative 2D layout transform that resolves exact duplicate and near-twin node overlaps
+/// using a spatial hash, cluster-centroid k-d tree clearance queries, and golden-angle Vogel spirals.
 #[pyclass(name = "TwinDeclutterer", module = "egraph._core")]
 pub struct PyTwinDeclutterer {
     inner: TwinDecluttererInner,
@@ -78,51 +85,27 @@ impl PyTwinDeclutterer {
         Ok(Self { inner })
     }
 
-    /// Execute one twin-decluttering pass in place on `layout` while releasing the GIL.
+    /// Apply twin-decluttering in place on `layout` while releasing the GIL.
     #[pyo3(signature = (layout), text_signature = "($self, layout)")]
-    fn step(&mut self, py: Python<'_>, layout: &Bound<'_, PyLayout2d>) -> PyResult<&'static str> {
-        execute_solver_action(&mut self.inner, py, layout, SolverAction::Step)
+    fn apply(&mut self, py: Python<'_>, layout: &Bound<'_, PyLayout2d>) -> PyResult<()> {
+        let target_dtype = self.inner.dtype();
+        let mut soa = extract_solver_layout(layout, target_dtype)?;
+        py.detach(|| match (&mut self.inner, &mut soa) {
+            (TwinDecluttererInner::F64(s), SolverLayout::F64(l)) => s.apply(l),
+            (TwinDecluttererInner::F32(s), SolverLayout::F32(l)) => s.apply(l),
+            _ => unreachable!(),
+        })
+        .map_err(core_error_to_py)?;
+        write_back_solver_layout(layout, &soa)
     }
 
-    /// Execute up to `steps` decluttering passes in place on `layout` while releasing the GIL.
-    #[pyo3(signature = (layout, steps), text_signature = "($self, layout, steps)")]
-    fn run_steps(
-        &mut self,
-        py: Python<'_>,
-        layout: &Bound<'_, PyLayout2d>,
-        steps: StrictUsize,
-    ) -> PyResult<&'static str> {
-        execute_solver_action(&mut self.inner, py, layout, SolverAction::RunSteps(steps.0))
-    }
-
-    /// Run twin decluttering to completion in place on `layout` while releasing the GIL.
-    #[pyo3(signature = (layout), text_signature = "($self, layout)")]
-    fn run(&mut self, py: Python<'_>, layout: &Bound<'_, PyLayout2d>) -> PyResult<&'static str> {
-        execute_solver_action(&mut self.inner, py, layout, SolverAction::Run)
-    }
-
-    /// Current solver status (`"initialized"`, `"running"`, `"converged"`, or `"completed"`).
+    /// Number of decluttering passes executed in the most recent `apply()` call.
     #[getter]
-    fn status(&self) -> &'static str {
-        solver_status_str(self.inner.solver_status())
-    }
-
-    /// Number of decluttering passes executed so far.
-    #[getter]
-    fn iteration(&self) -> usize {
-        self.inner.solver_iteration()
-    }
-
-    /// Configured maximum number of decluttering passes.
-    #[getter]
-    fn total_iterations(&self) -> usize {
-        self.inner.solver_total_iterations()
-    }
-
-    /// Whether the solver has reached `"converged"` or `"completed"`.
-    #[getter]
-    fn is_finished(&self) -> bool {
-        self.inner.solver_status().is_finished()
+    fn last_pass_count(&self) -> usize {
+        match &self.inner {
+            TwinDecluttererInner::F64(s) => s.last_pass_count(),
+            TwinDecluttererInner::F32(s) => s.last_pass_count(),
+        }
     }
 
     /// Scalar precision dtype (`"float64"` or `"float32"`).
@@ -187,11 +170,9 @@ impl PyTwinDeclutterer {
 
     fn __repr__(&self) -> String {
         format!(
-            "TwinDeclutterer(dtype='{}', status='{}', iteration={}/{}, last_cluster_count={}, last_moved_count={})",
+            "TwinDeclutterer(dtype='{}', last_pass_count={}, last_cluster_count={}, last_moved_count={})",
             self.dtype(),
-            self.status(),
-            self.iteration(),
-            self.total_iterations(),
+            self.last_pass_count(),
             self.last_cluster_count(),
             self.last_moved_count(),
         )
@@ -249,7 +230,7 @@ fn transitive_reduction(py: Python<'_>, graph: &PyCsrGraph) -> PyResult<PyCsrGra
     let reduced = py
         .detach(|| layout_transitive_reduction(&*g))
         .map_err(core_error_to_py)?;
-    Ok(PyCsrGraph::from_csr_graph(reduced))
+    PyCsrGraph::from_unit_csr_graph(reduced).map_err(core_error_to_py)
 }
 
 pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {

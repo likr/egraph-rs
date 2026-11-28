@@ -4,11 +4,10 @@ use std::collections::BTreeMap;
 
 use egraph::metrics as egraph_metrics;
 use egraph_metrics::ClusterAreaConfig;
-use numpy::PyArray1;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
 
+use super::cluster_eval_types::{PyAdjustedPatchNigDetail, PyClusterAreaReport};
 use crate::ffi_convert::{
     StrictF64, StrictU64, StrictUsize, extract_non_negative_usize, extract_optional_weights_1d,
     extract_u32_1d, is_non_sequence_container,
@@ -78,7 +77,7 @@ fn adjusted_patch_nig_detail(
     canvas_size: StrictUsize,
     pad_frac: StrictF64,
     seed: StrictU64,
-) -> PyResult<Py<PyDict>> {
+) -> PyResult<PyAdjustedPatchNigDetail> {
     let lbls = extract_u32_1d(labels, "labels")?;
     let radius = patch_radius.0;
     let c_sz = canvas_size.0;
@@ -87,15 +86,7 @@ fn adjusted_patch_nig_detail(
     let detail = dispatch_layout2d!(py, layout, |soa| {
         egraph_metrics::adjusted_patch_nig_detail(&soa, &lbls, radius, c_sz, pad, seed_val)
     })?;
-    let dict = PyDict::new(py);
-    dict.set_item("nig", detail.nig)?;
-    dict.set_item("h_obs", detail.h_obs)?;
-    dict.set_item("h_null", detail.h_null)?;
-    dict.set_item("singleton_patch_ratio", detail.singleton_patch_ratio)?;
-    dict.set_item("num_nonempty_patches", detail.num_nonempty_patches)?;
-    dict.set_item("recommended_patch_radius", detail.recommended_patch_radius)?;
-    dict.set_item("is_degenerate", detail.is_degenerate)?;
-    Ok(dict.unbind())
+    Ok(PyAdjustedPatchNigDetail::from_detail(detail))
 }
 
 /// Compute multi-scale Adjusted Patch-NIG across `radii`, returning `{"patch_nig_r{r}": value}`.
@@ -166,14 +157,13 @@ fn cluster_area_faithfulness(
     let lbls = extract_u32_1d(labels, "labels")?;
     let nw = extract_optional_weights_1d(node_weights, "node_weights")?;
     let cw = extract_optional_weights_1d(cluster_weights, "cluster_weights")?;
-    let config = ClusterAreaConfig {
-        g_max: g_max.0,
-        sigma_cells: sigma_cells.0,
-        kappa: kappa.0,
-        tau_frac: tau_frac.0,
-        boundary_r95: boundary_r95.0,
-        stevens_gamma: stevens_gamma.0,
-    };
+    let config = ClusterAreaConfig::new()
+        .with_g_max(g_max.0)
+        .with_sigma_cells(sigma_cells.0)
+        .with_kappa(kappa.0)
+        .with_tau_frac(tau_frac.0)
+        .with_boundary_r95(boundary_r95.0)
+        .with_stevens_gamma(stevens_gamma.0);
     dispatch_layout2d!(py, layout, |soa| {
         egraph_metrics::cluster_area_faithfulness_with_weights(
             &soa,
@@ -186,28 +176,9 @@ fn cluster_area_faithfulness(
     })
 }
 
-fn populate_cluster_area_report_dict(
-    dict: &Bound<'_, PyDict>,
-    report: &egraph_metrics::ClusterAreaReport,
-) -> PyResult<()> {
-    dict.set_item("caf", report.caf)?;
-    dict.set_item("purity_adj", report.purity_adj)?;
-    dict.set_item("prop_vis", report.prop_vis)?;
-    dict.set_item("res_density", report.res_density)?;
-    dict.set_item("res_deconv", report.res_deconv)?;
-    dict.set_item("res_combined", report.res_combined)?;
-    dict.set_item("spatial_coherence", report.spatial_coherence)?;
-    dict.set_item("in_frac", report.in_frac)?;
-    dict.set_item("effective_boundary_r95", report.effective_boundary_r95)?;
-    dict.set_item("g_eff", report.g_eff)?;
-    dict.set_item("num_clusters", report.num_clusters)?;
-    dict.set_item("num_nodes", report.num_nodes)?;
-    Ok(())
-}
-
 /// Compute Grid-based Cluster Area Faithfulness (`G-CAF`) with summary and optional per-cluster diagnostics.
 ///
-/// Returns a dictionary containing summary metrics (`caf`, `purity_adj`, `prop_vis`,
+/// Returns a frozen `ClusterAreaReport` containing summary metrics (`caf`, `purity_adj`, `prop_vis`,
 /// `res_density`, `res_deconv`, `res_combined`, `spatial_coherence`, `in_frac`,
 /// `effective_boundary_r95`, `g_eff`, `num_clusters`, `num_nodes`). When `return_per_cluster=True`,
 /// also includes `cluster_ids`, `counts`, `p`, `q`, `purity`, `resolution`,
@@ -235,19 +206,17 @@ fn cluster_area_faithfulness_detail(
     node_weights: Option<&Bound<'_, PyAny>>,
     cluster_weights: Option<&Bound<'_, PyAny>>,
     return_per_cluster: bool,
-) -> PyResult<Py<PyDict>> {
+) -> PyResult<PyClusterAreaReport> {
     let lbls = extract_u32_1d(labels, "labels")?;
     let nw = extract_optional_weights_1d(node_weights, "node_weights")?;
     let cw = extract_optional_weights_1d(cluster_weights, "cluster_weights")?;
-    let config = ClusterAreaConfig {
-        g_max: g_max.0,
-        sigma_cells: sigma_cells.0,
-        kappa: kappa.0,
-        tau_frac: tau_frac.0,
-        boundary_r95: boundary_r95.0,
-        stevens_gamma: stevens_gamma.0,
-    };
-    let dict = PyDict::new(py);
+    let config = ClusterAreaConfig::new()
+        .with_g_max(g_max.0)
+        .with_sigma_cells(sigma_cells.0)
+        .with_kappa(kappa.0)
+        .with_tau_frac(tau_frac.0)
+        .with_boundary_r95(boundary_r95.0)
+        .with_stevens_gamma(stevens_gamma.0);
     if !return_per_cluster {
         let report = dispatch_layout2d!(py, layout, |soa| {
             egraph_metrics::cluster_area_faithfulness_with_weights(
@@ -258,7 +227,7 @@ fn cluster_area_faithfulness_detail(
                 cw.as_deref(),
             )
         })?;
-        populate_cluster_area_report_dict(&dict, &report)?;
+        Ok(PyClusterAreaReport::from_report(report))
     } else {
         let detail = dispatch_layout2d!(py, layout, |soa| {
             egraph_metrics::cluster_area_faithfulness_detail_with_weights(
@@ -269,28 +238,8 @@ fn cluster_area_faithfulness_detail(
                 cw.as_deref(),
             )
         })?;
-        populate_cluster_area_report_dict(&dict, &detail.report)?;
-        dict.set_item("cluster_ids", PyArray1::from_vec(py, detail.cluster_ids))?;
-        dict.set_item("counts", PyArray1::from_vec(py, detail.counts))?;
-        dict.set_item("p", PyArray1::from_vec(py, detail.p))?;
-        dict.set_item("q", PyArray1::from_vec(py, detail.q))?;
-        dict.set_item("purity", PyArray1::from_vec(py, detail.purity))?;
-        dict.set_item("resolution", PyArray1::from_vec(py, detail.resolution))?;
-        dict.set_item(
-            "res_density_per_cluster",
-            PyArray1::from_vec(py, detail.res_density),
-        )?;
-        dict.set_item(
-            "res_deconv_per_cluster",
-            PyArray1::from_vec(py, detail.res_deconv),
-        )?;
-        dict.set_item(
-            "caf_per_cluster",
-            PyArray1::from_vec(py, detail.caf_per_cluster),
-        )?;
-        dict.set_item("coherence", PyArray1::from_vec(py, detail.coherence))?;
+        Ok(PyClusterAreaReport::from_detail(detail))
     }
-    Ok(dict.unbind())
 }
 
 pub(super) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {

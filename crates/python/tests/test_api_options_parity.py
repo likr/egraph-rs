@@ -181,8 +181,9 @@ class TestDatasetSpatialMetricsApiParity(unittest.TestCase):
         self.assertIn("angle_rad", crossings[0])
 
         summary = eg.crossing_summary(g, layout)
-        self.assertEqual(summary["count"], 1)
-        self.assertGreater(summary["min_angle_rad"], 0.0)
+        self.assertEqual(summary.count, 1)
+        assert summary.min_angle_rad is not None
+        self.assertGreater(summary.min_angle_rad, 0.0)
 
         torus_layout = eg.Layout2d.from_coords([[0.1, 0.1], [0.9, 0.9], [0.9, 0.1], [0.1, 0.9]])
         torus_crossings = eg.crossing_edges_torus(g, torus_layout)
@@ -297,7 +298,7 @@ class TestLinalgNeighborhoodSolverApiParity(unittest.TestCase):
                 g,
                 k=4,
                 uniform_perplexity=3.0,
-                backend="fft",
+                backend="fit_fft",
                 stage_iterations=(2, 2, 2),
                 seed=42,
                 dtype=dtype,
@@ -310,7 +311,7 @@ class TestLinalgNeighborhoodSolverApiParity(unittest.TestCase):
 
             tfdp = eg.TFdpSolver(
                 g,
-                backend="ibfft",
+                backend="ib_fft",
                 iterations=5,
                 interpolation_order=3,
                 intervals=16,
@@ -338,7 +339,7 @@ class TestLinalgNeighborhoodSolverApiParity(unittest.TestCase):
                 t2=None,
                 alpha=None,
                 beta_floor=None,
-                backend="ibfft",
+                backend="ib_fft",
                 iterations=5,
                 interpolation_order=1,
                 intervals=16,

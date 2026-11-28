@@ -1,5 +1,6 @@
 //! Multi-level Louvain coarsening, centroid prolongation, and pivoted RHGH landmark helpers.
 
+use egraph::core::CsrGraph;
 use egraph::{clustering as egraph_clustering, core as egraph_core};
 use egraph_clustering::{
     CoarseLouvainConfig, align_clustered_centroids as clu_align_clustered_centroids,
@@ -8,6 +9,7 @@ use egraph_clustering::{
 };
 use egraph_core::{CoreError, Layout2d};
 use numpy::PyArray1;
+use pyo3::exceptions::PyKeyError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
@@ -17,6 +19,148 @@ use crate::ffi_convert::{
     StrictF64, StrictU64, StrictUsize, core_error_to_py, extract_u32_1d, ffi_error_to_py,
 };
 use crate::layout_buffers::{Layout2dInner, PyLayout2d};
+
+/// Frozen output of multi-level `louvain_coarsen`.
+#[pyclass(
+    name = "LouvainCoarsenResult",
+    module = "egraph._core",
+    frozen,
+    from_py_object
+)]
+#[derive(Clone)]
+pub struct PyLouvainCoarsenResult {
+    coarse_graph: CsrGraph<f64>,
+    node_to_coarse: Vec<u32>,
+    coarse_sizes: Vec<u32>,
+    num_clusters: usize,
+    num_levels: usize,
+    level_num_clusters: Vec<usize>,
+    level_resolutions: Vec<f64>,
+    level_modularities: Vec<f64>,
+}
+
+#[pymethods]
+impl PyLouvainCoarsenResult {
+    #[getter]
+    fn coarse_graph(&self) -> PyCsrGraph {
+        PyCsrGraph::from_csr_graph(self.coarse_graph.clone())
+    }
+
+    #[getter]
+    fn node_to_coarse<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<u32>> {
+        PyArray1::from_slice(py, &self.node_to_coarse)
+    }
+
+    #[getter]
+    fn coarse_sizes<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<u32>> {
+        PyArray1::from_slice(py, &self.coarse_sizes)
+    }
+
+    #[getter]
+    fn num_clusters(&self) -> usize {
+        self.num_clusters
+    }
+
+    #[getter]
+    fn num_levels(&self) -> usize {
+        self.num_levels
+    }
+
+    #[getter]
+    fn level_num_clusters(&self) -> Vec<usize> {
+        self.level_num_clusters.clone()
+    }
+
+    #[getter]
+    fn level_resolutions(&self) -> Vec<f64> {
+        self.level_resolutions.clone()
+    }
+
+    #[getter]
+    fn level_modularities(&self) -> Vec<f64> {
+        self.level_modularities.clone()
+    }
+
+    #[pyo3(signature = (), text_signature = "($self)")]
+    fn to_dict(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
+        let dict = PyDict::new(py);
+        dict.set_item("coarse_graph", self.coarse_graph())?;
+        dict.set_item("node_to_coarse", self.node_to_coarse(py))?;
+        dict.set_item("coarse_sizes", self.coarse_sizes(py))?;
+        dict.set_item("num_clusters", self.num_clusters)?;
+        dict.set_item("num_levels", self.num_levels)?;
+        dict.set_item("level_num_clusters", self.level_num_clusters.clone())?;
+        dict.set_item("level_resolutions", self.level_resolutions.clone())?;
+        dict.set_item("level_modularities", self.level_modularities.clone())?;
+        Ok(dict.unbind())
+    }
+
+    #[pyo3(signature = (), text_signature = "($self)")]
+    fn keys(&self) -> Vec<&'static str> {
+        vec![
+            "coarse_graph",
+            "node_to_coarse",
+            "coarse_sizes",
+            "num_clusters",
+            "num_levels",
+            "level_num_clusters",
+            "level_resolutions",
+            "level_modularities",
+        ]
+    }
+
+    fn __contains__(&self, key: &str) -> bool {
+        matches!(
+            key,
+            "coarse_graph"
+                | "node_to_coarse"
+                | "coarse_sizes"
+                | "num_clusters"
+                | "num_levels"
+                | "level_num_clusters"
+                | "level_resolutions"
+                | "level_modularities"
+        )
+    }
+
+    fn __getitem__(&self, py: Python<'_>, key: &str) -> PyResult<Py<PyAny>> {
+        match key {
+            "coarse_graph" => Ok(Py::new(py, self.coarse_graph())?.into_any()),
+            "node_to_coarse" => Ok(self.node_to_coarse(py).into_any().unbind()),
+            "coarse_sizes" => Ok(self.coarse_sizes(py).into_any().unbind()),
+            "num_clusters" => Ok(self.num_clusters.into_pyobject(py)?.into_any().unbind()),
+            "num_levels" => Ok(self.num_levels.into_pyobject(py)?.into_any().unbind()),
+            "level_num_clusters" => Ok(self
+                .level_num_clusters
+                .clone()
+                .into_pyobject(py)?
+                .into_any()
+                .unbind()),
+            "level_resolutions" => Ok(self
+                .level_resolutions
+                .clone()
+                .into_pyobject(py)?
+                .into_any()
+                .unbind()),
+            "level_modularities" => Ok(self
+                .level_modularities
+                .clone()
+                .into_pyobject(py)?
+                .into_any()
+                .unbind()),
+            _ => Err(PyKeyError::new_err(format!(
+                "unknown LouvainCoarsenResult key {key:?}"
+            ))),
+        }
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "LouvainCoarsenResult(num_clusters={}, num_levels={})",
+            self.num_clusters, self.num_levels
+        )
+    }
+}
 
 /// Run multi-level Louvain coarsening with resolution decay until `num_clusters <= max_coarse_nodes`
 /// or the connected-component floor is reached.
@@ -48,16 +192,15 @@ fn louvain_coarsen(
     min_modularity_gain: StrictF64,
     max_outer_rounds: StrictUsize,
     seed: StrictU64,
-) -> PyResult<Py<PyDict>> {
-    let cfg = CoarseLouvainConfig {
-        max_coarse_nodes: max_coarse_nodes.0,
-        resolution: resolution.0,
-        resolution_decay: resolution_decay.0,
-        max_passes: max_passes.0,
-        min_modularity_gain: min_modularity_gain.0,
-        max_outer_rounds: max_outer_rounds.0,
-        seed: seed.0,
-    };
+) -> PyResult<PyLouvainCoarsenResult> {
+    let cfg = CoarseLouvainConfig::new()
+        .with_max_coarse_nodes(max_coarse_nodes.0)
+        .with_resolution(resolution.0)
+        .with_resolution_decay(resolution_decay.0)
+        .with_max_passes(max_passes.0)
+        .with_min_modularity_gain(min_modularity_gain.0)
+        .with_max_outer_rounds(max_outer_rounds.0)
+        .with_seed(seed.0);
     let g = graph.inner();
     let hierarchy = py
         .detach(|| clu_louvain_coarsen(&*g, &cfg))
@@ -71,25 +214,16 @@ fn louvain_coarsen(
     let level_resolutions: Vec<f64> = hierarchy.levels.iter().map(|lvl| lvl.resolution).collect();
     let level_modularities: Vec<f64> = hierarchy.levels.iter().map(|lvl| lvl.modularity).collect();
 
-    let dict = PyDict::new(py);
-    dict.set_item(
-        "coarse_graph",
-        PyCsrGraph::from_csr_graph(hierarchy.coarsest.graph),
-    )?;
-    dict.set_item(
-        "node_to_coarse",
-        PyArray1::from_vec(py, hierarchy.coarsest.node_to_coarse),
-    )?;
-    dict.set_item(
-        "coarse_sizes",
-        PyArray1::from_vec(py, hierarchy.coarsest.coarse_sizes),
-    )?;
-    dict.set_item("num_clusters", hierarchy.coarsest.num_clusters)?;
-    dict.set_item("num_levels", hierarchy.levels.len())?;
-    dict.set_item("level_num_clusters", level_num_clusters)?;
-    dict.set_item("level_resolutions", level_resolutions)?;
-    dict.set_item("level_modularities", level_modularities)?;
-    Ok(dict.unbind())
+    Ok(PyLouvainCoarsenResult {
+        coarse_graph: hierarchy.coarsest.graph,
+        node_to_coarse: hierarchy.coarsest.node_to_coarse,
+        coarse_sizes: hierarchy.coarsest.coarse_sizes,
+        num_clusters: hierarchy.coarsest.num_clusters,
+        num_levels: hierarchy.levels.len(),
+        level_num_clusters,
+        level_resolutions,
+        level_modularities,
+    })
 }
 
 /// Project a coarse cluster `Layout2d` onto fine vertices using per-cluster `cluster_radii`.
@@ -210,6 +344,7 @@ fn align_clustered_centroids(
 }
 
 pub(super) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<PyLouvainCoarsenResult>()?;
     m.add_function(wrap_pyfunction!(louvain_coarsen, m)?)?;
     m.add_function(wrap_pyfunction!(project_clustered_layout_with_radii, m)?)?;
     m.add_function(wrap_pyfunction!(align_clustered_centroids, m)?)?;

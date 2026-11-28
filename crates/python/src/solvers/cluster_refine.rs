@@ -5,10 +5,10 @@ use egraph_layout::{
     ClusterRefineConfig, ClusterRefineMethod, ClusterRefineSolver,
     refine_cluster_layout as layout_refine_cluster_layout,
 };
-use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
 use crate::csr_graph::PyCsrGraph;
+use crate::errors::invalid_input_err;
 use crate::ffi_convert::{
     ScalarDtype, StrictF64, StrictU64, StrictUsize, core_error_to_py, extract_u32_1d,
     normalize_enum_key, solver_status_str,
@@ -16,7 +16,7 @@ use crate::ffi_convert::{
 use crate::layout_buffers::{Layout2dInner, PyLayout2d};
 use crate::solver_common::{
     DualIterativeSolver, SolverAction, SolverLayout, execute_solver_action, extract_solver_layout,
-    impl_dual_solver, write_back_solver_layout,
+    format_optional_usize, impl_dual_solver, write_back_solver_layout,
 };
 
 pub(super) fn parse_cluster_refine_method(raw: &str) -> Result<ClusterRefineMethod, String> {
@@ -71,25 +71,24 @@ impl PyClusterRefineSolver {
         seed: StrictU64,
         dtype: ScalarDtype,
     ) -> PyResult<Self> {
-        let parsed_method = parse_cluster_refine_method(method).map_err(PyValueError::new_err)?;
+        let parsed_method = parse_cluster_refine_method(method).map_err(invalid_input_err)?;
         let labels_vec = extract_u32_1d(labels, "labels")?;
-        let cfg = ClusterRefineConfig {
-            method: parsed_method,
-            max_iterations: max_iterations.0,
-            kmeans_n_init: kmeans_n_init.0,
-            kmeans_max_iters: kmeans_max_iterations.0,
-            shift_step: shift_step.0,
-            margin: margin.0,
-            seed: seed.0,
-        };
+        let cfg = ClusterRefineConfig::new()
+            .with_method(parsed_method)
+            .with_max_iterations(max_iterations.0)
+            .with_kmeans_n_init(kmeans_n_init.0)
+            .with_kmeans_max_iters(kmeans_max_iterations.0)
+            .with_shift_step(shift_step.0)
+            .with_margin(margin.0)
+            .with_seed(seed.0);
         cfg.validate().map_err(core_error_to_py)?;
         let inner = py
             .detach(|| match dtype {
                 ScalarDtype::F64 => {
-                    ClusterRefineSolver::<f64>::new(labels_vec, cfg).map(ClusterRefineInner::F64)
+                    ClusterRefineSolver::<f64>::new(&labels_vec, cfg).map(ClusterRefineInner::F64)
                 }
                 ScalarDtype::F32 => {
-                    ClusterRefineSolver::<f32>::new(labels_vec, cfg).map(ClusterRefineInner::F32)
+                    ClusterRefineSolver::<f32>::new(&labels_vec, cfg).map(ClusterRefineInner::F32)
                 }
             })
             .map_err(core_error_to_py)?;
@@ -128,24 +127,23 @@ impl PyClusterRefineSolver {
         seed: StrictU64,
         dtype: ScalarDtype,
     ) -> PyResult<Self> {
-        let parsed_method = parse_cluster_refine_method(method).map_err(PyValueError::new_err)?;
+        let parsed_method = parse_cluster_refine_method(method).map_err(invalid_input_err)?;
         let labels_vec = extract_u32_1d(labels, "labels")?;
-        let cfg = ClusterRefineConfig {
-            method: parsed_method,
-            max_iterations: max_iterations.0,
-            kmeans_n_init: kmeans_n_init.0,
-            kmeans_max_iters: kmeans_max_iterations.0,
-            shift_step: shift_step.0,
-            margin: margin.0,
-            seed: seed.0,
-        };
+        let cfg = ClusterRefineConfig::new()
+            .with_method(parsed_method)
+            .with_max_iterations(max_iterations.0)
+            .with_kmeans_n_init(kmeans_n_init.0)
+            .with_kmeans_max_iters(kmeans_max_iterations.0)
+            .with_shift_step(shift_step.0)
+            .with_margin(margin.0)
+            .with_seed(seed.0);
         cfg.validate().map_err(core_error_to_py)?;
         let g = graph.inner();
         let inner = py
             .detach(|| match dtype {
-                ScalarDtype::F64 => ClusterRefineSolver::<f64>::from_graph(&*g, labels_vec, cfg)
+                ScalarDtype::F64 => ClusterRefineSolver::<f64>::from_graph(&*g, &labels_vec, cfg)
                     .map(ClusterRefineInner::F64),
-                ScalarDtype::F32 => ClusterRefineSolver::<f32>::from_graph(&*g, labels_vec, cfg)
+                ScalarDtype::F32 => ClusterRefineSolver::<f32>::from_graph(&*g, &labels_vec, cfg)
                     .map(ClusterRefineInner::F32),
             })
             .map_err(core_error_to_py)?;
@@ -207,11 +205,11 @@ impl PyClusterRefineSolver {
 
     /// Configured maximum number of refinement rounds.
     #[getter]
-    fn total_iterations(&self) -> usize {
+    fn total_iterations(&self) -> Option<usize> {
         self.inner.solver_total_iterations()
     }
 
-    /// Whether the solver has reached `"converged"` or `"completed"`.
+    /// Whether the solver has reached `"converged"`, `"completed"`, or `"failed"`.
     #[getter]
     fn is_finished(&self) -> bool {
         self.inner.solver_status().is_finished()
@@ -241,7 +239,7 @@ impl PyClusterRefineSolver {
             self.last_moved_count(),
             self.status(),
             self.iteration(),
-            self.total_iterations(),
+            format_optional_usize(self.total_iterations()),
             self.dtype()
         )
     }
@@ -281,17 +279,16 @@ fn refine_cluster_layout(
     margin: StrictF64,
     seed: StrictU64,
 ) -> PyResult<usize> {
-    let parsed_method = parse_cluster_refine_method(method).map_err(PyValueError::new_err)?;
+    let parsed_method = parse_cluster_refine_method(method).map_err(invalid_input_err)?;
     let labels_vec = extract_u32_1d(labels, "labels")?;
-    let cfg = ClusterRefineConfig {
-        method: parsed_method,
-        max_iterations: max_iterations.0,
-        kmeans_n_init: kmeans_n_init.0,
-        kmeans_max_iters: kmeans_max_iterations.0,
-        shift_step: shift_step.0,
-        margin: margin.0,
-        seed: seed.0,
-    };
+    let cfg = ClusterRefineConfig::new()
+        .with_method(parsed_method)
+        .with_max_iterations(max_iterations.0)
+        .with_kmeans_n_init(kmeans_n_init.0)
+        .with_kmeans_max_iters(kmeans_max_iterations.0)
+        .with_shift_step(shift_step.0)
+        .with_margin(margin.0)
+        .with_seed(seed.0);
     cfg.validate().map_err(core_error_to_py)?;
     let target_dtype = match layout.try_borrow()?.inner() {
         Layout2dInner::F64(_) => ScalarDtype::F64,

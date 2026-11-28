@@ -1,173 +1,74 @@
-//! Bounded Student-t force-directed placement (`TFdpSolver`) and shared field layout inner helpers.
+//! Bounded Student-t force-directed placement (`TFdpSolver`) with Policy 1A target & Option 1 backend dispatch.
 
-use egraph::{
-    layout as egraph_layout, neighborhood as egraph_neighborhood, spatial as egraph_spatial,
-};
-use egraph_layout::{FieldLayoutSolver, FieldRepulsionBackend, RhoSchedule, TFdpConfig};
-use egraph_neighborhood::KnnGraph;
-use egraph_spatial::{IbFftConfig, InterpolationOrder};
-use pyo3::exceptions::{PyTypeError, PyValueError};
+use egraph::core::{Layout2d, Layout3d, LayoutNd};
+use egraph::layout::neighbor::Exact as NeighborExact;
+use egraph::layout::{TFdpBackend2d, TFdpBackend3d, TFdpSolver};
+use egraph::neighborhood::KnnGraph;
+use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
 
+use super::fit_field_stats::PyFieldFftStats;
+use super::layout_dispatch::{
+    DualTargetSolver, SolverAction, execute_target_action, validate_target_space,
+};
+use super::t_fdp_builders::{ResolvedTFdpBackend, TFdpInner, build_t_fdp_config_and_backend};
+pub(super) use super::t_fdp_builders::{TFdpBackendChoice, build_t_fdp_backend_2d};
 use crate::csr_graph::PyCsrGraph;
+use crate::errors::{core_error_to_py, dimension_mismatch_err, invalid_input_err};
 use crate::ffi_convert::{
-    ScalarDtype, StrictF64, StrictU64, StrictUsize, core_error_to_py, extract_optional_weights_1d,
-    extract_u32_1d, normalize_enum_key, solver_status_str,
+    ScalarDtype, StrictF64, StrictU64, StrictUsize, extract_optional_weights_1d, extract_u32_1d,
+    solver_status_str,
 };
-use crate::layout_buffers::PyLayout2d;
 use crate::neighborhood::PyKnnGraph;
-use crate::solver_common::{
-    DualIterativeSolver, SolverAction, execute_solver_action, impl_dual_solver,
-};
 
-impl_dual_solver!(FieldLayoutInner, FieldLayoutSolver);
-
-impl FieldLayoutInner {
-    pub(super) fn num_nodes(&self) -> usize {
-        match self {
-            Self::F64(s) => s.num_nodes(),
-            Self::F32(s) => s.num_nodes(),
-        }
-    }
-
-    pub(super) fn current_rho(&self) -> f64 {
-        match self {
-            Self::F64(s) => s.current_rho(),
-            Self::F32(s) => s.current_rho(),
-        }
-    }
-
-    pub(super) fn num_edges(&self) -> usize {
-        match self {
-            Self::F64(s) => s.num_edges(),
-            Self::F32(s) => s.num_edges(),
-        }
-    }
-
-    pub(super) fn total_fft_2d_calls(&self) -> u64 {
-        match self {
-            Self::F64(s) => s.total_fft_2d_calls(),
-            Self::F32(s) => s.total_fft_2d_calls(),
-        }
-    }
-
-    pub(super) fn last_fft_stats_dict<'py>(
-        &self,
-        py: Python<'py>,
-    ) -> PyResult<Option<Bound<'py, PyDict>>> {
-        let stats = match self {
-            Self::F64(s) => s.last_fft_stats(),
-            Self::F32(s) => s.last_fft_stats(),
-        };
-        match stats {
-            Some(st) => {
-                let d = PyDict::new(py);
-                d.set_item("particle_forward_ffts", st.particle_forward_ffts)?;
-                d.set_item("kernel_forward_ffts", st.kernel_forward_ffts)?;
-                d.set_item("inverse_ffts", st.inverse_ffts)?;
-                d.set_item("total_fft_2d_calls", st.total_fft_2d_calls)?;
-                d.set_item("nx", st.nx)?;
-                d.set_item("ny", st.ny)?;
-                Ok(Some(d))
+macro_rules! dispatch_tfdp_build {
+    ($py:expr, $resolved:expr, $dtype:expr, |$b:ident, $solver_ty:ident| $call:expr) => {
+        $py.detach(|| match ($resolved, $dtype) {
+            (ResolvedTFdpBackend::L2($b), ScalarDtype::F64) => {
+                type $solver_ty = TFdpSolver<Layout2d<f64>, TFdpBackend2d>;
+                $call.map(TFdpInner::L2F64)
             }
-            None => Ok(None),
-        }
-    }
-
-    pub(super) fn ab(&self) -> Option<(f64, f64)> {
-        match self {
-            Self::F64(s) => s.ab(),
-            Self::F32(s) => s.ab(),
-        }
-    }
-}
-
-pub(super) fn parse_field_backend(raw: &str) -> Result<FieldRepulsionBackend, String> {
-    match normalize_enum_key(raw).as_str() {
-        "ibfft" | "fft" => Ok(FieldRepulsionBackend::IbFft),
-        "barneshut" | "bh" => Ok(FieldRepulsionBackend::BarnesHut),
-        "exact" => Ok(FieldRepulsionBackend::Exact),
-        _ => Err(format!(
-            "unknown field repulsion backend {raw:?}; expected 'ibfft', 'barnes_hut', or 'exact'"
-        )),
-    }
-}
-
-pub(super) fn build_ibfft_config(
-    interpolation_order: usize,
-    intervals: usize,
-    min_grid_dim: usize,
-    max_grid_dim: usize,
-) -> PyResult<IbFftConfig> {
-    let order = InterpolationOrder::from_order(interpolation_order).map_err(core_error_to_py)?;
-    Ok(IbFftConfig {
-        order,
-        intervals,
-        min_grid_dim,
-        max_grid_dim,
-    })
-}
-
-#[allow(clippy::too_many_arguments)]
-pub(super) fn build_t_fdp_config(
-    backend: &str,
-    iterations: usize,
-    learning_rate: f64,
-    momentum: f64,
-    theta: f64,
-    alpha: f64,
-    gamma: f64,
-    rho_start: f64,
-    rho_end: f64,
-    rho_power: f64,
-    interpolation_order: usize,
-    intervals: usize,
-    min_grid_dim: usize,
-    max_grid_dim: usize,
-    seed: u64,
-) -> PyResult<TFdpConfig> {
-    let parsed_backend = parse_field_backend(backend).map_err(PyValueError::new_err)?;
-    let ibfft = build_ibfft_config(interpolation_order, intervals, min_grid_dim, max_grid_dim)?;
-    let cfg = TFdpConfig {
-        backend: parsed_backend,
-        iterations,
-        learning_rate,
-        momentum,
-        theta,
-        alpha,
-        gamma,
-        rho: RhoSchedule {
-            start_weight: rho_start,
-            end_weight: rho_end,
-            power: rho_power,
-        },
-        ibfft,
-        seed,
+            (ResolvedTFdpBackend::L2($b), ScalarDtype::F32) => {
+                type $solver_ty = TFdpSolver<Layout2d<f32>, TFdpBackend2d>;
+                $call.map(TFdpInner::L2F32)
+            }
+            (ResolvedTFdpBackend::L3($b), ScalarDtype::F64) => {
+                type $solver_ty = TFdpSolver<Layout3d<f64>, TFdpBackend3d>;
+                $call.map(TFdpInner::L3F64)
+            }
+            (ResolvedTFdpBackend::L3($b), ScalarDtype::F32) => {
+                type $solver_ty = TFdpSolver<Layout3d<f32>, TFdpBackend3d>;
+                $call.map(TFdpInner::L3F32)
+            }
+            (ResolvedTFdpBackend::Nd($b), ScalarDtype::F64) => {
+                type $solver_ty = TFdpSolver<LayoutNd<f64>, NeighborExact>;
+                $call.map(TFdpInner::NdF64)
+            }
+            (ResolvedTFdpBackend::Nd($b), ScalarDtype::F32) => {
+                type $solver_ty = TFdpSolver<LayoutNd<f32>, NeighborExact>;
+                $call.map(TFdpInner::NdF32)
+            }
+        })
+        .map_err(core_error_to_py)
     };
-    cfg.validate().map_err(core_error_to_py)?;
-    Ok(cfg)
 }
 
 /// Cooperative `t-FDP` bounded Student-t force-directed placement solver.
-///
-/// Supports `"ibfft"` (default), `"barnes_hut"`, and `"exact"` repulsion backends in both
-/// `"float64"` and `"float32"` precision, releasing the Python GIL during stepping.
 #[pyclass(name = "TFdpSolver", module = "egraph._core")]
 pub struct PyTFdpSolver {
-    inner: FieldLayoutInner,
+    inner: TFdpInner,
 }
 
 #[pymethods]
 impl PyTFdpSolver {
-    /// Construct a `TFdpSolver` directly from a `CsrGraph`.
     #[new]
     #[allow(clippy::too_many_arguments)]
     #[pyo3(
         signature = (
             graph,
             *,
-            backend = "ibfft",
+            target = "layout2d",
+            backend = "auto",
             iterations = StrictUsize(200),
             learning_rate = StrictF64(1.0),
             momentum = StrictF64(0.8),
@@ -184,11 +85,12 @@ impl PyTFdpSolver {
             seed = StrictU64(42),
             dtype = ScalarDtype::F64
         ),
-        text_signature = "(graph, *, backend='ibfft', iterations=200, learning_rate=1.0, momentum=0.8, theta=0.5, alpha=1.0, gamma=1.0, rho_start=1.0, rho_end=0.1, rho_power=1.0, interpolation_order=1, intervals=25, min_grid_dim=64, max_grid_dim=512, seed=42, dtype='float64')"
+        text_signature = "(graph, *, target='layout2d', backend='auto', iterations=200, learning_rate=1.0, momentum=0.8, theta=0.5, alpha=1.0, gamma=1.0, rho_start=1.0, rho_end=0.1, rho_power=1.0, interpolation_order=1, intervals=25, min_grid_dim=64, max_grid_dim=512, seed=42, dtype='float64')"
     )]
     fn new(
         py: Python<'_>,
         graph: &PyCsrGraph,
+        target: &str,
         backend: &str,
         iterations: StrictUsize,
         learning_rate: StrictF64,
@@ -206,7 +108,8 @@ impl PyTFdpSolver {
         seed: StrictU64,
         dtype: ScalarDtype,
     ) -> PyResult<Self> {
-        let cfg = build_t_fdp_config(
+        let (cfg, resolved) = build_t_fdp_config_and_backend(
+            target,
             backend,
             iterations.0,
             learning_rate.0,
@@ -224,20 +127,12 @@ impl PyTFdpSolver {
             seed.0,
         )?;
         let g = graph.inner();
-        let inner = py
-            .detach(|| match dtype {
-                ScalarDtype::F64 => {
-                    FieldLayoutSolver::<f64>::t_fdp(&*g, cfg).map(FieldLayoutInner::F64)
-                }
-                ScalarDtype::F32 => {
-                    FieldLayoutSolver::<f32>::t_fdp(&*g, cfg).map(FieldLayoutInner::F32)
-                }
-            })
-            .map_err(core_error_to_py)?;
+        let inner = dispatch_tfdp_build!(py, resolved, dtype, |b, S| {
+            S::new_with_backend(&*g, cfg, b)
+        })?;
         Ok(Self { inner })
     }
 
-    /// Construct a `TFdpSolver` from either a `KnnGraph` or CSR `(indptr, indices, weights=None)`.
     #[staticmethod]
     #[allow(clippy::too_many_arguments)]
     #[pyo3(
@@ -246,7 +141,8 @@ impl PyTFdpSolver {
             indices = None,
             weights = None,
             *,
-            backend = "ibfft",
+            target = "layout2d",
+            backend = "auto",
             iterations = StrictUsize(200),
             learning_rate = StrictF64(1.0),
             momentum = StrictF64(0.8),
@@ -263,13 +159,14 @@ impl PyTFdpSolver {
             seed = StrictU64(42),
             dtype = ScalarDtype::F64
         ),
-        text_signature = "(knn_or_indptr, indices=None, weights=None, *, backend='ibfft', iterations=200, learning_rate=1.0, momentum=0.8, theta=0.5, alpha=1.0, gamma=1.0, rho_start=1.0, rho_end=0.1, rho_power=1.0, interpolation_order=1, intervals=25, min_grid_dim=64, max_grid_dim=512, seed=42, dtype='float64')"
+        text_signature = "(knn_or_indptr, indices=None, weights=None, *, target='layout2d', backend='auto', iterations=200, learning_rate=1.0, momentum=0.8, theta=0.5, alpha=1.0, gamma=1.0, rho_start=1.0, rho_end=0.1, rho_power=1.0, interpolation_order=1, intervals=25, min_grid_dim=64, max_grid_dim=512, seed=42, dtype='float64')"
     )]
     fn from_knn(
         py: Python<'_>,
         knn_or_indptr: &Bound<'_, PyAny>,
         indices: Option<&Bound<'_, PyAny>>,
         weights: Option<&Bound<'_, PyAny>>,
+        target: &str,
         backend: &str,
         iterations: StrictUsize,
         learning_rate: StrictF64,
@@ -287,7 +184,8 @@ impl PyTFdpSolver {
         seed: StrictU64,
         dtype: ScalarDtype,
     ) -> PyResult<Self> {
-        let cfg = build_t_fdp_config(
+        let (cfg, resolved) = build_t_fdp_config_and_backend(
+            target,
             backend,
             iterations.0,
             learning_rate.0,
@@ -304,7 +202,6 @@ impl PyTFdpSolver {
             max_grid_dim.0,
             seed.0,
         )?;
-
         if let Ok(knn_obj) = knn_or_indptr.cast::<PyKnnGraph>() {
             if indices.is_some_and(|o| !o.is_none()) || weights.is_some_and(|o| !o.is_none()) {
                 return Err(PyTypeError::new_err(
@@ -313,17 +210,11 @@ impl PyTFdpSolver {
             }
             let knn_borrowed = knn_obj.borrow();
             let knn_ref = knn_borrowed.inner();
-            let inner = py
-                .detach(|| match dtype {
-                    ScalarDtype::F64 => FieldLayoutSolver::<f64>::t_fdp_from_knn(knn_ref, cfg)
-                        .map(FieldLayoutInner::F64),
-                    ScalarDtype::F32 => FieldLayoutSolver::<f32>::t_fdp_from_knn(knn_ref, cfg)
-                        .map(FieldLayoutInner::F32),
-                })
-                .map_err(core_error_to_py)?;
+            let inner = dispatch_tfdp_build!(py, resolved, dtype, |b, S| {
+                S::from_knn_with_backend(knn_ref, cfg, b)
+            })?;
             return Ok(Self { inner });
         }
-
         let Some(indices_obj) = indices.filter(|o| !o.is_none()) else {
             return Err(PyTypeError::new_err(
                 "TFdpSolver.from_knn expects either a KnnGraph or (indptr, indices, weights=None)",
@@ -331,118 +222,154 @@ impl PyTFdpSolver {
         };
         let indptr_vec = extract_u32_1d(knn_or_indptr, "indptr")?;
         if indptr_vec.is_empty() {
-            return Err(PyValueError::new_err(
+            return Err(invalid_input_err(
                 "indptr must have length num_nodes + 1 (>= 1)",
             ));
         }
         let num_nodes = indptr_vec.len() - 1;
         let indices_vec = extract_u32_1d(indices_obj, "indices")?;
+        if indices_vec.len() != (*indptr_vec.last().unwrap_or(&0) as usize) {
+            return Err(dimension_mismatch_err(
+                "indptr[-1] does not match indices length",
+            ));
+        }
         let distances_vec = match extract_optional_weights_1d(weights, "weights")? {
             Some(w) => w,
             None => vec![0.0_f64; indices_vec.len()],
         };
-
-        let inner = py
-            .detach(|| {
-                let knn =
-                    KnnGraph::new_validated(num_nodes, indptr_vec, indices_vec, distances_vec)?;
-                match dtype {
-                    ScalarDtype::F64 => FieldLayoutSolver::<f64>::t_fdp_from_knn(&knn, cfg)
-                        .map(FieldLayoutInner::F64),
-                    ScalarDtype::F32 => FieldLayoutSolver::<f32>::t_fdp_from_knn(&knn, cfg)
-                        .map(FieldLayoutInner::F32),
-                }
-            })
+        let knn = KnnGraph::new_validated(num_nodes, indptr_vec, indices_vec, distances_vec)
             .map_err(core_error_to_py)?;
+        let inner = dispatch_tfdp_build!(py, resolved, dtype, |b, S| {
+            S::from_knn_with_backend(&knn, cfg, b)
+        })?;
         Ok(Self { inner })
     }
 
-    /// Execute a single optimization step in place on `layout` while releasing the GIL.
     #[pyo3(signature = (layout), text_signature = "($self, layout)")]
-    fn step(&mut self, py: Python<'_>, layout: &Bound<'_, PyLayout2d>) -> PyResult<&'static str> {
-        execute_solver_action(&mut self.inner, py, layout, SolverAction::Step)
+    fn validate_target(&self, py: Python<'_>, layout: &Bound<'_, PyAny>) -> PyResult<()> {
+        let mut none_lock = None;
+        validate_target_space(&self.inner, &mut none_lock, py, layout)
     }
 
-    /// Execute up to `steps` optimization iterations in place on `layout` while releasing the GIL.
+    #[pyo3(signature = (layout), text_signature = "($self, layout)")]
+    fn step(&mut self, py: Python<'_>, layout: &Bound<'_, PyAny>) -> PyResult<&'static str> {
+        let mut none_lock = None;
+        execute_target_action(
+            &mut self.inner,
+            &mut none_lock,
+            py,
+            layout,
+            SolverAction::Step,
+        )
+    }
+
     #[pyo3(signature = (layout, steps), text_signature = "($self, layout, steps)")]
     fn run_steps(
         &mut self,
         py: Python<'_>,
-        layout: &Bound<'_, PyLayout2d>,
+        layout: &Bound<'_, PyAny>,
         steps: StrictUsize,
     ) -> PyResult<&'static str> {
-        execute_solver_action(&mut self.inner, py, layout, SolverAction::RunSteps(steps.0))
+        let mut none_lock = None;
+        execute_target_action(
+            &mut self.inner,
+            &mut none_lock,
+            py,
+            layout,
+            SolverAction::RunSteps(steps.0),
+        )
     }
 
-    /// Run optimization to completion in place on `layout` while releasing the GIL.
     #[pyo3(signature = (layout), text_signature = "($self, layout)")]
-    fn run(&mut self, py: Python<'_>, layout: &Bound<'_, PyLayout2d>) -> PyResult<&'static str> {
-        execute_solver_action(&mut self.inner, py, layout, SolverAction::Run)
+    fn run(&mut self, py: Python<'_>, layout: &Bound<'_, PyAny>) -> PyResult<&'static str> {
+        let mut none_lock = None;
+        execute_target_action(
+            &mut self.inner,
+            &mut none_lock,
+            py,
+            layout,
+            SolverAction::Run,
+        )
     }
 
-    /// Return telemetry counters from the most recent IbFFT step, or `None`.
-    fn last_fft_stats<'py>(&self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyDict>>> {
-        self.inner.last_fft_stats_dict(py)
+    fn last_fft_stats(&self) -> Option<PyFieldFftStats> {
+        match &self.inner {
+            TFdpInner::L2F64(s) => s.last_fft_stats().map(PyFieldFftStats::from_core),
+            TFdpInner::L2F32(s) => s.last_fft_stats().map(PyFieldFftStats::from_core),
+            _ => None,
+        }
     }
 
-    /// Current solver status (`"initialized"`, `"running"`, `"converged"`, or `"completed"`).
+    #[getter]
+    fn target(&self) -> &'static str {
+        self.inner.target_kind().as_str()
+    }
     #[getter]
     fn status(&self) -> &'static str {
         solver_status_str(self.inner.solver_status())
     }
-
-    /// Number of iterations executed so far.
     #[getter]
     fn iteration(&self) -> usize {
         self.inner.solver_iteration()
     }
-
-    /// Total scheduled iterations.
     #[getter]
-    fn total_iterations(&self) -> usize {
+    fn total_iterations(&self) -> Option<usize> {
         self.inner.solver_total_iterations()
     }
-
-    /// Whether the solver has reached `"converged"` or `"completed"`.
     #[getter]
     fn is_finished(&self) -> bool {
         self.inner.solver_status().is_finished()
     }
-
-    /// Expected number of vertices in `Layout2d`.
-    #[getter]
-    fn num_nodes(&self) -> usize {
-        self.inner.num_nodes()
-    }
-
-    /// Solver scalar precision (`"float64"` or `"float32"`).
     #[getter]
     fn dtype(&self) -> &'static str {
         self.inner.dtype().as_str()
     }
-
-    /// Current repulsion schedule multiplier `rho(t)`.
+    #[getter]
+    fn num_nodes(&self) -> usize {
+        match &self.inner {
+            TFdpInner::L2F64(s) => s.num_nodes(),
+            TFdpInner::L2F32(s) => s.num_nodes(),
+            TFdpInner::L3F64(s) => s.num_nodes(),
+            TFdpInner::L3F32(s) => s.num_nodes(),
+            TFdpInner::NdF64(s) => s.num_nodes(),
+            TFdpInner::NdF32(s) => s.num_nodes(),
+        }
+    }
     #[getter]
     fn current_rho(&self) -> f64 {
-        self.inner.current_rho()
+        match &self.inner {
+            TFdpInner::L2F64(s) => s.current_rho(),
+            TFdpInner::L2F32(s) => s.current_rho(),
+            TFdpInner::L3F64(s) => s.current_rho(),
+            TFdpInner::L3F32(s) => s.current_rho(),
+            TFdpInner::NdF64(s) => s.current_rho(),
+            TFdpInner::NdF32(s) => s.current_rho(),
+        }
     }
-
-    /// Number of attractive edges in the `TFdpSolver`.
     #[getter]
     fn num_edges(&self) -> usize {
-        self.inner.num_edges()
+        match &self.inner {
+            TFdpInner::L2F64(s) => s.num_edges(),
+            TFdpInner::L2F32(s) => s.num_edges(),
+            TFdpInner::L3F64(s) => s.num_edges(),
+            TFdpInner::L3F32(s) => s.num_edges(),
+            TFdpInner::NdF64(s) => s.num_edges(),
+            TFdpInner::NdF32(s) => s.num_edges(),
+        }
     }
-
-    /// Cumulative number of 2D FFT transforms executed across all steps.
     #[getter]
     fn total_fft_2d_calls(&self) -> u64 {
-        self.inner.total_fft_2d_calls()
+        match &self.inner {
+            TFdpInner::L2F64(s) => s.total_fft_2d_calls(),
+            TFdpInner::L2F32(s) => s.total_fft_2d_calls(),
+            _ => 0,
+        }
     }
-
     fn __repr__(&self) -> String {
         format!(
-            "TFdpSolver(num_nodes={}, status='{}', iteration={}/{}, dtype='{}')",
+            "TFdpSolver(num_nodes={}, target='{}', status='{}', iteration={}/{:?}, dtype='{}')",
             self.num_nodes(),
+            self.target(),
             self.status(),
             self.iteration(),
             self.total_iterations(),

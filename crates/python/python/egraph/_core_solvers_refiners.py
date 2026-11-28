@@ -6,8 +6,12 @@ from egraph._core import (
     PfsPrimeOverlapRemoval as PfsPrimeOverlapRemoval,
     PrismOverlapRemoval as PrismOverlapRemoval,
     ScreenedPoissonField2d as ScreenedPoissonField2d,
+    ScreenedPoissonOutput as ScreenedPoissonOutput,
     ScreenedPoissonRefiner as ScreenedPoissonRefiner,
+    ScreenedPoissonStats as ScreenedPoissonStats,
     SpatialIntruderRefiner as SpatialIntruderRefiner,
+    SpatialRefinerRoundStats as SpatialRefinerRoundStats,
+    SpatialRefinerStats as SpatialRefinerStats,
 )
 
 __all__ = [
@@ -16,6 +20,10 @@ __all__ = [
     "PfsPrimeOverlapRemoval",
     "PrismOverlapRemoval",
     "ScreenedPoissonField2d",
+    "ScreenedPoissonOutput",
     "ScreenedPoissonRefiner",
+    "ScreenedPoissonStats",
     "SpatialIntruderRefiner",
+    "SpatialRefinerRoundStats",
+    "SpatialRefinerStats",
 ]

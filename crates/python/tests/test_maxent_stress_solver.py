@@ -206,8 +206,7 @@ class TestMaxentStressSolver(unittest.TestCase):
             return lay.is_all_finite()
 
         def run_sfc() -> bool:
-            lay = eg.Layout2d.zeros(graph.num_nodes)
-            eg.SfcLayoutSolver(graph, seed=42).run(lay)
+            lay = eg.SfcLayout(graph, seed=42).generate()
             return lay.is_all_finite()
 
         with ThreadPoolExecutor(max_workers=2) as pool:

@@ -1,18 +1,18 @@
 //! Scale-Normalized Stress (`SNS`) and manifold geodesic distortion bindings.
 
 use egraph::metrics as egraph_metrics;
-use pyo3::exceptions::{PyTypeError, PyValueError};
+use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
-use pyo3::types::{PyBool, PyDict};
+use pyo3::types::PyBool;
 
 use crate::array_extract::extract_f64_2d_raw;
 use crate::csr_graph::PyCsrGraph;
-use crate::ffi_convert::{StrictU64, StrictUsize, core_error_to_py, is_non_sequence_container};
+use crate::errors::{core_error_to_py, dimension_mismatch_err, invalid_input_err};
+use crate::ffi_convert::{StrictU64, StrictUsize, is_non_sequence_container};
 use crate::manifold::{ManifoldLayout2dInner, PyManifoldLayout2d, build_core_f32, build_core_f64};
 
-use super::nd_manifold_helpers::{
-    MetricLayoutInput, dispatch_owned_metric_layout, stress_evaluation_to_py_dict,
-};
+use super::nd_manifold_helpers::{MetricLayoutInput, dispatch_owned_metric};
+use super::result_types::PyStressEvaluation;
 
 fn extract_u32_item(obj: &Bound<'_, PyAny>, fn_name: &str, field: &str) -> PyResult<u32> {
     if obj.is_instance_of::<PyBool>() {
@@ -24,7 +24,7 @@ fn extract_u32_item(obj: &Bound<'_, PyAny>, fn_name: &str, field: &str) -> PyRes
         PyTypeError::new_err(format!("{fn_name}: {field} must be a non-negative integer"))
     })?;
     u32::try_from(val).map_err(|_| {
-        PyValueError::new_err(format!(
+        invalid_input_err(format!(
             "{fn_name}: {field} value {val} out of range for uint32"
         ))
     })
@@ -49,7 +49,7 @@ fn extract_stress_pairs(pairs: &Bound<'_, PyAny>) -> PyResult<Vec<(u32, u32, f64
     if pairs.cast::<numpy::PyUntypedArray>().is_ok() {
         let (flat, rows, cols) = extract_f64_2d_raw(pairs, "pairs")?;
         if cols != 4 {
-            return Err(PyValueError::new_err(format!(
+            return Err(dimension_mismatch_err(format!(
                 "pairs array must have shape (M, 4), got ({rows}, {cols})"
             )));
         }
@@ -57,12 +57,12 @@ fn extract_stress_pairs(pairs: &Bound<'_, PyAny>) -> PyResult<Vec<(u32, u32, f64
         for chunk in flat.as_chunks::<4>().0 {
             let (uf, vf, d, w) = (chunk[0], chunk[1], chunk[2], chunk[3]);
             if !uf.is_finite() || uf < 0.0 || uf.fract() != 0.0 || uf > u32::MAX as f64 {
-                return Err(PyValueError::new_err(format!(
+                return Err(invalid_input_err(format!(
                     "pairs endpoint u={uf} must be a non-negative integer"
                 )));
             }
             if !vf.is_finite() || vf < 0.0 || vf.fract() != 0.0 || vf > u32::MAX as f64 {
-                return Err(PyValueError::new_err(format!(
+                return Err(invalid_input_err(format!(
                     "pairs endpoint v={vf} must be a non-negative integer"
                 )));
             }
@@ -92,7 +92,7 @@ fn extract_stress_pairs(pairs: &Bound<'_, PyAny>) -> PyResult<Vec<(u32, u32, f64
             elems.push(sub_res?);
         }
         if elems.len() != 4 {
-            return Err(PyValueError::new_err(format!(
+            return Err(dimension_mismatch_err(format!(
                 "each pair entry must have 4 elements (u, v, dist, weight), got {}",
                 elems.len()
             )));
@@ -118,46 +118,28 @@ fn scale_normalized_stress(
 ) -> PyResult<f64> {
     let owned = layout.extract_owned()?;
     let g = graph.inner();
-    dispatch_owned_metric_layout(
-        py,
-        owned,
-        |l| egraph_metrics::scale_normalized_stress(&*g, l),
-        |l| egraph_metrics::scale_normalized_stress(&*g, l),
-        |l| egraph_metrics::scale_normalized_stress_nd(&*g, l),
-        |l| egraph_metrics::scale_normalized_stress_nd(&*g, l),
-        |l| egraph_metrics::scale_normalized_stress_manifold(&*g, l),
-        |l| egraph_metrics::scale_normalized_stress_manifold(&*g, l),
-    )
+    dispatch_owned_metric!(py, owned, |l| egraph_metrics::scale_normalized_stress(
+        &*g, l
+    ))
 }
 
 /// Compute detailed closed-form Scale-Normalized Stress (`SNS`) diagnostics.
-///
-/// Supports `Layout2d`, `LayoutNd`, and `ManifoldLayout2d`. Releases the Python GIL during computation.
 #[pyfunction]
 #[pyo3(signature = (graph, layout), text_signature = "(graph, layout)")]
 fn scale_normalized_stress_detail(
     py: Python<'_>,
     graph: &PyCsrGraph,
     layout: MetricLayoutInput<'_>,
-) -> PyResult<Py<PyDict>> {
+) -> PyResult<PyStressEvaluation> {
     let owned = layout.extract_owned()?;
     let g = graph.inner();
-    let eval = dispatch_owned_metric_layout(
-        py,
-        owned,
-        |l| egraph_metrics::scale_normalized_stress_detail(&*g, l),
-        |l| egraph_metrics::scale_normalized_stress_detail(&*g, l),
-        |l| egraph_metrics::scale_normalized_stress_detail_nd(&*g, l),
-        |l| egraph_metrics::scale_normalized_stress_detail_nd(&*g, l),
-        |l| egraph_metrics::scale_normalized_stress_detail_manifold(&*g, l),
-        |l| egraph_metrics::scale_normalized_stress_detail_manifold(&*g, l),
-    )?;
-    stress_evaluation_to_py_dict(py, eval)
+    let inner = dispatch_owned_metric!(py, owned, |l| {
+        egraph_metrics::scale_normalized_stress_detail(&*g, l)
+    })?;
+    Ok(PyStressEvaluation { inner })
 }
 
 /// Compute O(kN) degree-stratified pivot-sampled Scale-Normalized Stress (`SNS`).
-///
-/// Supports `Layout2d`, `LayoutNd`, and `ManifoldLayout2d`. Releases the Python GIL during computation.
 #[pyfunction]
 #[pyo3(
     signature = (graph, layout, *, num_pivots = StrictUsize(64), seed = StrictU64(42)),
@@ -172,23 +154,13 @@ fn sampled_scale_normalized_stress(
 ) -> PyResult<f64> {
     let owned = layout.extract_owned()?;
     let g = graph.inner();
-    let pivots = num_pivots.0;
-    let seed_val = seed.0;
-    dispatch_owned_metric_layout(
-        py,
-        owned,
-        |l| egraph_metrics::sampled_scale_normalized_stress(&*g, l, pivots, seed_val),
-        |l| egraph_metrics::sampled_scale_normalized_stress(&*g, l, pivots, seed_val),
-        |l| egraph_metrics::sampled_scale_normalized_stress_nd(&*g, l, pivots, seed_val),
-        |l| egraph_metrics::sampled_scale_normalized_stress_nd(&*g, l, pivots, seed_val),
-        |l| egraph_metrics::sampled_scale_normalized_stress_manifold(&*g, l, pivots, seed_val),
-        |l| egraph_metrics::sampled_scale_normalized_stress_manifold(&*g, l, pivots, seed_val),
-    )
+    let (pivots, seed_val) = (num_pivots.0, seed.0);
+    dispatch_owned_metric!(py, owned, |l| {
+        egraph_metrics::sampled_scale_normalized_stress(&*g, l, pivots, seed_val)
+    })
 }
 
 /// Compute detailed pivot-sampled Scale-Normalized Stress (`SNS`) diagnostics.
-///
-/// Supports `Layout2d`, `LayoutNd`, and `ManifoldLayout2d`. Releases the Python GIL during computation.
 #[pyfunction]
 #[pyo3(
     signature = (graph, layout, *, num_pivots = StrictUsize(64), seed = StrictU64(42)),
@@ -200,30 +172,14 @@ fn sampled_scale_normalized_stress_detail(
     layout: MetricLayoutInput<'_>,
     num_pivots: StrictUsize,
     seed: StrictU64,
-) -> PyResult<Py<PyDict>> {
+) -> PyResult<PyStressEvaluation> {
     let owned = layout.extract_owned()?;
     let g = graph.inner();
-    let pivots = num_pivots.0;
-    let seed_val = seed.0;
-    let eval = dispatch_owned_metric_layout(
-        py,
-        owned,
-        |l| egraph_metrics::sampled_scale_normalized_stress_detail(&*g, l, pivots, seed_val),
-        |l| egraph_metrics::sampled_scale_normalized_stress_detail(&*g, l, pivots, seed_val),
-        |l| egraph_metrics::sampled_scale_normalized_stress_detail_nd(&*g, l, pivots, seed_val),
-        |l| egraph_metrics::sampled_scale_normalized_stress_detail_nd(&*g, l, pivots, seed_val),
-        |l| {
-            egraph_metrics::sampled_scale_normalized_stress_detail_manifold(
-                &*g, l, pivots, seed_val,
-            )
-        },
-        |l| {
-            egraph_metrics::sampled_scale_normalized_stress_detail_manifold(
-                &*g, l, pivots, seed_val,
-            )
-        },
-    )?;
-    stress_evaluation_to_py_dict(py, eval)
+    let (pivots, seed_val) = (num_pivots.0, seed.0);
+    let inner = dispatch_owned_metric!(py, owned, |l| {
+        egraph_metrics::sampled_scale_normalized_stress_detail(&*g, l, pivots, seed_val)
+    })?;
+    Ok(PyStressEvaluation { inner })
 }
 
 fn extract_distance_weight_matrices(
@@ -232,7 +188,7 @@ fn extract_distance_weight_matrices(
 ) -> PyResult<(Vec<f64>, Option<Vec<f64>>)> {
     let (dists_flat, d_rows, d_cols) = extract_f64_2d_raw(distances, "distances")?;
     if d_rows != d_cols {
-        return Err(PyValueError::new_err(format!(
+        return Err(dimension_mismatch_err(format!(
             "distances must be square (N, N), got ({d_rows}, {d_cols})"
         )));
     }
@@ -240,7 +196,7 @@ fn extract_distance_weight_matrices(
         Some(w_obj) if !w_obj.is_none() => {
             let (wf, w_rows, w_cols) = extract_f64_2d_raw(w_obj, "weights")?;
             if w_rows != w_cols || w_rows != d_rows {
-                return Err(PyValueError::new_err(format!(
+                return Err(dimension_mismatch_err(format!(
                     "weights shape ({w_rows}, {w_cols}) does not match distances shape ({d_rows}, {d_cols})"
                 )));
             }
@@ -252,8 +208,6 @@ fn extract_distance_weight_matrices(
 }
 
 /// Compute closed-form Scale-Normalized Stress (`SNS`) from an `(N, N)` distance matrix and optional weights.
-///
-/// Supports `Layout2d`, `LayoutNd`, and `ManifoldLayout2d`. Releases the Python GIL during computation.
 #[pyfunction]
 #[pyo3(
     signature = (layout, distances, weights = None),
@@ -267,57 +221,16 @@ fn scale_normalized_stress_from_distances(
 ) -> PyResult<f64> {
     let (dists_flat, weights_flat) = extract_distance_weight_matrices(distances, weights)?;
     let owned = layout.extract_owned()?;
-    dispatch_owned_metric_layout(
-        py,
-        owned,
-        |l| {
-            egraph_metrics::scale_normalized_stress_from_distances(
-                l,
-                &dists_flat,
-                weights_flat.as_deref(),
-            )
-        },
-        |l| {
-            egraph_metrics::scale_normalized_stress_from_distances(
-                l,
-                &dists_flat,
-                weights_flat.as_deref(),
-            )
-        },
-        |l| {
-            egraph_metrics::scale_normalized_stress_from_distances_nd(
-                l,
-                &dists_flat,
-                weights_flat.as_deref(),
-            )
-        },
-        |l| {
-            egraph_metrics::scale_normalized_stress_from_distances_nd(
-                l,
-                &dists_flat,
-                weights_flat.as_deref(),
-            )
-        },
-        |l| {
-            egraph_metrics::scale_normalized_stress_from_distances_manifold(
-                l,
-                &dists_flat,
-                weights_flat.as_deref(),
-            )
-        },
-        |l| {
-            egraph_metrics::scale_normalized_stress_from_distances_manifold(
-                l,
-                &dists_flat,
-                weights_flat.as_deref(),
-            )
-        },
-    )
+    dispatch_owned_metric!(py, owned, |l| {
+        egraph_metrics::scale_normalized_stress_from_distances(
+            l,
+            &dists_flat,
+            weights_flat.as_deref(),
+        )
+    })
 }
 
 /// Compute detailed Scale-Normalized Stress (`SNS`) from an `(N, N)` distance matrix and optional weights.
-///
-/// Supports `Layout2d`, `LayoutNd`, and `ManifoldLayout2d`. Releases the Python GIL during computation.
 #[pyfunction]
 #[pyo3(
     signature = (layout, distances, weights = None),
@@ -328,81 +241,33 @@ fn scale_normalized_stress_from_distances_detail(
     layout: MetricLayoutInput<'_>,
     distances: &Bound<'_, PyAny>,
     weights: Option<&Bound<'_, PyAny>>,
-) -> PyResult<Py<PyDict>> {
+) -> PyResult<PyStressEvaluation> {
     let (dists_flat, weights_flat) = extract_distance_weight_matrices(distances, weights)?;
     let owned = layout.extract_owned()?;
-    let eval = dispatch_owned_metric_layout(
-        py,
-        owned,
-        |l| {
-            egraph_metrics::scale_normalized_stress_from_distances_detail(
-                l,
-                &dists_flat,
-                weights_flat.as_deref(),
-            )
-        },
-        |l| {
-            egraph_metrics::scale_normalized_stress_from_distances_detail(
-                l,
-                &dists_flat,
-                weights_flat.as_deref(),
-            )
-        },
-        |l| {
-            egraph_metrics::scale_normalized_stress_from_distances_detail_nd(
-                l,
-                &dists_flat,
-                weights_flat.as_deref(),
-            )
-        },
-        |l| {
-            egraph_metrics::scale_normalized_stress_from_distances_detail_nd(
-                l,
-                &dists_flat,
-                weights_flat.as_deref(),
-            )
-        },
-        |l| {
-            egraph_metrics::scale_normalized_stress_from_distances_detail_manifold(
-                l,
-                &dists_flat,
-                weights_flat.as_deref(),
-            )
-        },
-        |l| {
-            egraph_metrics::scale_normalized_stress_from_distances_detail_manifold(
-                l,
-                &dists_flat,
-                weights_flat.as_deref(),
-            )
-        },
-    )?;
-    stress_evaluation_to_py_dict(py, eval)
+    let inner = dispatch_owned_metric!(py, owned, |l| {
+        egraph_metrics::scale_normalized_stress_from_distances_detail(
+            l,
+            &dists_flat,
+            weights_flat.as_deref(),
+        )
+    })?;
+    Ok(PyStressEvaluation { inner })
 }
 
 /// Compute detailed Scale-Normalized Stress (`SNS`) from sparse `(u, v, dist, weight)` pairs.
-///
-/// Supports `Layout2d`, `LayoutNd`, and `ManifoldLayout2d`. Releases the Python GIL during computation.
 #[pyfunction]
 #[pyo3(signature = (layout, pairs), text_signature = "(layout, pairs)")]
 fn scale_normalized_stress_from_pairs(
     py: Python<'_>,
     layout: MetricLayoutInput<'_>,
     pairs: &Bound<'_, PyAny>,
-) -> PyResult<Py<PyDict>> {
+) -> PyResult<PyStressEvaluation> {
     let pair_vec = extract_stress_pairs(pairs)?;
     let owned = layout.extract_owned()?;
-    let eval = dispatch_owned_metric_layout(
-        py,
-        owned,
-        |l| egraph_metrics::scale_normalized_stress_from_pairs(l, &pair_vec),
-        |l| egraph_metrics::scale_normalized_stress_from_pairs(l, &pair_vec),
-        |l| egraph_metrics::scale_normalized_stress_from_pairs_nd(l, &pair_vec),
-        |l| egraph_metrics::scale_normalized_stress_from_pairs_nd(l, &pair_vec),
-        |l| egraph_metrics::scale_normalized_stress_from_pairs_manifold(l, &pair_vec),
-        |l| egraph_metrics::scale_normalized_stress_from_pairs_manifold(l, &pair_vec),
-    )?;
-    stress_evaluation_to_py_dict(py, eval)
+    let inner = dispatch_owned_metric!(py, owned, |l| {
+        egraph_metrics::scale_normalized_stress_from_pairs(l, &pair_vec)
+    })?;
+    Ok(PyStressEvaluation { inner })
 }
 
 /// Compute Miller et al. (2024) Geodesic Distortion without post-hoc rescaling on `ManifoldLayout2d`.
@@ -419,12 +284,12 @@ fn geodesic_distortion(
     let owned = match borrowed.inner() {
         ManifoldLayout2dInner::F64 { kind, metric, buf } => {
             super::nd_manifold_helpers::OwnedMetricLayout::F64Manifold(
-                build_core_f64(*kind, *metric, buf).map_err(core_error_to_py)?,
+                build_core_f64(*kind, metric, buf).map_err(core_error_to_py)?,
             )
         }
         ManifoldLayout2dInner::F32 { kind, metric, buf } => {
             super::nd_manifold_helpers::OwnedMetricLayout::F32Manifold(
-                build_core_f32(*kind, *metric, buf).map_err(core_error_to_py)?,
+                build_core_f32(*kind, metric, buf).map_err(core_error_to_py)?,
             )
         }
     };

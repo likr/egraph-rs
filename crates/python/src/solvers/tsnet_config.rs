@@ -1,194 +1,373 @@
-//! Shared inner wrapper, `TsNetStage`, and configuration builder for `TsNetSolver`.
+//! Shared Option 1 target-backend dispatch, `FitFieldStats`, `TsNetStage`, and config builder for `TsNetSolver`.
 
-use egraph::{
-    layout as egraph_layout, neighborhood as egraph_neighborhood, spatial as egraph_spatial,
+use egraph::core::{
+    CoreError, CoreResult, IterativeSolver, Layout2d, Layout3d, LayoutNd, ManifoldLayout2d,
+    SolverStatus,
 };
-use egraph_layout::{TsNetBackend, TsNetConfig, TsNetSolver, TsNetStage};
-use egraph_neighborhood::{SymmetrizationMode, TwoHopSamplingMode};
-use egraph_spatial::{IbFftConfig, InterpolationOrder};
-use numpy::{PyUntypedArray, PyUntypedArrayMethods};
-use pyo3::exceptions::{PyTypeError, PyValueError};
+use egraph::layout::neighbor::{BarnesHut as NeighborBarnesHut, Exact as NeighborExact};
+use egraph::layout::{
+    Auto2d, Auto3d, FitFft, LinearFft, TsNetBackend2d, TsNetBackend3d, TsNetConfig, TsNetSolver,
+    TsNetStage,
+};
+use egraph::neighborhood::{SymmetrizationMode, TwoHopSamplingMode};
+use egraph::spatial::{IbFftConfig, InterpolationOrder};
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
 
-use crate::ffi_convert::{
-    StrictF64, StrictUsize, core_error_to_py, extract_non_negative_usize,
-    is_non_sequence_container, normalize_enum_key,
-};
-use crate::solver_common::impl_dual_solver;
+use crate::errors::{core_error_to_py, unsupported_operation_err};
+use crate::ffi_convert::{ScalarDtype, normalize_enum_key};
 
-use super::layout_dispatch::{impl_dual_manifold_solver, impl_dual_nd_solver};
+use super::fit_field_stats::PyFitFieldStats;
+use super::layout_dispatch::{DualTargetSolver, SolverTargetKind, TargetLayout};
+use super::tsnet_builders::parse_stage_iterations;
 
-impl_dual_solver!(TsNetInner, TsNetSolver);
-impl_dual_nd_solver!(TsNetInner, TsNetSolver);
-impl_dual_manifold_solver!(TsNetInner, TsNetSolver);
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) enum TsNetBackendChoice {
+    Auto,
+    Exact,
+    BarnesHut,
+    FitFft,
+    LinearFft,
+}
 
-pub(super) fn tsnet_backend_str(backend: TsNetBackend) -> &'static str {
-    match backend {
-        TsNetBackend::Exact => "exact",
-        TsNetBackend::BarnesHut => "barnes_hut",
-        TsNetBackend::FftInterpolation => "fft",
-        TsNetBackend::LinearFft => "linear_fft",
-        TsNetBackend::Auto => "auto",
+impl TsNetBackendChoice {
+    pub(super) fn parse_str(raw: &str) -> Result<Self, String> {
+        match normalize_enum_key(raw).as_str() {
+            "auto" => Ok(Self::Auto),
+            "exact" => Ok(Self::Exact),
+            "barneshut" | "bh" => Ok(Self::BarnesHut),
+            "fitfft" | "fft" | "fftinterpolation" | "fit" => Ok(Self::FitFft),
+            "linearfft" | "l" => Ok(Self::LinearFft),
+            _ => Err(format!(
+                "unknown tsNET backend {raw:?}; expected 'auto', 'exact', 'barnes_hut', 'fit_fft', or 'linear_fft'"
+            )),
+        }
+    }
+
+    pub(super) fn parse(raw: &str) -> PyResult<Self> {
+        Self::parse_str(raw).map_err(unsupported_operation_err)
+    }
+}
+
+pub(super) enum ResolvedTsNetBackend {
+    L2(TsNetBackend2d),
+    L3(TsNetBackend3d),
+    Nd(NeighborExact),
+    M2(NeighborExact),
+}
+
+pub(super) fn validate_and_resolve_tsnet_backend(
+    target: SolverTargetKind,
+    choice: TsNetBackendChoice,
+    theta: f64,
+    ibfft: IbFftConfig,
+) -> PyResult<ResolvedTsNetBackend> {
+    NeighborBarnesHut::new(theta)
+        .validate()
+        .map_err(core_error_to_py)?;
+    ibfft.validate().map_err(core_error_to_py)?;
+    match target {
+        SolverTargetKind::Layout2d => {
+            let b = match choice {
+                TsNetBackendChoice::Auto => TsNetBackend2d::Auto(Auto2d::new().with_ibfft(ibfft)),
+                TsNetBackendChoice::Exact => TsNetBackend2d::Exact(NeighborExact::new()),
+                TsNetBackendChoice::BarnesHut => {
+                    TsNetBackend2d::BarnesHut(NeighborBarnesHut::new(theta))
+                }
+                TsNetBackendChoice::FitFft => {
+                    TsNetBackend2d::FitFft(FitFft::new().with_ibfft(ibfft))
+                }
+                TsNetBackendChoice::LinearFft => {
+                    TsNetBackend2d::LinearFft(LinearFft::new().with_ibfft(ibfft))
+                }
+            };
+            Ok(ResolvedTsNetBackend::L2(b))
+        }
+        SolverTargetKind::Layout3d => {
+            let b = match choice {
+                TsNetBackendChoice::Auto => TsNetBackend3d::Auto(Auto3d::new().with_theta(theta)),
+                TsNetBackendChoice::Exact => TsNetBackend3d::Exact(NeighborExact::new()),
+                TsNetBackendChoice::BarnesHut => {
+                    TsNetBackend3d::BarnesHut(NeighborBarnesHut::new(theta))
+                }
+                TsNetBackendChoice::FitFft | TsNetBackendChoice::LinearFft => {
+                    return Err(unsupported_operation_err(
+                        "FFT tsNET backends ('fit_fft'/'linear_fft') only support target='layout2d'; use 'auto', 'barnes_hut', or 'exact' for target='layout3d'",
+                    ));
+                }
+            };
+            Ok(ResolvedTsNetBackend::L3(b))
+        }
+        SolverTargetKind::LayoutNd => match choice {
+            TsNetBackendChoice::Auto | TsNetBackendChoice::Exact => {
+                Ok(ResolvedTsNetBackend::Nd(NeighborExact::new()))
+            }
+            TsNetBackendChoice::BarnesHut
+            | TsNetBackendChoice::FitFft
+            | TsNetBackendChoice::LinearFft => Err(unsupported_operation_err(
+                "tsNET with target='layout_nd' only supports 'exact' (or 'auto') repulsion; use target='layout2d' or target='layout3d' for spatial/FFT approximations",
+            )),
+        },
+        SolverTargetKind::Manifold2d => match choice {
+            TsNetBackendChoice::Auto | TsNetBackendChoice::Exact => {
+                Ok(ResolvedTsNetBackend::M2(NeighborExact::new()))
+            }
+            TsNetBackendChoice::BarnesHut
+            | TsNetBackendChoice::FitFft
+            | TsNetBackendChoice::LinearFft => Err(unsupported_operation_err(
+                "tsNET with target='manifold2d' only supports 'exact' (or 'auto') geodesic repulsion; use target='layout2d' or target='layout3d' for spatial/FFT approximations",
+            )),
+        },
+    }
+}
+
+pub(crate) enum TsNetInner {
+    L2F64(TsNetSolver<Layout2d<f64>, TsNetBackend2d>),
+    L2F32(TsNetSolver<Layout2d<f32>, TsNetBackend2d>),
+    L3F64(TsNetSolver<Layout3d<f64>, TsNetBackend3d>),
+    L3F32(TsNetSolver<Layout3d<f32>, TsNetBackend3d>),
+    NdF64(TsNetSolver<LayoutNd<f64>, NeighborExact>),
+    NdF32(TsNetSolver<LayoutNd<f32>, NeighborExact>),
+    M2F64(TsNetSolver<ManifoldLayout2d<f64>, NeighborExact>),
+    M2F32(TsNetSolver<ManifoldLayout2d<f32>, NeighborExact>),
+}
+
+impl DualTargetSolver for TsNetInner {
+    fn target_kind(&self) -> SolverTargetKind {
+        match self {
+            Self::L2F64(_) | Self::L2F32(_) => SolverTargetKind::Layout2d,
+            Self::L3F64(_) | Self::L3F32(_) => SolverTargetKind::Layout3d,
+            Self::NdF64(_) | Self::NdF32(_) => SolverTargetKind::LayoutNd,
+            Self::M2F64(_) | Self::M2F32(_) => SolverTargetKind::Manifold2d,
+        }
+    }
+    fn dtype(&self) -> ScalarDtype {
+        match self {
+            Self::L2F64(_) | Self::L3F64(_) | Self::NdF64(_) | Self::M2F64(_) => ScalarDtype::F64,
+            Self::L2F32(_) | Self::L3F32(_) | Self::NdF32(_) | Self::M2F32(_) => ScalarDtype::F32,
+        }
+    }
+    fn solver_status(&self) -> SolverStatus {
+        match self {
+            Self::L2F64(s) => IterativeSolver::status(s),
+            Self::L2F32(s) => IterativeSolver::status(s),
+            Self::L3F64(s) => IterativeSolver::status(s),
+            Self::L3F32(s) => IterativeSolver::status(s),
+            Self::NdF64(s) => IterativeSolver::status(s),
+            Self::NdF32(s) => IterativeSolver::status(s),
+            Self::M2F64(s) => IterativeSolver::status(s),
+            Self::M2F32(s) => IterativeSolver::status(s),
+        }
+    }
+    fn solver_iteration(&self) -> usize {
+        match self {
+            Self::L2F64(s) => IterativeSolver::iteration(s),
+            Self::L2F32(s) => IterativeSolver::iteration(s),
+            Self::L3F64(s) => IterativeSolver::iteration(s),
+            Self::L3F32(s) => IterativeSolver::iteration(s),
+            Self::NdF64(s) => IterativeSolver::iteration(s),
+            Self::NdF32(s) => IterativeSolver::iteration(s),
+            Self::M2F64(s) => IterativeSolver::iteration(s),
+            Self::M2F32(s) => IterativeSolver::iteration(s),
+        }
+    }
+    fn solver_total_iterations(&self) -> Option<usize> {
+        match self {
+            Self::L2F64(s) => IterativeSolver::total_iterations(s),
+            Self::L2F32(s) => IterativeSolver::total_iterations(s),
+            Self::L3F64(s) => IterativeSolver::total_iterations(s),
+            Self::L3F32(s) => IterativeSolver::total_iterations(s),
+            Self::NdF64(s) => IterativeSolver::total_iterations(s),
+            Self::NdF32(s) => IterativeSolver::total_iterations(s),
+            Self::M2F64(s) => IterativeSolver::total_iterations(s),
+            Self::M2F32(s) => IterativeSolver::total_iterations(s),
+        }
+    }
+    fn validate_raw(&self, layout: &TargetLayout) -> CoreResult<()> {
+        match (self, layout) {
+            (Self::L2F64(s), TargetLayout::L2F64(l)) => IterativeSolver::validate_target(s, l),
+            (Self::L2F32(s), TargetLayout::L2F32(l)) => IterativeSolver::validate_target(s, l),
+            (Self::L3F64(s), TargetLayout::L3F64(l)) => IterativeSolver::validate_target(s, l),
+            (Self::L3F32(s), TargetLayout::L3F32(l)) => IterativeSolver::validate_target(s, l),
+            (Self::NdF64(s), TargetLayout::NdF64(l)) => IterativeSolver::validate_target(s, l),
+            (Self::NdF32(s), TargetLayout::NdF32(l)) => IterativeSolver::validate_target(s, l),
+            (Self::M2F64(s), TargetLayout::M2F64(l)) => IterativeSolver::validate_target(s, l),
+            (Self::M2F32(s), TargetLayout::M2F32(l)) => IterativeSolver::validate_target(s, l),
+            _ => Err(CoreError::invalid_input(
+                "internal solver target/dtype mismatch",
+            )),
+        }
+    }
+    fn step_raw(&mut self, layout: &mut TargetLayout) -> CoreResult<SolverStatus> {
+        match (self, layout) {
+            (Self::L2F64(s), TargetLayout::L2F64(l)) => IterativeSolver::step(s, l),
+            (Self::L2F32(s), TargetLayout::L2F32(l)) => IterativeSolver::step(s, l),
+            (Self::L3F64(s), TargetLayout::L3F64(l)) => IterativeSolver::step(s, l),
+            (Self::L3F32(s), TargetLayout::L3F32(l)) => IterativeSolver::step(s, l),
+            (Self::NdF64(s), TargetLayout::NdF64(l)) => IterativeSolver::step(s, l),
+            (Self::NdF32(s), TargetLayout::NdF32(l)) => IterativeSolver::step(s, l),
+            (Self::M2F64(s), TargetLayout::M2F64(l)) => IterativeSolver::step(s, l),
+            (Self::M2F32(s), TargetLayout::M2F32(l)) => IterativeSolver::step(s, l),
+            _ => Err(CoreError::invalid_input(
+                "internal solver target/dtype mismatch",
+            )),
+        }
+    }
+    fn run_steps_raw(
+        &mut self,
+        layout: &mut TargetLayout,
+        steps: usize,
+    ) -> CoreResult<SolverStatus> {
+        match (self, layout) {
+            (Self::L2F64(s), TargetLayout::L2F64(l)) => IterativeSolver::run_steps(s, l, steps),
+            (Self::L2F32(s), TargetLayout::L2F32(l)) => IterativeSolver::run_steps(s, l, steps),
+            (Self::L3F64(s), TargetLayout::L3F64(l)) => IterativeSolver::run_steps(s, l, steps),
+            (Self::L3F32(s), TargetLayout::L3F32(l)) => IterativeSolver::run_steps(s, l, steps),
+            (Self::NdF64(s), TargetLayout::NdF64(l)) => IterativeSolver::run_steps(s, l, steps),
+            (Self::NdF32(s), TargetLayout::NdF32(l)) => IterativeSolver::run_steps(s, l, steps),
+            (Self::M2F64(s), TargetLayout::M2F64(l)) => IterativeSolver::run_steps(s, l, steps),
+            (Self::M2F32(s), TargetLayout::M2F32(l)) => IterativeSolver::run_steps(s, l, steps),
+            _ => Err(CoreError::invalid_input(
+                "internal solver target/dtype mismatch",
+            )),
+        }
+    }
+    fn run_raw(&mut self, layout: &mut TargetLayout) -> CoreResult<SolverStatus> {
+        match (self, layout) {
+            (Self::L2F64(s), TargetLayout::L2F64(l)) => IterativeSolver::run(s, l),
+            (Self::L2F32(s), TargetLayout::L2F32(l)) => IterativeSolver::run(s, l),
+            (Self::L3F64(s), TargetLayout::L3F64(l)) => IterativeSolver::run(s, l),
+            (Self::L3F32(s), TargetLayout::L3F32(l)) => IterativeSolver::run(s, l),
+            (Self::NdF64(s), TargetLayout::NdF64(l)) => IterativeSolver::run(s, l),
+            (Self::NdF32(s), TargetLayout::NdF32(l)) => IterativeSolver::run(s, l),
+            (Self::M2F64(s), TargetLayout::M2F64(l)) => IterativeSolver::run(s, l),
+            (Self::M2F32(s), TargetLayout::M2F32(l)) => IterativeSolver::run(s, l),
+            _ => Err(CoreError::invalid_input(
+                "internal solver target/dtype mismatch",
+            )),
+        }
     }
 }
 
 impl TsNetInner {
     pub(super) fn total_fft_2d_calls(&self) -> u64 {
         match self {
-            Self::F64(s) => s.total_fft_2d_calls(),
-            Self::F32(s) => s.total_fft_2d_calls(),
+            Self::L2F64(s) => s.total_fft_2d_calls(),
+            Self::L2F32(s) => s.total_fft_2d_calls(),
+            _ => 0,
         }
     }
-
     pub(super) fn num_nodes(&self) -> usize {
         match self {
-            Self::F64(s) => s.num_nodes(),
-            Self::F32(s) => s.num_nodes(),
+            Self::L2F64(s) => s.num_nodes(),
+            Self::L2F32(s) => s.num_nodes(),
+            Self::L3F64(s) => s.num_nodes(),
+            Self::L3F32(s) => s.num_nodes(),
+            Self::NdF64(s) => s.num_nodes(),
+            Self::NdF32(s) => s.num_nodes(),
+            Self::M2F64(s) => s.num_nodes(),
+            Self::M2F32(s) => s.num_nodes(),
         }
     }
-
     pub(super) fn stage_index(&self) -> usize {
         match self {
-            Self::F64(s) => s.stage_index(),
-            Self::F32(s) => s.stage_index(),
+            Self::L2F64(s) => s.stage_index(),
+            Self::L2F32(s) => s.stage_index(),
+            Self::L3F64(s) => s.stage_index(),
+            Self::L3F32(s) => s.stage_index(),
+            Self::NdF64(s) => s.stage_index(),
+            Self::NdF32(s) => s.stage_index(),
+            Self::M2F64(s) => s.stage_index(),
+            Self::M2F32(s) => s.stage_index(),
         }
     }
-
     pub(super) fn current_stage_lr(&self) -> f64 {
         match self {
-            Self::F64(s) => s.current_stage_lr(),
-            Self::F32(s) => s.current_stage_lr(),
+            Self::L2F64(s) => s.current_stage_lr(),
+            Self::L2F32(s) => s.current_stage_lr(),
+            Self::L3F64(s) => s.current_stage_lr(),
+            Self::L3F32(s) => s.current_stage_lr(),
+            Self::NdF64(s) => s.current_stage_lr(),
+            Self::NdF32(s) => s.current_stage_lr(),
+            Self::M2F64(s) => s.current_stage_lr(),
+            Self::M2F32(s) => s.current_stage_lr(),
         }
     }
-
     pub(super) fn resolved_backend(&self) -> &'static str {
-        let b = match self {
-            Self::F64(s) => s.resolved_backend(),
-            Self::F32(s) => s.resolved_backend(),
-        };
-        tsnet_backend_str(b)
+        let n = self.num_nodes();
+        match self {
+            Self::L2F64(s) => match s.backend() {
+                TsNetBackend2d::Exact(_) => "exact",
+                TsNetBackend2d::BarnesHut(_) => "barnes_hut",
+                TsNetBackend2d::FitFft(_) => "fit_fft",
+                TsNetBackend2d::LinearFft(_) => "linear_fft",
+                TsNetBackend2d::Auto(a) => {
+                    if n <= a.exact_threshold() {
+                        "exact"
+                    } else {
+                        "linear_fft"
+                    }
+                }
+                _ => "exact",
+            },
+            Self::L2F32(s) => match s.backend() {
+                TsNetBackend2d::Exact(_) => "exact",
+                TsNetBackend2d::BarnesHut(_) => "barnes_hut",
+                TsNetBackend2d::FitFft(_) => "fit_fft",
+                TsNetBackend2d::LinearFft(_) => "linear_fft",
+                TsNetBackend2d::Auto(a) => {
+                    if n <= a.exact_threshold() {
+                        "exact"
+                    } else {
+                        "linear_fft"
+                    }
+                }
+                _ => "exact",
+            },
+            Self::L3F64(s) => match s.backend() {
+                TsNetBackend3d::Exact(_) => "exact",
+                TsNetBackend3d::BarnesHut(_) => "barnes_hut",
+                TsNetBackend3d::Auto(a) => {
+                    if n <= a.exact_threshold() {
+                        "exact"
+                    } else {
+                        "barnes_hut"
+                    }
+                }
+                _ => "exact",
+            },
+            Self::L3F32(s) => match s.backend() {
+                TsNetBackend3d::Exact(_) => "exact",
+                TsNetBackend3d::BarnesHut(_) => "barnes_hut",
+                TsNetBackend3d::Auto(a) => {
+                    if n <= a.exact_threshold() {
+                        "exact"
+                    } else {
+                        "barnes_hut"
+                    }
+                }
+                _ => "exact",
+            },
+            Self::NdF64(_) | Self::NdF32(_) | Self::M2F64(_) | Self::M2F32(_) => "exact",
+        }
     }
-
-    pub(super) fn last_fft_stats_dict<'py>(
-        &self,
-        py: Python<'py>,
-    ) -> PyResult<Option<Bound<'py, PyDict>>> {
-        let stats = match self {
-            Self::F64(s) => s.last_fft_stats(),
-            Self::F32(s) => s.last_fft_stats(),
-        };
-        match stats {
-            Some(st) => {
-                let d = PyDict::new(py);
-                d.set_item("particle_forward_ffts", st.particle_forward_ffts)?;
-                d.set_item("kernel_forward_ffts", st.kernel_forward_ffts)?;
-                d.set_item("inverse_ffts", st.inverse_ffts)?;
-                d.set_item("total_fft_2d_calls", st.total_fft_2d_calls)?;
-                Ok(Some(d))
-            }
-            None => Ok(None),
+    pub(super) fn last_fft_stats(&self) -> Option<PyFitFieldStats> {
+        match self {
+            Self::L2F64(s) => s.last_fft_stats().map(PyFitFieldStats::from_fit),
+            Self::L2F32(s) => s.last_fft_stats().map(PyFitFieldStats::from_fit),
+            _ => None,
         }
     }
 }
 
-/// Optimization stage parameters for `TsNetSolver.from_probabilities_with_stages`.
-#[pyclass(name = "TsNetStage", module = "egraph._core", from_py_object)]
-#[derive(Clone, Debug)]
-pub struct PyTsNetStage {
-    pub(super) inner: TsNetStage,
-}
-
-#[pymethods]
-impl PyTsNetStage {
-    /// Construct a `TsNetStage` specifying iterations, exaggeration, and gradient term weights.
-    #[new]
-    #[pyo3(
-        signature = (iterations, *, exaggeration = StrictF64(1.0), lambda_kl = StrictF64(1.0), lambda_c = StrictF64(0.0), lambda_r = StrictF64(0.0)),
-        text_signature = "(iterations, *, exaggeration=1.0, lambda_kl=1.0, lambda_c=0.0, lambda_r=0.0)"
-    )]
-    fn new(
-        iterations: StrictUsize,
-        exaggeration: StrictF64,
-        lambda_kl: StrictF64,
-        lambda_c: StrictF64,
-        lambda_r: StrictF64,
-    ) -> PyResult<Self> {
-        let inner = TsNetStage {
-            iterations: iterations.0,
-            exaggeration: exaggeration.0,
-            lambda_kl: lambda_kl.0,
-            lambda_c: lambda_c.0,
-            lambda_r: lambda_r.0,
-        };
-        inner.validate().map_err(core_error_to_py)?;
-        Ok(Self { inner })
-    }
-
-    /// Number of gradient descent iterations in this stage.
-    #[getter]
-    fn iterations(&self) -> usize {
-        self.inner.iterations
-    }
-
-    /// Early exaggeration multiplier applied to high-dimensional probabilities.
-    #[getter]
-    fn exaggeration(&self) -> f64 {
-        self.inner.exaggeration
-    }
-
-    /// Weight of the KL divergence gradient term.
-    #[getter]
-    fn lambda_kl(&self) -> f64 {
-        self.inner.lambda_kl
-    }
-
-    /// Weight of the quadratic origin-compression gradient term.
-    #[getter]
-    fn lambda_c(&self) -> f64 {
-        self.inner.lambda_c
-    }
-
-    /// Weight of the repulsive entropy gradient term.
-    #[getter]
-    fn lambda_r(&self) -> f64 {
-        self.inner.lambda_r
-    }
-
-    fn __repr__(&self) -> String {
-        format!(
-            "TsNetStage(iterations={}, exaggeration={}, lambda_kl={}, lambda_c={}, lambda_r={})",
-            self.inner.iterations,
-            self.inner.exaggeration,
-            self.inner.lambda_kl,
-            self.inner.lambda_c,
-            self.inner.lambda_r
-        )
-    }
-}
-
-pub(super) fn parse_tsnet_backend(raw: &str) -> Result<TsNetBackend, String> {
-    match normalize_enum_key(raw).as_str() {
-        "exact" => Ok(TsNetBackend::Exact),
-        "barneshut" | "bh" => Ok(TsNetBackend::BarnesHut),
-        "fft" | "fftinterpolation" | "fit" => Ok(TsNetBackend::FftInterpolation),
-        "linearfft" | "l" => Ok(TsNetBackend::LinearFft),
-        "auto" => Ok(TsNetBackend::Auto),
-        _ => Err(format!(
-            "unknown tsNET backend {raw:?}; expected 'exact', 'barnes_hut', 'fft', 'linear_fft', or 'auto'"
-        )),
-    }
-}
-
-pub(super) fn parse_tsnet_sampling_mode(raw: &str) -> Result<TwoHopSamplingMode, String> {
+pub(super) fn parse_tsnet_sampling_mode(raw: &str) -> PyResult<TwoHopSamplingMode> {
     match normalize_enum_key(raw).as_str() {
         "degreeorderedhubsuppressed" | "degreeordered" | "hubsuppressed" => {
             Ok(TwoHopSamplingMode::DegreeOrderedHubSuppressed)
         }
         "twosteprandomwalk" | "randomwalk" | "rw" => Ok(TwoHopSamplingMode::TwoStepRandomWalk),
-        _ => Err(format!(
+        _ => Err(unsupported_operation_err(format!(
             "unknown 2-hop sampling mode {raw:?}; expected 'degree_ordered_hub_suppressed' or 'two_step_random_walk'"
-        )),
+        ))),
     }
 }
 
@@ -212,45 +391,9 @@ pub(super) struct TsNetStageOpts<'a, 'py> {
     pub(super) seed: u64,
 }
 
-pub(super) fn parse_stage_iterations(obj: &Bound<'_, PyAny>) -> PyResult<[usize; 3]> {
-    if is_non_sequence_container(obj) {
-        return Err(PyTypeError::new_err(
-            "stage_iterations must be a sequence of 3 positive integers",
-        ));
-    }
-    if let Ok(arr) = obj.cast::<PyUntypedArray>()
-        && arr.ndim() != 1
-    {
-        return Err(PyValueError::new_err(format!(
-            "stage_iterations must be a 1D sequence of 3 positive integers, got {}D",
-            arr.ndim()
-        )));
-    }
-    let iter = obj.try_iter().map_err(|_| {
-        PyTypeError::new_err("stage_iterations must be a sequence of 3 positive integers")
-    })?;
-    let mut vals = Vec::with_capacity(3);
-    for item_res in iter {
-        let item = item_res?;
-        let val = extract_non_negative_usize(&item, "stage_iterations entry")?;
-        if val == 0 {
-            return Err(PyValueError::new_err(
-                "stage_iterations entries must be positive (>= 1)",
-            ));
-        }
-        vals.push(val);
-    }
-    if vals.len() != 3 {
-        return Err(PyValueError::new_err(format!(
-            "stage_iterations must have length 3, got {}",
-            vals.len()
-        )));
-    }
-    Ok([vals[0], vals[1], vals[2]])
-}
-
 #[allow(clippy::too_many_arguments)]
-pub(super) fn build_tsnet_config(
+pub(super) fn build_tsnet_config_and_backend(
+    target: SolverTargetKind,
     backend: &str,
     perplexity_c: f64,
     min_perplexity: f64,
@@ -260,52 +403,60 @@ pub(super) fn build_tsnet_config(
     sigma_tolerance: f64,
     row_normalize: bool,
     opts: TsNetStageOpts<'_, '_>,
-) -> PyResult<TsNetConfig> {
-    let parsed_backend = parse_tsnet_backend(backend).map_err(PyValueError::new_err)?;
+) -> PyResult<(TsNetConfig, ResolvedTsNetBackend)> {
+    let choice = TsNetBackendChoice::parse(backend)?;
     let order =
         InterpolationOrder::from_order(opts.interpolation_order).map_err(core_error_to_py)?;
+    let ibfft = IbFftConfig::default()
+        .with_order(order)
+        .with_intervals(opts.intervals)
+        .with_min_grid_dim(opts.min_grid_dim)
+        .with_max_grid_dim(opts.max_grid_dim);
+    let resolved = validate_and_resolve_tsnet_backend(target, choice, opts.theta, ibfft)?;
     let stage_iterations = match opts.stage_iterations {
         Some(obj) if !obj.is_none() => parse_stage_iterations(obj)?,
         _ => [250, 250, 500],
     };
-    let cfg = TsNetConfig {
-        backend: parsed_backend,
-        perplexity_c,
-        min_perplexity,
-        max_perplexity,
-        power,
-        sigma_iters,
-        sigma_tolerance,
-        symmetrization: if row_normalize {
-            SymmetrizationMode::RowNormalized
-        } else {
-            SymmetrizationMode::StandardTsne
-        },
-        stage_iterations,
-        exaggeration: opts.exaggeration,
-        lambda_c_stage1: opts.lambda_c_stage1,
-        lambda_c_stage2: opts.lambda_c_stage2,
-        lambda_c_stage3: opts.lambda_c_stage3,
-        lambda_r_stage3: opts.lambda_r_stage3,
-        learning_rate: opts.learning_rate,
-        learning_rate_divisor: opts.learning_rate_divisor,
-        jacobi_precondition: opts.jacobi_precondition,
-        momentum: opts.momentum,
-        epsilon_r: opts.epsilon_r,
-        theta: opts.theta,
-        ibfft: IbFftConfig {
-            order,
-            intervals: opts.intervals,
-            min_grid_dim: opts.min_grid_dim,
-            max_grid_dim: opts.max_grid_dim,
-        },
-        seed: opts.seed,
+    let stages = vec![
+        TsNetStage::new()
+            .with_iterations(stage_iterations[0])
+            .with_exaggeration(opts.exaggeration)
+            .with_lambda_kl(1.0)
+            .with_lambda_c(opts.lambda_c_stage1)
+            .with_lambda_r(0.0),
+        TsNetStage::new()
+            .with_iterations(stage_iterations[1])
+            .with_exaggeration(1.0)
+            .with_lambda_kl(1.0)
+            .with_lambda_c(opts.lambda_c_stage2)
+            .with_lambda_r(0.0),
+        TsNetStage::new()
+            .with_iterations(stage_iterations[2])
+            .with_exaggeration(1.0)
+            .with_lambda_kl(1.0)
+            .with_lambda_c(opts.lambda_c_stage3)
+            .with_lambda_r(opts.lambda_r_stage3),
+    ];
+    let sym = if row_normalize {
+        SymmetrizationMode::RowNormalized
+    } else {
+        SymmetrizationMode::StandardTsne
     };
+    let cfg = TsNetConfig::new()
+        .with_perplexity_c(perplexity_c)
+        .with_min_perplexity(min_perplexity)
+        .with_max_perplexity(max_perplexity)
+        .with_power(power)
+        .with_sigma_iters(sigma_iters)
+        .with_sigma_tolerance(sigma_tolerance)
+        .with_symmetrization(sym)
+        .with_stages(stages)
+        .with_learning_rate(opts.learning_rate)
+        .with_learning_rate_divisor(opts.learning_rate_divisor)
+        .with_jacobi_precondition(opts.jacobi_precondition)
+        .with_momentum(opts.momentum)
+        .with_epsilon_r(opts.epsilon_r)
+        .with_seed(opts.seed);
     cfg.validate().map_err(core_error_to_py)?;
-    Ok(cfg)
-}
-
-pub(super) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_class::<PyTsNetStage>()?;
-    Ok(())
+    Ok((cfg, resolved))
 }

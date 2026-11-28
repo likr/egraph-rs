@@ -1,7 +1,7 @@
 //! Non-Euclidean manifold crossing counters, edge segment clipping, and crossing pair finders.
 
 use egraph::spatial::{
-    CrossingPair, crossing_edges_hyperbolic as core_crossing_edges_hyperbolic,
+    CrossingPair, TorusView, crossing_edges_hyperbolic as core_crossing_edges_hyperbolic,
     crossing_edges_spherical as core_crossing_edges_spherical,
     hyperbolic_crossing_number as core_hyperbolic_crossing_number,
     spherical_crossing_number as core_spherical_crossing_number,
@@ -10,11 +10,11 @@ use egraph::spatial::{
 };
 use numpy::ndarray::Array2;
 use numpy::{PyArray1, PyArray2};
-use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
 use crate::csr_graph::PyCsrGraph;
+use crate::errors::invalid_input_err;
 use crate::ffi_convert::{StrictF64, core_error_to_py};
 use crate::layout_buffers::{Layout2dInner, PyLayout2d};
 
@@ -63,8 +63,8 @@ fn torus_edge_segments<'py>(
     for seg in segs {
         flat.extend_from_slice(&seg);
     }
-    let arr = Array2::from_shape_vec((n_segs, 4), flat)
-        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let arr =
+        Array2::from_shape_vec((n_segs, 4), flat).map_err(|e| invalid_input_err(e.to_string()))?;
     Ok(PyArray2::from_owned_array(py, arr))
 }
 
@@ -82,8 +82,16 @@ fn torus_layout_edge_segments<'py>(
             let borrowed = l2.try_borrow()?;
             let l2_ref: &PyLayout2d = &borrowed;
             py.detach(|| match l2_ref.inner() {
-                Layout2dInner::F64(buf) => core_torus_layout_edge_segments(&*g, &buf.to_layout2d()),
-                Layout2dInner::F32(buf) => core_torus_layout_edge_segments(&*g, &buf.to_layout2d()),
+                Layout2dInner::F64(buf) => {
+                    let soa = buf.to_layout2d();
+                    let tv = TorusView::new(&soa, 1.0, 1.0)?;
+                    core_torus_layout_edge_segments(&*g, &tv)
+                }
+                Layout2dInner::F32(buf) => {
+                    let soa = buf.to_layout2d();
+                    let tv = TorusView::new(&soa, 1.0, 1.0)?;
+                    core_torus_layout_edge_segments(&*g, &tv)
+                }
             })
             .map_err(core_error_to_py)?
         }
@@ -92,11 +100,11 @@ fn torus_layout_edge_segments<'py>(
             let ml_ref: &PyManifoldLayout2d = &borrowed;
             py.detach(|| match ml_ref.inner() {
                 ManifoldLayout2dInner::F64 { kind, metric, buf } => {
-                    let core_m = build_core_f64(*kind, *metric, buf)?;
+                    let core_m = build_core_f64(*kind, metric, buf)?;
                     core_torus_layout_edge_segments(&*g, &core_m)
                 }
                 ManifoldLayout2dInner::F32 { kind, metric, buf } => {
-                    let core_m = build_core_f32(*kind, *metric, buf)?;
+                    let core_m = build_core_f32(*kind, metric, buf)?;
                     core_torus_layout_edge_segments(&*g, &core_m)
                 }
             })
@@ -120,11 +128,11 @@ fn spherical_crossing_number(
     let g = graph.inner();
     py.detach(|| match layout.inner() {
         ManifoldLayout2dInner::F64 { kind, metric, buf } => {
-            let core_m = build_core_f64(*kind, *metric, buf)?;
+            let core_m = build_core_f64(*kind, metric, buf)?;
             core_spherical_crossing_number(&*g, &core_m)
         }
         ManifoldLayout2dInner::F32 { kind, metric, buf } => {
-            let core_m = build_core_f32(*kind, *metric, buf)?;
+            let core_m = build_core_f32(*kind, metric, buf)?;
             core_spherical_crossing_number(&*g, &core_m)
         }
     })
@@ -143,11 +151,11 @@ fn crossing_edges_spherical<'py>(
     let pairs = py
         .detach(|| match layout.inner() {
             ManifoldLayout2dInner::F64 { kind, metric, buf } => {
-                let core_m = build_core_f64(*kind, *metric, buf)?;
+                let core_m = build_core_f64(*kind, metric, buf)?;
                 core_crossing_edges_spherical(&*g, &core_m)
             }
             ManifoldLayout2dInner::F32 { kind, metric, buf } => {
-                let core_m = build_core_f32(*kind, *metric, buf)?;
+                let core_m = build_core_f32(*kind, metric, buf)?;
                 core_crossing_edges_spherical(&*g, &core_m)
             }
         })
@@ -166,11 +174,11 @@ fn hyperbolic_crossing_number(
     let g = graph.inner();
     py.detach(|| match layout.inner() {
         ManifoldLayout2dInner::F64 { kind, metric, buf } => {
-            let core_m = build_core_f64(*kind, *metric, buf)?;
+            let core_m = build_core_f64(*kind, metric, buf)?;
             core_hyperbolic_crossing_number(&*g, &core_m)
         }
         ManifoldLayout2dInner::F32 { kind, metric, buf } => {
-            let core_m = build_core_f32(*kind, *metric, buf)?;
+            let core_m = build_core_f32(*kind, metric, buf)?;
             core_hyperbolic_crossing_number(&*g, &core_m)
         }
     })
@@ -189,11 +197,11 @@ fn crossing_edges_hyperbolic<'py>(
     let pairs = py
         .detach(|| match layout.inner() {
             ManifoldLayout2dInner::F64 { kind, metric, buf } => {
-                let core_m = build_core_f64(*kind, *metric, buf)?;
+                let core_m = build_core_f64(*kind, metric, buf)?;
                 core_crossing_edges_hyperbolic(&*g, &core_m)
             }
             ManifoldLayout2dInner::F32 { kind, metric, buf } => {
-                let core_m = build_core_f32(*kind, *metric, buf)?;
+                let core_m = build_core_f32(*kind, metric, buf)?;
                 core_crossing_edges_hyperbolic(&*g, &core_m)
             }
         })

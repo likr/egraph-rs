@@ -4,14 +4,13 @@ use egraph::{core as egraph_core, spatial as egraph_spatial};
 use egraph_core::CoreError;
 use egraph_spatial::{
     DensityFieldKernel, ScreenedPoissonConfig, ScreenedPoissonField2d, ScreenedPoissonOutput,
-    ScreenedPoissonStats,
 };
+use numpy::PyArray2;
 use numpy::ndarray::Array2;
-use numpy::{PyArray1, PyArray2};
-use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
 
+use super::screened_poisson_stats::PyScreenedPoissonOutput;
+use crate::errors::{dimension_mismatch_err, invalid_input_err};
 use crate::ffi_convert::{
     ScalarDtype, StrictF64, StrictUsize, core_error_to_py, normalize_enum_key,
 };
@@ -31,6 +30,7 @@ fn density_field_kernel_str(kernel: DensityFieldKernel) -> &'static str {
     match kernel {
         DensityFieldKernel::ScreenedPoisson => "screened_poisson",
         DensityFieldKernel::SingleGaussian => "single_gaussian",
+        _ => "screened_poisson",
     }
 }
 
@@ -48,73 +48,26 @@ pub(super) fn build_screened_poisson_config(
     rho_max: Option<StrictF64>,
     exact_adjoint: bool,
 ) -> PyResult<ScreenedPoissonConfig> {
-    let kernel_enum = parse_density_field_kernel(kernel).map_err(PyValueError::new_err)?;
-    let cfg = ScreenedPoissonConfig {
-        kernel: kernel_enum,
-        grid_size: grid_size.0,
-        padding_factor: padding_factor.0,
-        margin_ratio: margin_ratio.0,
-        sigma_ratio: sigma_ratio.0,
-        sigma: sigma.map(|v| v.0),
-        screening_length_ratio: screening_length_ratio.0,
-        kappa: kappa.map(|v| v.0),
-        rho_max_factor: rho_max_factor.0,
-        rho_max: rho_max.map(|v| v.0),
-        exact_adjoint,
-    };
+    let kernel_enum = parse_density_field_kernel(kernel).map_err(invalid_input_err)?;
+    let cfg = ScreenedPoissonConfig::default()
+        .with_kernel(kernel_enum)
+        .with_grid_size(grid_size.0)
+        .with_padding_factor(padding_factor.0)
+        .with_margin_ratio(margin_ratio.0)
+        .with_sigma_ratio(sigma_ratio.0)
+        .with_sigma(sigma.map(|v| v.0))
+        .with_screening_length_ratio(screening_length_ratio.0)
+        .with_kappa(kappa.map(|v| v.0))
+        .with_rho_max_factor(rho_max_factor.0)
+        .with_rho_max(rho_max.map(|v| v.0))
+        .with_exact_adjoint(exact_adjoint);
     cfg.validate().map_err(core_error_to_py)?;
     Ok(cfg)
-}
-
-pub(super) fn screened_poisson_stats_to_dict(
-    py: Python<'_>,
-    st: &ScreenedPoissonStats,
-) -> PyResult<Py<PyDict>> {
-    let dict = PyDict::new(py);
-    dict.set_item("energy", st.energy)?;
-    dict.set_item("max_density", st.max_density)?;
-    dict.set_item("excess_fraction", st.excess_fraction)?;
-    dict.set_item("excess_mass", st.excess_mass)?;
-    dict.set_item("sigma_used", st.sigma_used)?;
-    dict.set_item("kappa_used", st.kappa_used)?;
-    dict.set_item("rho_max_used", st.rho_max_used)?;
-    dict.set_item("grid_dim", st.grid_dim)?;
-    dict.set_item("pad_dim", st.pad_dim)?;
-    dict.set_item("fft_2d_calls", st.fft_2d_calls)?;
-    dict.set_item("early_exit_no_excess", st.early_exit_no_excess)?;
-    Ok(dict.unbind())
 }
 
 enum ScreenedPoissonFieldInner {
     F64(ScreenedPoissonField2d<f64>),
     F32(ScreenedPoissonField2d<f32>),
-}
-
-enum ScreenedPoissonOutInner {
-    F64(ScreenedPoissonOutput<f64>),
-    F32(ScreenedPoissonOutput<f32>),
-}
-
-fn screened_poisson_output_to_dict(
-    py: Python<'_>,
-    out: ScreenedPoissonOutInner,
-) -> PyResult<Py<PyDict>> {
-    match out {
-        ScreenedPoissonOutInner::F64(o) => {
-            let dict = screened_poisson_stats_to_dict(py, &o.stats)?;
-            let bound = dict.bind(py);
-            bound.set_item("force_x", PyArray1::from_vec(py, o.force_x))?;
-            bound.set_item("force_y", PyArray1::from_vec(py, o.force_y))?;
-            Ok(dict)
-        }
-        ScreenedPoissonOutInner::F32(o) => {
-            let dict = screened_poisson_stats_to_dict(py, &o.stats)?;
-            let bound = dict.bind(py);
-            bound.set_item("force_x", PyArray1::from_vec(py, o.force_x))?;
-            bound.set_item("force_y", PyArray1::from_vec(py, o.force_y))?;
-            Ok(dict)
-        }
-    }
 }
 
 /// Reusable `f32` R2C-FFT Screened Poisson unilateral upper-bound 2D density field evaluator.
@@ -191,35 +144,36 @@ impl PyScreenedPoissonField2d {
 
     /// Evaluate unilateral density energy and descent forces over `layout`'s adaptive bounding box.
     #[pyo3(signature = (layout), text_signature = "($self, layout)")]
-    fn evaluate(&mut self, py: Python<'_>, layout: &PyLayout2d) -> PyResult<Py<PyDict>> {
-        let out = match (&mut self.inner, layout.inner()) {
+    fn evaluate(
+        &mut self,
+        py: Python<'_>,
+        layout: &PyLayout2d,
+    ) -> PyResult<PyScreenedPoissonOutput> {
+        match (&mut self.inner, layout.inner()) {
             (ScreenedPoissonFieldInner::F64(field), Layout2dInner::F64(buf)) => {
                 let soa = buf.to_layout2d();
                 py.detach(|| {
                     let mut out = ScreenedPoissonOutput::new();
                     field.evaluate(&soa, &mut out)?;
-                    Ok::<_, CoreError>(ScreenedPoissonOutInner::F64(out))
+                    Ok::<_, CoreError>(PyScreenedPoissonOutput::from_f64(out))
                 })
-                .map_err(core_error_to_py)?
+                .map_err(core_error_to_py)
             }
             (ScreenedPoissonFieldInner::F32(field), Layout2dInner::F32(buf)) => {
                 let soa = buf.to_layout2d();
                 py.detach(|| {
                     let mut out = ScreenedPoissonOutput::new();
                     field.evaluate(&soa, &mut out)?;
-                    Ok::<_, CoreError>(ScreenedPoissonOutInner::F32(out))
+                    Ok::<_, CoreError>(PyScreenedPoissonOutput::from_f32(out))
                 })
-                .map_err(core_error_to_py)?
+                .map_err(core_error_to_py)
             }
-            _ => {
-                return Err(PyValueError::new_err(format!(
-                    "layout dtype '{}' does not match ScreenedPoissonField2d dtype '{}'",
-                    layout.dtype(),
-                    self.dtype()
-                )));
-            }
-        };
-        screened_poisson_output_to_dict(py, out)
+            _ => Err(dimension_mismatch_err(format!(
+                "layout dtype '{}' does not match ScreenedPoissonField2d dtype '{}'",
+                layout.dtype(),
+                self.dtype()
+            ))),
+        }
     }
 
     /// Evaluate unilateral density energy and descent forces inside explicit bounds `(min_x, min_y, max_x, max_y)`.
@@ -235,36 +189,33 @@ impl PyScreenedPoissonField2d {
         min_y: StrictF64,
         max_x: StrictF64,
         max_y: StrictF64,
-    ) -> PyResult<Py<PyDict>> {
+    ) -> PyResult<PyScreenedPoissonOutput> {
         let b_arr = [min_x.0, min_y.0, max_x.0, max_y.0];
-        let out = match (&mut self.inner, layout.inner()) {
+        match (&mut self.inner, layout.inner()) {
             (ScreenedPoissonFieldInner::F64(field), Layout2dInner::F64(buf)) => {
                 let soa = buf.to_layout2d();
                 py.detach(|| {
                     let mut out = ScreenedPoissonOutput::new();
                     field.evaluate_in_bounds(&soa, b_arr, &mut out)?;
-                    Ok::<_, CoreError>(ScreenedPoissonOutInner::F64(out))
+                    Ok::<_, CoreError>(PyScreenedPoissonOutput::from_f64(out))
                 })
-                .map_err(core_error_to_py)?
+                .map_err(core_error_to_py)
             }
             (ScreenedPoissonFieldInner::F32(field), Layout2dInner::F32(buf)) => {
                 let soa = buf.to_layout2d();
                 py.detach(|| {
                     let mut out = ScreenedPoissonOutput::new();
                     field.evaluate_in_bounds(&soa, b_arr, &mut out)?;
-                    Ok::<_, CoreError>(ScreenedPoissonOutInner::F32(out))
+                    Ok::<_, CoreError>(PyScreenedPoissonOutput::from_f32(out))
                 })
-                .map_err(core_error_to_py)?
+                .map_err(core_error_to_py)
             }
-            _ => {
-                return Err(PyValueError::new_err(format!(
-                    "layout dtype '{}' does not match ScreenedPoissonField2d dtype '{}'",
-                    layout.dtype(),
-                    self.dtype()
-                )));
-            }
-        };
-        screened_poisson_output_to_dict(py, out)
+            _ => Err(dimension_mismatch_err(format!(
+                "layout dtype '{}' does not match ScreenedPoissonField2d dtype '{}'",
+                layout.dtype(),
+                self.dtype()
+            ))),
+        }
     }
 
     /// Return the `(G, G)` empirical density grid from the most recent non-empty evaluation, or `None`.
@@ -275,7 +226,7 @@ impl PyScreenedPoissonField2d {
                 Some(grid) => {
                     let dim = f.density_grid_dim();
                     let arr = Array2::from_shape_vec((dim, dim), grid.to_vec())
-                        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+                        .map_err(|e| invalid_input_err(e.to_string()))?;
                     Ok(Some(PyArray2::from_owned_array(py, arr).into_any()))
                 }
                 None => Ok(None),
@@ -284,7 +235,7 @@ impl PyScreenedPoissonField2d {
                 Some(grid) => {
                     let dim = f.density_grid_dim();
                     let arr = Array2::from_shape_vec((dim, dim), grid.to_vec())
-                        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+                        .map_err(|e| invalid_input_err(e.to_string()))?;
                     Ok(Some(PyArray2::from_owned_array(py, arr).into_any()))
                 }
                 None => Ok(None),

@@ -38,34 +38,67 @@ class TestNdAndManifoldSolvers(unittest.TestCase):
             for dims in (2, 3, 4):
                 init_nd = eg.LayoutNd.init(n, dims, seed=7, scale=1.0, dtype=dtype_str)
                 factories_nd: list[Callable[[], Any]] = [
-                    lambda: eg.SgdSolver.full(g, iterations=4, seed=42, dtype=dtype_str),
-                    lambda: eg.StressMajorizationSolver(g, max_iterations=4, dtype=dtype_str),
-                    lambda: eg.KamadaKawaiSolver(g, max_iterations=4, dtype=dtype_str),
+                    lambda: eg.SgdSolver.full(
+                        g, target="layout_nd", iterations=4, seed=42, dtype=dtype_str
+                    ),
+                    lambda: eg.StressMajorizationSolver(
+                        g, target="layout_nd", max_iterations=4, dtype=dtype_str
+                    ),
+                    lambda: eg.KamadaKawaiSolver(
+                        g, target="layout_nd", max_iterations=4, dtype=dtype_str
+                    ),
                     lambda: eg.MaxentStressSolver(
                         g,
+                        target="layout_nd",
                         stages=2,
                         steps_per_stage=2,
-                        use_barnes_hut=(dims <= 3),
+                        backend="auto",
                         seed=42,
                         dtype=dtype_str,
                     ),
-                    lambda: eg.FruchtermanReingoldSolver(g, iterations=4, seed=42, dtype=dtype_str),
-                    lambda: eg.LinLogSolver(
-                        g, iterations=4, use_barnes_hut=(dims <= 3), seed=42, dtype=dtype_str
+                    lambda: eg.FruchtermanReingoldSolver(
+                        g,
+                        target="layout_nd",
+                        backend="exact",
+                        iterations=4,
+                        seed=42,
+                        dtype=dtype_str,
                     ),
-                    lambda: eg.YifanHuSolver(g, max_iterations_per_level=4, seed=42, dtype=dtype_str),
+                    lambda: eg.LinLogSolver(
+                        g,
+                        target="layout_nd",
+                        iterations=4,
+                        backend="auto",
+                        seed=42,
+                        dtype=dtype_str,
+                    ),
+                    lambda: eg.YifanHuSolver(
+                        g, target="layout_nd", max_iterations_per_level=4, seed=42, dtype=dtype_str
+                    ),
                     lambda: eg.ForceAtlas2Solver(
-                        g, iterations=4, use_barnes_hut=(dims <= 3), seed=42, dtype=dtype_str
+                        g,
+                        target="layout_nd",
+                        iterations=4,
+                        backend="auto",
+                        seed=42,
+                        dtype=dtype_str,
                     ),
                     lambda: eg.TsNetSolver.pure_2hop(
                         g,
+                        target="layout_nd",
                         backend="auto",
                         stage_iterations=(2, 2, 2),
                         seed=42,
                         dtype=dtype_str,
                     ),
                     lambda: eg.GuMapSolver.from_graph_dog(
-                        g, max_2hop_per_node=16, num_landmarks=4, iterations=4, seed=42, dtype=dtype_str
+                        g,
+                        max_2hop_per_node=16,
+                        target="layout_nd",
+                        num_landmarks=4,
+                        iterations=4,
+                        seed=42,
+                        dtype=dtype_str,
                     ),
                 ]
                 for make_s in factories_nd:
@@ -82,16 +115,17 @@ class TestNdAndManifoldSolvers(unittest.TestCase):
                     self.assertEqual(l_step.coords(copy=False).dtype, np_dtype)
                     np.testing.assert_array_equal(l_run.coords(copy=True), l_step.coords(copy=True))
 
-            # FdebSolver (#11 N-D solver) on 3D LayoutNd: point_dims, points(), points_axis(axis), points_z()
+            # FdebSolver (#11 N-D solver) on 3D LayoutNd via EdgePolylines: dims, points(), points_axis(axis), points_z()
             lay3 = eg.LayoutNd.init(n, 3, seed=11, scale=2.0, dtype=dtype_str)
-            fdeb3 = eg.FdebSolver(g, cycles=2, steps_per_cycle=4, dtype=dtype_str)
-            self.assertEqual(fdeb3.run(lay3), "completed")
-            self.assertEqual(fdeb3.point_dims, 3)
-            pts3 = fdeb3.points()
+            poly3 = eg.EdgePolylines.straight_line(g, lay3)
+            fdeb3 = eg.FdebSolver(poly3, cycles=2, steps_per_cycle=4)
+            self.assertEqual(fdeb3.run(poly3), "completed")
+            self.assertEqual(poly3.dims, 3)
+            pts3 = poly3.points()
             self.assertEqual(pts3.ndim, 2)
             self.assertEqual(pts3.shape[1], 3)
-            np.testing.assert_allclose(fdeb3.points_axis(2), pts3[:, 2])
-            np.testing.assert_allclose(fdeb3.points_z(), pts3[:, 2])
+            np.testing.assert_allclose(poly3.points_axis(2), pts3[:, 2])
+            np.testing.assert_allclose(poly3.points_z(), pts3[:, 2])
 
     def test_all_6_manifold_solvers_step_eq_run(self) -> None:
         g = _make_grid(3, 3)
@@ -100,19 +134,39 @@ class TestNdAndManifoldSolvers(unittest.TestCase):
             for dtype_str in ("float64", "float32"):
                 init_m = eg.ManifoldLayout2d.init(kind, n, scale=0.25, seed=13, dtype=dtype_str)
                 factories: list[Callable[[], Any]] = [
-                    lambda: eg.SgdSolver.full(g, iterations=4, seed=42, dtype=dtype_str),
-                    lambda: eg.StressMajorizationSolver(g, max_iterations=4, dtype=dtype_str),
-                    lambda: eg.KamadaKawaiSolver(g, max_iterations=4, dtype=dtype_str),
-                    lambda: eg.FruchtermanReingoldSolver(g, iterations=4, seed=42, dtype=dtype_str),
+                    lambda: eg.SgdSolver.full(
+                        g, target="manifold2d", iterations=4, seed=42, dtype=dtype_str
+                    ),
+                    lambda: eg.StressMajorizationSolver(
+                        g, target="manifold2d", max_iterations=4, dtype=dtype_str
+                    ),
+                    lambda: eg.KamadaKawaiSolver(
+                        g, target="manifold2d", max_iterations=4, dtype=dtype_str
+                    ),
+                    lambda: eg.FruchtermanReingoldSolver(
+                        g,
+                        target="manifold2d",
+                        backend="exact",
+                        iterations=4,
+                        seed=42,
+                        dtype=dtype_str,
+                    ),
                     lambda: eg.TsNetSolver.from_graph_row_normalized(
                         g,
+                        target="manifold2d",
                         backend="auto",
                         stage_iterations=(2, 2, 2),
                         seed=42,
                         dtype=dtype_str,
                     ),
                     lambda: eg.GuMapSolver.from_graph_dog(
-                        g, max_2hop_per_node=16, num_landmarks=4, iterations=4, seed=42, dtype=dtype_str
+                        g,
+                        max_2hop_per_node=16,
+                        target="manifold2d",
+                        num_landmarks=4,
+                        iterations=4,
+                        seed=42,
+                        dtype=dtype_str,
                     ),
                 ]
                 for make_s in factories:
@@ -153,7 +207,7 @@ class TestNdAndManifoldSolvers(unittest.TestCase):
         self.assertTrue(l2.is_all_finite())
 
         # TsNetStage, from_probabilities_with_stages, learning_rate_divisor, auto backend, two_step_random_walk
-        knn, _, _ = eg.build_pure_2hop_knn(g)
+        knn = eg.build_pure_2hop_knn(g).knn
         probs = eg.compute_knn_probabilities(knn, 3.0)
         stages = [
             eg.TsNetStage(3, exaggeration=4.0, lambda_kl=1.0, lambda_c=0.1, lambda_r=0.0),
@@ -185,6 +239,8 @@ class TestNdAndManifoldSolvers(unittest.TestCase):
         for name in eg.__all__:
             obj = getattr(eg, name)
             self.assertTrue((obj.__doc__ or "").strip(), f"missing docstring on {name}")
+            if isinstance(obj, type) and issubclass(obj, BaseException):
+                continue
             if callable(obj):
                 sig = inspect.signature(obj)
                 self.assertIsNotNone(sig)

@@ -13,11 +13,11 @@ use egraph::linalg::{
 use numpy::PyArray1;
 use numpy::PyArray2;
 use numpy::ndarray::Array2;
-use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
 use crate::array_extract::extract_f64_1d;
 use crate::csr_graph::PyCsrGraph;
+use crate::errors::invalid_input_err;
 use crate::ffi_convert::{
     StrictF64, StrictU64, StrictUsize, core_error_to_py, extract_u32_1d, normalize_enum_key,
 };
@@ -204,8 +204,8 @@ impl PyCsrMatrix {
         let dense = py
             .detach(|| self.inner.to_dense())
             .map_err(core_error_to_py)?;
-        let arr = Array2::from_shape_vec((n, n), dense)
-            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        let arr =
+            Array2::from_shape_vec((n, n), dense).map_err(|e| invalid_input_err(e.to_string()))?;
         Ok(PyArray2::from_owned_array(py, arr))
     }
 
@@ -242,13 +242,12 @@ fn anisotropic_laplacian<'py>(
     degree_cap: Option<StrictF64>,
     reweighted_degree_norm: bool,
 ) -> PyResult<(PyCsrMatrix, Bound<'py, PyArray1<f64>>)> {
-    let cfg = AnisotropicLaplacianConfig {
-        alpha: alpha.0,
-        beta: beta.0,
-        degree_reg: degree_reg.0,
-        degree_cap: degree_cap.map(|v| v.0),
-        reweighted_degree_norm,
-    };
+    let cfg = AnisotropicLaplacianConfig::new()
+        .with_alpha(alpha.0)
+        .with_beta(beta.0)
+        .with_degree_reg(degree_reg.0)
+        .with_degree_cap(degree_cap.map(|v| v.0))
+        .with_reweighted_degree_norm(reweighted_degree_norm);
     let g = graph.inner();
     let res = py
         .detach(|| linalg_anisotropic_laplacian(&*g, cfg))
@@ -266,7 +265,7 @@ fn parse_laplacian_kind(raw: &str) -> PyResult<LaplacianKind> {
             Ok(LaplacianKind::SymmetricNormalized)
         }
         "randomwalk" | "rw" => Ok(LaplacianKind::RandomWalk),
-        _ => Err(PyValueError::new_err(format!(
+        _ => Err(invalid_input_err(format!(
             "unknown Laplacian kind {raw:?}; expected 'combinatorial', 'symmetric_normalized', or 'random_walk'"
         ))),
     }

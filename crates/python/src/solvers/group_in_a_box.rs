@@ -2,24 +2,26 @@
 
 use egraph::layout as egraph_layout;
 use egraph_layout::{
-    GibBoxLayoutMode, GibIntraLayoutMode, GroupInABoxConfig, GroupInABoxSolver,
+    GibBox, GibBoxLayoutMode, GibIntraLayoutMode, GroupInABoxConfig, GroupInABoxSolver,
     squarified_treemap as layout_squarified_treemap,
 };
 use numpy::PyArray2;
 use numpy::ndarray::Array2;
-use pyo3::exceptions::PyValueError;
+use pyo3::exceptions::PyKeyError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
 use crate::array_extract::extract_f64_1d;
 use crate::csr_graph::PyCsrGraph;
+use crate::errors::invalid_input_err;
 use crate::ffi_convert::{
     ScalarDtype, StrictF64, StrictU64, StrictUsize, core_error_to_py, extract_optional_weights_1d,
     extract_u32_1d, normalize_enum_key, solver_status_str,
 };
 use crate::layout_buffers::PyLayout2d;
 use crate::solver_common::{
-    DualIterativeSolver, SolverAction, execute_solver_action, impl_dual_solver,
+    DualIterativeSolver, SolverAction, execute_solver_action, format_optional_usize,
+    impl_dual_solver,
 };
 
 pub(super) fn parse_gib_box_mode(raw: &str) -> Result<GibBoxLayoutMode, String> {
@@ -71,9 +73,111 @@ fn squarified_treemap<'py>(
     for rect in rects {
         flat.extend_from_slice(&rect);
     }
-    let arr =
-        Array2::from_shape_vec((k, 4), flat).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let arr = Array2::from_shape_vec((k, 4), flat).map_err(|e| invalid_input_err(e.to_string()))?;
     Ok(PyArray2::from_owned_array(py, arr))
+}
+
+/// Frozen bounding-box specification computed for a single cluster in `GroupInABoxSolver`.
+#[pyclass(name = "GibBox", module = "egraph._core", frozen, from_py_object)]
+#[derive(Clone)]
+pub struct PyGibBox {
+    inner: GibBox,
+}
+
+#[pymethods]
+impl PyGibBox {
+    #[getter]
+    fn cluster_id(&self) -> u32 {
+        self.inner.cluster_id
+    }
+
+    #[getter]
+    fn x_min(&self) -> f64 {
+        self.inner.x_min
+    }
+
+    #[getter]
+    fn x_max(&self) -> f64 {
+        self.inner.x_max
+    }
+
+    #[getter]
+    fn y_min(&self) -> f64 {
+        self.inner.y_min
+    }
+
+    #[getter]
+    fn y_max(&self) -> f64 {
+        self.inner.y_max
+    }
+
+    #[getter]
+    fn node_count(&self) -> usize {
+        self.inner.node_count
+    }
+
+    #[getter]
+    fn weight(&self) -> f64 {
+        self.inner.weight
+    }
+
+    #[pyo3(signature = (), text_signature = "($self)")]
+    fn to_dict(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
+        let dict = PyDict::new(py);
+        dict.set_item("cluster_id", self.inner.cluster_id)?;
+        dict.set_item("x_min", self.inner.x_min)?;
+        dict.set_item("x_max", self.inner.x_max)?;
+        dict.set_item("y_min", self.inner.y_min)?;
+        dict.set_item("y_max", self.inner.y_max)?;
+        dict.set_item("node_count", self.inner.node_count)?;
+        dict.set_item("weight", self.inner.weight)?;
+        Ok(dict.unbind())
+    }
+
+    #[pyo3(signature = (), text_signature = "($self)")]
+    fn keys(&self) -> Vec<&'static str> {
+        vec![
+            "cluster_id",
+            "x_min",
+            "x_max",
+            "y_min",
+            "y_max",
+            "node_count",
+            "weight",
+        ]
+    }
+
+    fn __contains__(&self, key: &str) -> bool {
+        matches!(
+            key,
+            "cluster_id" | "x_min" | "x_max" | "y_min" | "y_max" | "node_count" | "weight"
+        )
+    }
+
+    fn __getitem__(&self, py: Python<'_>, key: &str) -> PyResult<Py<PyAny>> {
+        match key {
+            "cluster_id" => Ok(self.inner.cluster_id.into_pyobject(py)?.into_any().unbind()),
+            "x_min" => Ok(self.inner.x_min.into_pyobject(py)?.into_any().unbind()),
+            "x_max" => Ok(self.inner.x_max.into_pyobject(py)?.into_any().unbind()),
+            "y_min" => Ok(self.inner.y_min.into_pyobject(py)?.into_any().unbind()),
+            "y_max" => Ok(self.inner.y_max.into_pyobject(py)?.into_any().unbind()),
+            "node_count" => Ok(self.inner.node_count.into_pyobject(py)?.into_any().unbind()),
+            "weight" => Ok(self.inner.weight.into_pyobject(py)?.into_any().unbind()),
+            _ => Err(PyKeyError::new_err(format!("unknown GibBox key {key:?}"))),
+        }
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "GibBox(cluster_id={}, node_count={}, bounds=({}, {}, {}, {}))",
+            self.inner.cluster_id,
+            self.inner.node_count,
+            self.inner.x_min,
+            self.inner.x_max,
+            self.inner.y_min,
+            self.inner.y_max
+        )
+    }
 }
 
 /// Cooperative Group-in-a-Box (`TR-GIB` / `FD-GIB`, Rodrigues et al., 2011) clustered graph layout solver.
@@ -125,38 +229,37 @@ impl PyGroupInABoxSolver {
         seed: StrictU64,
         dtype: ScalarDtype,
     ) -> PyResult<Self> {
-        let parsed_box = parse_gib_box_mode(box_mode).map_err(PyValueError::new_err)?;
-        let parsed_intra = parse_gib_intra_mode(intra_mode).map_err(PyValueError::new_err)?;
+        let parsed_box = parse_gib_box_mode(box_mode).map_err(invalid_input_err)?;
+        let parsed_intra = parse_gib_intra_mode(intra_mode).map_err(invalid_input_err)?;
         let labels_vec = extract_u32_1d(labels, "labels")?;
         let cw_opt = extract_optional_weights_1d(cluster_weights, "cluster_weights")?;
-        let cfg = GroupInABoxConfig {
-            box_mode: parsed_box,
-            intra_mode: parsed_intra,
-            total_width: total_width.0,
-            total_height: total_height.0,
-            box_padding: box_padding.0,
-            intra_iterations: intra_iterations.0,
-            fd_iterations: fd_iterations.0,
-            fit_bounds,
-            seed: seed.0,
-        };
+        let cfg = GroupInABoxConfig::new()
+            .with_box_mode(parsed_box)
+            .with_intra_mode(parsed_intra)
+            .with_total_width(total_width.0)
+            .with_total_height(total_height.0)
+            .with_box_padding(box_padding.0)
+            .with_intra_iterations(intra_iterations.0)
+            .with_fd_iterations(fd_iterations.0)
+            .with_fit_bounds(fit_bounds)
+            .with_seed(seed.0);
         cfg.validate().map_err(core_error_to_py)?;
         let g = graph.inner();
         let inner = py
             .detach(|| match (dtype, cw_opt) {
                 (ScalarDtype::F64, Some(cw)) => {
-                    GroupInABoxSolver::<f64>::with_cluster_weights(&*g, labels_vec, cw, cfg)
+                    GroupInABoxSolver::<f64>::with_cluster_weights(&*g, &labels_vec, &cw, cfg)
                         .map(GroupInABoxInner::F64)
                 }
                 (ScalarDtype::F32, Some(cw)) => {
-                    GroupInABoxSolver::<f32>::with_cluster_weights(&*g, labels_vec, cw, cfg)
+                    GroupInABoxSolver::<f32>::with_cluster_weights(&*g, &labels_vec, &cw, cfg)
                         .map(GroupInABoxInner::F32)
                 }
                 (ScalarDtype::F64, None) => {
-                    GroupInABoxSolver::<f64>::new(&*g, labels_vec, cfg).map(GroupInABoxInner::F64)
+                    GroupInABoxSolver::<f64>::new(&*g, &labels_vec, cfg).map(GroupInABoxInner::F64)
                 }
                 (ScalarDtype::F32, None) => {
-                    GroupInABoxSolver::<f32>::new(&*g, labels_vec, cfg).map(GroupInABoxInner::F32)
+                    GroupInABoxSolver::<f32>::new(&*g, &labels_vec, cfg).map(GroupInABoxInner::F32)
                 }
             })
             .map_err(core_error_to_py)?;
@@ -186,29 +289,21 @@ impl PyGroupInABoxSolver {
         execute_solver_action(&mut self.inner, py, layout, SolverAction::Run)
     }
 
-    /// Return the computed cluster bounding boxes as a list of dictionaries.
+    /// Return the computed cluster bounding boxes as frozen `GibBox` objects.
     #[pyo3(signature = (), text_signature = "($self)")]
-    fn boxes(&self, py: Python<'_>) -> PyResult<Vec<Py<PyDict>>> {
+    fn boxes(&self) -> Vec<PyGibBox> {
         let slice = match &self.inner {
             GroupInABoxInner::F64(s) => s.boxes(),
             GroupInABoxInner::F32(s) => s.boxes(),
         };
-        let mut out = Vec::with_capacity(slice.len());
-        for b in slice {
-            let dict = PyDict::new(py);
-            dict.set_item("cluster_id", b.cluster_id)?;
-            dict.set_item("x_min", b.x_min)?;
-            dict.set_item("x_max", b.x_max)?;
-            dict.set_item("y_min", b.y_min)?;
-            dict.set_item("y_max", b.y_max)?;
-            dict.set_item("node_count", b.node_count)?;
-            dict.set_item("weight", b.weight)?;
-            out.push(dict.unbind());
-        }
-        Ok(out)
+        slice
+            .iter()
+            .cloned()
+            .map(|inner| PyGibBox { inner })
+            .collect()
     }
 
-    /// Current solver status (`"initialized"`, `"running"`, `"converged"`, or `"completed"`).
+    /// Current solver status (`"initialized"`, `"running"`, `"converged"`, `"completed"`, or `"failed"`).
     #[getter]
     fn status(&self) -> &'static str {
         solver_status_str(self.inner.solver_status())
@@ -222,11 +317,11 @@ impl PyGroupInABoxSolver {
 
     /// Configured maximum number of intra-cluster iterations.
     #[getter]
-    fn total_iterations(&self) -> usize {
+    fn total_iterations(&self) -> Option<usize> {
         self.inner.solver_total_iterations()
     }
 
-    /// Whether the solver has reached `"converged"` or `"completed"`.
+    /// Whether the solver has reached `"converged"`, `"completed"`, or `"failed"`.
     #[getter]
     fn is_finished(&self) -> bool {
         self.inner.solver_status().is_finished()
@@ -254,13 +349,14 @@ impl PyGroupInABoxSolver {
             self.num_nodes(),
             self.status(),
             self.iteration(),
-            self.total_iterations(),
+            format_optional_usize(self.total_iterations()),
             self.dtype()
         )
     }
 }
 
 pub(super) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<PyGibBox>()?;
     m.add_class::<PyGroupInABoxSolver>()?;
     m.add_function(wrap_pyfunction!(squarified_treemap, m)?)?;
     Ok(())

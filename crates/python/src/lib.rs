@@ -31,7 +31,12 @@ mod csr_graph;
 mod csr_helpers;
 mod dataset;
 mod dynamic_kdtree;
+mod edge_polylines;
+mod edge_polylines_helpers;
+mod errors;
 mod ffi_convert;
+mod layout3d;
+mod layout3d_extract;
 mod layout_buffers;
 mod layout_nd;
 mod linalg;
@@ -74,9 +79,12 @@ fn pep440_version(semver: &str) -> String {
 #[pymodule]
 fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__version__", pep440_version(env!("CARGO_PKG_VERSION")))?;
+    errors::register(m)?;
     csr_graph::register(m)?;
     layout_buffers::register(m)?;
+    layout3d::register(m)?;
     layout_nd::register(m)?;
+    edge_polylines::register(m)?;
     metrics::register(m)?;
     spatial_dataset::register(m)?;
     spatial_trees::register(m)?;

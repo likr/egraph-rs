@@ -1,8 +1,8 @@
 //! Partition agreement, 2D density consistency, Sprawlter-NN, and NOR metric bindings.
 
+use egraph::core::NodeExtents2d;
 use egraph::metrics as egraph_metrics;
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
 
 use crate::array_extract::extract_f64_1d;
 use crate::csr_graph::PyCsrGraph;
@@ -11,7 +11,7 @@ use crate::layout_buffers::{Layout2dInner, PyLayout2d, dispatch_layout2d, layout
 use crate::solver_common::vec_f64_to_f32_checked;
 
 use super::cluster_baselines_nd;
-use super::nd_manifold_helpers::{nor_metrics_to_py_dict, partition_agreement_to_py_dict};
+use super::cluster_result_types::{PyNorMetrics, PyPartitionAgreement};
 
 /// Compute partition agreement metrics (`ari`, `ami`, `homogeneity`, `completeness`, `v_measure`, `fmi`).
 ///
@@ -25,13 +25,13 @@ fn partition_agreement(
     py: Python<'_>,
     labels_true: &Bound<'_, PyAny>,
     labels_pred: &Bound<'_, PyAny>,
-) -> PyResult<Py<PyDict>> {
+) -> PyResult<PyPartitionAgreement> {
     let lt = extract_u32_1d(labels_true, "labels_true")?;
     let lp = extract_u32_1d(labels_pred, "labels_pred")?;
-    let pa = py
+    let inner = py
         .detach(|| egraph_metrics::partition_agreement(&lt, &lp))
         .map_err(core_error_to_py)?;
-    partition_agreement_to_py_dict(py, pa)
+    Ok(PyPartitionAgreement { inner })
 }
 
 /// Compute Class Density Measure and 2D Histogram Density Measure `(cdm, hdm)` in `[0.0, 1.0]`.
@@ -102,7 +102,7 @@ fn sprawlter_nn(
         Layout2dInner::F64(buf) => {
             let soa = buf.to_layout2d();
             py.detach(|| match hh_opt.as_deref() {
-                Some(hh) => egraph_metrics::sprawlter_nn(&soa, &hw_f64, hh),
+                Some(hh) => egraph_metrics::sprawlter_nn(&soa, NodeExtents2d::new(&hw_f64, hh)?),
                 None => egraph_metrics::sprawlter_nn_radii(&soa, &hw_f64),
             })
             .map_err(core_error_to_py)
@@ -115,7 +115,7 @@ fn sprawlter_nn(
             };
             let soa = buf.to_layout2d();
             py.detach(|| match hh_f32_opt.as_deref() {
-                Some(hh) => egraph_metrics::sprawlter_nn(&soa, &hw_f32, hh),
+                Some(hh) => egraph_metrics::sprawlter_nn(&soa, NodeExtents2d::new(&hw_f32, hh)?),
                 None => egraph_metrics::sprawlter_nn_radii(&soa, &hw_f32),
             })
             .map_err(core_error_to_py)
@@ -152,7 +152,7 @@ fn nor_metrics(
     half_widths: &Bound<'_, PyAny>,
     half_heights: &Bound<'_, PyAny>,
     graph: Option<&PyCsrGraph>,
-) -> PyResult<Py<PyDict>> {
+) -> PyResult<PyNorMetrics> {
     let hw_f64 = extract_f64_1d(half_widths, "half_widths")?;
     let hh_f64 = extract_f64_1d(half_heights, "half_heights")?;
     let g_opt = graph.map(PyCsrGraph::inner);
@@ -160,9 +160,12 @@ fn nor_metrics(
         (Layout2dInner::F64(orig), Layout2dInner::F64(adj)) => {
             let o = orig.to_layout2d();
             let a = adj.to_layout2d();
-            py.detach(|| match g_opt.as_ref() {
-                Some(g) => egraph_metrics::nor_metrics(&**g, &o, &a, &hw_f64, &hh_f64),
-                None => egraph_metrics::nor_metrics_without_graph(&o, &a, &hw_f64, &hh_f64),
+            py.detach(|| {
+                let ext = NodeExtents2d::new(&hw_f64, &hh_f64)?;
+                match g_opt.as_ref() {
+                    Some(g) => egraph_metrics::nor_metrics(&**g, &o, &a, ext),
+                    None => egraph_metrics::nor_metrics_without_graph(&o, &a, ext),
+                }
             })
             .map_err(core_error_to_py)?
         }
@@ -171,32 +174,41 @@ fn nor_metrics(
             let hh_f32 = vec_f64_to_f32_checked(&hh_f64, "half_heights")?;
             let o = orig.to_layout2d();
             let a = adj.to_layout2d();
-            py.detach(|| match g_opt.as_ref() {
-                Some(g) => egraph_metrics::nor_metrics(&**g, &o, &a, &hw_f32, &hh_f32),
-                None => egraph_metrics::nor_metrics_without_graph(&o, &a, &hw_f32, &hh_f32),
+            py.detach(|| {
+                let ext = NodeExtents2d::new(&hw_f32, &hh_f32)?;
+                match g_opt.as_ref() {
+                    Some(g) => egraph_metrics::nor_metrics(&**g, &o, &a, ext),
+                    None => egraph_metrics::nor_metrics_without_graph(&o, &a, ext),
+                }
             })
             .map_err(core_error_to_py)?
         }
         (Layout2dInner::F64(orig), Layout2dInner::F32(adj)) => {
             let o = orig.to_layout2d();
             let a = layout_f32_to_f64(&adj.to_layout2d());
-            py.detach(|| match g_opt.as_ref() {
-                Some(g) => egraph_metrics::nor_metrics(&**g, &o, &a, &hw_f64, &hh_f64),
-                None => egraph_metrics::nor_metrics_without_graph(&o, &a, &hw_f64, &hh_f64),
+            py.detach(|| {
+                let ext = NodeExtents2d::new(&hw_f64, &hh_f64)?;
+                match g_opt.as_ref() {
+                    Some(g) => egraph_metrics::nor_metrics(&**g, &o, &a, ext),
+                    None => egraph_metrics::nor_metrics_without_graph(&o, &a, ext),
+                }
             })
             .map_err(core_error_to_py)?
         }
         (Layout2dInner::F32(orig), Layout2dInner::F64(adj)) => {
             let o = layout_f32_to_f64(&orig.to_layout2d());
             let a = adj.to_layout2d();
-            py.detach(|| match g_opt.as_ref() {
-                Some(g) => egraph_metrics::nor_metrics(&**g, &o, &a, &hw_f64, &hh_f64),
-                None => egraph_metrics::nor_metrics_without_graph(&o, &a, &hw_f64, &hh_f64),
+            py.detach(|| {
+                let ext = NodeExtents2d::new(&hw_f64, &hh_f64)?;
+                match g_opt.as_ref() {
+                    Some(g) => egraph_metrics::nor_metrics(&**g, &o, &a, ext),
+                    None => egraph_metrics::nor_metrics_without_graph(&o, &a, ext),
+                }
             })
             .map_err(core_error_to_py)?
         }
     };
-    nor_metrics_to_py_dict(py, nor)
+    Ok(PyNorMetrics { inner: nor })
 }
 
 pub(super) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {

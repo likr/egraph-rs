@@ -142,7 +142,7 @@ class TestForceAndOverlapSolvers(unittest.TestCase):
             (ValueError,), lambda: eg.LinLogSolver(graph, theta=-1.0)
         )
         self.assert_no_panic_raises(
-            (ValueError,), lambda: eg.FruchtermanReingoldSolver(graph, backend="bad")
+            (ValueError,), lambda: eg.FruchtermanReingoldSolver(graph, backend="bad")  # type: ignore[arg-type]
         )
         self.assert_no_panic_raises(
             (ValueError,), lambda: eg.FruchtermanReingoldSolver(graph, k=0.0)

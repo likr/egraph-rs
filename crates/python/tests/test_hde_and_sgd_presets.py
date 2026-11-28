@@ -98,7 +98,7 @@ class TestHdeAndSgdPresets(unittest.TestCase):
             "MaxentStressSolver",
             "PfsPrimeOverlapRemoval",
             "SelLayoutSolver",
-            "SfcLayoutSolver",
+            "SfcLayout",
             "hde",
             "hde_nd",
         ]
@@ -123,22 +123,23 @@ class TestHdeAndSgdPresets(unittest.TestCase):
         self.assertEqual(sig_ort.parameters["pivot_strategy"].default, "kmeans_sp")
         self.assertEqual(sig_ort.parameters["eps"].default, 0.1)
 
-        sig_lv = inspect.signature(eg.SgdSolver.largevis)
+        sig_lv = inspect.signature(eg.LargeVisSolver)
         self.assertEqual(sig_lv.parameters["gamma"].default, 7.0)
         self.assertEqual(sig_lv.parameters["degree_exponent"].default, 0.75)
 
-        sig_dr = inspect.signature(eg.SgdSolver.drgraph)
+        sig_dr = inspect.signature(eg.DrGraphSolver)
         self.assertEqual(sig_dr.parameters["k_order"].default, 1)
         self.assertEqual(sig_dr.parameters["coarsen_stop_ratio"].default, 0.8)
 
-        sig_cne = inspect.signature(eg.SgdSolver.graph_cne)
+        sig_cne = inspect.signature(eg.GraphCneSolver)
         self.assertEqual(sig_cne.parameters["objective"].default, "infonce")
         self.assertIs(sig_cne.parameters["row_normalize"].default, True)
 
         sig_maxent = inspect.signature(eg.MaxentStressSolver)
         self.assertIsNone(sig_maxent.parameters["q"].default)
         self.assertEqual(sig_maxent.parameters["alpha_min"].default, 0.008)
-        self.assertIs(sig_maxent.parameters["use_barnes_hut"].default, True)
+        self.assertEqual(sig_maxent.parameters["backend"].default, "auto")
+        self.assertIsNone(sig_maxent.parameters["use_barnes_hut"].default)
 
         sig_grip = inspect.signature(eg.GripSolver)
         self.assertEqual(sig_grip.parameters["rounds_min"].default, 5)
@@ -162,7 +163,7 @@ class TestHdeAndSgdPresets(unittest.TestCase):
         sig_pfs_r = inspect.signature(eg.PfsPrimeOverlapRemoval.from_radii)
         self.assertEqual(sig_pfs_r.parameters["padding"].default, 0.0)
 
-        sig_sfc = inspect.signature(eg.SfcLayoutSolver)
+        sig_sfc = inspect.signature(eg.SfcLayout)
         self.assertEqual(sig_sfc.parameters["curve"].default, "hilbert")
         self.assertEqual(sig_sfc.parameters["scale"].default, 100.0)
         self.assertIsNone(sig_sfc.parameters["resolution_order"].default)
@@ -174,12 +175,12 @@ class TestHdeAndSgdPresets(unittest.TestCase):
         self.assertIn("Eades", eg.dgg_preservation.__doc__ or "")
         self.assertIn("S_RNG", eg.evaluate_metrics.__doc__ or "")
         self.assertIn("S_GG", eg.evaluate_metrics.__doc__ or "")
-        self.assertIn("Ahmed", eg.SgdSolver.sgd2.__doc__ or "")
-        self.assertIn("linlog_mode", eg.ForceAtlas2Solver.__doc__ or "")
-        self.assertIn("Noack", eg.ForceAtlas2Solver.__doc__ or "")
+        self.assertIn("Ahmed", eg.Sgd2Solver.__doc__ or "")
+        self.assertIn("ForceAtlas2", eg.ForceAtlas2Solver.__doc__ or "")
+        self.assertIn("linlog_mode", inspect.signature(eg.ForceAtlas2Solver).parameters)
         self.assertIn("IPSep-CoLa", eg.project_clustered_rectangle_no_overlap_2d.__doc__ or "")
-        self.assertIn("MISSING_PDF", eg.SfcLayoutSolver.__doc__ or "")
-        self.assertIn("muelder2008_space_filling", eg.SfcLayoutSolver.__doc__ or "")
+        self.assertIn("MISSING_PDF", eg.SfcLayout.__doc__ or "")
+        self.assertIn("muelder2008_space_filling", eg.SfcLayout.__doc__ or "")
 
     def test_hde_and_hde_nd(self) -> None:
         graph = _make_grid(4, 4)
@@ -301,10 +302,10 @@ class TestHdeAndSgdPresets(unittest.TestCase):
                 self.assertTrue(l_run.is_all_finite())
 
             # LargeVis, DRGraph, Graph-CNE
-            constructors: list[tuple[str, Callable[[], eg.SgdSolver]]] = [
+            constructors: list[tuple[str, Callable[[], Any]]] = [
                 (
                     "largevis",
-                    lambda: eg.SgdSolver.largevis(
+                    lambda: eg.LargeVisSolver(
                         graph,
                         iterations=10,
                         negative_samples=3,
@@ -315,7 +316,7 @@ class TestHdeAndSgdPresets(unittest.TestCase):
                 ),
                 (
                     "drgraph_k1",
-                    lambda: eg.SgdSolver.drgraph(
+                    lambda: eg.DrGraphSolver(
                         graph,
                         k_order=1,
                         negative_samples=3,
@@ -327,7 +328,7 @@ class TestHdeAndSgdPresets(unittest.TestCase):
                 ),
                 (
                     "drgraph_k2",
-                    lambda: eg.SgdSolver.drgraph(
+                    lambda: eg.DrGraphSolver(
                         graph,
                         k_order=2,
                         negative_samples=3,
@@ -338,7 +339,7 @@ class TestHdeAndSgdPresets(unittest.TestCase):
                 ),
                 (
                     "graph_cne_infonce",
-                    lambda: eg.SgdSolver.graph_cne(
+                    lambda: eg.GraphCneSolver(
                         graph,
                         objective="infonce",
                         negative_samples=3,
@@ -350,7 +351,7 @@ class TestHdeAndSgdPresets(unittest.TestCase):
                 ),
                 (
                     "graph_cne_neg_tsne",
-                    lambda: eg.SgdSolver.graph_cne(
+                    lambda: eg.GraphCneSolver(
                         graph,
                         objective="neg_tsne",
                         negative_samples=3,
@@ -387,11 +388,11 @@ class TestHdeAndSgdPresets(unittest.TestCase):
         ):
             m = g_deg.num_nodes
             init = _collinear_coords(m) if m > 0 else np.zeros((0, 2), dtype=np.float64)
-            deg_solvers: list[eg.SgdSolver] = [
+            deg_solvers: list[Any] = [
                 eg.SgdSolver.ortmann_sparse_stress(g_deg, num_pivots=3, iterations=5),
-                eg.SgdSolver.largevis(g_deg, iterations=5),
-                eg.SgdSolver.drgraph(g_deg, iterations=5),
-                eg.SgdSolver.graph_cne(g_deg, iterations=5),
+                eg.LargeVisSolver(g_deg, iterations=5),
+                eg.DrGraphSolver(g_deg, iterations=5),
+                eg.GraphCneSolver(g_deg, iterations=5),
             ]
             for s_deg in deg_solvers:
                 lay = eg.Layout2d.from_coords(init)
@@ -412,40 +413,40 @@ class TestHdeAndSgdPresets(unittest.TestCase):
             (ValueError,),
             lambda: eg.SgdSolver.ortmann_sparse_stress(graph, eta_min=2.0, eta_max=1.0),
         )
-        self.assert_no_panic_raises((ValueError,), lambda: eg.SgdSolver.largevis(graph, gamma=-1.0))
+        self.assert_no_panic_raises((ValueError,), lambda: eg.LargeVisSolver(graph, gamma=-1.0))
         self.assert_no_panic_raises(
-            (ValueError,), lambda: eg.SgdSolver.largevis(graph, initial_lr=0.0)
+            (ValueError,), lambda: eg.LargeVisSolver(graph, initial_lr=0.0)
         )
         self.assert_no_panic_raises(
-            (ValueError,), lambda: eg.SgdSolver.largevis(graph, initial_lr=0.1, min_lr=0.5)
+            (ValueError,), lambda: eg.LargeVisSolver(graph, initial_lr=0.1, min_lr=0.5)
         )
-        self.assert_no_panic_raises((ValueError,), lambda: eg.SgdSolver.drgraph(graph, k_order=0))
-        self.assert_no_panic_raises((ValueError,), lambda: eg.SgdSolver.drgraph(graph, b=0.0))
+        self.assert_no_panic_raises((ValueError,), lambda: eg.DrGraphSolver(graph, k_order=0))
+        self.assert_no_panic_raises((ValueError,), lambda: eg.DrGraphSolver(graph, b=0.0))
         self.assert_no_panic_raises(
-            (ValueError,), lambda: eg.SgdSolver.drgraph(graph, coarsen_stop_ratio=0.0)
-        )
-        self.assert_no_panic_raises(
-            (ValueError,), lambda: eg.SgdSolver.drgraph(graph, coarsen_stop_ratio=1.5)
+            (ValueError,), lambda: eg.DrGraphSolver(graph, coarsen_stop_ratio=0.0)
         )
         self.assert_no_panic_raises(
-            (ValueError,), lambda: eg.SgdSolver.graph_cne(graph, objective="bad")
+            (ValueError,), lambda: eg.DrGraphSolver(graph, coarsen_stop_ratio=1.5)
         )
         self.assert_no_panic_raises(
-            (ValueError,), lambda: eg.SgdSolver.graph_cne(graph, repulsion_weight=-0.5)
+            (ValueError,), lambda: eg.GraphCneSolver(graph, objective="bad")
         )
-        self.assert_no_panic_raises((TypeError,), lambda: eg.SgdSolver.largevis(graph, seed=True))
+        self.assert_no_panic_raises(
+            (ValueError,), lambda: eg.GraphCneSolver(graph, repulsion_weight=-0.5)
+        )
+        self.assert_no_panic_raises((TypeError,), lambda: eg.LargeVisSolver(graph, seed=True))
         bad_lay = eg.Layout2d.zeros(n)
         bad_lay.coords(copy=False)[0, 0] = math.nan
         self.assert_no_panic_raises(
-            (ValueError,), lambda: eg.SgdSolver.largevis(graph, iterations=3).run(bad_lay)
+            (ValueError,), lambda: eg.LargeVisSolver(graph, iterations=3).run(bad_lay)
         )
         wrong_lay = eg.Layout2d.zeros(n + 1)
         self.assert_no_panic_raises(
-            (ValueError,), lambda: eg.SgdSolver.largevis(graph, iterations=3).run(wrong_lay)
+            (ValueError,), lambda: eg.LargeVisSolver(graph, iterations=3).run(wrong_lay)
         )
         # Cross-dtype conversion between float64 solver and float32 Layout2d succeeds cleanly.
         f32_lay = eg.Layout2d.from_coords(base.astype(np.float32))
-        eg.SgdSolver.largevis(graph, iterations=3, dtype="float64").run(f32_lay)
+        eg.LargeVisSolver(graph, iterations=3, dtype="float64").run(f32_lay)
         self.assertEqual(f32_lay.dtype, "float32")
         self.assertTrue(f32_lay.is_all_finite())
 

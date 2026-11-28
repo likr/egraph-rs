@@ -1,19 +1,63 @@
 from __future__ import annotations
 
-from typing import Any, Sequence, final
+from typing import Sequence, final
 
-from ._core_core import CsrGraph, Layout2d, LayoutNd
+from ._core_core import CsrGraph, Layout2d, Layout3d, LayoutNd
 from ._core_manifold import ManifoldLayout2d
 from ._core_neighborhood import DogVaradhanLandmarks, KnnGraph, SparseProbabilities
-from ._core_types import _DtypeLike, _WeightArrayLike
+from ._core_types import (
+    BackendKind,
+    SolverStatus,
+    TargetKind,
+    _DtypeLike,
+    _WeightArrayLike,
+)
 
-_AnyLayout = Layout2d | LayoutNd | ManifoldLayout2d
+_AnyLayout = Layout2d | Layout3d | LayoutNd | ManifoldLayout2d
 
 __all__ = [
+    "FieldFftStats",
+    "FitFieldStats",
     "GuMapSolver",
     "TsNetSolver",
     "TsNetStage",
 ]
+
+@final
+class FitFieldStats:
+    @property
+    def particle_forward_ffts(self) -> int: ...
+    @property
+    def kernel_forward_ffts(self) -> int: ...
+    @property
+    def inverse_ffts(self) -> int: ...
+    @property
+    def total_fft_2d_calls(self) -> int: ...
+    def to_dict(self) -> dict[str, int]: ...
+    def keys(self) -> list[str]: ...
+    def __getitem__(self, key: str, /) -> int: ...
+    def __contains__(self, key: object, /) -> bool: ...
+    def __repr__(self) -> str: ...
+
+@final
+class FieldFftStats:
+    @property
+    def particle_forward_ffts(self) -> int: ...
+    @property
+    def kernel_forward_ffts(self) -> int: ...
+    @property
+    def inverse_ffts(self) -> int: ...
+    @property
+    def total_fft_2d_calls(self) -> int: ...
+    @property
+    def nx(self) -> int: ...
+    @property
+    def ny(self) -> int: ...
+    def to_dict(self) -> dict[str, int]: ...
+    def keys(self) -> list[str]: ...
+    def __getitem__(self, key: str, /) -> int: ...
+    def __contains__(self, key: object, /) -> bool: ...
+    def __repr__(self) -> str: ...
 
 @final
 class TsNetStage:
@@ -45,6 +89,7 @@ class GuMapSolver:
         graph: CsrGraph,
         max_2hop_per_node: int = 32,
         *,
+        target: TargetKind = "layout2d",
         degree: int | None = None,
         num_landmarks: int = 64,
         degree_normalize: bool = True,
@@ -74,6 +119,7 @@ class GuMapSolver:
     def from_knn(
         knn: KnnGraph,
         *,
+        target: TargetKind = "layout2d",
         iterations: int = 200,
         negative_sample_rate: int = 5,
         learning_rate: float = 1.0,
@@ -91,6 +137,7 @@ class GuMapSolver:
     def from_fuzzy_set(
         probs: SparseProbabilities,
         *,
+        target: TargetKind = "layout2d",
         iterations: int = 200,
         negative_sample_rate: int = 5,
         learning_rate: float = 1.0,
@@ -110,6 +157,7 @@ class GuMapSolver:
         landmarks: DogVaradhanLandmarks,
         max_2hop_per_node: int = 32,
         *,
+        target: TargetKind = "layout2d",
         iterations: int = 200,
         negative_sample_rate: int = 5,
         learning_rate: float = 1.0,
@@ -128,6 +176,7 @@ class GuMapSolver:
         graph: CsrGraph,
         max_2hop_per_node: int = 32,
         *,
+        target: TargetKind = "layout2d",
         degree: int | None = None,
         num_landmarks: int = 64,
         degree_normalize: bool = True,
@@ -153,15 +202,17 @@ class GuMapSolver:
         seed: int = 42,
         dtype: _DtypeLike = "float64",
     ) -> GuMapSolver: ...
-    def step(self, layout: _AnyLayout) -> str: ...
-    def run_steps(self, layout: _AnyLayout, steps: int) -> str: ...
-    def run(self, layout: _AnyLayout) -> str: ...
+    def step(self, layout: _AnyLayout) -> SolverStatus: ...
+    def run_steps(self, layout: _AnyLayout, steps: int) -> SolverStatus: ...
+    def run(self, layout: _AnyLayout) -> SolverStatus: ...
     @property
-    def status(self) -> str: ...
+    def target(self) -> TargetKind: ...
+    @property
+    def status(self) -> SolverStatus: ...
     @property
     def iteration(self) -> int: ...
     @property
-    def total_iterations(self) -> int: ...
+    def total_iterations(self) -> int | None: ...
     @property
     def is_finished(self) -> bool: ...
     @property
@@ -183,8 +234,9 @@ class TsNetSolver:
     def __new__(
         cls,
         graph: CsrGraph,
-        backend: str = "fft",
+        backend: BackendKind = "auto",
         *,
+        target: TargetKind = "layout2d",
         perplexity_c: float = 0.9,
         min_perplexity: float = 5.0,
         max_perplexity: float = 1200.0,
@@ -214,8 +266,9 @@ class TsNetSolver:
     @staticmethod
     def from_probabilities(
         probs: SparseProbabilities,
-        backend: str = "fft",
+        backend: BackendKind = "auto",
         *,
+        target: TargetKind = "layout2d",
         stage_iterations: Sequence[int] | None = None,
         exaggeration: float = 4.0,
         lambda_c_stage1: float = 0.1,
@@ -239,10 +292,12 @@ class TsNetSolver:
     def from_probabilities_with_stages(
         probs: SparseProbabilities,
         stages: Sequence[TsNetStage],
-        backend: str = "fft",
         *,
+        target: TargetKind = "layout2d",
+        backend: BackendKind = "auto",
         learning_rate: float | None = None,
         learning_rate_divisor: float = 3.0,
+        jacobi_precondition: bool = True,
         momentum: float = 0.8,
         epsilon_r: float = 0.05,
         theta: float = 0.5,
@@ -250,7 +305,6 @@ class TsNetSolver:
         interpolation_order: int = 3,
         min_grid_dim: int = 64,
         max_grid_dim: int = 512,
-        jacobi_precondition: bool = True,
         seed: int = 42,
         dtype: _DtypeLike = "float64",
     ) -> TsNetSolver: ...
@@ -260,7 +314,8 @@ class TsNetSolver:
         perplexities: _WeightArrayLike | float | None = None,
         uniform_perplexity: float = 15.0,
         *,
-        backend: str = "fft",
+        target: TargetKind = "layout2d",
+        backend: BackendKind = "auto",
         power: float = 2.0,
         sigma_iters: int = 50,
         sigma_tolerance: float = 1e-5,
@@ -287,8 +342,9 @@ class TsNetSolver:
     @staticmethod
     def pure_2hop(
         graph: CsrGraph,
-        backend: str = "fft",
+        backend: BackendKind = "auto",
         *,
+        target: TargetKind = "layout2d",
         perplexity_c: float = 0.9,
         min_perplexity: float = 5.0,
         max_perplexity: float = 1200.0,
@@ -318,10 +374,11 @@ class TsNetSolver:
     @staticmethod
     def from_graph_partial_bfs(
         graph: CsrGraph,
+        *,
         k: int = 15,
         uniform_perplexity: float = 15.0,
-        *,
-        backend: str = "fft",
+        target: TargetKind = "layout2d",
+        backend: BackendKind = "auto",
         power: float = 2.0,
         sigma_iters: int = 50,
         sigma_tolerance: float = 1e-5,
@@ -348,13 +405,14 @@ class TsNetSolver:
     @staticmethod
     def from_graph_row_normalized(
         graph: CsrGraph,
-        w2: float = 0.5,
-        max_2hop_per_node: int | None = None,
         *,
+        w2: float = 0.35,
+        max_2hop_per_node: int | None = 32,
         degree_beta: float = 0.0,
-        mode: str = "two_step_random_walk",
+        mode: str = "degree_ordered_hub_suppressed",
         max_bridge_degree: int | None = None,
-        backend: str = "fft",
+        target: TargetKind = "layout2d",
+        backend: BackendKind = "auto",
         stage_iterations: Sequence[int] | None = None,
         exaggeration: float = 4.0,
         lambda_c_stage1: float = 0.1,
@@ -374,22 +432,25 @@ class TsNetSolver:
         seed: int = 42,
         dtype: _DtypeLike = "float64",
     ) -> TsNetSolver: ...
-    def step(self, layout: _AnyLayout) -> str: ...
-    def run_steps(self, layout: _AnyLayout, steps: int) -> str: ...
-    def run(self, layout: _AnyLayout) -> str: ...
+    def validate_target(self, layout: _AnyLayout) -> None: ...
+    def step(self, layout: _AnyLayout) -> SolverStatus: ...
+    def run_steps(self, layout: _AnyLayout, steps: int) -> SolverStatus: ...
+    def run(self, layout: _AnyLayout) -> SolverStatus: ...
     @property
-    def status(self) -> str: ...
+    def target(self) -> TargetKind: ...
+    @property
+    def status(self) -> SolverStatus: ...
     @property
     def iteration(self) -> int: ...
     @property
-    def total_iterations(self) -> int: ...
+    def total_iterations(self) -> int | None: ...
     @property
     def is_finished(self) -> bool: ...
     @property
     def resolved_backend(self) -> str: ...
     @property
     def total_fft_2d_calls(self) -> int: ...
-    def last_fft_stats(self) -> dict[str, Any] | None: ...
+    def last_fft_stats(self) -> FitFieldStats | None: ...
     @property
     def num_nodes(self) -> int: ...
     @property

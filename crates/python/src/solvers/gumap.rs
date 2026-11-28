@@ -1,38 +1,38 @@
-//! Graph UMAP (`GuMapSolver`) layout solver bindings.
+//! Graph UMAP (`GuMapSolver`) layout solver bindings across `Layout2d | Layout3d | LayoutNd | ManifoldLayout2d`.
 
-use egraph::layout as egraph_layout;
-use egraph_layout::GuMapSolver;
+use egraph::core::ManifoldKind;
+use egraph::layout::GuMapSolver;
 use pyo3::prelude::*;
 
 use crate::csr_graph::PyCsrGraph;
 use crate::ffi_convert::{ScalarDtype, StrictF64, StrictU64, StrictUsize, solver_status_str};
 use crate::neighborhood::{PyDogVaradhanLandmarks, PyKnnGraph, PySparseProbabilities};
-use crate::solver_common::{DualIterativeSolver, SolverAction, impl_dual_solver};
+use crate::solver_common::format_optional_usize;
 
 use super::gumap_builders::{
     build_gumap_from_fuzzy_set, build_gumap_from_graph_dog, build_gumap_from_knn,
     build_gumap_from_landmarks,
 };
 use super::layout_dispatch::{
-    execute_any_layout_action, impl_dual_manifold_solver, impl_dual_nd_solver,
+    DualTargetSolver, SolverAction, SolverTargetKind, execute_target_action,
+    impl_riemannian_target_solver, match_riemannian_target,
 };
 
-impl_dual_solver!(GuMapInner, GuMapSolver);
-impl_dual_nd_solver!(GuMapInner, GuMapSolver);
-impl_dual_manifold_solver!(GuMapInner, GuMapSolver);
+impl_riemannian_target_solver!(GuMapInner, GuMapSolver);
 
-/// Cooperative Graph UMAP (`GuMap`) layout solver with `dist_sq.powf(b)` gradient evaluation.
-///
-/// Supports `Layout2d`, `LayoutNd`, and `ManifoldLayout2d` in `"float64"` and `"float32"`
-/// precision while releasing the Python GIL during stepping.
+/// Cooperative Graph UMAP (`GuMap`) layout solver supporting `Layout2d`, `Layout3d`, `LayoutNd`, and `ManifoldLayout2d`.
 #[pyclass(name = "GuMapSolver", module = "egraph._core")]
 pub struct PyGuMapSolver {
     inner: GuMapInner,
+    locked_manifold: Option<ManifoldKind>,
 }
 
 impl PyGuMapSolver {
     pub(super) fn from_inner(inner: GuMapInner) -> Self {
-        Self { inner }
+        Self {
+            inner,
+            locked_manifold: None,
+        }
     }
 }
 
@@ -42,13 +42,14 @@ impl PyGuMapSolver {
     #[new]
     #[allow(clippy::too_many_arguments)]
     #[pyo3(
-        signature = (graph, max_2hop_per_node = StrictUsize(32), *, degree = None, num_landmarks = StrictUsize(64), degree_normalize = true, p_exp = StrictF64(0.5), eps_psd = StrictF64(1e-4), t_coarse = StrictF64(48.0), t1 = None, t2 = None, alpha = None, beta_floor = None, min_degree = StrictUsize(2), jl_dim = StrictUsize(64), iterations = StrictUsize(200), negative_sample_rate = StrictUsize(5), learning_rate = StrictF64(1.0), min_dist = StrictF64(0.1), spread = StrictF64(1.0), a = None, b = None, sigma_iters = StrictUsize(64), sigma_tolerance = StrictF64(1e-5), symmetric_negative = true, seed = StrictU64(42), dtype = ScalarDtype::F64),
-        text_signature = "(graph, max_2hop_per_node=32, *, degree=None, num_landmarks=64, degree_normalize=True, p_exp=0.5, eps_psd=1e-4, t_coarse=48.0, t1=None, t2=None, alpha=None, beta_floor=None, min_degree=2, jl_dim=64, iterations=200, negative_sample_rate=5, learning_rate=1.0, min_dist=0.1, spread=1.0, a=None, b=None, sigma_iters=64, sigma_tolerance=1e-5, symmetric_negative=True, seed=42, dtype='float64')"
+        signature = (graph, max_2hop_per_node = StrictUsize(32), *, target = SolverTargetKind::Layout2d, degree = None, num_landmarks = StrictUsize(64), degree_normalize = true, p_exp = StrictF64(0.5), eps_psd = StrictF64(1e-4), t_coarse = StrictF64(48.0), t1 = None, t2 = None, alpha = None, beta_floor = None, min_degree = StrictUsize(2), jl_dim = StrictUsize(64), iterations = StrictUsize(200), negative_sample_rate = StrictUsize(5), learning_rate = StrictF64(1.0), min_dist = StrictF64(0.1), spread = StrictF64(1.0), a = None, b = None, sigma_iters = StrictUsize(64), sigma_tolerance = StrictF64(1e-5), symmetric_negative = true, seed = StrictU64(42), dtype = ScalarDtype::F64),
+        text_signature = "(graph, max_2hop_per_node=32, *, target='layout2d', degree=None, num_landmarks=64, degree_normalize=True, p_exp=0.5, eps_psd=1e-4, t_coarse=48.0, t1=None, t2=None, alpha=None, beta_floor=None, min_degree=2, jl_dim=64, iterations=200, negative_sample_rate=5, learning_rate=1.0, min_dist=0.1, spread=1.0, a=None, b=None, sigma_iters=64, sigma_tolerance=1e-5, symmetric_negative=True, seed=42, dtype='float64')"
     )]
     fn new(
         py: Python<'_>,
         graph: &PyCsrGraph,
         max_2hop_per_node: StrictUsize,
+        target: SolverTargetKind,
         degree: Option<StrictUsize>,
         num_landmarks: StrictUsize,
         degree_normalize: bool,
@@ -78,6 +79,7 @@ impl PyGuMapSolver {
             py,
             graph,
             max_2hop_per_node,
+            target,
             degree,
             num_landmarks,
             degree_normalize,
@@ -109,12 +111,13 @@ impl PyGuMapSolver {
     #[staticmethod]
     #[allow(clippy::too_many_arguments)]
     #[pyo3(
-        signature = (probs, *, iterations = StrictUsize(200), negative_sample_rate = StrictUsize(5), learning_rate = StrictF64(1.0), min_dist = StrictF64(0.1), spread = StrictF64(1.0), a = None, b = None, sigma_iters = StrictUsize(64), sigma_tolerance = StrictF64(1e-5), symmetric_negative = true, seed = StrictU64(42), dtype = ScalarDtype::F64),
-        text_signature = "(probs, *, iterations=200, negative_sample_rate=5, learning_rate=1.0, min_dist=0.1, spread=1.0, a=None, b=None, sigma_iters=64, sigma_tolerance=1e-5, symmetric_negative=True, seed=42, dtype='float64')"
+        signature = (probs, *, target = SolverTargetKind::Layout2d, iterations = StrictUsize(200), negative_sample_rate = StrictUsize(5), learning_rate = StrictF64(1.0), min_dist = StrictF64(0.1), spread = StrictF64(1.0), a = None, b = None, sigma_iters = StrictUsize(64), sigma_tolerance = StrictF64(1e-5), symmetric_negative = true, seed = StrictU64(42), dtype = ScalarDtype::F64),
+        text_signature = "(probs, *, target='layout2d', iterations=200, negative_sample_rate=5, learning_rate=1.0, min_dist=0.1, spread=1.0, a=None, b=None, sigma_iters=64, sigma_tolerance=1e-5, symmetric_negative=True, seed=42, dtype='float64')"
     )]
     fn from_fuzzy_set(
         py: Python<'_>,
         probs: &PySparseProbabilities,
+        target: SolverTargetKind,
         iterations: StrictUsize,
         negative_sample_rate: StrictUsize,
         learning_rate: StrictF64,
@@ -131,6 +134,7 @@ impl PyGuMapSolver {
         build_gumap_from_fuzzy_set(
             py,
             probs,
+            target,
             iterations,
             negative_sample_rate,
             learning_rate,
@@ -150,12 +154,13 @@ impl PyGuMapSolver {
     #[staticmethod]
     #[allow(clippy::too_many_arguments)]
     #[pyo3(
-        signature = (knn, *, iterations = StrictUsize(200), negative_sample_rate = StrictUsize(5), learning_rate = StrictF64(1.0), min_dist = StrictF64(0.1), spread = StrictF64(1.0), a = None, b = None, sigma_iters = StrictUsize(64), sigma_tolerance = StrictF64(1e-5), symmetric_negative = true, seed = StrictU64(42), dtype = ScalarDtype::F64),
-        text_signature = "(knn, *, iterations=200, negative_sample_rate=5, learning_rate=1.0, min_dist=0.1, spread=1.0, a=None, b=None, sigma_iters=64, sigma_tolerance=1e-5, symmetric_negative=True, seed=42, dtype='float64')"
+        signature = (knn, *, target = SolverTargetKind::Layout2d, iterations = StrictUsize(200), negative_sample_rate = StrictUsize(5), learning_rate = StrictF64(1.0), min_dist = StrictF64(0.1), spread = StrictF64(1.0), a = None, b = None, sigma_iters = StrictUsize(64), sigma_tolerance = StrictF64(1e-5), symmetric_negative = true, seed = StrictU64(42), dtype = ScalarDtype::F64),
+        text_signature = "(knn, *, target='layout2d', iterations=200, negative_sample_rate=5, learning_rate=1.0, min_dist=0.1, spread=1.0, a=None, b=None, sigma_iters=64, sigma_tolerance=1e-5, symmetric_negative=True, seed=42, dtype='float64')"
     )]
     fn from_knn(
         py: Python<'_>,
         knn: &PyKnnGraph,
+        target: SolverTargetKind,
         iterations: StrictUsize,
         negative_sample_rate: StrictUsize,
         learning_rate: StrictF64,
@@ -172,6 +177,7 @@ impl PyGuMapSolver {
         build_gumap_from_knn(
             py,
             knn,
+            target,
             iterations,
             negative_sample_rate,
             learning_rate,
@@ -191,13 +197,14 @@ impl PyGuMapSolver {
     #[staticmethod]
     #[allow(clippy::too_many_arguments)]
     #[pyo3(
-        signature = (graph, max_2hop_per_node = StrictUsize(32), *, degree = None, num_landmarks = StrictUsize(64), degree_normalize = true, p_exp = StrictF64(0.5), eps_psd = StrictF64(1e-4), t_coarse = StrictF64(48.0), t1 = None, t2 = None, alpha = None, beta_floor = None, min_degree = StrictUsize(2), jl_dim = StrictUsize(64), iterations = StrictUsize(200), negative_sample_rate = StrictUsize(5), learning_rate = StrictF64(1.0), min_dist = StrictF64(0.1), spread = StrictF64(1.0), a = None, b = None, sigma_iters = StrictUsize(64), sigma_tolerance = StrictF64(1e-5), symmetric_negative = true, seed = StrictU64(42), dtype = ScalarDtype::F64),
-        text_signature = "(graph, max_2hop_per_node=32, *, degree=None, num_landmarks=64, degree_normalize=True, p_exp=0.5, eps_psd=1e-4, t_coarse=48.0, t1=None, t2=None, alpha=None, beta_floor=None, min_degree=2, jl_dim=64, iterations=200, negative_sample_rate=5, learning_rate=1.0, min_dist=0.1, spread=1.0, a=None, b=None, sigma_iters=64, sigma_tolerance=1e-5, symmetric_negative=True, seed=42, dtype='float64')"
+        signature = (graph, max_2hop_per_node = StrictUsize(32), *, target = SolverTargetKind::Layout2d, degree = None, num_landmarks = StrictUsize(64), degree_normalize = true, p_exp = StrictF64(0.5), eps_psd = StrictF64(1e-4), t_coarse = StrictF64(48.0), t1 = None, t2 = None, alpha = None, beta_floor = None, min_degree = StrictUsize(2), jl_dim = StrictUsize(64), iterations = StrictUsize(200), negative_sample_rate = StrictUsize(5), learning_rate = StrictF64(1.0), min_dist = StrictF64(0.1), spread = StrictF64(1.0), a = None, b = None, sigma_iters = StrictUsize(64), sigma_tolerance = StrictF64(1e-5), symmetric_negative = true, seed = StrictU64(42), dtype = ScalarDtype::F64),
+        text_signature = "(graph, max_2hop_per_node=32, *, target='layout2d', degree=None, num_landmarks=64, degree_normalize=True, p_exp=0.5, eps_psd=1e-4, t_coarse=48.0, t1=None, t2=None, alpha=None, beta_floor=None, min_degree=2, jl_dim=64, iterations=200, negative_sample_rate=5, learning_rate=1.0, min_dist=0.1, spread=1.0, a=None, b=None, sigma_iters=64, sigma_tolerance=1e-5, symmetric_negative=True, seed=42, dtype='float64')"
     )]
     fn from_graph_dog(
         py: Python<'_>,
         graph: &PyCsrGraph,
         max_2hop_per_node: StrictUsize,
+        target: SolverTargetKind,
         degree: Option<StrictUsize>,
         num_landmarks: StrictUsize,
         degree_normalize: bool,
@@ -227,6 +234,7 @@ impl PyGuMapSolver {
             py,
             graph,
             max_2hop_per_node,
+            target,
             degree,
             num_landmarks,
             degree_normalize,
@@ -258,14 +266,15 @@ impl PyGuMapSolver {
     #[staticmethod]
     #[allow(clippy::too_many_arguments)]
     #[pyo3(
-        signature = (graph, landmarks, max_2hop_per_node = StrictUsize(32), *, iterations = StrictUsize(200), negative_sample_rate = StrictUsize(5), learning_rate = StrictF64(1.0), min_dist = StrictF64(0.1), spread = StrictF64(1.0), a = None, b = None, sigma_iters = StrictUsize(64), sigma_tolerance = StrictF64(1e-5), symmetric_negative = true, seed = StrictU64(42), dtype = ScalarDtype::F64),
-        text_signature = "(graph, landmarks, max_2hop_per_node=32, *, iterations=200, negative_sample_rate=5, learning_rate=1.0, min_dist=0.1, spread=1.0, a=None, b=None, sigma_iters=64, sigma_tolerance=1e-5, symmetric_negative=True, seed=42, dtype='float64')"
+        signature = (graph, landmarks, max_2hop_per_node = StrictUsize(32), *, target = SolverTargetKind::Layout2d, iterations = StrictUsize(200), negative_sample_rate = StrictUsize(5), learning_rate = StrictF64(1.0), min_dist = StrictF64(0.1), spread = StrictF64(1.0), a = None, b = None, sigma_iters = StrictUsize(64), sigma_tolerance = StrictF64(1e-5), symmetric_negative = true, seed = StrictU64(42), dtype = ScalarDtype::F64),
+        text_signature = "(graph, landmarks, max_2hop_per_node=32, *, target='layout2d', iterations=200, negative_sample_rate=5, learning_rate=1.0, min_dist=0.1, spread=1.0, a=None, b=None, sigma_iters=64, sigma_tolerance=1e-5, symmetric_negative=True, seed=42, dtype='float64')"
     )]
     fn from_landmarks(
         py: Python<'_>,
         graph: &PyCsrGraph,
         landmarks: &PyDogVaradhanLandmarks,
         max_2hop_per_node: StrictUsize,
+        target: SolverTargetKind,
         iterations: StrictUsize,
         negative_sample_rate: StrictUsize,
         learning_rate: StrictF64,
@@ -284,6 +293,7 @@ impl PyGuMapSolver {
             graph,
             landmarks,
             max_2hop_per_node,
+            target,
             iterations,
             negative_sample_rate,
             learning_rate,
@@ -299,13 +309,17 @@ impl PyGuMapSolver {
         )
     }
 
-    /// Execute a single optimization epoch in place on `layout` (`Layout2d | LayoutNd | ManifoldLayout2d`).
     #[pyo3(signature = (layout), text_signature = "($self, layout)")]
     fn step(&mut self, py: Python<'_>, layout: &Bound<'_, PyAny>) -> PyResult<&'static str> {
-        execute_any_layout_action(&mut self.inner, py, layout, SolverAction::Step)
+        execute_target_action(
+            &mut self.inner,
+            &mut self.locked_manifold,
+            py,
+            layout,
+            SolverAction::Step,
+        )
     }
 
-    /// Execute up to `steps` optimization epochs in place on `layout` while releasing the GIL.
     #[pyo3(signature = (layout, steps), text_signature = "($self, layout, steps)")]
     fn run_steps(
         &mut self,
@@ -313,93 +327,90 @@ impl PyGuMapSolver {
         layout: &Bound<'_, PyAny>,
         steps: StrictUsize,
     ) -> PyResult<&'static str> {
-        execute_any_layout_action(&mut self.inner, py, layout, SolverAction::RunSteps(steps.0))
+        execute_target_action(
+            &mut self.inner,
+            &mut self.locked_manifold,
+            py,
+            layout,
+            SolverAction::RunSteps(steps.0),
+        )
     }
 
-    /// Run optimization to completion in place on `layout` while releasing the GIL.
     #[pyo3(signature = (layout), text_signature = "($self, layout)")]
     fn run(&mut self, py: Python<'_>, layout: &Bound<'_, PyAny>) -> PyResult<&'static str> {
-        execute_any_layout_action(&mut self.inner, py, layout, SolverAction::Run)
+        execute_target_action(
+            &mut self.inner,
+            &mut self.locked_manifold,
+            py,
+            layout,
+            SolverAction::Run,
+        )
     }
 
-    /// Current solver status (`"initialized"`, `"running"`, `"converged"`, or `"completed"`).
+    #[getter]
+    fn target(&self) -> &'static str {
+        self.inner.target_kind().as_str()
+    }
+
     #[getter]
     fn status(&self) -> &'static str {
         solver_status_str(self.inner.solver_status())
     }
 
-    /// Number of epochs executed so far.
     #[getter]
     fn iteration(&self) -> usize {
         self.inner.solver_iteration()
     }
 
-    /// Scheduled total number of epochs (`n_epochs`).
     #[getter]
-    fn total_iterations(&self) -> usize {
+    fn total_iterations(&self) -> Option<usize> {
         self.inner.solver_total_iterations()
     }
 
-    /// Whether the solver has reached `"converged"` or `"completed"`.
     #[getter]
     fn is_finished(&self) -> bool {
         self.inner.solver_status().is_finished()
     }
 
-    /// Number of stored directed positive probability edges.
     #[getter]
     fn num_edges(&self) -> usize {
-        match &self.inner {
-            GuMapInner::F64(s) => s.num_edges(),
-            GuMapInner::F32(s) => s.num_edges(),
-        }
+        match_riemannian_target!(GuMapInner, &self.inner, s => s.num_edges())
     }
 
-    /// Expected number of vertices in `Layout2d`.
     #[getter]
     fn num_nodes(&self) -> usize {
-        match &self.inner {
-            GuMapInner::F64(s) => s.num_nodes(),
-            GuMapInner::F32(s) => s.num_nodes(),
-        }
+        match_riemannian_target!(GuMapInner, &self.inner, s => s.num_nodes())
     }
 
-    /// Resolved low-dimensional curve parameter `a`.
     #[getter]
     fn a(&self) -> f64 {
         self.ab().0
     }
 
-    /// Resolved low-dimensional curve parameter `b`.
     #[getter]
     fn b(&self) -> f64 {
         self.ab().1
     }
 
-    /// Resolved low-dimensional curve parameters `(a, b)`.
     #[getter]
     fn ab(&self) -> (f64, f64) {
-        match &self.inner {
-            GuMapInner::F64(s) => s.ab(),
-            GuMapInner::F32(s) => s.ab(),
-        }
+        match_riemannian_target!(GuMapInner, &self.inner, s => s.ab())
     }
 
-    /// Solver scalar precision (`"float64"` or `"float32"`).
     #[getter]
     fn dtype(&self) -> &'static str {
         self.inner.dtype().as_str()
     }
 
-    /// Return a concise string representation of the `GuMapSolver`.
     fn __repr__(&self) -> String {
         format!(
-            "GuMapSolver(num_nodes={}, num_edges={}, status='{}', iteration={}/{}, dtype='{}')",
+            "GuMapSolver(num_nodes={}, target='{}', num_edges={}, status='{}', iteration={}/{}, dtype='{}')",
             self.num_nodes(),
+            self.target(),
             self.num_edges(),
             self.status(),
             self.iteration(),
-            self.total_iterations(),
+            format_optional_usize(self.total_iterations()),
             self.dtype()
         )
     }

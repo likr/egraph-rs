@@ -208,16 +208,14 @@ class TestGripGemSelPfsSfc(unittest.TestCase):
 
         for dtype_str in ("float64", "float32"):
             l_run = eg.Layout2d.from_coords(_to_float_array(coincident, dtype_str))
-            l_step = eg.Layout2d.from_coords(_to_float_array(coincident, dtype_str))
+            l_cmp = eg.Layout2d.from_coords(_to_float_array(coincident, dtype_str))
             p_run = eg.PfsPrimeOverlapRemoval(hw, hh, padding=0.05, seed=7, dtype=dtype_str)
-            p_step = eg.PfsPrimeOverlapRemoval(hw, hh, padding=0.05, seed=7, dtype=dtype_str)
-            self.assertEqual(p_run.total_iterations, 1)
+            p_cmp = eg.PfsPrimeOverlapRemoval(hw, hh, padding=0.05, seed=7, dtype=dtype_str)
             self.assertIn("PfsPrimeOverlapRemoval", repr(p_run))
-            p_run.run(l_run)
-            p_step.step(l_step)
-            self.assertTrue(p_run.is_finished)
+            p_run.apply(l_run)
+            p_cmp.apply(l_cmp)
             self.assertEqual(p_run.last_overlap_count, 0)
-            np.testing.assert_array_equal(l_run.coords(copy=True), l_step.coords(copy=True))
+            np.testing.assert_array_equal(l_run.coords(copy=True), l_cmp.coords(copy=True))
             self.assertEqual(
                 len(eg.rectangle_overlaps(l_run, hw, hh)),
                 0,
@@ -227,7 +225,7 @@ class TestGripGemSelPfsSfc(unittest.TestCase):
             l_orig = eg.Layout2d.from_coords(_to_float_array(_collinear_coords(n), dtype_str))
             l_adj = eg.Layout2d.from_coords(_to_float_array(_collinear_coords(n), dtype_str))
             p_rad = eg.PfsPrimeOverlapRemoval.from_radii(radii, padding=0.0, seed=7, dtype=dtype_str)
-            p_rad.run(l_adj)
+            p_rad.apply(l_adj)
             self.assertEqual(p_rad.last_overlap_count, 0)
             nor = eg.nor_metrics(l_orig, l_adj, radii, radii, graph=graph)
             self.assertAlmostEqual(float(nor["oo_nni"]), 0.0, places=12)
@@ -248,39 +246,35 @@ class TestGripGemSelPfsSfc(unittest.TestCase):
             (ValueError,), lambda: eg.PfsPrimeOverlapRemoval.from_radii([math.inf])
         )
 
-        # 5. SfcLayoutSolver (hilbert & morton, zero co-location, permutation)
+        # 5. SfcLayout (hilbert & morton, zero co-location, permutation)
         for dtype_str in ("float64", "float32"):
             for curve in ("hilbert", "morton"):
-                l_run = eg.Layout2d.zeros(n, dtype=dtype_str)
-                l_step = eg.Layout2d.zeros(n, dtype_str)
-                sfc_run = eg.SfcLayoutSolver(graph, curve=curve, scale=80.0, seed=9, dtype=dtype_str)
-                sfc_step = eg.SfcLayoutSolver(graph, curve=curve, scale=80.0, seed=9, dtype=dtype_str)
-                self.assertEqual(sfc_run.total_iterations, 1)
-                self.assertIn("SfcLayoutSolver", repr(sfc_run))
-                order = sfc_run.vertex_order()
+                sfc1 = eg.SfcLayout(graph, curve=curve, scale=80.0, seed=9, dtype=dtype_str)
+                sfc2 = eg.SfcLayout(graph, curve=curve, scale=80.0, seed=9, dtype=dtype_str)
+                self.assertIn("SfcLayout", repr(sfc1))
+                l_run = sfc1.generate()
+                l_cmp = sfc2.generate()
+                order = sfc1.vertex_order()
                 self.assertEqual(order.dtype, np.uint32)
                 self.assertEqual(sorted(order.tolist()), list(range(n)))
-                sfc_run.run(l_run)
-                sfc_step.step(l_step)
-                self.assertTrue(sfc_run.is_finished)
-                np.testing.assert_array_equal(l_run.coords(copy=True), l_step.coords(copy=True))
+                np.testing.assert_array_equal(l_run.coords(copy=True), l_cmp.coords(copy=True))
                 coords = l_run.coords(copy=False)
                 self.assertTrue(np.all(np.abs(coords) <= 40.0 + 1e-4))
                 degen = eg.layout_degeneracy(graph, l_run)
                 self.assertEqual(degen["duplicate_nodes_f32"], 0)
 
-        self.assert_no_panic_raises((ValueError,), lambda: eg.SfcLayoutSolver(graph, scale=0.0))
-        self.assert_no_panic_raises((ValueError,), lambda: eg.SfcLayoutSolver(graph, scale=math.nan))
+        self.assert_no_panic_raises((ValueError,), lambda: eg.SfcLayout(graph, scale=0.0))
+        self.assert_no_panic_raises((ValueError,), lambda: eg.SfcLayout(graph, scale=math.nan))
         self.assert_no_panic_raises(
-            (ValueError,), lambda: eg.SfcLayoutSolver(graph, resolution_order=0)
+            (ValueError,), lambda: eg.SfcLayout(graph, resolution_order=0)
         )
         self.assert_no_panic_raises(
-            (ValueError,), lambda: eg.SfcLayoutSolver(graph, resolution_order=16)
+            (ValueError,), lambda: eg.SfcLayout(graph, resolution_order=16)
         )
         self.assert_no_panic_raises(
-            (ValueError,), lambda: eg.SfcLayoutSolver(graph, resolution_order=1)
+            (ValueError,), lambda: eg.SfcLayout(graph, resolution_order=1)
         )
-        self.assert_no_panic_raises((ValueError,), lambda: eg.SfcLayoutSolver(graph, curve="peano"))
+        self.assert_no_panic_raises((ValueError,), lambda: eg.SfcLayout(graph, curve="peano"))
 
         # Shared degenerate topologies across Grip, Gem, Sel, PfsPrime, Sfc
         for g_deg in (
@@ -297,19 +291,22 @@ class TestGripGemSelPfsSfc(unittest.TestCase):
                 eg.GripSolver
                 | eg.GemSolver
                 | eg.SelLayoutSolver
-                | eg.SfcLayoutSolver
-                | eg.PfsPrimeOverlapRemoval
             ] = [
                 eg.GripSolver(g_deg, rounds_min=2, rounds_max=4),
                 eg.GemSolver(g_deg, max_iterations=4),
                 eg.SelLayoutSolver(g_deg, iterations=4),
-                eg.SfcLayoutSolver(g_deg),
-                eg.PfsPrimeOverlapRemoval.from_radii(np.full(m, 0.25, dtype=np.float64)),
             ]
             for deg_solver in degenerate_solvers:
                 lay = eg.Layout2d.from_coords(init)
                 deg_solver.run(lay)
                 self.assertTrue(lay.is_all_finite())
+            lay_sfc = eg.SfcLayout(g_deg).generate()
+            self.assertTrue(lay_sfc.is_all_finite())
+            lay_pfs = eg.Layout2d.from_coords(init)
+            eg.PfsPrimeOverlapRemoval.from_radii(
+                np.full(m, 0.25, dtype=np.float64)
+            ).apply(lay_pfs)
+            self.assertTrue(lay_pfs.is_all_finite())
 
         # Bad layouts rejected without panics
         bad_lay = eg.Layout2d.zeros(n)
@@ -319,37 +316,33 @@ class TestGripGemSelPfsSfc(unittest.TestCase):
             eg.GripSolver
             | eg.GemSolver
             | eg.SelLayoutSolver
-            | eg.SfcLayoutSolver
-            | eg.PfsPrimeOverlapRemoval
         ] = [
             eg.GripSolver(graph, rounds_min=1, rounds_max=2),
             eg.GemSolver(graph, max_iterations=2),
             eg.SelLayoutSolver(graph, iterations=2),
-            eg.SfcLayoutSolver(graph),
-            eg.PfsPrimeOverlapRemoval(hw, hh),
         ]
         for bad_solver in bad_solvers:
 
             def _run_bad(
                 s: eg.GripSolver
                 | eg.GemSolver
-                | eg.SelLayoutSolver
-                | eg.SfcLayoutSolver
-                | eg.PfsPrimeOverlapRemoval = bad_solver,
+                | eg.SelLayoutSolver = bad_solver,
             ) -> str:
                 return s.run(bad_lay)
 
             def _run_wrong(
                 s: eg.GripSolver
                 | eg.GemSolver
-                | eg.SelLayoutSolver
-                | eg.SfcLayoutSolver
-                | eg.PfsPrimeOverlapRemoval = bad_solver,
+                | eg.SelLayoutSolver = bad_solver,
             ) -> str:
                 return s.run(wrong_lay)
 
             self.assert_no_panic_raises((ValueError,), _run_bad)
             self.assert_no_panic_raises((ValueError,), _run_wrong)
+
+        pfs_bad = eg.PfsPrimeOverlapRemoval(hw, hh)
+        self.assert_no_panic_raises((ValueError,), lambda: pfs_bad.apply(bad_lay))
+        self.assert_no_panic_raises((ValueError,), lambda: pfs_bad.apply(wrong_lay))
 
 
 if __name__ == "__main__":

@@ -2,9 +2,9 @@ use egraph::{core as egraph_core, layout as egraph_layout, spatial as egraph_spa
 use egraph_core::SolverStatus;
 use egraph_layout::{
     BackboneLayoutMode, BarrierSymmetry, ClusterRefineMethod, CoarseDistanceBackend,
-    CoarseEdgeLengthMode, FieldRepulsionBackend, ForbidVariant, FrBackend, GibBoxLayoutMode,
-    GibIntraLayoutMode, GraphCneObjective, LinLogRepulsion, OrtmannPivotStrategy, SelLayoutBackend,
-    SelWeightMapping, SfcCurveKind, SgdScheduleKind, TsNetBackend,
+    CoarseEdgeLengthMode, ForbidVariant, FrBackend, GibBoxLayoutMode, GibIntraLayoutMode,
+    GraphCneObjective, LinLogRepulsion, OrtmannPivotStrategy, SelLayoutBackend, SelWeightMapping,
+    SfcCurveKind, SgdScheduleKind,
 };
 use egraph_spatial::DensityFieldKernel;
 
@@ -14,39 +14,49 @@ use super::backbone::parse_backbone_layout_mode;
 use super::cluster_refine::parse_cluster_refine_method;
 use super::coarse_backbone::{parse_coarse_distance_backend, parse_coarse_edge_length_mode};
 use super::force_baselines::{parse_sel_layout_backend, parse_sel_weight_mapping};
-use super::force_classic::{parse_fr_backend, parse_linlog_repulsion};
+use super::force_classic::parse_linlog_repulsion;
+use super::force_fr::{FrBackendChoice, parse_fr_backend, parse_fr_backend_choice};
+use super::graph_cne::parse_graph_cne_objective;
 use super::group_in_a_box::{parse_gib_box_mode, parse_gib_intra_mode};
 use super::overlap_tree_forbid::parse_forbid_variant;
 use super::screened_poisson_field::parse_density_field_kernel;
 use super::sfc::parse_sfc_curve_kind;
 use super::sgd_barrier::parse_barrier_symmetry;
-use super::sgd_baselines::{parse_graph_cne_objective, parse_ortmann_pivot_strategy};
+use super::sgd_baselines::parse_ortmann_pivot_strategy;
 use super::sgd_core::{default_inv_sq_weights, parse_sgd_schedule_kind};
-use super::t_fdp::parse_field_backend;
-use super::tsnet_config::parse_tsnet_backend;
+use super::tsnet_config::TsNetBackendChoice;
 
 #[test]
 fn test_tsnet_and_sgd_enum_parsers_and_weights() {
-    assert_eq!(parse_tsnet_backend("EXACT").unwrap(), TsNetBackend::Exact);
     assert_eq!(
-        parse_tsnet_backend("barnes-hut").unwrap(),
-        TsNetBackend::BarnesHut
-    );
-    assert_eq!(parse_tsnet_backend("bh").unwrap(), TsNetBackend::BarnesHut);
-    assert_eq!(
-        parse_tsnet_backend("fft_interpolation").unwrap(),
-        TsNetBackend::FftInterpolation
+        TsNetBackendChoice::parse_str("EXACT").unwrap(),
+        TsNetBackendChoice::Exact
     );
     assert_eq!(
-        parse_tsnet_backend("FIt").unwrap(),
-        TsNetBackend::FftInterpolation
+        TsNetBackendChoice::parse_str("barnes-hut").unwrap(),
+        TsNetBackendChoice::BarnesHut
     );
     assert_eq!(
-        parse_tsnet_backend("linear_fft").unwrap(),
-        TsNetBackend::LinearFft
+        TsNetBackendChoice::parse_str("bh").unwrap(),
+        TsNetBackendChoice::BarnesHut
     );
-    assert_eq!(parse_tsnet_backend("L").unwrap(), TsNetBackend::LinearFft);
-    assert!(parse_tsnet_backend("unknown").is_err());
+    assert_eq!(
+        TsNetBackendChoice::parse_str("fft_interpolation").unwrap(),
+        TsNetBackendChoice::FitFft
+    );
+    assert_eq!(
+        TsNetBackendChoice::parse_str("FIt").unwrap(),
+        TsNetBackendChoice::FitFft
+    );
+    assert_eq!(
+        TsNetBackendChoice::parse_str("linear_fft").unwrap(),
+        TsNetBackendChoice::LinearFft
+    );
+    assert_eq!(
+        TsNetBackendChoice::parse_str("L").unwrap(),
+        TsNetBackendChoice::LinearFft
+    );
+    assert!(TsNetBackendChoice::parse_str("unknown").is_err());
 
     assert_eq!(
         parse_sgd_schedule_kind("EXPONENTIAL").unwrap(),
@@ -88,6 +98,7 @@ fn test_tsnet_and_sgd_enum_parsers_and_weights() {
     assert_eq!(solver_status_str(SolverStatus::Running), "running");
     assert_eq!(solver_status_str(SolverStatus::Converged), "converged");
     assert_eq!(solver_status_str(SolverStatus::Completed), "completed");
+    assert_eq!(solver_status_str(SolverStatus::Failed), "failed");
 
     let w = default_inv_sq_weights(&[2.0, 0.0, f64::NAN]);
     assert!((w[0] - 0.25).abs() < 1e-12);
@@ -98,30 +109,30 @@ fn test_tsnet_and_sgd_enum_parsers_and_weights() {
 #[test]
 fn test_field_repulsion_backend_parser() {
     assert_eq!(
-        parse_field_backend("ibfft").unwrap(),
-        FieldRepulsionBackend::IbFft
+        super::t_fdp::TFdpBackendChoice::parse_str("ibfft").unwrap(),
+        super::t_fdp::TFdpBackendChoice::IbFft
     );
     assert_eq!(
-        parse_field_backend("IB_FFT").unwrap(),
-        FieldRepulsionBackend::IbFft
+        super::t_fdp::TFdpBackendChoice::parse_str("IB_FFT").unwrap(),
+        super::t_fdp::TFdpBackendChoice::IbFft
     );
     assert_eq!(
-        parse_field_backend("fft").unwrap(),
-        FieldRepulsionBackend::IbFft
+        super::t_fdp::TFdpBackendChoice::parse_str("fft").unwrap(),
+        super::t_fdp::TFdpBackendChoice::IbFft
     );
     assert_eq!(
-        parse_field_backend("barnes_hut").unwrap(),
-        FieldRepulsionBackend::BarnesHut
+        super::t_fdp::TFdpBackendChoice::parse_str("barnes_hut").unwrap(),
+        super::t_fdp::TFdpBackendChoice::BarnesHut
     );
     assert_eq!(
-        parse_field_backend("bh").unwrap(),
-        FieldRepulsionBackend::BarnesHut
+        super::t_fdp::TFdpBackendChoice::parse_str("bh").unwrap(),
+        super::t_fdp::TFdpBackendChoice::BarnesHut
     );
     assert_eq!(
-        parse_field_backend("EXACT").unwrap(),
-        FieldRepulsionBackend::Exact
+        super::t_fdp::TFdpBackendChoice::parse_str("EXACT").unwrap(),
+        super::t_fdp::TFdpBackendChoice::Exact
     );
-    assert!(parse_field_backend("quadtree").is_err());
+    assert!(super::t_fdp::TFdpBackendChoice::parse_str("quadtree").is_err());
 }
 
 #[test]
@@ -173,13 +184,17 @@ fn test_force_backbone_cluster_and_overlap_parsers() {
     );
     assert!(parse_linlog_repulsion("invalid").is_err());
 
-    assert_eq!(parse_fr_backend("exact").unwrap(), FrBackend::Exact);
+    assert_eq!(parse_fr_backend("exact").unwrap(), FrBackend::exact());
     assert_eq!(
         parse_fr_backend("barnes-hut").unwrap(),
-        FrBackend::BarnesHut
+        FrBackend::barnes_hut(1.2)
     );
-    assert_eq!(parse_fr_backend("bh").unwrap(), FrBackend::BarnesHut);
-    assert_eq!(parse_fr_backend("GRID").unwrap(), FrBackend::Grid);
+    assert_eq!(parse_fr_backend("bh").unwrap(), FrBackend::barnes_hut(1.2));
+    assert_eq!(parse_fr_backend("GRID").unwrap(), FrBackend::grid());
+    assert_eq!(
+        parse_fr_backend_choice("auto").unwrap(),
+        FrBackendChoice::Auto
+    );
     assert!(parse_fr_backend("fft").is_err());
 
     assert_eq!(

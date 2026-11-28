@@ -149,26 +149,28 @@ class TestForceBundlingAndValidation(unittest.TestCase):
         )
         for dtype_str in ("float64", "float32"):
             layout = eg.Layout2d.from_coords(_to_float_array(base, dtype_str))
-            f_run = eg.FdebSolver(graph, cycles=3, steps_per_cycle=6, dtype=dtype_str)
-            f_step = eg.FdebSolver(graph, cycles=3, steps_per_cycle=6, dtype=dtype_str)
+            poly_run = eg.EdgePolylines.straight_line(graph, layout)
+            poly_step = eg.EdgePolylines.straight_line(graph, layout)
+            f_run = eg.FdebSolver(poly_run, cycles=3, steps_per_cycle=6)
+            f_step = eg.FdebSolver(poly_step, cycles=3, steps_per_cycle=6)
 
             self.assertEqual(f_run.dtype, dtype_str)
             self.assertEqual(f_run.num_edges, graph.num_edges)
             self.assertEqual(f_run.status, "initialized")
             self.assertIn("FdebSolver", repr(f_run))
 
-            status = f_run.run(layout)
+            status = f_run.run(poly_run)
             self.assertEqual(status, "completed")
             self.assertTrue(f_run.is_finished)
 
-            f_step.step(layout)
-            f_step.run_steps(layout, 4)
-            f_step.run(layout)
+            f_step.step(poly_step)
+            f_step.run_steps(poly_step, 4)
+            f_step.run(poly_step)
             self.assertTrue(f_step.is_finished)
 
-            offsets = f_run.edge_offsets()
-            pts_run = f_run.points()
-            pts_step = f_step.points()
+            offsets = poly_run.edge_offsets()
+            pts_run = poly_run.points()
+            pts_step = poly_step.points()
             self.assertEqual(offsets.dtype, np.uint32)
             self.assertEqual(offsets.shape, (graph.num_edges + 1,))
             self.assertEqual(int(offsets[0]), 0)
@@ -177,7 +179,7 @@ class TestForceBundlingAndValidation(unittest.TestCase):
             self.assertEqual(pts_run.shape[1], 2)
             self.assertEqual(pts_run.dtype, np.float32 if dtype_str == "float32" else np.float64)
             self.assertTrue(np.all(np.isfinite(pts_run)))
-            np.testing.assert_array_equal(offsets, f_step.edge_offsets())
+            np.testing.assert_array_equal(offsets, poly_step.edge_offsets())
             np.testing.assert_array_equal(pts_run, pts_step)
 
     def test_error_handling_and_gil_release(self) -> None:
@@ -188,7 +190,7 @@ class TestForceBundlingAndValidation(unittest.TestCase):
 
         # No panics on bad inputs / domain errors
         self.assert_no_panic_raises(
-            (ValueError,), lambda: eg.TFdpSolver(graph, backend="invalid")
+            (ValueError,), lambda: eg.TFdpSolver(graph, backend="invalid")  # type: ignore[arg-type]
         )
         self.assert_no_panic_raises(
             (ValueError,), lambda: eg.TFdpSolver(graph, momentum=1.0)
@@ -203,25 +205,25 @@ class TestForceBundlingAndValidation(unittest.TestCase):
             (ValueError,), lambda: eg.IbUmapSolver(graph, tau_scale=0.0)
         )
         self.assert_no_panic_raises(
-            (ValueError,), lambda: eg.SgdSolver.snap_t_fdp(graph, rho_power=0.0)
+            (ValueError,), lambda: eg.SnapTFdpSolver(graph, rho_power=0.0)
         )
         self.assert_no_panic_raises(
-            (ValueError,), lambda: eg.SgdSolver.snap_t_fdp(graph, degree_beta=-0.1)
+            (ValueError,), lambda: eg.SnapTFdpSolver(graph, degree_beta=-0.1)
         )
         self.assert_no_panic_raises(
-            (ValueError,), lambda: eg.SgdSolver.snap_t_fdp(graph, degree_beta=float("nan"))
+            (ValueError,), lambda: eg.SnapTFdpSolver(graph, degree_beta=float("nan"))
         )
         self.assert_no_panic_raises(
-            (TypeError,), lambda: eg.SgdSolver.snap_t_fdp(graph, degree_beta=True)
+            (TypeError,), lambda: eg.SnapTFdpSolver(graph, degree_beta=True)
         )
         self.assert_no_panic_raises(
-            (TypeError,), lambda: eg.SgdSolver.snap_t_fdp(graph, bounded_attraction=1)  # type: ignore[arg-type]
+            (TypeError,), lambda: eg.SnapTFdpSolver(graph, bounded_attraction=1)  # type: ignore[arg-type]
         )
         self.assert_no_panic_raises(
-            (ValueError,), lambda: eg.SgdSolver.pacmap_graph(graph, n_neighbors=0)
+            (ValueError,), lambda: eg.PacmapGraphSolver(graph, n_neighbors=0)
         )
         self.assert_no_panic_raises(
-            (ValueError,), lambda: eg.SgdSolver.sgd2(graph, batch_size=0)
+            (ValueError,), lambda: eg.Sgd2Solver(graph, batch_size=0)
         )
         self.assert_no_panic_raises(
             (ValueError,), lambda: eg.ForceAtlas2Solver(graph, jitter_tolerance=0.0)
@@ -267,11 +269,13 @@ class TestForceBundlingAndValidation(unittest.TestCase):
         self.assert_no_panic_raises(
             (ValueError,), lambda: eg.assign_layers(dag, method="unknown")
         )
+        poly = eg.EdgePolylines.straight_line(graph, layout)
+        bad_poly = eg.EdgePolylines.straight_line(_make_grid(2, 2), eg.Layout2d.zeros(4))
         self.assert_no_panic_raises(
-            (ValueError,), lambda: eg.FdebSolver(graph).step(bad_layout)
+            (ValueError,), lambda: eg.FdebSolver(poly).step(bad_poly)
         )
         self.assert_no_panic_raises(
-            (ValueError,), lambda: eg.FdebSolver(graph, cycles=30)
+            (ValueError,), lambda: eg.FdebSolver(poly, cycles=30)
         )
 
         # GIL release concurrency smoke test

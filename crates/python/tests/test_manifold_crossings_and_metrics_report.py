@@ -117,8 +117,6 @@ class TestManifoldCrossingsAndMetricsReport(unittest.TestCase):
             "sampled_crossing_number",
             "crosslessness",
             "sampled_crosslessness",
-            "torus_crossing_number",
-            "crossing_edges_torus",
             "neighborhood_preservation_1hop",
             "neighborhood_preservation_2hop",
             "sampled_np1",
@@ -180,8 +178,12 @@ class TestManifoldCrossingsAndMetricsReport(unittest.TestCase):
         self.assertIsNotNone(rep.nor_oo_nni)
         self.assertIsNone(rep.geodesic_distortion)
 
-        rep_m = eg.evaluate_metrics(g, m_tor, ["geodesic_distortion", "torus_crossing_number"])
+        rep_m = eg.evaluate_metrics(
+            g, m_tor, ["geodesic_distortion", "torus_crossing_number", "crossing_edges_torus"]
+        )
         self.assertIsNotNone(rep_m.geodesic_distortion)
+        self.assertIsNotNone(rep_m.torus_crossing_number)
+        self.assertIsNotNone(rep_m.crossing_edges_torus)
         self.assertAlmostEqual(rep_m["geodesic_distortion"], eg.geodesic_distortion(g, m_tor), places=12)
 
         # Standalone details & N-D / Manifold metrics

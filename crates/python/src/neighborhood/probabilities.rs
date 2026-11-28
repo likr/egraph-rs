@@ -28,16 +28,16 @@ fn compute_knn_probabilities(
     row_normalize: bool,
 ) -> PyResult<PySparseProbabilities> {
     let perps_vec = extract_perplexities(perplexities, knn.inner().num_nodes())?;
-    let cfg = PerplexityConfig {
-        power: power.0,
-        sigma_iters: sigma_iters.0,
-        sigma_tolerance: sigma_tolerance.0,
-        symmetrization: if row_normalize {
-            SymmetrizationMode::RowNormalized
-        } else {
-            SymmetrizationMode::StandardTsne
-        },
+    let sym = if row_normalize {
+        SymmetrizationMode::RowNormalized
+    } else {
+        SymmetrizationMode::StandardTsne
     };
+    let cfg = PerplexityConfig::new()
+        .with_power(power.0)
+        .with_sigma_iters(sigma_iters.0)
+        .with_sigma_tolerance(sigma_tolerance.0)
+        .with_symmetrization(sym);
     let probs = py
         .detach(|| nb::compute_knn_probabilities(knn.inner(), &perps_vec, &cfg))
         .map_err(core_error_to_py)?;

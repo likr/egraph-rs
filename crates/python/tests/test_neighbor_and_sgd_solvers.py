@@ -68,8 +68,10 @@ class TestNeighborAndSgdSolvers(unittest.TestCase):
         n = graph.num_nodes
         base = _seeded_coords(n, seed=11, scale=0.5)
 
+        from egraph._core_types import BackendKind
+        backends: tuple[BackendKind, ...] = ("ib_fft", "barnes_hut", "exact")
         for dtype_str in ("float64", "float32"):
-            for backend in ("ibfft", "barnes_hut", "exact"):
+            for backend in backends:
                 l_run = eg.Layout2d.from_coords(_to_float_array(base, dtype_str))
                 l_step = eg.Layout2d.from_coords(_to_float_array(base, dtype_str))
 
@@ -119,7 +121,7 @@ class TestNeighborAndSgdSolvers(unittest.TestCase):
                 self.assertTrue(l_run.is_all_finite())
 
         # Both from_knn(KnnGraph) and from_knn(indptr, indices, weights=None)
-        knn, _, _ = eg.build_pure_2hop_knn(graph)
+        knn = eg.build_pure_2hop_knn(graph).knn
         s_knn_obj = eg.TFdpSolver.from_knn(knn, backend="exact", iterations=8, seed=42)
         s_knn_raw = eg.TFdpSolver.from_knn(
             knn.indptr(),
@@ -148,8 +150,10 @@ class TestNeighborAndSgdSolvers(unittest.TestCase):
         n = graph.num_nodes
         base = _seeded_coords(n, seed=19, scale=0.8)
 
+        from egraph._core_types import BackendKind
+        backends: tuple[BackendKind, ...] = ("ib_fft", "barnes_hut", "exact")
         for dtype_str in ("float64", "float32"):
-            for backend in ("ibfft", "barnes_hut", "exact"):
+            for backend in backends:
                 l_run = eg.Layout2d.from_coords(_to_float_array(base, dtype_str))
                 l_step = eg.Layout2d.from_coords(_to_float_array(base, dtype_str))
 
@@ -183,7 +187,7 @@ class TestNeighborAndSgdSolvers(unittest.TestCase):
                 self.assertTrue(s_step.is_finished)
                 np.testing.assert_array_equal(l_run.coords(copy=True), l_step.coords(copy=True))
 
-        knn, _, _ = eg.build_pure_2hop_knn(graph)
+        knn = eg.build_pure_2hop_knn(graph).knn
         probs = eg.compute_fuzzy_simplicial_set(knn)
         s_knn = eg.IbUmapSolver.from_knn(knn, backend="exact", iterations=6, seed=42)
         s_fset = eg.IbUmapSolver.from_fuzzy_set(probs, backend="exact", iterations=6, seed=42)
@@ -224,30 +228,28 @@ class TestNeighborAndSgdSolvers(unittest.TestCase):
         n = graph.num_nodes
         base = _seeded_coords(n, seed=31, scale=1.0)
 
-        sig_snap = inspect.signature(eg.SgdSolver.snap_t_fdp)
+        sig_snap = inspect.signature(eg.SnapTFdpSolver)
         self.assertEqual(sig_snap.parameters["degree_beta"].default, 0.0)
         self.assertIs(sig_snap.parameters["bounded_attraction"].default, True)
 
         for dtype_str in ("float64", "float32"):
-            # 1. snap_t_fdp
+            # 1. SnapTFdpSolver
             l_run = eg.Layout2d.from_coords(_to_float_array(base, dtype_str))
             l_step = eg.Layout2d.from_coords(_to_float_array(base, dtype_str))
-            s1 = eg.SgdSolver.snap_t_fdp(graph, iterations=12, negatives_per_edge=3, seed=5, dtype=dtype_str)
-            s2 = eg.SgdSolver.snap_t_fdp(graph, iterations=12, negatives_per_edge=3, seed=5, dtype=dtype_str)
+            s1 = eg.SnapTFdpSolver(graph, iterations=12, negatives_per_edge=3, seed=5, dtype=dtype_str)
+            s2 = eg.SnapTFdpSolver(graph, iterations=12, negatives_per_edge=3, seed=5, dtype=dtype_str)
             self.assertEqual(s1.total_iterations, 12)
             self.assertEqual(s1.dtype, dtype_str)
-            self.assertIsNone(s1.stats())
-            self.assertIsNone(s1.dog_stats())
             s1.run(l_run)
             s2.step(l_step)
             s2.run_steps(l_step, 5)
             s2.run(l_step)
             np.testing.assert_array_equal(l_run.coords(copy=True), l_step.coords(copy=True))
 
-            # 1b. snap_t_fdp degree_beta + bounded_attraction=False diverges from defaults and preserves step == run
+            # 1b. SnapTFdpSolver degree_beta + bounded_attraction=False diverges from defaults and preserves step == run
             l_mod_run = eg.Layout2d.from_coords(_to_float_array(base, dtype_str))
             l_mod_step = eg.Layout2d.from_coords(_to_float_array(base, dtype_str))
-            sm1 = eg.SgdSolver.snap_t_fdp(
+            sm1 = eg.SnapTFdpSolver(
                 graph,
                 iterations=12,
                 negatives_per_edge=3,
@@ -256,7 +258,7 @@ class TestNeighborAndSgdSolvers(unittest.TestCase):
                 seed=5,
                 dtype=dtype_str,
             )
-            sm2 = eg.SgdSolver.snap_t_fdp(
+            sm2 = eg.SnapTFdpSolver(
                 graph,
                 iterations=12,
                 negatives_per_edge=3,
@@ -272,17 +274,17 @@ class TestNeighborAndSgdSolvers(unittest.TestCase):
             np.testing.assert_array_equal(l_mod_run.coords(copy=True), l_mod_step.coords(copy=True))
             self.assertFalse(np.allclose(l_run.coords(copy=True), l_mod_run.coords(copy=True)))
 
-            # 2. pacmap_graph
+            # 2. PacmapGraphSolver
             l_run = eg.Layout2d.from_coords(_to_float_array(base, dtype_str))
             l_step = eg.Layout2d.from_coords(_to_float_array(base, dtype_str))
-            p1 = eg.SgdSolver.pacmap_graph(
+            p1 = eg.PacmapGraphSolver(
                 graph,
                 n_neighbors=6,
                 phase_iterations=(4, 4, 6),
                 seed=9,
                 dtype=dtype_str,
             )
-            p2 = eg.SgdSolver.pacmap_graph(
+            p2 = eg.PacmapGraphSolver(
                 graph,
                 n_neighbors=6,
                 phase_iterations=(4, 4, 6),
@@ -297,12 +299,12 @@ class TestNeighborAndSgdSolvers(unittest.TestCase):
             p2.run(l_step)
             np.testing.assert_array_equal(l_run.coords(copy=True), l_step.coords(copy=True))
 
-            # 2b. pacmap_graph keep_all_1hop=True retains all hub 1-hop edges beyond n_neighbors
+            # 2b. PacmapGraphSolver keep_all_1hop=True retains all hub 1-hop edges beyond n_neighbors
             star = eg.CsrGraph.from_edges(9, [(0, i) for i in range(1, 9)], directed=False, sanitize=True)
-            pm_keep = eg.SgdSolver.pacmap_graph(
+            pm_keep = eg.PacmapGraphSolver(
                 star, n_neighbors=2, phase_iterations=(2, 2, 2), keep_all_1hop=True, seed=42, dtype=dtype_str
             )
-            pm_keep_step = eg.SgdSolver.pacmap_graph(
+            pm_keep_step = eg.PacmapGraphSolver(
                 star, n_neighbors=2, phase_iterations=(2, 2, 2), keep_all_1hop=True, seed=42, dtype=dtype_str
             )
             self.assertGreaterEqual(pm_keep.num_springs, 8)
@@ -315,7 +317,7 @@ class TestNeighborAndSgdSolvers(unittest.TestCase):
             np.testing.assert_array_equal(ls_r.coords(copy=True), ls_s.coords(copy=True))
 
             # 2c. max_1hop_per_node, degree_weight_beta, and external landmarks (DogVaradhanLandmarks + 2D array)
-            pm_cap = eg.SgdSolver.pacmap_graph(
+            pm_cap = eg.PacmapGraphSolver(
                 star,
                 n_neighbors=2,
                 keep_all_1hop=True,
@@ -327,7 +329,7 @@ class TestNeighborAndSgdSolvers(unittest.TestCase):
             )
             self.assertLessEqual(pm_cap.num_springs, 24)
             dog_lm = eg.compute_regularized_dog_varadhan_landmarks(graph, num_landmarks=6, seed=7)
-            pm_lm = eg.SgdSolver.pacmap_graph_with_landmarks(
+            pm_lm = eg.PacmapGraphSolver.with_landmarks(
                 graph,
                 dog_lm,
                 n_neighbors=6,
@@ -336,7 +338,7 @@ class TestNeighborAndSgdSolvers(unittest.TestCase):
                 seed=9,
                 dtype=dtype_str,
             )
-            pm_mat = eg.SgdSolver.pacmap_graph(
+            pm_mat = eg.PacmapGraphSolver(
                 graph,
                 n_neighbors=6,
                 phase_iterations=(4, 4, 6),
@@ -351,11 +353,11 @@ class TestNeighborAndSgdSolvers(unittest.TestCase):
             pm_mat.run(l_mat)
             np.testing.assert_array_equal(l_lm.coords(copy=True), l_mat.coords(copy=True))
 
-            # 3. sgd2
+            # 3. Sgd2Solver
             l_run = eg.Layout2d.from_coords(_to_float_array(base, dtype_str))
             l_step = eg.Layout2d.from_coords(_to_float_array(base, dtype_str))
-            q1 = eg.SgdSolver.sgd2(graph, iterations=10, batch_size=32, seed=13, dtype=dtype_str)
-            q2 = eg.SgdSolver.sgd2(graph, iterations=10, batch_size=32, seed=13, dtype=dtype_str)
+            q1 = eg.Sgd2Solver(graph, iterations=10, batch_size=32, seed=13, dtype=dtype_str)
+            q2 = eg.Sgd2Solver(graph, iterations=10, batch_size=32, seed=13, dtype=dtype_str)
             self.assertEqual(q1.total_iterations, 10)
             self.assertEqual(q1.dtype, dtype_str)
             q1.run(l_run)

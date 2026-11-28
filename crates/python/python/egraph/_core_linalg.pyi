@@ -5,8 +5,9 @@ from typing import final
 import numpy as np
 import numpy.typing as npt
 
-from ._core_core import CsrGraph, Layout2d, LayoutNd
+from ._core_core import CsrGraph, Layout2d, Layout3d, LayoutNd
 from ._core_types import (
+    EuclideanTargetKind,
     _DtypeLike,
     _IndexArrayLike,
     _MatrixArrayLike,
@@ -14,7 +15,13 @@ from ._core_types import (
 )
 
 __all__ = [
+    "ClassicalMds",
     "CsrMatrix",
+    "Hde",
+    "KorenSpectral",
+    "PivotMds",
+    "RdMds",
+    "SpectralMomentStats",
     "anisotropic_laplacian",
     "classical_mds",
     "classical_mds_2d",
@@ -41,6 +48,154 @@ __all__ = [
     "symmetric_eigen_jacobi",
     "symmetric_normalized_laplacian",
 ]
+
+@final
+class SpectralMomentStats:
+    @property
+    def sigma_lambda_sq(self) -> float: ...
+    @property
+    def sigma_lambda(self) -> float: ...
+    @property
+    def deg_cv(self) -> float: ...
+    @property
+    def mean_degree(self) -> float: ...
+    @property
+    def leaf_fraction(self) -> float: ...
+    def to_dict(self) -> dict[str, float]: ...
+    def keys(self) -> list[str]: ...
+    def __getitem__(self, key: str, /) -> float: ...
+    def __contains__(self, key: object, /) -> bool: ...
+    def __repr__(self) -> str: ...
+
+@final
+class ClassicalMds:
+    def __new__(
+        cls,
+        graph: CsrGraph,
+        *,
+        target: EuclideanTargetKind = "layout2d",
+        dims: int | None = None,
+        eig_eps: float = 1e-12,
+        tol: float = 1e-10,
+        max_sweeps: int = 64,
+        dtype: _DtypeLike = "float64",
+    ) -> ClassicalMds: ...
+    @staticmethod
+    def from_distances(
+        distances: _MatrixArrayLike,
+        *,
+        target: EuclideanTargetKind = "layout2d",
+        dims: int | None = None,
+        eig_eps: float = 1e-12,
+        tol: float = 1e-10,
+        max_sweeps: int = 64,
+        dtype: _DtypeLike = "float64",
+    ) -> ClassicalMds: ...
+    @property
+    def target(self) -> EuclideanTargetKind: ...
+    @property
+    def dtype(self) -> str: ...
+    def generate(self) -> Layout2d | Layout3d | LayoutNd: ...
+    def __repr__(self) -> str: ...
+
+@final
+class PivotMds:
+    def __new__(
+        cls,
+        graph: CsrGraph,
+        *,
+        target: EuclideanTargetKind = "layout2d",
+        dims: int | None = None,
+        num_pivots: int = 50,
+        seed: int = 42,
+        min_degree: int = 2,
+        target_std: float | None = 1.0,
+        pivots: _IndexArrayLike | None = None,
+        dtype: _DtypeLike = "float64",
+    ) -> PivotMds: ...
+    @staticmethod
+    def from_distances(
+        distances_nk: _MatrixArrayLike,
+        *,
+        target: EuclideanTargetKind = "layout2d",
+        dims: int | None = None,
+        target_std: float | None = 1.0,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> PivotMds: ...
+    @property
+    def target(self) -> EuclideanTargetKind: ...
+    @property
+    def dtype(self) -> str: ...
+    def generate(self) -> Layout2d | Layout3d | LayoutNd: ...
+    def __repr__(self) -> str: ...
+
+@final
+class Hde:
+    def __new__(
+        cls,
+        graph: CsrGraph,
+        *,
+        target: EuclideanTargetKind = "layout2d",
+        dimensions: int = 50,
+        output_dims: int | None = None,
+        seed: int = 42,
+        tol: float = 1e-3,
+        max_sweeps: int = 100,
+        normalize: bool = True,
+        pivots: _IndexArrayLike | None = None,
+        dtype: _DtypeLike = "float64",
+    ) -> Hde: ...
+    @property
+    def target(self) -> EuclideanTargetKind: ...
+    @property
+    def dtype(self) -> str: ...
+    def generate(self) -> Layout2d | Layout3d | LayoutNd: ...
+    def __repr__(self) -> str: ...
+
+@final
+class RdMds:
+    def __new__(
+        cls,
+        graph: CsrGraph,
+        *,
+        target: EuclideanTargetKind = "layout2d",
+        dims: int | None = None,
+        eig_eps: float = 1e-10,
+        tol: float = 1e-6,
+        max_iters: int = 1000,
+        seed: int = 42,
+        degree_normalize: bool = True,
+        target_std: float | None = None,
+        dtype: _DtypeLike = "float64",
+    ) -> RdMds: ...
+    @property
+    def target(self) -> EuclideanTargetKind: ...
+    @property
+    def dtype(self) -> str: ...
+    def generate(self) -> Layout2d | Layout3d | LayoutNd: ...
+    def __repr__(self) -> str: ...
+
+@final
+class KorenSpectral:
+    def __new__(
+        cls,
+        graph: CsrGraph,
+        *,
+        target: EuclideanTargetKind = "layout2d",
+        dims: int | None = None,
+        target_std: float | None = 1.0,
+        tol: float = 1e-4,
+        max_iters: int = 300,
+        seed: int = 42,
+        dtype: _DtypeLike = "float64",
+    ) -> KorenSpectral: ...
+    @property
+    def target(self) -> EuclideanTargetKind: ...
+    @property
+    def dtype(self) -> str: ...
+    def generate(self) -> Layout2d | Layout3d | LayoutNd: ...
+    def __repr__(self) -> str: ...
 
 @final
 class CsrMatrix:
@@ -272,7 +427,7 @@ def smallest_laplacian_eigenpairs(
     bool,
 ]: ...
 
-def spectral_moment_stats(graph: CsrGraph) -> dict[str, float]: ...
+def spectral_moment_stats(graph: CsrGraph) -> SpectralMomentStats: ...
 
 def symmetric_eigen_jacobi(
     matrix: _MatrixArrayLike,

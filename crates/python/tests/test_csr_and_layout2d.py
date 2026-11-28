@@ -304,6 +304,8 @@ class TestLayout2d(unittest.TestCase):
         for name in eg.__all__:
             obj = getattr(eg, name)
             if inspect.isclass(obj):
+                if issubclass(obj, BaseException):
+                    continue
                 inspect.signature(obj)
                 for attr_name in dir(obj):
                     if attr_name.startswith("__") and attr_name != "__new__":

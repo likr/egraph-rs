@@ -12,14 +12,15 @@ use egraph::linalg::{
 };
 use numpy::ndarray::Array2;
 use numpy::{PyArray1, PyArray2};
-use pyo3::exceptions::{PyTypeError, PyValueError};
+use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
 
-use super::chebyshev::spectral_moment_fields;
+use super::chebyshev::PySpectralMomentStats;
+use super::chebyshev_types::PySpectralFilterProjection;
 use super::matrix::PyCsrMatrix;
 use crate::array_extract::extract_f64_1d_or_2d;
 use crate::csr_graph::PyCsrGraph;
+use crate::errors::{dimension_mismatch_err, invalid_input_err};
 use crate::ffi_convert::{
     StrictF64, StrictU64, StrictUsize, core_error_to_py, extract_u32_1d, is_non_sequence_container,
 };
@@ -58,19 +59,18 @@ fn build_dog_config(
     lambda_max: StrictF64,
     seed: StrictU64,
 ) -> ChebyshevDogConfig {
-    ChebyshevDogConfig {
-        t1: t1.map(|v| v.0),
-        t2: t2.map(|v| v.0),
-        alpha: alpha.map(|v| v.0),
-        beta_floor: beta_floor.map(|v| v.0),
-        degree: degree.map(|v| v.0),
-        n_landmarks: n_landmarks.0,
-        min_degree: min_degree.0,
-        jl_dim: jl_dim.0,
-        eps_psd: eps_psd.0,
-        lambda_max: lambda_max.0,
-        seed: seed.0,
-    }
+    ChebyshevDogConfig::new()
+        .with_t1(t1.map(|v| v.0))
+        .with_t2(t2.map(|v| v.0))
+        .with_alpha(alpha.map(|v| v.0))
+        .with_beta_floor(beta_floor.map(|v| v.0))
+        .with_degree(degree.map(|v| v.0))
+        .with_n_landmarks(n_landmarks.0)
+        .with_min_degree(min_degree.0)
+        .with_jl_dim(jl_dim.0)
+        .with_eps_psd(eps_psd.0)
+        .with_lambda_max(lambda_max.0)
+        .with_seed(seed.0)
 }
 
 /// Regularized Difference-of-Gaussians (DoG) Chebyshev spectral kernel and JL embedding.
@@ -232,7 +232,7 @@ impl PyChebyshevDogKernel {
             (self.inner.num_nodes(), self.inner.num_landmarks()),
             self.inner.landmark_kernel_matrix().to_vec(),
         )
-        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        .map_err(|e| invalid_input_err(e.to_string()))?;
         Ok(PyArray2::from_owned_array(py, arr))
     }
 
@@ -247,17 +247,13 @@ impl PyChebyshevDogKernel {
             (self.inner.num_nodes(), self.inner.jl_dim()),
             self.inner.jl_embedding().to_vec(),
         )
-        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        .map_err(|e| invalid_input_err(e.to_string()))?;
         Ok(PyArray2::from_owned_array(py, arr))
     }
 
     /// Return the exact spectral moment summary statistics used to parameterize R1 DoG.
-    fn moment_stats<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
-        let dict = PyDict::new(py);
-        for (k, v) in spectral_moment_fields(self.inner.moment_stats()) {
-            dict.set_item(k, v)?;
-        }
-        Ok(dict)
+    fn moment_stats(&self) -> PySpectralMomentStats {
+        PySpectralMomentStats::from_stats(self.inner.moment_stats().clone())
     }
 
     /// Return the PSD-projected spectral filter terms `[(weight, t), ...]`.
@@ -267,8 +263,8 @@ impl PyChebyshevDogKernel {
 
     /// Compute the `(num_nodes, num_landmarks)` Normalized Varadhan Geodesic distance table.
     #[pyo3(
-        signature = (p_exp = StrictF64(0.5), degree_normalize = true, eps_sim = StrictF64(1e-6)),
-        text_signature = "($self, p_exp=0.5, degree_normalize=True, eps_sim=1e-6)"
+        signature = (*, p_exp = StrictF64(0.5), degree_normalize = true, eps_sim = StrictF64(1e-6)),
+        text_signature = "($self, *, p_exp=0.5, degree_normalize=True, eps_sim=1e-6)"
     )]
     fn varadhan_landmark_table<'py>(
         &self,
@@ -285,7 +281,7 @@ impl PyChebyshevDogKernel {
             .map_err(core_error_to_py)?;
         let arr =
             Array2::from_shape_vec((self.inner.num_nodes(), self.inner.num_landmarks()), flat)
-                .map_err(|e| PyValueError::new_err(e.to_string()))?;
+                .map_err(|e| invalid_input_err(e.to_string()))?;
         Ok(PyArray2::from_owned_array(py, arr))
     }
 
@@ -299,7 +295,7 @@ impl PyChebyshevDogKernel {
     ) -> PyResult<Bound<'py, PyAny>> {
         let (v_flat, nrows, ncols, is_2d) = extract_f64_1d_or_2d(v, "v")?;
         if nrows != self.inner.num_nodes() {
-            return Err(PyValueError::new_err(format!(
+            return Err(dimension_mismatch_err(format!(
                 "v row count {nrows} does not match num_nodes ({})",
                 self.inner.num_nodes()
             )));
@@ -316,7 +312,7 @@ impl PyChebyshevDogKernel {
             .map_err(core_error_to_py)?;
         if is_2d {
             let arr = Array2::from_shape_vec((nrows, ncols), out)
-                .map_err(|e| PyValueError::new_err(e.to_string()))?;
+                .map_err(|e| invalid_input_err(e.to_string()))?;
             Ok(PyArray2::from_owned_array(py, arr).into_any())
         } else {
             Ok(PyArray1::from_vec(py, out).into_any())
@@ -338,8 +334,8 @@ impl PyChebyshevDogKernel {
 /// Build Difference-of-Gaussians spectral filter terms `[(w1, t1), (w2, t2)]`.
 #[pyfunction]
 #[pyo3(
-    signature = (t1, t2, alpha, beta_floor = StrictF64(0.0)),
-    text_signature = "(t1, t2, alpha, beta_floor=0.0)"
+    signature = (t1, t2, alpha, *, beta_floor = StrictF64(0.0)),
+    text_signature = "(t1, t2, alpha, *, beta_floor=0.0)"
 )]
 fn build_dog_terms(
     t1: StrictF64,
@@ -353,8 +349,8 @@ fn build_dog_terms(
 /// Build parameter-free R1 regularized DoG terms from spectral standard deviation `sigma_lambda`.
 #[pyfunction]
 #[pyo3(
-    signature = (sigma_lambda, beta_floor = StrictF64(0.0)),
-    text_signature = "(sigma_lambda, beta_floor=0.0)"
+    signature = (sigma_lambda, *, beta_floor = StrictF64(0.0)),
+    text_signature = "(sigma_lambda, *, beta_floor=0.0)"
 )]
 fn build_regularized_dog_terms(
     sigma_lambda: StrictF64,
@@ -373,8 +369,8 @@ fn adaptive_chebyshev_degree(max_t: StrictF64) -> usize {
 /// Compute the adaptive Chebyshev polynomial degree scaled for `[0, lambda_max]`.
 #[pyfunction]
 #[pyo3(
-    signature = (max_t, lambda_max = StrictF64(2.0)),
-    text_signature = "(max_t, lambda_max=2.0)"
+    signature = (max_t, *, lambda_max = StrictF64(2.0)),
+    text_signature = "(max_t, *, lambda_max=2.0)"
 )]
 fn adaptive_chebyshev_degree_scaled(max_t: StrictF64, lambda_max: StrictF64) -> usize {
     linalg_adaptive_chebyshev_degree_scaled(max_t.0, lambda_max.0)
@@ -383,8 +379,8 @@ fn adaptive_chebyshev_degree_scaled(max_t: StrictF64, lambda_max: StrictF64) -> 
 /// Compute Chebyshev expansion coefficients for spectral bandpass terms over `[0, lambda_max]`.
 #[pyfunction]
 #[pyo3(
-    signature = (terms, lambda_max = StrictF64(2.0), degree = StrictUsize(40)),
-    text_signature = "(terms, lambda_max=2.0, degree=40)"
+    signature = (terms, *, lambda_max = StrictF64(2.0), degree = StrictUsize(40)),
+    text_signature = "(terms, *, lambda_max=2.0, degree=40)"
 )]
 fn compute_chebyshev_bandpass_coefficients<'py>(
     py: Python<'py>,
@@ -398,23 +394,23 @@ fn compute_chebyshev_bandpass_coefficients<'py>(
     Ok(PyArray1::from_vec(py, coeffs))
 }
 
-type PsdProjectResult = (Vec<(f64, f64)>, f64, f64);
-
-/// Project spectral filter `terms` onto the PSD cone, returning `(terms_psd, delta_psd, h_min)`.
+/// Project spectral filter `terms` onto the PSD cone, returning `SpectralFilterProjection`.
 #[pyfunction]
 #[pyo3(
-    signature = (terms, lambda_max = StrictF64(2.0), degree = StrictUsize(40), eps_psd = StrictF64(1e-4)),
-    text_signature = "(terms, lambda_max=2.0, degree=40, eps_psd=1e-4)"
+    signature = (terms, *, lambda_max = StrictF64(2.0), degree = StrictUsize(40), eps_psd = StrictF64(1e-4)),
+    text_signature = "(terms, *, lambda_max=2.0, degree=40, eps_psd=1e-4)"
 )]
 fn project_psd_spectral_filter(
     terms: &Bound<'_, PyAny>,
     lambda_max: StrictF64,
     degree: StrictUsize,
     eps_psd: StrictF64,
-) -> PyResult<PsdProjectResult> {
+) -> PyResult<PySpectralFilterProjection> {
     let terms_vec = extract_filter_terms(terms)?;
-    linalg_project_psd_spectral_filter(&terms_vec, lambda_max.0, degree.0, eps_psd.0)
-        .map_err(core_error_to_py)
+    let (terms, delta_psd, h_min) =
+        linalg_project_psd_spectral_filter(&terms_vec, lambda_max.0, degree.0, eps_psd.0)
+            .map_err(core_error_to_py)?;
+    Ok(PySpectralFilterProjection::new(terms, delta_psd, h_min))
 }
 
 pub(super) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {

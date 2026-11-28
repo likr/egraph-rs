@@ -294,30 +294,28 @@ fn resistance_curvature_flow(
     spherical_threshold: StrictF64,
     torus_std_threshold: StrictF64,
 ) -> PyResult<PyResistanceCurvatureFlowResult> {
-    let cfg = ResistanceCurvatureConfig {
-        steps: steps.0,
-        eta: eta.0,
-        kappa_max: kappa_max.0,
-        min_edge_length: min_edge_length.0,
-        resistance: EffectiveResistanceConfig {
-            jl_dim: jl_dim.0,
-            seed: seed.0,
-            weights_are_lengths,
-            exact,
-            exact_max_nodes: exact_max_nodes.0,
-            eig_eps: eig_eps.0,
-            amg_config: AmgPcgConfig {
-                rel_tol: rel_tol.0,
-                max_iterations: max_iterations.0,
-                eig_eps: eig_eps.0,
-                seed: seed.0,
-                ..AmgPcgConfig::default()
-            },
-        },
-        hyperbolic_threshold: hyperbolic_threshold.0,
-        spherical_threshold: spherical_threshold.0,
-        torus_std_threshold: torus_std_threshold.0,
-    };
+    let amg_cfg = AmgPcgConfig::new()
+        .with_rel_tol(rel_tol.0)
+        .with_max_iterations(max_iterations.0)
+        .with_eig_eps(eig_eps.0)
+        .with_seed(seed.0);
+    let resistance = EffectiveResistanceConfig::new()
+        .with_jl_dim(jl_dim.0)
+        .with_seed(seed.0)
+        .with_weights_are_lengths(weights_are_lengths)
+        .with_exact(exact)
+        .with_exact_max_nodes(exact_max_nodes.0)
+        .with_eig_eps(eig_eps.0)
+        .with_amg_config(amg_cfg);
+    let cfg = ResistanceCurvatureConfig::new()
+        .with_steps(steps.0)
+        .with_eta(eta.0)
+        .with_kappa_max(kappa_max.0)
+        .with_min_edge_length(min_edge_length.0)
+        .with_resistance(resistance)
+        .with_hyperbolic_threshold(hyperbolic_threshold.0)
+        .with_spherical_threshold(spherical_threshold.0)
+        .with_torus_std_threshold(torus_std_threshold.0);
     let g = graph.inner();
     let res = py
         .detach(|| linalg_resistance_curvature_flow(&*g, &cfg))

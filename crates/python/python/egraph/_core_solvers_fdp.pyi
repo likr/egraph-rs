@@ -1,14 +1,21 @@
 from __future__ import annotations
 
-from typing import Any, final
+from typing import final
 
-from ._core_core import CsrGraph, Layout2d
+from ._core_core import CsrGraph, Layout2d, Layout3d, LayoutNd
 from ._core_neighborhood import DogVaradhanLandmarks, KnnGraph, SparseProbabilities
+from ._core_solvers_neighbor import FieldFftStats
 from ._core_types import (
+    BackendKind,
+    EuclideanTargetKind,
+    SolverStatus,
+    TargetKind,
     _DtypeLike,
     _IndexArrayLike,
     _WeightArrayLike,
 )
+
+_EuclidLayout = Layout2d | Layout3d | LayoutNd
 
 __all__ = [
     "IbUmapSolver",
@@ -21,6 +28,7 @@ class IbUmapSolver:
         cls,
         graph: CsrGraph,
         *,
+        target: TargetKind = "layout2d",
         max_2hop_per_node: int = 30,
         degree: int | None = None,
         num_landmarks: int = 64,
@@ -34,7 +42,7 @@ class IbUmapSolver:
         t2: float | None = None,
         alpha: float | None = None,
         beta_floor: float | None = None,
-        backend: str = "ibfft",
+        backend: BackendKind = "ib_fft",
         iterations: int = 200,
         learning_rate: float = 1.0,
         min_dist: float = 0.1,
@@ -56,9 +64,10 @@ class IbUmapSolver:
     def from_knn(
         knn: KnnGraph,
         *,
+        target: TargetKind = "layout2d",
         sigma_iters: int = 64,
         sigma_tolerance: float = 1e-5,
-        backend: str = "ibfft",
+        backend: BackendKind = "ib_fft",
         iterations: int = 200,
         learning_rate: float = 1.0,
         min_dist: float = 0.1,
@@ -80,8 +89,9 @@ class IbUmapSolver:
     def from_fuzzy_set(
         probs: SparseProbabilities,
         *,
+        target: TargetKind = "layout2d",
         degrees: _WeightArrayLike | None = None,
-        backend: str = "ibfft",
+        backend: BackendKind = "ib_fft",
         iterations: int = 200,
         learning_rate: float = 1.0,
         min_dist: float = 0.1,
@@ -105,7 +115,8 @@ class IbUmapSolver:
         landmarks: DogVaradhanLandmarks,
         max_2hop_per_node: int = 32,
         *,
-        backend: str = "ibfft",
+        target: TargetKind = "layout2d",
+        backend: BackendKind = "ib_fft",
         iterations: int = 200,
         learning_rate: float = 1.0,
         min_dist: float = 0.1,
@@ -123,15 +134,18 @@ class IbUmapSolver:
         seed: int = 42,
         dtype: _DtypeLike = "float64",
     ) -> IbUmapSolver: ...
-    def step(self, layout: Layout2d) -> str: ...
-    def run_steps(self, layout: Layout2d, steps: int) -> str: ...
-    def run(self, layout: Layout2d) -> str: ...
+    def validate_target(self, layout: Layout2d) -> None: ...
+    def step(self, layout: Layout2d) -> SolverStatus: ...
+    def run_steps(self, layout: Layout2d, steps: int) -> SolverStatus: ...
+    def run(self, layout: Layout2d) -> SolverStatus: ...
     @property
-    def status(self) -> str: ...
+    def target(self) -> TargetKind: ...
+    @property
+    def status(self) -> SolverStatus: ...
     @property
     def iteration(self) -> int: ...
     @property
-    def total_iterations(self) -> int: ...
+    def total_iterations(self) -> int | None: ...
     @property
     def is_finished(self) -> bool: ...
     @property
@@ -148,7 +162,7 @@ class IbUmapSolver:
     def ab(self) -> tuple[float, float]: ...
     @property
     def total_fft_2d_calls(self) -> int: ...
-    def last_fft_stats(self) -> dict[str, Any] | None: ...
+    def last_fft_stats(self) -> FieldFftStats | None: ...
     @property
     def dtype(self) -> str: ...
     def __repr__(self) -> str: ...
@@ -159,7 +173,8 @@ class TFdpSolver:
         cls,
         graph: CsrGraph,
         *,
-        backend: str = "ibfft",
+        target: EuclideanTargetKind = "layout2d",
+        backend: BackendKind = "auto",
         iterations: int = 200,
         learning_rate: float = 1.0,
         momentum: float = 0.8,
@@ -182,7 +197,8 @@ class TFdpSolver:
         indices: _IndexArrayLike | None = None,
         weights: _WeightArrayLike | None = None,
         *,
-        backend: str = "ibfft",
+        target: EuclideanTargetKind = "layout2d",
+        backend: BackendKind = "auto",
         iterations: int = 200,
         learning_rate: float = 1.0,
         momentum: float = 0.8,
@@ -199,15 +215,18 @@ class TFdpSolver:
         seed: int = 42,
         dtype: _DtypeLike = "float64",
     ) -> TFdpSolver: ...
-    def step(self, layout: Layout2d) -> str: ...
-    def run_steps(self, layout: Layout2d, steps: int) -> str: ...
-    def run(self, layout: Layout2d) -> str: ...
+    def validate_target(self, layout: _EuclidLayout) -> None: ...
+    def step(self, layout: _EuclidLayout) -> SolverStatus: ...
+    def run_steps(self, layout: _EuclidLayout, steps: int) -> SolverStatus: ...
+    def run(self, layout: _EuclidLayout) -> SolverStatus: ...
     @property
-    def status(self) -> str: ...
+    def target(self) -> EuclideanTargetKind: ...
+    @property
+    def status(self) -> SolverStatus: ...
     @property
     def iteration(self) -> int: ...
     @property
-    def total_iterations(self) -> int: ...
+    def total_iterations(self) -> int | None: ...
     @property
     def is_finished(self) -> bool: ...
     @property
@@ -218,7 +237,7 @@ class TFdpSolver:
     def current_rho(self) -> float: ...
     @property
     def total_fft_2d_calls(self) -> int: ...
-    def last_fft_stats(self) -> dict[str, Any] | None: ...
+    def last_fft_stats(self) -> FieldFftStats | None: ...
     @property
     def dtype(self) -> str: ...
     def __repr__(self) -> str: ...

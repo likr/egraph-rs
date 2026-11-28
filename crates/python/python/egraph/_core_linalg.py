@@ -1,7 +1,13 @@
 from __future__ import annotations
 
 from egraph._core import (
+    ClassicalMds as ClassicalMds,
     CsrMatrix as CsrMatrix,
+    Hde as Hde,
+    KorenSpectral as KorenSpectral,
+    PivotMds as PivotMds,
+    RdMds as RdMds,
+    SpectralMomentStats as SpectralMomentStats,
     anisotropic_laplacian as anisotropic_laplacian,
     classical_mds as classical_mds,
     classical_mds_2d as classical_mds_2d,
@@ -30,7 +36,13 @@ from egraph._core import (
 )
 
 __all__ = [
+    "ClassicalMds",
     "CsrMatrix",
+    "Hde",
+    "KorenSpectral",
+    "PivotMds",
+    "RdMds",
+    "SpectralMomentStats",
     "anisotropic_laplacian",
     "classical_mds",
     "classical_mds_2d",

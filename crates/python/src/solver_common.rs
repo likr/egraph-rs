@@ -1,21 +1,24 @@
-//! Shared dual-precision (`f64`/`f32`) cooperative iterative solver helpers.
+//! Shared dual-precision (`f64`/`f32`) cooperative iterative solver helpers across 2D, 3D, N-D, and manifolds.
 
-use egraph::core::{CoreResult, Layout2d, SolverStatus};
-use pyo3::exceptions::PyValueError;
+use egraph::core::{CoreError, CoreResult, Layout2d, Layout3d, SolverStatus};
 use pyo3::prelude::*;
 
-use crate::ffi_convert::{ScalarDtype, core_error_to_py, ffi_error_to_py, solver_status_str};
+use crate::errors::{
+    core_error_to_py, dimension_mismatch_err, ffi_error_to_py, non_finite_value_err,
+};
+use crate::ffi_convert::{ScalarDtype, solver_status_str};
 use crate::layout_buffers::{Layout2dInner, PyLayout2d};
+use crate::layout3d::{Layout3dInner, PyLayout3d};
 
 pub(crate) fn vec_f64_to_f32_checked(values: &[f64], ctx: &str) -> PyResult<Vec<f32>> {
     let mut out = Vec::with_capacity(values.len());
     for &v in values {
         if !v.is_finite() {
-            return Err(PyValueError::new_err(format!("non-finite value in {ctx}")));
+            return Err(non_finite_value_err(format!("non-finite value in {ctx}")));
         }
         let vf = v as f32;
         if !vf.is_finite() {
-            return Err(PyValueError::new_err(format!(
+            return Err(non_finite_value_err(format!(
                 "{ctx} entry {v} overflows float32"
             )));
         }
@@ -29,6 +32,11 @@ pub(crate) enum SolverLayout {
     F32(Layout2d<f32>),
 }
 
+pub(crate) enum SolverLayout3d {
+    F64(Layout3d<f64>),
+    F32(Layout3d<f32>),
+}
+
 pub(crate) fn layout_f32_to_f64_checked(soa32: &Layout2d<f32>) -> CoreResult<Layout2d<f64>> {
     let x: Vec<f64> = soa32.x().iter().map(|&v| f64::from(v)).collect();
     let y: Vec<f64> = soa32.y().iter().map(|&v| f64::from(v)).collect();
@@ -36,9 +44,47 @@ pub(crate) fn layout_f32_to_f64_checked(soa32: &Layout2d<f32>) -> CoreResult<Lay
 }
 
 pub(crate) fn layout_f64_to_f32_checked(soa64: &Layout2d<f64>) -> CoreResult<Layout2d<f32>> {
-    let x: Vec<f32> = soa64.x().iter().map(|&v| v as f32).collect();
-    let y: Vec<f32> = soa64.y().iter().map(|&v| v as f32).collect();
+    let mut x = Vec::with_capacity(soa64.len());
+    let mut y = Vec::with_capacity(soa64.len());
+    for (&px, &py) in soa64.x().iter().zip(soa64.y().iter()) {
+        if !px.is_finite() || !py.is_finite() {
+            return Err(CoreError::non_finite("Layout2d"));
+        }
+        let fx = px as f32;
+        let fy = py as f32;
+        if !fx.is_finite() || !fy.is_finite() {
+            return Err(CoreError::non_finite("Layout2d float32 overflow"));
+        }
+        x.push(fx);
+        y.push(fy);
+    }
     Layout2d::from_xy(x, y)
+}
+
+pub(crate) fn layout3d_f32_to_f64_checked(soa32: &Layout3d<f32>) -> CoreResult<Layout3d<f64>> {
+    let x: Vec<f64> = soa32.x().iter().map(|&v| f64::from(v)).collect();
+    let y: Vec<f64> = soa32.y().iter().map(|&v| f64::from(v)).collect();
+    let z: Vec<f64> = soa32.z().iter().map(|&v| f64::from(v)).collect();
+    Layout3d::from_xyz(x, y, z)
+}
+
+pub(crate) fn layout3d_f64_to_f32_checked(soa64: &Layout3d<f64>) -> CoreResult<Layout3d<f32>> {
+    let mut x = Vec::with_capacity(soa64.len());
+    let mut y = Vec::with_capacity(soa64.len());
+    let mut z = Vec::with_capacity(soa64.len());
+    for ((&px, &py), &pz) in soa64.x().iter().zip(soa64.y().iter()).zip(soa64.z().iter()) {
+        if !px.is_finite() || !py.is_finite() || !pz.is_finite() {
+            return Err(CoreError::non_finite("Layout3d"));
+        }
+        let (fx, fy, fz) = (px as f32, py as f32, pz as f32);
+        if !fx.is_finite() || !fy.is_finite() || !fz.is_finite() {
+            return Err(CoreError::non_finite("Layout3d float32 overflow"));
+        }
+        x.push(fx);
+        y.push(fy);
+        z.push(fz);
+    }
+    Layout3d::from_xyz(x, y, z)
 }
 
 pub(crate) fn extract_solver_layout(
@@ -77,7 +123,7 @@ pub(crate) fn write_back_solver_layout(
         (Layout2dInner::F32(buf), SolverLayout::F64(l64)) => {
             let n = l64.len();
             if buf.len() != n {
-                return Err(PyValueError::new_err(format!(
+                return Err(dimension_mismatch_err(format!(
                     "layout length mismatch: expected {n}, got {}",
                     buf.len()
                 )));
@@ -97,7 +143,7 @@ pub(crate) fn write_back_solver_layout(
         (Layout2dInner::F64(buf), SolverLayout::F32(l32)) => {
             let n = l32.len();
             if buf.len() != n {
-                return Err(PyValueError::new_err(format!(
+                return Err(dimension_mismatch_err(format!(
                     "layout length mismatch: expected {n}, got {}",
                     buf.len()
                 )));
@@ -117,6 +163,84 @@ pub(crate) fn write_back_solver_layout(
     }
 }
 
+pub(crate) fn extract_solver_layout3d(
+    layout: &Bound<'_, PyLayout3d>,
+    target_dtype: ScalarDtype,
+) -> PyResult<SolverLayout3d> {
+    let borrowed = layout.try_borrow()?;
+    match (borrowed.inner(), target_dtype) {
+        (Layout3dInner::F64(buf), ScalarDtype::F64) => Ok(SolverLayout3d::F64(buf.to_layout3d())),
+        (Layout3dInner::F32(buf), ScalarDtype::F32) => Ok(SolverLayout3d::F32(buf.to_layout3d())),
+        (Layout3dInner::F32(buf), ScalarDtype::F64) => {
+            layout3d_f32_to_f64_checked(&buf.to_layout3d())
+                .map(SolverLayout3d::F64)
+                .map_err(core_error_to_py)
+        }
+        (Layout3dInner::F64(buf), ScalarDtype::F32) => {
+            layout3d_f64_to_f32_checked(&buf.to_layout3d())
+                .map(SolverLayout3d::F32)
+                .map_err(core_error_to_py)
+        }
+    }
+}
+
+pub(crate) fn write_back_solver_layout3d(
+    layout: &Bound<'_, PyLayout3d>,
+    soa: &SolverLayout3d,
+) -> PyResult<()> {
+    let mut borrowed = layout.try_borrow_mut()?;
+    match (borrowed.inner_mut(), soa) {
+        (Layout3dInner::F64(buf), SolverLayout3d::F64(l64)) => {
+            buf.copy_from_layout3d(l64).map_err(ffi_error_to_py)
+        }
+        (Layout3dInner::F32(buf), SolverLayout3d::F32(l32)) => {
+            buf.copy_from_layout3d(l32).map_err(ffi_error_to_py)
+        }
+        (Layout3dInner::F32(buf), SolverLayout3d::F64(l64)) => {
+            let n = l64.len();
+            if buf.len() != n {
+                return Err(dimension_mismatch_err(format!(
+                    "layout length mismatch: expected {n}, got {}",
+                    buf.len()
+                )));
+            }
+            for (i, [px, py_coord, pz]) in buf
+                .as_mut_slice()
+                .as_chunks_mut::<3>()
+                .0
+                .iter_mut()
+                .enumerate()
+            {
+                *px = l64.x()[i] as f32;
+                *py_coord = l64.y()[i] as f32;
+                *pz = l64.z()[i] as f32;
+            }
+            Ok(())
+        }
+        (Layout3dInner::F64(buf), SolverLayout3d::F32(l32)) => {
+            let n = l32.len();
+            if buf.len() != n {
+                return Err(dimension_mismatch_err(format!(
+                    "layout length mismatch: expected {n}, got {}",
+                    buf.len()
+                )));
+            }
+            for (i, [px, py_coord, pz]) in buf
+                .as_mut_slice()
+                .as_chunks_mut::<3>()
+                .0
+                .iter_mut()
+                .enumerate()
+            {
+                *px = f64::from(l32.x()[i]);
+                *py_coord = f64::from(l32.y()[i]);
+                *pz = f64::from(l32.z()[i]);
+            }
+            Ok(())
+        }
+    }
+}
+
 pub(crate) trait DualIterativeSolver: Send {
     fn dtype(&self) -> ScalarDtype;
     fn step_layout(&mut self, layout: &mut SolverLayout) -> CoreResult<SolverStatus>;
@@ -128,9 +252,11 @@ pub(crate) trait DualIterativeSolver: Send {
     fn run_layout(&mut self, layout: &mut SolverLayout) -> CoreResult<SolverStatus>;
     fn solver_status(&self) -> SolverStatus;
     fn solver_iteration(&self) -> usize;
-    fn solver_total_iterations(&self) -> usize;
+    fn solver_total_iterations(&self) -> Option<usize>;
 }
 
+/// Generate a dual-precision (`f64`/`f32`) `Layout2d` solver wrapper implementing `DualIterativeSolver`.
+#[macro_export]
 macro_rules! impl_dual_solver {
     ($enum_name:ident, $solver_ty:ident) => {
         pub(crate) enum $enum_name {
@@ -200,47 +326,29 @@ macro_rules! impl_dual_solver {
 
             fn solver_status(&self) -> egraph::core::SolverStatus {
                 match self {
-                    Self::F64(s) => <$solver_ty<f64> as egraph::core::IterativeSolver<
-                        f64,
-                        egraph::core::Layout2d<f64>,
-                    >>::status(s),
-                    Self::F32(s) => <$solver_ty<f32> as egraph::core::IterativeSolver<
-                        f32,
-                        egraph::core::Layout2d<f32>,
-                    >>::status(s),
+                    Self::F64(s) => egraph::core::IterativeSolver::status(s),
+                    Self::F32(s) => egraph::core::IterativeSolver::status(s),
                 }
             }
 
             fn solver_iteration(&self) -> usize {
                 match self {
-                    Self::F64(s) => <$solver_ty<f64> as egraph::core::IterativeSolver<
-                        f64,
-                        egraph::core::Layout2d<f64>,
-                    >>::iteration(s),
-                    Self::F32(s) => <$solver_ty<f32> as egraph::core::IterativeSolver<
-                        f32,
-                        egraph::core::Layout2d<f32>,
-                    >>::iteration(s),
+                    Self::F64(s) => egraph::core::IterativeSolver::iteration(s),
+                    Self::F32(s) => egraph::core::IterativeSolver::iteration(s),
                 }
             }
 
-            fn solver_total_iterations(&self) -> usize {
+            fn solver_total_iterations(&self) -> Option<usize> {
                 match self {
-                    Self::F64(s) => <$solver_ty<f64> as egraph::core::IterativeSolver<
-                        f64,
-                        egraph::core::Layout2d<f64>,
-                    >>::total_iterations(s),
-                    Self::F32(s) => <$solver_ty<f32> as egraph::core::IterativeSolver<
-                        f32,
-                        egraph::core::Layout2d<f32>,
-                    >>::total_iterations(s),
+                    Self::F64(s) => egraph::core::IterativeSolver::total_iterations(s),
+                    Self::F32(s) => egraph::core::IterativeSolver::total_iterations(s),
                 }
             }
         }
     };
 }
 
-pub(crate) use impl_dual_solver;
+pub(crate) use crate::impl_dual_solver;
 
 pub(crate) enum SolverAction {
     Step,
@@ -265,4 +373,12 @@ pub(crate) fn execute_solver_action<I: DualIterativeSolver>(
         .map_err(core_error_to_py)?;
     write_back_solver_layout(layout, &soa)?;
     Ok(solver_status_str(status))
+}
+
+#[inline]
+pub(crate) fn format_optional_usize(val: Option<usize>) -> String {
+    match val {
+        Some(v) => v.to_string(),
+        None => "None".to_string(),
+    }
 }

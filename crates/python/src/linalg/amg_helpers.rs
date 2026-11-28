@@ -2,18 +2,15 @@
 
 use egraph::core::{CoreError, CoreResult};
 use egraph::linalg::{
-    AmgPcgBatchResult, AmgPcgConfig, AmgPcgSolveResult, AmgPcgSolver, AmgPcgWorkspace, CsrMatrix,
-    LaplacianKind,
+    AmgPcgConfig, AmgPcgSolveResult, AmgPcgSolver, AmgPcgWorkspace, CsrMatrix, LaplacianKind,
 };
-use numpy::ndarray::Array2;
-use numpy::{PyArray1, PyArray2};
-use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
 
+use super::amg_results::{PyAmgBatchSolveResult, PyAmgSolveResult};
 use super::matrix::PyCsrMatrix;
 use crate::array_extract::{extract_f64_1d, extract_f64_2d};
 use crate::csr_graph::PyCsrGraph;
+use crate::errors::invalid_input_err;
 use crate::ffi_convert::{
     StrictF64, StrictU64, StrictUsize, core_error_to_py, extract_optional_weights_1d,
     extract_u32_1d, normalize_enum_key, solver_status_str,
@@ -48,55 +45,23 @@ pub(super) fn build_amg_pcg_config(
     seed: StrictU64,
     randomize_ties: bool,
 ) -> PyResult<AmgPcgConfig> {
-    let cfg = AmgPcgConfig {
-        rel_tol: rel_tol.0,
-        abs_tol: abs_tol.0,
-        max_iterations: max_iterations.0,
-        theta: theta.0,
-        max_levels: max_levels.0,
-        max_coarse_size: max_coarse_size.0,
-        pre_sweeps: pre_sweeps.0,
-        post_sweeps: post_sweeps.0,
-        max_agg_size: max_agg_size.0,
-        diag_eps: diag_eps.0,
-        eig_eps: eig_eps.0,
-        sym_tol: sym_tol.0,
-        seed: seed.0,
-        randomize_ties,
-    };
+    let cfg = AmgPcgConfig::new()
+        .with_rel_tol(rel_tol.0)
+        .with_abs_tol(abs_tol.0)
+        .with_max_iterations(max_iterations.0)
+        .with_theta(theta.0)
+        .with_max_levels(max_levels.0)
+        .with_max_coarse_size(max_coarse_size.0)
+        .with_pre_sweeps(pre_sweeps.0)
+        .with_post_sweeps(post_sweeps.0)
+        .with_max_agg_size(max_agg_size.0)
+        .with_diag_eps(diag_eps.0)
+        .with_eig_eps(eig_eps.0)
+        .with_sym_tol(sym_tol.0)
+        .with_seed(seed.0)
+        .with_randomize_ties(randomize_ties);
     cfg.validate().map_err(core_error_to_py)?;
     Ok(cfg)
-}
-
-fn amg_solve_result_to_dict<'py>(
-    py: Python<'py>,
-    res: &AmgPcgSolveResult,
-) -> PyResult<Bound<'py, PyDict>> {
-    let info = PyDict::new(py);
-    info.set_item("iterations", res.iterations)?;
-    info.set_item("residual_norm", res.residual_norm)?;
-    info.set_item("relative_residual", res.relative_residual)?;
-    info.set_item("converged", res.converged)?;
-    info.set_item("status", solver_status_str(res.status))?;
-    Ok(info)
-}
-
-fn amg_batch_result_to_dict<'py>(
-    py: Python<'py>,
-    res: &AmgPcgBatchResult,
-) -> PyResult<Bound<'py, PyDict>> {
-    let info = PyDict::new(py);
-    info.set_item("total_iterations", res.total_iterations)?;
-    info.set_item("max_iterations_used", res.max_iterations_used)?;
-    info.set_item("min_iterations_used", res.min_iterations_used)?;
-    info.set_item("max_residual_norm", res.max_residual_norm)?;
-    info.set_item("max_relative_residual", res.max_relative_residual)?;
-    info.set_item("all_converged", res.all_converged)?;
-    info.set_item("iterations_per_col", &res.iterations_per_col)?;
-    info.set_item("residual_norms", &res.residual_norms)?;
-    info.set_item("relative_residuals", &res.relative_residuals)?;
-    info.set_item("converged_per_col", &res.converged_per_col)?;
-    Ok(info)
 }
 
 pub(super) fn create_amg_from_csr(
@@ -160,7 +125,7 @@ pub(super) fn create_amg_from_laplacian(
     shift: StrictF64,
     cfg: AmgPcgConfig,
 ) -> PyResult<(AmgPcgSolver, AmgPcgWorkspace)> {
-    let lap_kind = parse_amg_laplacian_kind(kind).map_err(PyValueError::new_err)?;
+    let lap_kind = parse_amg_laplacian_kind(kind).map_err(invalid_input_err)?;
     let g = graph.inner();
     let shift_val = shift.0;
     let inner = py
@@ -170,13 +135,13 @@ pub(super) fn create_amg_from_laplacian(
     Ok((inner, ws))
 }
 
-pub(super) fn solve_amg<'py>(
+pub(super) fn solve_amg(
     inner: &AmgPcgSolver,
     ws: &mut AmgPcgWorkspace,
-    py: Python<'py>,
+    py: Python<'_>,
     b: &Bound<'_, PyAny>,
     x0: Option<&Bound<'_, PyAny>>,
-) -> PyResult<(Bound<'py, PyArray1<f64>>, Bound<'py, PyDict>)> {
+) -> PyResult<PyAmgSolveResult> {
     let b_vec = extract_f64_1d(b, "b")?;
     let x0_vec = extract_optional_weights_1d(x0, "x0")?;
     let res = py
@@ -186,18 +151,16 @@ pub(super) fn solve_amg<'py>(
             Ok(ws.result())
         })
         .map_err(core_error_to_py)?;
-    let x_arr = PyArray1::from_slice(py, ws.x());
-    let info = amg_solve_result_to_dict(py, &res)?;
-    Ok((x_arr, info))
+    Ok(PyAmgSolveResult::new(ws.x().to_vec(), res))
 }
 
-pub(super) fn solve_batch_amg<'py>(
+pub(super) fn solve_batch_amg(
     inner: &AmgPcgSolver,
     ws: &mut AmgPcgWorkspace,
-    py: Python<'py>,
+    py: Python<'_>,
     b: &Bound<'_, PyAny>,
     x0: Option<&Bound<'_, PyAny>>,
-) -> PyResult<(Bound<'py, PyArray2<f64>>, Bound<'py, PyDict>)> {
+) -> PyResult<PyAmgBatchSolveResult> {
     let (b_flat, nrows, ncols) = extract_f64_2d(b, "b")?;
     if nrows != inner.num_nodes() {
         return Err(core_error_to_py(CoreError::dimension_mismatch(
@@ -223,10 +186,7 @@ pub(super) fn solve_batch_amg<'py>(
     let res = py
         .detach(|| inner.solve_batch(&b_flat, &mut x_flat, ncols, ws))
         .map_err(core_error_to_py)?;
-    let arr = Array2::from_shape_vec((nrows, ncols), x_flat)
-        .map_err(|e| PyValueError::new_err(e.to_string()))?;
-    let info = amg_batch_result_to_dict(py, &res)?;
-    Ok((PyArray2::from_owned_array(py, arr), info))
+    Ok(PyAmgBatchSolveResult::new(x_flat, nrows, ncols, res))
 }
 
 pub(super) fn start_solve_amg(

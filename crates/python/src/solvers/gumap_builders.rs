@@ -1,15 +1,16 @@
 //! Constructor builders for `GuMapSolver`.
 
-use egraph::{layout as egraph_layout, neighborhood as egraph_neighborhood};
-use egraph_layout::{GuMapConfig, GuMapSolver};
-use egraph_neighborhood::DogVaradhanConfig;
+use egraph::layout::{GuMapConfig, GuMapSolver};
+use egraph::neighborhood::DogVaradhanConfig;
 use pyo3::prelude::*;
 
 use crate::csr_graph::PyCsrGraph;
-use crate::ffi_convert::{ScalarDtype, StrictF64, StrictU64, StrictUsize, core_error_to_py};
+use crate::errors::core_error_to_py;
+use crate::ffi_convert::{ScalarDtype, StrictF64, StrictU64, StrictUsize};
 use crate::neighborhood::{PyDogVaradhanLandmarks, PyKnnGraph, PySparseProbabilities};
 
 use super::gumap::{GuMapInner, PyGuMapSolver};
+use super::layout_dispatch::{SolverTargetKind, dispatch_riemannian_target};
 
 #[allow(clippy::too_many_arguments)]
 fn build_gumap_config(
@@ -25,19 +26,18 @@ fn build_gumap_config(
     symmetric_negative: bool,
     seed: u64,
 ) -> PyResult<GuMapConfig> {
-    let cfg = GuMapConfig {
-        iterations,
-        negative_sample_rate,
-        learning_rate,
-        min_dist,
-        spread,
-        a,
-        b,
-        sigma_iters,
-        sigma_tolerance,
-        symmetric_negative,
-        seed,
-    };
+    let cfg = GuMapConfig::new()
+        .with_iterations(iterations)
+        .with_negative_sample_rate(negative_sample_rate)
+        .with_learning_rate(learning_rate)
+        .with_min_dist(min_dist)
+        .with_spread(spread)
+        .with_a(a)
+        .with_b(b)
+        .with_sigma_iters(sigma_iters)
+        .with_sigma_tolerance(sigma_tolerance)
+        .with_symmetric_negative(symmetric_negative)
+        .with_seed(seed);
     cfg.validate().map_err(core_error_to_py)?;
     Ok(cfg)
 }
@@ -46,6 +46,7 @@ fn build_gumap_config(
 pub(super) fn build_gumap_from_fuzzy_set(
     py: Python<'_>,
     probs: &PySparseProbabilities,
+    target: SolverTargetKind,
     iterations: StrictUsize,
     negative_sample_rate: StrictUsize,
     learning_rate: StrictF64,
@@ -74,13 +75,13 @@ pub(super) fn build_gumap_from_fuzzy_set(
     )?;
     let probs_ref = probs.inner();
     let inner = py
-        .detach(|| match dtype {
-            ScalarDtype::F64 => {
-                GuMapSolver::<f64>::from_fuzzy_set_ref(probs_ref, cfg).map(GuMapInner::F64)
-            }
-            ScalarDtype::F32 => {
-                GuMapSolver::<f32>::from_fuzzy_set_ref(probs_ref, cfg).map(GuMapInner::F32)
-            }
+        .detach(|| {
+            dispatch_riemannian_target!(
+                GuMapInner,
+                target,
+                dtype,
+                GuMapSolver::from_fuzzy_set_ref(probs_ref, cfg)
+            )
         })
         .map_err(core_error_to_py)?;
     Ok(PyGuMapSolver::from_inner(inner))
@@ -90,6 +91,7 @@ pub(super) fn build_gumap_from_fuzzy_set(
 pub(super) fn build_gumap_from_knn(
     py: Python<'_>,
     knn: &PyKnnGraph,
+    target: SolverTargetKind,
     iterations: StrictUsize,
     negative_sample_rate: StrictUsize,
     learning_rate: StrictF64,
@@ -118,9 +120,13 @@ pub(super) fn build_gumap_from_knn(
     )?;
     let knn_ref = knn.inner();
     let inner = py
-        .detach(|| match dtype {
-            ScalarDtype::F64 => GuMapSolver::<f64>::from_knn(knn_ref, cfg).map(GuMapInner::F64),
-            ScalarDtype::F32 => GuMapSolver::<f32>::from_knn(knn_ref, cfg).map(GuMapInner::F32),
+        .detach(|| {
+            dispatch_riemannian_target!(
+                GuMapInner,
+                target,
+                dtype,
+                GuMapSolver::from_knn(knn_ref, cfg)
+            )
         })
         .map_err(core_error_to_py)?;
     Ok(PyGuMapSolver::from_inner(inner))
@@ -131,6 +137,7 @@ pub(super) fn build_gumap_from_graph_dog(
     py: Python<'_>,
     graph: &PyCsrGraph,
     max_2hop_per_node: StrictUsize,
+    target: SolverTargetKind,
     degree: Option<StrictUsize>,
     num_landmarks: StrictUsize,
     degree_normalize: bool,
@@ -169,33 +176,29 @@ pub(super) fn build_gumap_from_graph_dog(
         symmetric_negative,
         seed.0,
     )?;
-    let dog_cfg = DogVaradhanConfig {
-        t1: t1.map(|v| v.0),
-        t2: t2.map(|v| v.0),
-        alpha: alpha.map(|v| v.0),
-        beta_floor: beta_floor.map(|v| v.0),
-        degree: degree.map(|v| v.0),
-        n_landmarks: num_landmarks.0,
-        min_degree: min_degree.0,
-        jl_dim: jl_dim.0,
-        eps_psd: eps_psd.0,
-        degree_normalize,
-        p_exp: p_exp.0,
-        t_coarse: t_coarse.0,
-        seed: seed.0,
-        ..DogVaradhanConfig::default()
-    };
+    let dog_cfg = DogVaradhanConfig::new()
+        .with_t1(t1.map(|v| v.0))
+        .with_t2(t2.map(|v| v.0))
+        .with_alpha(alpha.map(|v| v.0))
+        .with_beta_floor(beta_floor.map(|v| v.0))
+        .with_degree(degree.map(|v| v.0))
+        .with_n_landmarks(num_landmarks.0)
+        .with_min_degree(min_degree.0)
+        .with_jl_dim(jl_dim.0)
+        .with_eps_psd(eps_psd.0)
+        .with_degree_normalize(degree_normalize)
+        .with_p_exp(p_exp.0)
+        .with_t_coarse(t_coarse.0)
+        .with_seed(seed.0);
     let g = graph.inner();
     let inner = py
-        .detach(|| match dtype {
-            ScalarDtype::F64 => {
-                GuMapSolver::<f64>::from_graph_dog(&*g, max_2hop_per_node.0, &dog_cfg, cfg)
-                    .map(GuMapInner::F64)
-            }
-            ScalarDtype::F32 => {
-                GuMapSolver::<f32>::from_graph_dog(&*g, max_2hop_per_node.0, &dog_cfg, cfg)
-                    .map(GuMapInner::F32)
-            }
+        .detach(|| {
+            dispatch_riemannian_target!(
+                GuMapInner,
+                target,
+                dtype,
+                GuMapSolver::from_graph_dog(&*g, max_2hop_per_node.0, &dog_cfg, cfg)
+            )
         })
         .map_err(core_error_to_py)?;
     Ok(PyGuMapSolver::from_inner(inner))
@@ -207,6 +210,7 @@ pub(super) fn build_gumap_from_landmarks(
     graph: &PyCsrGraph,
     landmarks: &PyDogVaradhanLandmarks,
     max_2hop_per_node: StrictUsize,
+    target: SolverTargetKind,
     iterations: StrictUsize,
     negative_sample_rate: StrictUsize,
     learning_rate: StrictF64,
@@ -236,15 +240,13 @@ pub(super) fn build_gumap_from_landmarks(
     let g = graph.inner();
     let lm = landmarks.inner();
     let inner = py
-        .detach(|| match dtype {
-            ScalarDtype::F64 => {
-                GuMapSolver::<f64>::from_landmarks(&*g, lm, max_2hop_per_node.0, cfg)
-                    .map(GuMapInner::F64)
-            }
-            ScalarDtype::F32 => {
-                GuMapSolver::<f32>::from_landmarks(&*g, lm, max_2hop_per_node.0, cfg)
-                    .map(GuMapInner::F32)
-            }
+        .detach(|| {
+            dispatch_riemannian_target!(
+                GuMapInner,
+                target,
+                dtype,
+                GuMapSolver::from_landmarks(&*g, lm, max_2hop_per_node.0, cfg)
+            )
         })
         .map_err(core_error_to_py)?;
     Ok(PyGuMapSolver::from_inner(inner))

@@ -6,10 +6,10 @@ use egraph::linalg::{
 };
 use numpy::ndarray::Array2;
 use numpy::{PyArray1, PyArray2};
-use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
 use crate::csr_graph::PyCsrGraph;
+use crate::errors::invalid_input_err;
 use crate::ffi_convert::{StrictUsize, core_error_to_py};
 
 /// Reusable single-source Dijkstra workspace avoiding repeated heap allocations across queries.
@@ -90,8 +90,7 @@ fn all_pairs_dijkstra<'py>(
     let flat = py
         .detach(|| linalg_all_pairs_dijkstra(&*g))
         .map_err(core_error_to_py)?;
-    let arr =
-        Array2::from_shape_vec((n, n), flat).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let arr = Array2::from_shape_vec((n, n), flat).map_err(|e| invalid_input_err(e.to_string()))?;
     Ok(PyArray2::from_owned_array(py, arr))
 }
 

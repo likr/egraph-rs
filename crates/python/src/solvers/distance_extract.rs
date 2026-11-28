@@ -2,10 +2,11 @@
 
 use numpy::ndarray::ArrayView2;
 use numpy::{PyReadonlyArray2, PyUntypedArray, PyUntypedArrayMethods};
-use pyo3::exceptions::{PyTypeError, PyValueError};
+use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::PyBool;
 
+use crate::errors::dimension_mismatch_err;
 use crate::ffi_convert::is_non_sequence_container;
 
 fn convert_distance_view2_to_f64<T, F>(
@@ -19,7 +20,7 @@ where
     let nrows = view.nrows();
     let ncols = view.ncols();
     if nrows != ncols {
-        return Err(PyValueError::new_err(format!(
+        return Err(dimension_mismatch_err(format!(
             "distance_matrix must be square (N, N), got ({nrows}, {ncols})"
         )));
     }
@@ -35,7 +36,7 @@ where
 pub(super) fn extract_distance_matrix_2d(obj: &Bound<'_, PyAny>) -> PyResult<(Vec<f64>, usize)> {
     if let Ok(untyped) = obj.cast::<PyUntypedArray>() {
         if untyped.ndim() != 2 {
-            return Err(PyValueError::new_err(format!(
+            return Err(dimension_mismatch_err(format!(
                 "distance_matrix must be a 2D square numeric array, got {}D",
                 untyped.ndim()
             )));
@@ -122,7 +123,7 @@ pub(super) fn extract_distance_matrix_2d(obj: &Bound<'_, PyAny>) -> PyResult<(Ve
         match ncols {
             None => ncols = Some(row_len),
             Some(expected) if row_len != expected => {
-                return Err(PyValueError::new_err(format!(
+                return Err(dimension_mismatch_err(format!(
                     "distance_matrix has ragged row {nrows}: expected {expected} columns, got {row_len}"
                 )));
             }
@@ -133,7 +134,7 @@ pub(super) fn extract_distance_matrix_2d(obj: &Bound<'_, PyAny>) -> PyResult<(Ve
 
     let c = ncols.unwrap_or(0);
     if nrows != c {
-        return Err(PyValueError::new_err(format!(
+        return Err(dimension_mismatch_err(format!(
             "distance_matrix must be square (N, N), got ({nrows}, {c})"
         )));
     }

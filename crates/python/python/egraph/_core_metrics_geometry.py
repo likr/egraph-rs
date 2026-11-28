@@ -1,7 +1,12 @@
 from __future__ import annotations
 
 from egraph._core import (
+    CrossingSummary as CrossingSummary,
+    LayoutDegeneracy as LayoutDegeneracy,
     MetricReport as MetricReport,
+    MinimumAngleSummary as MinimumAngleSummary,
+    RtaEvaluation as RtaEvaluation,
+    StressEvaluation as StressEvaluation,
     all_pairs_bfs as all_pairs_bfs,
     angular_resolution as angular_resolution,
     aspect_ratio as aspect_ratio,
@@ -53,7 +58,12 @@ from egraph._core import (
 )
 
 __all__ = [
+    "CrossingSummary",
+    "LayoutDegeneracy",
     "MetricReport",
+    "MinimumAngleSummary",
+    "RtaEvaluation",
+    "StressEvaluation",
     "all_pairs_bfs",
     "angular_resolution",
     "aspect_ratio",

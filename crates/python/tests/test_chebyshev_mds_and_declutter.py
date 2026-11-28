@@ -56,10 +56,10 @@ class TestChebyshevMdsAndDeclutter(unittest.TestCase):
 
         coeffs = eg.compute_chebyshev_bandpass_coefficients(terms, lambda_max=2.0, degree=20)
         self.assertEqual(coeffs.shape, (21,))
-        psd_terms, delta_psd, h_min = eg.project_psd_spectral_filter(terms, lambda_max=2.0, degree=20, eps_psd=1e-4)
-        self.assertGreaterEqual(len(psd_terms), len(terms))
-        self.assertGreaterEqual(delta_psd, 0.0)
-        self.assertTrue(math.isfinite(h_min))
+        proj = eg.project_psd_spectral_filter(terms, lambda_max=2.0, degree=20, eps_psd=1e-4)
+        self.assertGreaterEqual(len(proj.terms), len(terms))
+        self.assertGreaterEqual(proj.delta_psd, 0.0)
+        self.assertTrue(math.isfinite(proj.h_min))
 
         ker = eg.ChebyshevDogKernel(g, degree=20, n_landmarks=8, jl_dim=8, seed=42)
         ker_lm = eg.ChebyshevDogKernel.build_with_landmarks(
@@ -129,7 +129,9 @@ class TestChebyshevMdsAndDeclutter(unittest.TestCase):
             self.assert_no_panic_raises((IndexError,), lambda: lnd.set(0, 99, 1.0))
 
             # RhghLandmarks & SparseProbabilities.from_csr
-            rhgh, rhgh_stats = eg.compute_pivoted_rhgh_landmarks(g, num_landmarks=6, seed=42)
+            rhgh_res = eg.compute_pivoted_rhgh_landmarks(g, num_landmarks=6, seed=42)
+            rhgh = rhgh_res.landmarks
+            rhgh_stats = rhgh_res.stats
             self.assertIsInstance(rhgh, eg.RhghLandmarks)
             self.assertIn("n_landmarks", rhgh_stats)
             self.assertEqual(len(rhgh), 16)
@@ -163,19 +165,21 @@ class TestChebyshevMdsAndDeclutter(unittest.TestCase):
             dtype=np.float64,
         )
         for dtype_str, np_dtype in (("float64", np.float64), ("float32", np.float32)):
+            l_one = eg.Layout2d.from_coords(twin_coords.astype(np_dtype))
             l_run = eg.Layout2d.from_coords(twin_coords.astype(np_dtype))
-            l_step = eg.Layout2d.from_coords(twin_coords.astype(np_dtype))
+            l_fn_cmp = eg.Layout2d.from_coords(twin_coords.astype(np_dtype))
+            td_one = eg.TwinDeclutterer(iterations=1, dtype=dtype_str)
+            td_one.apply(l_one)
+            self.assertGreater(td_one.last_cluster_count, 0)
+            self.assertGreater(td_one.last_moved_count, 0)
             td_run = eg.TwinDeclutterer(iterations=4, dtype=dtype_str)
-            td_step = eg.TwinDeclutterer(iterations=4, dtype=dtype_str)
-            self.assertEqual(td_run.total_iterations, 4)
             self.assertEqual(td_run.dtype, dtype_str)
             self.assertIn("TwinDeclutterer(", repr(td_run))
-            td_step.step(l_step)
-            self.assertGreater(td_step.last_cluster_count, 0)
-            self.assertGreater(td_step.last_moved_count, 0)
-            td_step.run(l_step)
-            td_run.run(l_run)
-            np.testing.assert_array_equal(l_run.coords(copy=True), l_step.coords(copy=True))
+            td_run.apply(l_run)
+            self.assertGreater(td_run.last_pass_count, 0)
+            moved_cmp = eg.declutter_twins_2d(l_fn_cmp)
+            self.assertGreater(moved_cmp, 0)
+            np.testing.assert_array_equal(l_run.coords(copy=True), l_fn_cmp.coords(copy=True))
 
         l_fn = eg.Layout2d.from_coords(twin_coords)
         moved = eg.declutter_twins_2d(l_fn)
@@ -213,7 +217,7 @@ class TestChebyshevMdsAndDeclutter(unittest.TestCase):
             np.full((4, 2), 1e308, dtype=np.float64)
         )
         td_large = eg.TwinDeclutterer(iterations=4, dtype="float64")
-        self.assertEqual(td_large.run(l_large_coincident), "converged")
+        td_large.apply(l_large_coincident)
         self.assertTrue(l_large_coincident.is_all_finite())
 
         l_large_multi = eg.Layout2d.from_coords(
@@ -223,7 +227,7 @@ class TestChebyshevMdsAndDeclutter(unittest.TestCase):
             )
         )
         td_multi = eg.TwinDeclutterer(iterations=4, dtype="float64")
-        self.assertIn(td_multi.run(l_large_multi), ("converged", "completed"))
+        td_multi.apply(l_large_multi)
         self.assertTrue(l_large_multi.is_all_finite())
 
 

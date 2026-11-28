@@ -3,6 +3,7 @@ from __future__ import annotations
 from egraph._core import (
     ChebyshevDogKernel as ChebyshevDogKernel,
     DijkstraWorkspace as DijkstraWorkspace,
+    SpectralFilterProjection as SpectralFilterProjection,
     adaptive_chebyshev_degree as adaptive_chebyshev_degree,
     adaptive_chebyshev_degree_scaled as adaptive_chebyshev_degree_scaled,
     all_pairs_dijkstra as all_pairs_dijkstra,
@@ -20,6 +21,7 @@ from egraph._core import (
 __all__ = [
     "ChebyshevDogKernel",
     "DijkstraWorkspace",
+    "SpectralFilterProjection",
     "adaptive_chebyshev_degree",
     "adaptive_chebyshev_degree_scaled",
     "all_pairs_dijkstra",

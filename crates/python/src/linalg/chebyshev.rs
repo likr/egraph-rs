@@ -9,25 +9,123 @@ use egraph::linalg::{
 };
 use numpy::ndarray::Array2;
 use numpy::{PyArray1, PyArray2};
-use pyo3::exceptions::PyValueError;
+use pyo3::IntoPyObjectExt;
+use pyo3::exceptions::PyKeyError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
 use super::matrix::PyCsrMatrix;
 use crate::array_extract::extract_f64_1d_or_2d;
 use crate::csr_graph::PyCsrGraph;
+use crate::errors::{dimension_mismatch_err, invalid_input_err};
 use crate::ffi_convert::{
     StrictF64, StrictU64, StrictUsize, core_error_to_py, extract_optional_weights_1d,
 };
 
-pub(super) fn spectral_moment_fields(stats: &SpectralMomentStats) -> [(&'static str, f64); 5] {
-    [
-        ("sigma_lambda_sq", stats.sigma_lambda_sq),
-        ("sigma_lambda", stats.sigma_lambda),
-        ("deg_cv", stats.deg_cv),
-        ("mean_degree", stats.mean_degree),
-        ("leaf_fraction", stats.leaf_fraction),
-    ]
+const SPECTRAL_MOMENT_KEYS: [&str; 5] = [
+    "sigma_lambda_sq",
+    "sigma_lambda",
+    "deg_cv",
+    "mean_degree",
+    "leaf_fraction",
+];
+
+/// Frozen exact `O(|E|)` spectral moment and degree statistics of `L_sym`.
+#[pyclass(
+    name = "SpectralMomentStats",
+    module = "egraph._core",
+    frozen,
+    from_py_object
+)]
+#[derive(Debug, Clone)]
+pub struct PySpectralMomentStats {
+    pub(super) inner: SpectralMomentStats,
+}
+
+impl PySpectralMomentStats {
+    pub(super) fn from_stats(inner: SpectralMomentStats) -> Self {
+        Self { inner }
+    }
+
+    fn lookup(&self, py: Python<'_>, key: &str) -> PyResult<Option<Py<PyAny>>> {
+        let val = match key {
+            "sigma_lambda_sq" => self.inner.sigma_lambda_sq,
+            "sigma_lambda" => self.inner.sigma_lambda,
+            "deg_cv" => self.inner.deg_cv,
+            "mean_degree" => self.inner.mean_degree,
+            "leaf_fraction" => self.inner.leaf_fraction,
+            _ => return Ok(None),
+        };
+        Ok(Some(val.into_py_any(py)?))
+    }
+}
+
+#[pymethods]
+impl PySpectralMomentStats {
+    /// Spectral variance `sigma_lambda^2` of the symmetric normalized Laplacian.
+    #[getter]
+    fn sigma_lambda_sq(&self) -> f64 {
+        self.inner.sigma_lambda_sq
+    }
+
+    /// Spectral standard deviation `sigma_lambda`.
+    #[getter]
+    fn sigma_lambda(&self) -> f64 {
+        self.inner.sigma_lambda
+    }
+
+    /// Coefficient of variation of vertex degrees.
+    #[getter]
+    fn deg_cv(&self) -> f64 {
+        self.inner.deg_cv
+    }
+
+    /// Arithmetic mean vertex degree.
+    #[getter]
+    fn mean_degree(&self) -> f64 {
+        self.inner.mean_degree
+    }
+
+    /// Fraction of vertices with degree <= 1.
+    #[getter]
+    fn leaf_fraction(&self) -> f64 {
+        self.inner.leaf_fraction
+    }
+
+    /// Return spectral moment statistics as a Python dictionary.
+    fn to_dict(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
+        let dict = PyDict::new(py);
+        for k in SPECTRAL_MOMENT_KEYS {
+            if let Some(v) = self.lookup(py, k)? {
+                dict.set_item(k, v)?;
+            }
+        }
+        Ok(dict.unbind())
+    }
+
+    /// Return ordered field keys for dictionary compatibility.
+    fn keys(&self) -> Vec<&'static str> {
+        SPECTRAL_MOMENT_KEYS.to_vec()
+    }
+
+    fn __getitem__(&self, py: Python<'_>, key: &str) -> PyResult<Py<PyAny>> {
+        self.lookup(py, key)?
+            .ok_or_else(|| PyKeyError::new_err(key.to_owned()))
+    }
+
+    fn __contains__(&self, key: &str) -> bool {
+        SPECTRAL_MOMENT_KEYS.contains(&key)
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "SpectralMomentStats(sigma_lambda={:.6}, deg_cv={:.6}, mean_degree={:.3}, leaf_fraction={:.4})",
+            self.inner.sigma_lambda,
+            self.inner.deg_cv,
+            self.inner.mean_degree,
+            self.inner.leaf_fraction,
+        )
+    }
 }
 
 pub(super) fn resolve_dog_r1_defaults(
@@ -67,14 +165,10 @@ pub(super) fn validate_dog_jl_params(degree: usize, jl_dim: usize, eps_psd: f64)
 /// Releases the Python GIL during computation.
 #[pyfunction]
 #[pyo3(signature = (graph), text_signature = "(graph)")]
-fn spectral_moment_stats(py: Python<'_>, graph: &PyCsrGraph) -> PyResult<Py<PyDict>> {
+fn spectral_moment_stats(py: Python<'_>, graph: &PyCsrGraph) -> PySpectralMomentStats {
     let g = graph.inner();
     let stats = py.detach(|| linalg_spectral_moment_stats(&*g));
-    let dict = PyDict::new(py);
-    for (k, v) in spectral_moment_fields(&stats) {
-        dict.set_item(k, v)?;
-    }
-    Ok(dict.unbind())
+    PySpectralMomentStats::from_stats(stats)
 }
 
 /// Apply the Chebyshev heat-kernel approximation `exp(-t * L_sym)` to 1D `(N,)` or 2D `(N, C)` vectors.
@@ -97,7 +191,7 @@ fn chebyshev_heat_spmv<'py>(
     let g = graph.inner();
     let n = g.num_nodes();
     if nrows != n {
-        return Err(PyValueError::new_err(format!(
+        return Err(dimension_mismatch_err(format!(
             "vectors row count {nrows} does not match graph.num_nodes ({n})"
         )));
     }
@@ -119,7 +213,7 @@ fn chebyshev_heat_spmv<'py>(
 
     if is_2d {
         let arr = Array2::from_shape_vec((n, ncols), out)
-            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+            .map_err(|e| invalid_input_err(e.to_string()))?;
         Ok(PyArray2::from_owned_array(py, arr).into_any())
     } else {
         Ok(PyArray1::from_vec(py, out).into_any())
@@ -151,7 +245,7 @@ fn chebyshev_heat_spmv_matrix<'py>(
     let mat = matrix.inner();
     let n = mat.num_nodes();
     if nrows != n {
-        return Err(PyValueError::new_err(format!(
+        return Err(dimension_mismatch_err(format!(
             "vectors row count {nrows} does not match matrix.num_nodes ({n})"
         )));
     }
@@ -175,7 +269,7 @@ fn chebyshev_heat_spmv_matrix<'py>(
 
     if is_2d {
         let arr = Array2::from_shape_vec((n, ncols), out)
-            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+            .map_err(|e| invalid_input_err(e.to_string()))?;
         Ok(PyArray2::from_owned_array(py, arr).into_any())
     } else {
         Ok(PyArray1::from_vec(py, out).into_any())
@@ -253,7 +347,7 @@ fn chebyshev_dog_jl_embedding_matrix<'py>(
         .map_err(core_error_to_py)?;
 
     let arr =
-        Array2::from_shape_vec((n, dim), emb).map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Array2::from_shape_vec((n, dim), emb).map_err(|e| invalid_input_err(e.to_string()))?;
     Ok(PyArray2::from_owned_array(py, arr))
 }
 
@@ -311,11 +405,12 @@ fn chebyshev_dog_jl_embedding<'py>(
         .map_err(core_error_to_py)?;
 
     let arr =
-        Array2::from_shape_vec((n, dim), emb).map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Array2::from_shape_vec((n, dim), emb).map_err(|e| invalid_input_err(e.to_string()))?;
     Ok(PyArray2::from_owned_array(py, arr))
 }
 
 pub(super) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<PySpectralMomentStats>()?;
     m.add_function(wrap_pyfunction!(spectral_moment_stats, m)?)?;
     m.add_function(wrap_pyfunction!(chebyshev_heat_spmv, m)?)?;
     m.add_function(wrap_pyfunction!(chebyshev_heat_spmv_matrix, m)?)?;

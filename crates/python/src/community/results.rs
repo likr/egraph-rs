@@ -2,8 +2,9 @@
 
 use numpy::ndarray::Array2;
 use numpy::{PyArray1, PyArray2};
-use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+
+use crate::errors::invalid_input_err;
 
 /// Result returned by `louvain_communities`.
 #[pyclass(name = "LouvainResult", module = "egraph._core")]
@@ -145,7 +146,7 @@ impl PyKMeansResult {
         res: egraph::clustering::KMeansResult,
     ) -> PyResult<Self> {
         let centroids_arr = Array2::from_shape_vec((res.k, res.dims), res.centroids)
-            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+            .map_err(|e| invalid_input_err(e.to_string()))?;
         Ok(Self {
             labels: PyArray1::from_vec(py, res.labels).unbind(),
             centroids: PyArray2::from_owned_array(py, centroids_arr).unbind(),

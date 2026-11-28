@@ -1,8 +1,9 @@
 //! Spectral initialization, normalization, and Laplacian eigenpair bindings.
 
-use egraph::core::{CoreError, CoreResult};
+use egraph::core::{CoreError, CoreResult, Layout2d, LayoutGenerator as _, LayoutNd};
 use egraph::linalg::{
-    RdMds, koren_spectral_init as linalg_koren, normalize_layout_2d as linalg_normalize_layout_2d,
+    KorenSpectral, KorenSpectralConfig, RdMds, RdMdsConfig,
+    normalize_layout_2d as linalg_normalize_layout_2d,
     robust_normalize_layout_2d as linalg_robust_normalize_layout_2d,
     select_maxmin_sp_pivots as linalg_select_maxmin_sp_pivots,
     smallest_sym_laplacian_eigenpairs as linalg_smallest_eigenpairs,
@@ -14,14 +15,12 @@ use egraph::neighborhood::{
 };
 use numpy::ndarray::Array2;
 use numpy::{PyArray1, PyArray2};
-use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
 use crate::array_extract::extract_f64_2d;
 use crate::csr_graph::PyCsrGraph;
-use crate::ffi_convert::{
-    ScalarDtype, StrictF64, StrictU64, StrictUsize, core_error_to_py, ffi_error_to_py,
-};
+use crate::errors::{core_error_to_py, dimension_mismatch_err, ffi_error_to_py, invalid_input_err};
+use crate::ffi_convert::{ScalarDtype, StrictF64, StrictU64, StrictUsize};
 use crate::layout_buffers::{Layout2dInner, PyLayout2d};
 use crate::layout_nd::PyLayoutNd;
 
@@ -90,10 +89,18 @@ fn koren_spectral_init(
     let t_std = target_std.map(|v| v.0);
     validate_koren_params(tol.0, max_iterations.0, t_std).map_err(core_error_to_py)?;
     let g = graph.inner();
+    let cfg = KorenSpectralConfig::new()
+        .with_dims(Some(2))
+        .with_target_std(t_std)
+        .with_tol(tol.0)
+        .with_max_iters(max_iterations.0)
+        .with_seed(seed.0);
     py.detach(|| match dtype {
-        ScalarDtype::F64 => linalg_koren::<f64, f64>(&*g, t_std, tol.0, max_iterations.0, seed.0)
+        ScalarDtype::F64 => KorenSpectral::<Layout2d<f64>, _>::from_config(&*g, cfg)
+            .generate()
             .map(|l| PyLayout2d::from_f64_layout(&l)),
-        ScalarDtype::F32 => linalg_koren::<f64, f32>(&*g, t_std, tol.0, max_iterations.0, seed.0)
+        ScalarDtype::F32 => KorenSpectral::<Layout2d<f32>, _>::from_config(&*g, cfg)
+            .generate()
             .map(|l| PyLayout2d::from_f32_layout(&l)),
     })
     .map_err(core_error_to_py)
@@ -125,7 +132,7 @@ fn smallest_laplacian_eigenpairs<'py>(
         .detach(|| linalg_smallest_eigenpairs(&*g, n_modes.0, tol.0, max_iterations.0, seed.0))
         .map_err(core_error_to_py)?;
     let vectors_arr = Array2::from_shape_vec((res.num_nodes, res.num_modes), res.vectors)
-        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        .map_err(|e| dimension_mismatch_err(e.to_string()))?;
     Ok((
         PyArray1::from_vec(py, res.lambdas),
         PyArray2::from_owned_array(py, vectors_arr),
@@ -152,16 +159,24 @@ fn rd_mds(
     degree_normalize: bool,
     dtype: ScalarDtype,
 ) -> PyResult<PyLayoutNd> {
+    if dims.0 == 0 {
+        return Err(invalid_input_err("dims must be >= 1"));
+    }
     let g = graph.inner();
-    let cfg = RdMds::with_dims(dims.0)
-        .eig_eps(eig_eps.0)
-        .tol(tol.0)
-        .max_iters(max_iterations.0)
-        .seed(seed.0)
-        .degree_normalize(degree_normalize);
+    let cfg = RdMdsConfig::new()
+        .with_dims(Some(dims.0))
+        .with_eig_eps(eig_eps.0)
+        .with_tol(tol.0)
+        .with_max_iters(max_iterations.0)
+        .with_seed(seed.0)
+        .with_degree_normalize(degree_normalize);
     py.detach(|| match dtype {
-        ScalarDtype::F64 => cfg.embedding::<f64, f64>(&*g).map(PyLayoutNd::from_f64_nd),
-        ScalarDtype::F32 => cfg.embedding::<f64, f32>(&*g).map(PyLayoutNd::from_f32_nd),
+        ScalarDtype::F64 => RdMds::<LayoutNd<f64>, _>::from_config(&*g, cfg)
+            .generate()
+            .map(PyLayoutNd::from_f64_nd),
+        ScalarDtype::F32 => RdMds::<LayoutNd<f32>, _>::from_config(&*g, cfg)
+            .generate()
+            .map(PyLayoutNd::from_f32_nd),
     })
     .map_err(core_error_to_py)
 }
@@ -256,8 +271,8 @@ fn compute_resistance_embedding<'py>(
         })
         .map_err(core_error_to_py)?;
     let k = lambdas.len();
-    let arr =
-        Array2::from_shape_vec((n, k), coords).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let arr = Array2::from_shape_vec((n, k), coords)
+        .map_err(|e| dimension_mismatch_err(e.to_string()))?;
     Ok((
         PyArray2::from_owned_array(py, arr),
         PyArray1::from_vec(py, lambdas),
@@ -290,8 +305,8 @@ fn compute_diffusion_embedding<'py>(
         })
         .map_err(core_error_to_py)?;
     let k = lambdas.len();
-    let arr =
-        Array2::from_shape_vec((n, k), coords).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let arr = Array2::from_shape_vec((n, k), coords)
+        .map_err(|e| dimension_mismatch_err(e.to_string()))?;
     Ok((
         PyArray2::from_owned_array(py, arr),
         PyArray1::from_vec(py, lambdas),
@@ -316,7 +331,7 @@ fn symmetric_eigen_jacobi<'py>(
 ) -> PyResult<JacobiEigenPy<'py>> {
     let (flat, nrows, ncols) = extract_f64_2d(matrix, "matrix")?;
     if nrows != ncols {
-        return Err(PyValueError::new_err(format!(
+        return Err(dimension_mismatch_err(format!(
             "matrix must be a square (N, N) matrix, got ({nrows}, {ncols})"
         )));
     }
@@ -324,7 +339,7 @@ fn symmetric_eigen_jacobi<'py>(
         .detach(|| linalg_symmetric_eigen_jacobi(&flat, nrows, max_sweeps.0, tol.0))
         .map_err(core_error_to_py)?;
     let vectors_arr = Array2::from_shape_vec((nrows, nrows), vectors)
-        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        .map_err(|e| dimension_mismatch_err(e.to_string()))?;
     Ok((
         PyArray1::from_vec(py, lambdas),
         PyArray2::from_owned_array(py, vectors_arr),

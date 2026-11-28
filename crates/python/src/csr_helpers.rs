@@ -5,8 +5,10 @@ use std::borrow::Cow;
 use egraph::core::CsrGraph;
 use egraph_ffi::{build_csr_f32, build_csr_f64, build_edges_f32, build_edges_f64};
 use numpy::{PyReadonlyArray2, PyUntypedArray, PyUntypedArrayMethods};
-use pyo3::exceptions::{PyTypeError, PyValueError};
+use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
+
+use crate::errors::{dimension_mismatch_err, invalid_input_err};
 
 use crate::ffi_convert::{
     ScalarDtype, extract_u32_item, ffi_error_to_py, is_non_sequence_container,
@@ -112,7 +114,7 @@ where
 {
     let [m, cols] = [view.nrows(), view.ncols()];
     if cols != 2 {
-        return Err(PyValueError::new_err(format!(
+        return Err(dimension_mismatch_err(format!(
             "edges must have shape (M, 2), got ({m}, {cols})"
         )));
     }
@@ -127,14 +129,14 @@ where
 pub(crate) fn extract_flat_edges(edges: &Bound<'_, PyAny>) -> PyResult<Vec<u32>> {
     if let Ok(untyped) = edges.cast::<PyUntypedArray>() {
         if untyped.ndim() != 2 {
-            return Err(PyValueError::new_err(format!(
+            return Err(dimension_mismatch_err(format!(
                 "edges must be a 2D array of shape (M, 2), got {}D",
                 untyped.ndim()
             )));
         }
         let shape = untyped.shape();
         if shape[1] != 2 {
-            return Err(PyValueError::new_err(format!(
+            return Err(dimension_mismatch_err(format!(
                 "edges must have shape (M, 2), got ({}, {})",
                 shape[0], shape[1]
             )));
@@ -145,35 +147,35 @@ pub(crate) fn extract_flat_edges(edges: &Bound<'_, PyAny>) -> PyResult<Vec<u32>>
         if let Ok(arr) = edges.extract::<PyReadonlyArray2<'_, i64>>() {
             return convert_edges_2d_to_flat(arr.as_array(), |v| {
                 u32::try_from(v).map_err(|_| {
-                    PyValueError::new_err(format!("edge endpoint {v} out of range for u32"))
+                    invalid_input_err(format!("edge endpoint {v} out of range for u32"))
                 })
             });
         }
         if let Ok(arr) = edges.extract::<PyReadonlyArray2<'_, u64>>() {
             return convert_edges_2d_to_flat(arr.as_array(), |v| {
                 u32::try_from(v).map_err(|_| {
-                    PyValueError::new_err(format!("edge endpoint {v} out of range for u32"))
+                    invalid_input_err(format!("edge endpoint {v} out of range for u32"))
                 })
             });
         }
         if let Ok(arr) = edges.extract::<PyReadonlyArray2<'_, i32>>() {
             return convert_edges_2d_to_flat(arr.as_array(), |v| {
                 u32::try_from(v).map_err(|_| {
-                    PyValueError::new_err(format!("edge endpoint {v} out of range for u32"))
+                    invalid_input_err(format!("edge endpoint {v} out of range for u32"))
                 })
             });
         }
         if let Ok(arr) = edges.extract::<PyReadonlyArray2<'_, usize>>() {
             return convert_edges_2d_to_flat(arr.as_array(), |v| {
                 u32::try_from(v).map_err(|_| {
-                    PyValueError::new_err(format!("edge endpoint {v} out of range for u32"))
+                    invalid_input_err(format!("edge endpoint {v} out of range for u32"))
                 })
             });
         }
         if let Ok(arr) = edges.extract::<PyReadonlyArray2<'_, isize>>() {
             return convert_edges_2d_to_flat(arr.as_array(), |v| {
                 u32::try_from(v).map_err(|_| {
-                    PyValueError::new_err(format!("edge endpoint {v} out of range for u32"))
+                    invalid_input_err(format!("edge endpoint {v} out of range for u32"))
                 })
             });
         }
@@ -186,14 +188,14 @@ pub(crate) fn extract_flat_edges(edges: &Bound<'_, PyAny>) -> PyResult<Vec<u32>>
         if let Ok(arr) = edges.extract::<PyReadonlyArray2<'_, i16>>() {
             return convert_edges_2d_to_flat(arr.as_array(), |v| {
                 u32::try_from(v).map_err(|_| {
-                    PyValueError::new_err(format!("edge endpoint {v} out of range for u32"))
+                    invalid_input_err(format!("edge endpoint {v} out of range for u32"))
                 })
             });
         }
         if let Ok(arr) = edges.extract::<PyReadonlyArray2<'_, i8>>() {
             return convert_edges_2d_to_flat(arr.as_array(), |v| {
                 u32::try_from(v).map_err(|_| {
-                    PyValueError::new_err(format!("edge endpoint {v} out of range for u32"))
+                    invalid_input_err(format!("edge endpoint {v} out of range for u32"))
                 })
             });
         }
@@ -229,7 +231,7 @@ pub(crate) fn extract_flat_edges(edges: &Bound<'_, PyAny>) -> PyResult<Vec<u32>>
             count += 1;
         }
         if count != 2 {
-            return Err(PyValueError::new_err(format!(
+            return Err(dimension_mismatch_err(format!(
                 "each edge must contain exactly 2 endpoints, got {count}"
             )));
         }

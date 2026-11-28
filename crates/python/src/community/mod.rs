@@ -18,7 +18,6 @@ use egraph_clustering::{
 };
 use egraph_core::CoreError;
 use numpy::PyArray1;
-use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
 use self::results::{
@@ -27,6 +26,7 @@ use self::results::{
 };
 use crate::array_extract::extract_f64_2d;
 use crate::csr_graph::PyCsrGraph;
+use crate::errors::{invalid_input_err, non_finite_value_err};
 use crate::ffi_convert::{
     StrictF64, StrictU64, StrictUsize, core_error_to_py, extract_u32_1d, normalize_enum_key,
 };
@@ -48,8 +48,8 @@ pub(super) fn parse_leiden_objective(raw: &str) -> Result<LeidenObjective, Strin
 /// `.iterations`, and `.converged`. Releases the Python GIL during computation.
 #[pyfunction]
 #[pyo3(
-    signature = (points, k = StrictUsize(2), max_iterations = StrictUsize(100), tol = StrictF64(1e-4), n_init = StrictUsize(1), seed = StrictU64(42)),
-    text_signature = "(points, k=2, max_iterations=100, tol=1e-4, n_init=1, seed=42)"
+    signature = (points, *, k = StrictUsize(2), max_iterations = StrictUsize(100), tol = StrictF64(1e-4), n_init = StrictUsize(1), seed = StrictU64(42)),
+    text_signature = "(points, *, k=2, max_iterations=100, tol=1e-4, n_init=1, seed=42)"
 )]
 fn kmeans_plus_plus(
     py: Python<'_>,
@@ -61,13 +61,12 @@ fn kmeans_plus_plus(
     seed: StrictU64,
 ) -> PyResult<PyKMeansResult> {
     let (flat, n, dims) = extract_f64_2d(points, "points")?;
-    let cfg = KMeansConfig {
-        k: k.0,
-        max_iterations: max_iterations.0,
-        tol: tol.0,
-        n_init: n_init.0,
-        seed: seed.0,
-    };
+    let cfg = KMeansConfig::new()
+        .with_k(k.0)
+        .with_max_iterations(max_iterations.0)
+        .with_tol(tol.0)
+        .with_n_init(n_init.0)
+        .with_seed(seed.0);
     let res = py
         .detach(|| clu_kmeans_plus_plus(&flat, n, dims, &cfg))
         .map_err(core_error_to_py)?;
@@ -81,8 +80,8 @@ fn kmeans_plus_plus(
 #[pyfunction]
 #[allow(clippy::too_many_arguments)]
 #[pyo3(
-    signature = (graph, k = StrictUsize(2), max_eigen_iterations = StrictUsize(300), eigen_tol = StrictF64(1e-4), kmeans_max_iterations = StrictUsize(100), kmeans_tol = StrictF64(1e-4), seed = StrictU64(42)),
-    text_signature = "(graph, k=2, max_eigen_iterations=300, eigen_tol=1e-4, kmeans_max_iterations=100, kmeans_tol=1e-4, seed=42)"
+    signature = (graph, *, k = StrictUsize(2), max_eigen_iterations = StrictUsize(300), eigen_tol = StrictF64(1e-4), kmeans_max_iterations = StrictUsize(100), kmeans_tol = StrictF64(1e-4), seed = StrictU64(42)),
+    text_signature = "(graph, *, k=2, max_eigen_iterations=300, eigen_tol=1e-4, kmeans_max_iterations=100, kmeans_tol=1e-4, seed=42)"
 )]
 fn spectral_clustering(
     py: Python<'_>,
@@ -94,14 +93,13 @@ fn spectral_clustering(
     kmeans_tol: StrictF64,
     seed: StrictU64,
 ) -> PyResult<PySpectralClusteringResult> {
-    let cfg = SpectralClusteringConfig {
-        k: k.0,
-        max_eigen_iterations: max_eigen_iterations.0,
-        eigen_tol: eigen_tol.0,
-        kmeans_max_iterations: kmeans_max_iterations.0,
-        kmeans_tol: kmeans_tol.0,
-        seed: seed.0,
-    };
+    let cfg = SpectralClusteringConfig::new()
+        .with_k(k.0)
+        .with_max_eigen_iterations(max_eigen_iterations.0)
+        .with_eigen_tol(eigen_tol.0)
+        .with_kmeans_max_iterations(kmeans_max_iterations.0)
+        .with_kmeans_tol(kmeans_tol.0)
+        .with_seed(seed.0);
     let g = graph.inner();
     let res = py
         .detach(|| clu_spectral_clustering(&*g, &cfg))
@@ -115,8 +113,8 @@ fn spectral_clustering(
 /// Releases the Python GIL during computation.
 #[pyfunction]
 #[pyo3(
-    signature = (graph, max_passes = StrictUsize(100), resolution = StrictF64(1.0), min_modularity_gain = StrictF64(1e-7), seed = StrictU64(42)),
-    text_signature = "(graph, max_passes=100, resolution=1.0, min_modularity_gain=1e-7, seed=42)"
+    signature = (graph, *, max_passes = StrictUsize(100), resolution = StrictF64(1.0), min_modularity_gain = StrictF64(1e-7), seed = StrictU64(42)),
+    text_signature = "(graph, *, max_passes=100, resolution=1.0, min_modularity_gain=1e-7, seed=42)"
 )]
 fn louvain_communities(
     py: Python<'_>,
@@ -126,12 +124,11 @@ fn louvain_communities(
     min_modularity_gain: StrictF64,
     seed: StrictU64,
 ) -> PyResult<PyLouvainResult> {
-    let cfg = LouvainConfig {
-        max_passes: max_passes.0,
-        resolution: resolution.0,
-        min_modularity_gain: min_modularity_gain.0,
-        seed: seed.0,
-    };
+    let cfg = LouvainConfig::new()
+        .with_max_passes(max_passes.0)
+        .with_resolution(resolution.0)
+        .with_min_modularity_gain(min_modularity_gain.0)
+        .with_seed(seed.0);
     let g = graph.inner();
     let res = py
         .detach(|| clu_louvain(&*g, &cfg))
@@ -169,15 +166,14 @@ fn leiden_communities(
     min_quality_gain: StrictF64,
     seed: StrictU64,
 ) -> PyResult<PyLeidenResult> {
-    let parsed_objective = parse_leiden_objective(objective).map_err(PyValueError::new_err)?;
-    let cfg = LeidenConfig {
-        objective: parsed_objective,
-        resolution: resolution.0,
-        randomness: randomness.0,
-        max_passes: max_passes.0,
-        min_quality_gain: min_quality_gain.0,
-        seed: seed.0,
-    };
+    let parsed_objective = parse_leiden_objective(objective).map_err(invalid_input_err)?;
+    let cfg = LeidenConfig::new()
+        .with_objective(parsed_objective)
+        .with_resolution(resolution.0)
+        .with_randomness(randomness.0)
+        .with_max_passes(max_passes.0)
+        .with_min_quality_gain(min_quality_gain.0)
+        .with_seed(seed.0);
     let g = graph.inner();
     let res = py
         .detach(|| clu_leiden(&*g, &cfg))
@@ -191,8 +187,8 @@ fn leiden_communities(
 /// `.converged`. Releases the Python GIL during computation.
 #[pyfunction]
 #[pyo3(
-    signature = (graph, max_iterations = StrictUsize(100), seed = StrictU64(42)),
-    text_signature = "(graph, max_iterations=100, seed=42)"
+    signature = (graph, *, max_iterations = StrictUsize(100), seed = StrictU64(42)),
+    text_signature = "(graph, *, max_iterations=100, seed=42)"
 )]
 fn label_propagation(
     py: Python<'_>,
@@ -200,10 +196,9 @@ fn label_propagation(
     max_iterations: StrictUsize,
     seed: StrictU64,
 ) -> PyResult<PyLabelPropagationResult> {
-    let cfg = LabelPropagationConfig {
-        max_iterations: max_iterations.0,
-        seed: seed.0,
-    };
+    let cfg = LabelPropagationConfig::new()
+        .with_max_iterations(max_iterations.0)
+        .with_seed(seed.0);
     let g = graph.inner();
     let res = py
         .detach(|| clu_label_propagation(&*g, &cfg))
@@ -247,8 +242,8 @@ fn coarsen_graph<'py>(
 /// Preserves `coarse_layout.dtype` (`"float64"` or `"float32"`). Releases the Python GIL during computation.
 #[pyfunction]
 #[pyo3(
-    signature = (coarse_layout, node_to_coarse, spread_radius = StrictF64(0.1), seed = StrictU64(42)),
-    text_signature = "(coarse_layout, node_to_coarse, spread_radius=0.1, seed=42)"
+    signature = (coarse_layout, node_to_coarse, *, spread_radius = StrictF64(0.1), seed = StrictU64(42)),
+    text_signature = "(coarse_layout, node_to_coarse, *, spread_radius=0.1, seed=42)"
 )]
 fn project_clustered_layout(
     py: Python<'_>,
@@ -258,7 +253,7 @@ fn project_clustered_layout(
     seed: StrictU64,
 ) -> PyResult<PyLayout2d> {
     if !spread_radius.0.is_finite() {
-        return Err(PyValueError::new_err(
+        return Err(non_finite_value_err(
             "non-finite floating-point value in spread_radius",
         ));
     }

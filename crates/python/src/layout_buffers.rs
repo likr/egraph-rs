@@ -4,9 +4,11 @@ use egraph::core::Layout2d;
 use egraph_ffi::InterleavedLayout2d;
 use numpy::ndarray::{Array2, ArrayViewMut2};
 use numpy::{PyArray2, PyReadonlyArray2, PyUntypedArray, PyUntypedArrayMethods};
-use pyo3::exceptions::{PyTypeError, PyValueError};
+use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::PyBool;
+
+use crate::errors::{dimension_mismatch_err, invalid_input_err, non_finite_value_err};
 
 use crate::ffi_convert::{
     ScalarDtype, StrictF64, StrictU64, StrictUsize, core_error_to_py, extract_non_negative_usize,
@@ -71,7 +73,7 @@ fn extract_interleaved_f64_from_view(
 ) -> PyResult<Vec<f64>> {
     let [n, cols] = [view.nrows(), view.ncols()];
     if cols != 2 {
-        return Err(PyValueError::new_err(format!(
+        return Err(dimension_mismatch_err(format!(
             "coords must have shape (N, 2), got ({n}, {cols})"
         )));
     }
@@ -80,7 +82,7 @@ fn extract_interleaved_f64_from_view(
         let x = row[0];
         let y = row[1];
         if !x.is_finite() || !y.is_finite() {
-            return Err(PyValueError::new_err(format!(
+            return Err(non_finite_value_err(format!(
                 "coords contains non-finite value at row {idx}"
             )));
         }
@@ -95,7 +97,7 @@ fn extract_interleaved_f32_from_view(
 ) -> PyResult<Vec<f32>> {
     let [n, cols] = [view.nrows(), view.ncols()];
     if cols != 2 {
-        return Err(PyValueError::new_err(format!(
+        return Err(dimension_mismatch_err(format!(
             "coords must have shape (N, 2), got ({n}, {cols})"
         )));
     }
@@ -104,7 +106,7 @@ fn extract_interleaved_f32_from_view(
         let x = row[0];
         let y = row[1];
         if !x.is_finite() || !y.is_finite() {
-            return Err(PyValueError::new_err(format!(
+            return Err(non_finite_value_err(format!(
                 "coords contains non-finite value at row {idx}"
             )));
         }
@@ -127,14 +129,14 @@ pub struct PyLayout2d {
 pub(crate) fn extract_layout_inner(coords: &Bound<'_, PyAny>) -> PyResult<Layout2dInner> {
     if let Ok(untyped) = coords.cast::<PyUntypedArray>() {
         if untyped.ndim() != 2 {
-            return Err(PyValueError::new_err(format!(
+            return Err(dimension_mismatch_err(format!(
                 "coords must be a 2D array of shape (N, 2), got {}D",
                 untyped.ndim()
             )));
         }
         let shape = untyped.shape();
         if shape[1] != 2 {
-            return Err(PyValueError::new_err(format!(
+            return Err(dimension_mismatch_err(format!(
                 "coords must have shape (N, 2), got ({}, {})",
                 shape[0], shape[1]
             )));
@@ -189,7 +191,7 @@ pub(crate) fn extract_layout_inner(coords: &Bound<'_, PyAny>) -> PyResult<Layout
                     .extract::<f64>()
                     .map_err(|_| PyTypeError::new_err("coords entries must be finite floats"))?;
                 if !val.is_finite() {
-                    return Err(PyValueError::new_err(format!(
+                    return Err(non_finite_value_err(format!(
                         "coords contains non-finite value at row {row_idx}"
                     )));
                 }
@@ -198,7 +200,7 @@ pub(crate) fn extract_layout_inner(coords: &Bound<'_, PyAny>) -> PyResult<Layout
             count += 1;
         }
         if count != 2 {
-            return Err(PyValueError::new_err(format!(
+            return Err(dimension_mismatch_err(format!(
                 "each coordinate row must contain exactly 2 elements, got {count}"
             )));
         }
@@ -237,8 +239,8 @@ impl PyLayout2d {
     /// Create a deterministically initialized `Layout2d` for `n` vertices using `seed` and `scale`.
     #[staticmethod]
     #[pyo3(
-        signature = (n, seed = StrictU64(42), scale = StrictF64(1.0), dtype = ScalarDtype::F64),
-        text_signature = "(n, seed=42, scale=1.0, dtype='float64')"
+        signature = (n, *, seed = StrictU64(42), scale = StrictF64(1.0), dtype = ScalarDtype::F64),
+        text_signature = "(n, *, seed=42, scale=1.0, dtype='float64')"
     )]
     fn init(
         n: &Bound<'_, PyAny>,
@@ -317,14 +319,14 @@ impl PyLayout2d {
     #[pyo3(signature = (i, v), text_signature = "($self, i, v)")]
     fn set_x(&mut self, i: StrictUsize, v: StrictF64) -> PyResult<()> {
         if !v.0.is_finite() {
-            return Err(PyValueError::new_err("Layout2d.set_x value must be finite"));
+            return Err(non_finite_value_err("Layout2d.set_x value must be finite"));
         }
         match &mut self.inner {
             Layout2dInner::F64(buf) => buf.set_x(i.0, v.0).map_err(ffi_error_to_py),
             Layout2dInner::F32(buf) => {
                 let vf = v.0 as f32;
                 if !vf.is_finite() {
-                    return Err(PyValueError::new_err(format!(
+                    return Err(non_finite_value_err(format!(
                         "Layout2d.set_x value {} overflows float32",
                         v.0
                     )));
@@ -338,14 +340,14 @@ impl PyLayout2d {
     #[pyo3(signature = (i, v), text_signature = "($self, i, v)")]
     fn set_y(&mut self, i: StrictUsize, v: StrictF64) -> PyResult<()> {
         if !v.0.is_finite() {
-            return Err(PyValueError::new_err("Layout2d.set_y value must be finite"));
+            return Err(non_finite_value_err("Layout2d.set_y value must be finite"));
         }
         match &mut self.inner {
             Layout2dInner::F64(buf) => buf.set_y(i.0, v.0).map_err(ffi_error_to_py),
             Layout2dInner::F32(buf) => {
                 let vf = v.0 as f32;
                 if !vf.is_finite() {
-                    return Err(PyValueError::new_err(format!(
+                    return Err(non_finite_value_err(format!(
                         "Layout2d.set_y value {} overflows float32",
                         v.0
                     )));
@@ -367,19 +369,19 @@ impl PyLayout2d {
             }
             Layout2dInner::F32(buf) => {
                 if !target_std.0.is_finite() || target_std.0 <= 0.0 {
-                    return Err(PyValueError::new_err(
+                    return Err(invalid_input_err(
                         "target_std must be finite and strictly positive",
                     ));
                 }
                 let t32 = target_std.0 as f32;
                 if !t32.is_finite() || t32 <= 0.0 {
-                    return Err(PyValueError::new_err(format!(
+                    return Err(invalid_input_err(format!(
                         "target_std {} is out of range for float32",
                         target_std.0
                     )));
                 }
                 let mut soa = buf.to_layout2d();
-                soa.center_and_normalize_to_std(t32)
+                soa.center_and_normalize_to_std(f64::from(t32))
                     .map_err(core_error_to_py)?;
                 buf.copy_from_layout2d(&soa).map_err(ffi_error_to_py)
             }
@@ -408,12 +410,12 @@ impl PyLayout2d {
         match &self.inner {
             Layout2dInner::F64(buf) => {
                 let arr = Array2::from_shape_vec((buf.len(), 2), buf.as_slice().to_vec())
-                    .map_err(|e| PyValueError::new_err(e.to_string()))?;
+                    .map_err(|e| invalid_input_err(e.to_string()))?;
                 Ok(PyArray2::from_owned_array(py, arr).into_any())
             }
             Layout2dInner::F32(buf) => {
                 let arr = Array2::from_shape_vec((buf.len(), 2), buf.as_slice().to_vec())
-                    .map_err(|e| PyValueError::new_err(e.to_string()))?;
+                    .map_err(|e| invalid_input_err(e.to_string()))?;
                 Ok(PyArray2::from_owned_array(py, arr).into_any())
             }
         }
@@ -434,12 +436,12 @@ impl PyLayout2d {
             return match &borrowed.inner {
                 Layout2dInner::F64(buf) => {
                     let arr = Array2::from_shape_vec((buf.len(), 2), buf.as_slice().to_vec())
-                        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+                        .map_err(|e| invalid_input_err(e.to_string()))?;
                     Ok(PyArray2::from_owned_array(py, arr).into_any())
                 }
                 Layout2dInner::F32(buf) => {
                     let arr = Array2::from_shape_vec((buf.len(), 2), buf.as_slice().to_vec())
-                        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+                        .map_err(|e| invalid_input_err(e.to_string()))?;
                     Ok(PyArray2::from_owned_array(py, arr).into_any())
                 }
             };
@@ -451,7 +453,7 @@ impl PyLayout2d {
             Layout2dInner::F64(buf) => {
                 let n = buf.len();
                 let view = ArrayViewMut2::from_shape((n, 2), buf.as_mut_slice())
-                    .map_err(|e| PyValueError::new_err(e.to_string()))?;
+                    .map_err(|e| invalid_input_err(e.to_string()))?;
                 // SAFETY: `container` is `slf` (`PyLayout2d`), registered as the NumPy array's
                 // `base` object so the backing `InterleavedLayout2d` buffer outlives any view,
                 // and `InterleavedLayout2d` never reallocates its coordinate `Vec` after creation.
@@ -460,7 +462,7 @@ impl PyLayout2d {
             Layout2dInner::F32(buf) => {
                 let n = buf.len();
                 let view = ArrayViewMut2::from_shape((n, 2), buf.as_mut_slice())
-                    .map_err(|e| PyValueError::new_err(e.to_string()))?;
+                    .map_err(|e| invalid_input_err(e.to_string()))?;
                 // SAFETY: `container` is `slf` (`PyLayout2d`), registered as the NumPy array's
                 // `base` object so the backing `InterleavedLayout2d` buffer outlives any view,
                 // and `InterleavedLayout2d` never reallocates its coordinate `Vec` after creation.

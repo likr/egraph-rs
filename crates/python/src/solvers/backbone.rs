@@ -6,18 +6,20 @@ use egraph_layout::{
     extract_quadrilateral_backbone as layout_extract_quadrilateral_backbone,
 };
 use numpy::PyArray1;
-use pyo3::exceptions::PyValueError;
+use pyo3::exceptions::PyKeyError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
 use crate::csr_graph::PyCsrGraph;
+use crate::errors::invalid_input_err;
 use crate::ffi_convert::{
     ScalarDtype, StrictF64, StrictU64, StrictUsize, core_error_to_py, normalize_enum_key,
     pairs_to_u32_array2, solver_status_str,
 };
 use crate::layout_buffers::PyLayout2d;
 use crate::solver_common::{
-    DualIterativeSolver, SolverAction, execute_solver_action, impl_dual_solver,
+    DualIterativeSolver, SolverAction, execute_solver_action, format_optional_usize,
+    impl_dual_solver,
 };
 
 pub(super) fn parse_backbone_layout_mode(raw: &str) -> Result<BackboneLayoutMode, String> {
@@ -32,26 +34,108 @@ pub(super) fn parse_backbone_layout_mode(raw: &str) -> Result<BackboneLayoutMode
 
 impl_dual_solver!(BackboneInner, BackboneSolver);
 
-fn backbone_result_to_py_dict(py: Python<'_>, res: BackboneResult) -> PyResult<Py<PyDict>> {
-    let dict = PyDict::new(py);
-    dict.set_item("umst_edges", pairs_to_u32_array2(py, res.umst_edges)?)?;
-    dict.set_item(
-        "backbone_edges",
-        pairs_to_u32_array2(py, res.backbone_edges)?,
-    )?;
-    dict.set_item(
-        "simmelian_weights",
-        PyArray1::from_vec(py, res.simmelian_weights),
-    )?;
-    dict.set_item("edge_weights", PyArray1::from_vec(py, res.edge_weights))?;
-    dict.set_item("backbone_csr", PyCsrGraph::from_csr_graph(res.backbone_csr))?;
-    Ok(dict.unbind())
+/// Frozen quadrilateral Simmelian backbone extraction output.
+#[pyclass(name = "BackboneResult", module = "egraph._core", frozen)]
+pub struct PyBackboneResult {
+    inner: BackboneResult,
+}
+
+impl PyBackboneResult {
+    fn dict_impl(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
+        let dict = PyDict::new(py);
+        dict.set_item("umst_edges", self.umst_edges(py)?)?;
+        dict.set_item("backbone_edges", self.backbone_edges(py)?)?;
+        dict.set_item("simmelian_weights", self.simmelian_weights(py))?;
+        dict.set_item("edge_weights", self.edge_weights(py))?;
+        dict.set_item("backbone_csr", self.backbone_csr())?;
+        Ok(dict.unbind())
+    }
+}
+
+#[pymethods]
+impl PyBackboneResult {
+    /// Canonical undirected edges `(u, v)` (`u < v`) in the Union of Maximum Spanning Trees.
+    #[getter]
+    fn umst_edges(&self, py: Python<'_>) -> PyResult<Py<numpy::PyArray2<u32>>> {
+        Ok(pairs_to_u32_array2(py, self.inner.umst_edges.clone())?.unbind())
+    }
+
+    /// Canonical undirected edges `(u, v)` (`u < v`) in `E_UMST | E_threshold`.
+    #[getter]
+    fn backbone_edges(&self, py: Python<'_>) -> PyResult<Py<numpy::PyArray2<u32>>> {
+        Ok(pairs_to_u32_array2(py, self.inner.backbone_edges.clone())?.unbind())
+    }
+
+    /// Simmelian prefix-Jaccard weights aligned with canonical undirected simple edges.
+    #[getter]
+    fn simmelian_weights(&self, py: Python<'_>) -> Py<PyArray1<f64>> {
+        PyArray1::from_slice(py, &self.inner.simmelian_weights).unbind()
+    }
+
+    /// Assigned layout edge weights aligned with `simmelian_weights`.
+    #[getter]
+    fn edge_weights(&self, py: Python<'_>) -> Py<PyArray1<f64>> {
+        PyArray1::from_slice(py, &self.inner.edge_weights).unbind()
+    }
+
+    /// Undirected CSR representation of the active backbone graph.
+    #[getter]
+    fn backbone_csr(&self) -> PyCsrGraph {
+        PyCsrGraph::from_csr_graph(self.inner.backbone_csr.clone())
+    }
+
+    /// Return field values as a plain Python dictionary.
+    #[pyo3(signature = (), text_signature = "($self)")]
+    fn to_dict(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
+        self.dict_impl(py)
+    }
+
+    /// Return the result field names.
+    #[pyo3(signature = (), text_signature = "($self)")]
+    fn keys(&self) -> Vec<&'static str> {
+        vec![
+            "umst_edges",
+            "backbone_edges",
+            "simmelian_weights",
+            "edge_weights",
+            "backbone_csr",
+        ]
+    }
+
+    fn __contains__(&self, key: &str) -> bool {
+        matches!(
+            key,
+            "umst_edges" | "backbone_edges" | "simmelian_weights" | "edge_weights" | "backbone_csr"
+        )
+    }
+
+    fn __getitem__(&self, py: Python<'_>, key: &str) -> PyResult<Py<PyAny>> {
+        match key {
+            "umst_edges" => Ok(self.umst_edges(py)?.into_any()),
+            "backbone_edges" => Ok(self.backbone_edges(py)?.into_any()),
+            "simmelian_weights" => Ok(self.simmelian_weights(py).into_any()),
+            "edge_weights" => Ok(self.edge_weights(py).into_any()),
+            "backbone_csr" => Ok(Py::new(py, self.backbone_csr())?.into_any()),
+            _ => Err(PyKeyError::new_err(format!(
+                "unknown BackboneResult key {key:?}"
+            ))),
+        }
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "BackboneResult(umst_edges={}, backbone_edges={}, num_nodes={})",
+            self.inner.umst_edges.len(),
+            self.inner.backbone_edges.len(),
+            self.inner.backbone_csr.num_nodes()
+        )
+    }
 }
 
 /// Extract the Quadrilateral Simmelian Backbone (Nocaj, Ortmann, & Brandes, 2015) from `graph`.
 ///
-/// Returns a dict with `"umst_edges"`, `"backbone_edges"`, `"simmelian_weights"`,
-/// `"edge_weights"`, and `"backbone_csr"`. Releases the Python GIL during computation.
+/// Returns a frozen `BackboneResult` (`umst_edges`, `backbone_edges`, `simmelian_weights`,
+/// `edge_weights`, and `backbone_csr`). Releases the Python GIL during computation.
 #[pyfunction]
 #[pyo3(
     signature = (
@@ -71,20 +155,18 @@ fn extract_quadrilateral_backbone(
     umst_weight_scale: StrictF64,
     non_backbone_weight_scale: StrictF64,
     use_weights: bool,
-) -> PyResult<Py<PyDict>> {
-    let cfg = BackboneConfig {
-        retain_ratio: retain_ratio.0,
-        umst_weight_scale: umst_weight_scale.0,
-        non_backbone_weight_scale: non_backbone_weight_scale.0,
-        use_weights,
-        ..BackboneConfig::default()
-    };
+) -> PyResult<PyBackboneResult> {
+    let cfg = BackboneConfig::new()
+        .with_retain_ratio(retain_ratio.0)
+        .with_umst_weight_scale(umst_weight_scale.0)
+        .with_non_backbone_weight_scale(non_backbone_weight_scale.0)
+        .with_use_weights(use_weights);
     cfg.validate().map_err(core_error_to_py)?;
     let g = graph.inner();
     let res = py
         .detach(|| layout_extract_quadrilateral_backbone(&*g, &cfg))
         .map_err(core_error_to_py)?;
-    backbone_result_to_py_dict(py, res)
+    Ok(PyBackboneResult { inner: res })
 }
 
 /// Cooperative Quadrilateral Simmelian Backbone layout solver (Nocaj et al., 2015).
@@ -128,16 +210,15 @@ impl PyBackboneSolver {
         seed: StrictU64,
         dtype: ScalarDtype,
     ) -> PyResult<Self> {
-        let mode = parse_backbone_layout_mode(layout_mode).map_err(PyValueError::new_err)?;
-        let cfg = BackboneConfig {
-            retain_ratio: retain_ratio.0,
-            umst_weight_scale: umst_weight_scale.0,
-            non_backbone_weight_scale: non_backbone_weight_scale.0,
-            use_weights,
-            layout_mode: mode,
-            iterations: iterations.0,
-            seed: seed.0,
-        };
+        let mode = parse_backbone_layout_mode(layout_mode).map_err(invalid_input_err)?;
+        let cfg = BackboneConfig::new()
+            .with_retain_ratio(retain_ratio.0)
+            .with_umst_weight_scale(umst_weight_scale.0)
+            .with_non_backbone_weight_scale(non_backbone_weight_scale.0)
+            .with_use_weights(use_weights)
+            .with_layout_mode(mode)
+            .with_iterations(iterations.0)
+            .with_seed(seed.0);
         cfg.validate().map_err(core_error_to_py)?;
         let g = graph.inner();
         let inner = py
@@ -172,17 +253,17 @@ impl PyBackboneSolver {
         execute_solver_action(&mut self.inner, py, layout, SolverAction::Run)
     }
 
-    /// Return the extracted quadrilateral Simmelian backbone dictionary.
+    /// Return the extracted quadrilateral Simmelian backbone result.
     #[pyo3(signature = (), text_signature = "($self)")]
-    fn backbone_result(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
+    fn backbone_result(&self) -> PyBackboneResult {
         let res = match &self.inner {
             BackboneInner::F64(s) => s.backbone_result().clone(),
             BackboneInner::F32(s) => s.backbone_result().clone(),
         };
-        backbone_result_to_py_dict(py, res)
+        PyBackboneResult { inner: res }
     }
 
-    /// Current solver status (`"initialized"`, `"running"`, `"converged"`, or `"completed"`).
+    /// Current solver status (`"initialized"`, `"running"`, `"converged"`, `"completed"`, or `"failed"`).
     #[getter]
     fn status(&self) -> &'static str {
         solver_status_str(self.inner.solver_status())
@@ -196,11 +277,11 @@ impl PyBackboneSolver {
 
     /// Configured maximum number of layout iterations.
     #[getter]
-    fn total_iterations(&self) -> usize {
+    fn total_iterations(&self) -> Option<usize> {
         self.inner.solver_total_iterations()
     }
 
-    /// Whether the solver has reached `"converged"` or `"completed"`.
+    /// Whether the solver has reached `"converged"`, `"completed"`, or `"failed"`.
     #[getter]
     fn is_finished(&self) -> bool {
         self.inner.solver_status().is_finished()
@@ -228,13 +309,14 @@ impl PyBackboneSolver {
             self.num_nodes(),
             self.status(),
             self.iteration(),
-            self.total_iterations(),
+            format_optional_usize(self.total_iterations()),
             self.dtype()
         )
     }
 }
 
 pub(super) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<PyBackboneResult>()?;
     m.add_class::<PyBackboneSolver>()?;
     m.add_function(wrap_pyfunction!(extract_quadrilateral_backbone, m)?)?;
     Ok(())

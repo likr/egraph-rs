@@ -1,29 +1,184 @@
-//! Multilevel and entropy-based stress solvers (`MaxentStressSolver`, `GripSolver`) bindings.
+//! Multilevel and entropy-based stress solver (`MaxentStressSolver`) bindings.
 
-use egraph::layout as egraph_layout;
-use egraph_layout::{GripConfig, GripSolver, MaxentStressConfig, MaxentStressSolver};
+use egraph::core::{
+    CoreError, CoreResult, IterativeSolver, Layout2d, Layout3d, LayoutNd, SolverStatus,
+};
+use egraph::layout::stress::{BarnesHut as MaxentBarnesHut, Exact as MaxentExact};
+use egraph::layout::{MaxentStressConfig, MaxentStressSolver};
 use pyo3::prelude::*;
 
 use crate::csr_graph::PyCsrGraph;
+use crate::errors::{core_error_to_py, invalid_input_err, unsupported_operation_err};
 use crate::ffi_convert::{
-    ScalarDtype, StrictF64, StrictU64, StrictUsize, core_error_to_py, solver_status_str,
+    ScalarDtype, StrictF64, StrictU64, StrictUsize, normalize_enum_key, solver_status_str,
 };
-use crate::layout_buffers::PyLayout2d;
-use crate::solver_common::{
-    DualIterativeSolver, SolverAction, execute_solver_action, impl_dual_solver,
+use crate::solver_common::format_optional_usize;
+
+use super::layout_dispatch::{
+    DualTargetSolver, SolverAction, SolverTargetKind, TargetLayout, execute_target_action,
 };
 
-use super::layout_dispatch::{execute_euclid_action, impl_dual_nd_solver};
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum MaxentBackendChoice {
+    Auto,
+    Exact,
+    BarnesHut,
+}
 
-impl_dual_solver!(MaxentStressInner, MaxentStressSolver);
-impl_dual_nd_solver!(MaxentStressInner, MaxentStressSolver);
-impl_dual_solver!(GripInner, GripSolver);
+fn resolve_maxent_backend(
+    target: SolverTargetKind,
+    backend: &str,
+    use_barnes_hut: Option<bool>,
+    theta: f64,
+) -> PyResult<MaxentBackendChoice> {
+    MaxentBarnesHut::new(theta)
+        .validate()
+        .map_err(core_error_to_py)?;
+    let parsed = match normalize_enum_key(backend).as_str() {
+        "auto" => MaxentBackendChoice::Auto,
+        "exact" => MaxentBackendChoice::Exact,
+        "barneshut" | "bh" => MaxentBackendChoice::BarnesHut,
+        _ => {
+            return Err(unsupported_operation_err(format!(
+                "unknown MaxentStressSolver backend {backend:?}; expected 'auto', 'exact', or 'barnes_hut'"
+            )));
+        }
+    };
+    let effective = match (parsed, use_barnes_hut) {
+        (MaxentBackendChoice::Auto, None) => match target {
+            SolverTargetKind::Layout2d | SolverTargetKind::Layout3d => {
+                MaxentBackendChoice::BarnesHut
+            }
+            SolverTargetKind::LayoutNd => MaxentBackendChoice::Exact,
+            SolverTargetKind::Manifold2d => MaxentBackendChoice::Exact,
+        },
+        (MaxentBackendChoice::Auto, Some(true)) => MaxentBackendChoice::BarnesHut,
+        (MaxentBackendChoice::Auto, Some(false)) => MaxentBackendChoice::Exact,
+        (MaxentBackendChoice::Exact, Some(true)) => {
+            return Err(invalid_input_err(
+                "conflicting options: backend='exact' cannot be combined with use_barnes_hut=True",
+            ));
+        }
+        (MaxentBackendChoice::BarnesHut, Some(false)) => {
+            return Err(invalid_input_err(
+                "conflicting options: backend='barnes_hut' cannot be combined with use_barnes_hut=False",
+            ));
+        }
+        (b, _) => b,
+    };
+    match (target, effective) {
+        (SolverTargetKind::Manifold2d, _) => Err(unsupported_operation_err(
+            "MaxentStressSolver supports target='layout2d', 'layout3d', or 'layout_nd' (not 'manifold2d')",
+        )),
+        (SolverTargetKind::LayoutNd, MaxentBackendChoice::BarnesHut) => {
+            Err(unsupported_operation_err(
+                "MaxentStressSolver Barnes-Hut repulsion only supports target='layout2d' or target='layout3d'; use backend='exact' (or 'auto') for target='layout_nd'",
+            ))
+        }
+        (_, choice) => Ok(choice),
+    }
+}
 
-/// Cooperative Gansner et al. (2013) Maxent-Stress layout solver.
-///
-/// Combines AMG-PCG graph-Laplacian stress majorization with generalized `q`-entropy
-/// long-range repulsion (Barnes-Hut quadtree or exact pairwise summation), supporting
-/// both `"float64"` and `"float32"` `Layout2d` while releasing the Python GIL.
+enum MaxentStressInner {
+    L2BhF64(MaxentStressSolver<Layout2d<f64>, MaxentBarnesHut>),
+    L2BhF32(MaxentStressSolver<Layout2d<f32>, MaxentBarnesHut>),
+    L2ExF64(MaxentStressSolver<Layout2d<f64>, MaxentExact>),
+    L2ExF32(MaxentStressSolver<Layout2d<f32>, MaxentExact>),
+    L3BhF64(MaxentStressSolver<Layout3d<f64>, MaxentBarnesHut>),
+    L3BhF32(MaxentStressSolver<Layout3d<f32>, MaxentBarnesHut>),
+    L3ExF64(MaxentStressSolver<Layout3d<f64>, MaxentExact>),
+    L3ExF32(MaxentStressSolver<Layout3d<f32>, MaxentExact>),
+    NdExF64(MaxentStressSolver<LayoutNd<f64>, MaxentExact>),
+    NdExF32(MaxentStressSolver<LayoutNd<f32>, MaxentExact>),
+}
+
+macro_rules! match_maxent {
+    ($self:expr, $s:ident => $body:expr) => {
+        match $self {
+            MaxentStressInner::L2BhF64($s) => $body,
+            MaxentStressInner::L2BhF32($s) => $body,
+            MaxentStressInner::L2ExF64($s) => $body,
+            MaxentStressInner::L2ExF32($s) => $body,
+            MaxentStressInner::L3BhF64($s) => $body,
+            MaxentStressInner::L3BhF32($s) => $body,
+            MaxentStressInner::L3ExF64($s) => $body,
+            MaxentStressInner::L3ExF32($s) => $body,
+            MaxentStressInner::NdExF64($s) => $body,
+            MaxentStressInner::NdExF32($s) => $body,
+        }
+    };
+}
+
+macro_rules! match_maxent_target {
+    ($self:expr, $layout:expr, ($s:ident, $l:ident) => $body:expr) => {
+        match ($self, $layout) {
+            (MaxentStressInner::L2BhF64($s), TargetLayout::L2F64($l)) => $body,
+            (MaxentStressInner::L2BhF32($s), TargetLayout::L2F32($l)) => $body,
+            (MaxentStressInner::L2ExF64($s), TargetLayout::L2F64($l)) => $body,
+            (MaxentStressInner::L2ExF32($s), TargetLayout::L2F32($l)) => $body,
+            (MaxentStressInner::L3BhF64($s), TargetLayout::L3F64($l)) => $body,
+            (MaxentStressInner::L3BhF32($s), TargetLayout::L3F32($l)) => $body,
+            (MaxentStressInner::L3ExF64($s), TargetLayout::L3F64($l)) => $body,
+            (MaxentStressInner::L3ExF32($s), TargetLayout::L3F32($l)) => $body,
+            (MaxentStressInner::NdExF64($s), TargetLayout::NdF64($l)) => $body,
+            (MaxentStressInner::NdExF32($s), TargetLayout::NdF32($l)) => $body,
+            _ => Err(CoreError::invalid_input(
+                "internal solver target/dtype mismatch",
+            )),
+        }
+    };
+}
+
+impl DualTargetSolver for MaxentStressInner {
+    fn target_kind(&self) -> SolverTargetKind {
+        match self {
+            Self::L2BhF64(_) | Self::L2BhF32(_) | Self::L2ExF64(_) | Self::L2ExF32(_) => {
+                SolverTargetKind::Layout2d
+            }
+            Self::L3BhF64(_) | Self::L3BhF32(_) | Self::L3ExF64(_) | Self::L3ExF32(_) => {
+                SolverTargetKind::Layout3d
+            }
+            Self::NdExF64(_) | Self::NdExF32(_) => SolverTargetKind::LayoutNd,
+        }
+    }
+    fn dtype(&self) -> ScalarDtype {
+        match self {
+            Self::L2BhF64(_)
+            | Self::L2ExF64(_)
+            | Self::L3BhF64(_)
+            | Self::L3ExF64(_)
+            | Self::NdExF64(_) => ScalarDtype::F64,
+            _ => ScalarDtype::F32,
+        }
+    }
+    fn solver_status(&self) -> SolverStatus {
+        match_maxent!(self, s => IterativeSolver::status(s))
+    }
+    fn solver_iteration(&self) -> usize {
+        match_maxent!(self, s => IterativeSolver::iteration(s))
+    }
+    fn solver_total_iterations(&self) -> Option<usize> {
+        match_maxent!(self, s => IterativeSolver::total_iterations(s))
+    }
+    fn validate_raw(&self, layout: &TargetLayout) -> CoreResult<()> {
+        match_maxent_target!(self, layout, (s, l) => IterativeSolver::validate_target(s, l))
+    }
+    fn step_raw(&mut self, layout: &mut TargetLayout) -> CoreResult<SolverStatus> {
+        match_maxent_target!(self, layout, (s, l) => IterativeSolver::step(s, l))
+    }
+    fn run_steps_raw(
+        &mut self,
+        layout: &mut TargetLayout,
+        steps: usize,
+    ) -> CoreResult<SolverStatus> {
+        match_maxent_target!(self, layout, (s, l) => IterativeSolver::run_steps(s, l, steps))
+    }
+    fn run_raw(&mut self, layout: &mut TargetLayout) -> CoreResult<SolverStatus> {
+        match_maxent_target!(self, layout, (s, l) => IterativeSolver::run(s, l))
+    }
+}
+
+/// Cooperative Gansner et al. (2013) Maxent-Stress layout solver (`Layout2d | Layout3d | LayoutNd`).
 #[pyclass(name = "MaxentStressSolver", module = "egraph._core")]
 pub struct PyMaxentStressSolver {
     inner: MaxentStressInner,
@@ -31,13 +186,14 @@ pub struct PyMaxentStressSolver {
 
 #[pymethods]
 impl PyMaxentStressSolver {
-    /// Construct a `MaxentStressSolver` from a `CsrGraph`.
     #[new]
     #[allow(clippy::too_many_arguments)]
     #[pyo3(
         signature = (
             graph,
             *,
+            target = SolverTargetKind::Layout2d,
+            backend = "auto",
             q = None,
             alpha_init = StrictF64(1.0),
             alpha_decay = StrictF64(0.3),
@@ -48,16 +204,18 @@ impl PyMaxentStressSolver {
             cg_tol = StrictF64(0.1),
             cg_max_iters = StrictUsize(10),
             theta = StrictF64(1.2),
-            use_barnes_hut = true,
+            use_barnes_hut = None,
             eps_sq = StrictF64(1e-6),
             seed = StrictU64(42),
             dtype = ScalarDtype::F64
         ),
-        text_signature = "(graph, *, q=None, alpha_init=1.0, alpha_decay=0.3, alpha_min=0.008, stages=5, steps_per_stage=50, tol=1e-3, cg_tol=0.1, cg_max_iters=10, theta=1.2, use_barnes_hut=True, eps_sq=1e-6, seed=42, dtype='float64')"
+        text_signature = "(graph, *, target='layout2d', backend='auto', q=None, alpha_init=1.0, alpha_decay=0.3, alpha_min=0.008, stages=5, steps_per_stage=50, tol=1e-3, cg_tol=0.1, cg_max_iters=10, theta=1.2, use_barnes_hut=None, eps_sq=1e-6, seed=42, dtype='float64')"
     )]
     fn new(
         py: Python<'_>,
         graph: &PyCsrGraph,
+        target: SolverTargetKind,
+        backend: &str,
         q: Option<StrictF64>,
         alpha_init: StrictF64,
         alpha_decay: StrictF64,
@@ -68,48 +226,117 @@ impl PyMaxentStressSolver {
         cg_tol: StrictF64,
         cg_max_iters: StrictUsize,
         theta: StrictF64,
-        use_barnes_hut: bool,
+        use_barnes_hut: Option<bool>,
         eps_sq: StrictF64,
         seed: StrictU64,
         dtype: ScalarDtype,
     ) -> PyResult<Self> {
-        let cfg = MaxentStressConfig {
-            q: q.map(|v| v.0),
-            alpha_init: alpha_init.0,
-            alpha_decay: alpha_decay.0,
-            alpha_min: alpha_min.0,
-            stages: stages.0,
-            steps_per_stage: steps_per_stage.0,
-            tol: tol.0,
-            cg_tol: cg_tol.0,
-            cg_max_iters: cg_max_iters.0,
-            theta: theta.0,
-            use_barnes_hut,
-            eps_sq: eps_sq.0,
-            seed: seed.0,
-        };
+        let choice = resolve_maxent_backend(target, backend, use_barnes_hut, theta.0)?;
+        let cfg = MaxentStressConfig::new()
+            .with_q(q.map(|v| v.0))
+            .with_alpha_init(alpha_init.0)
+            .with_alpha_decay(alpha_decay.0)
+            .with_alpha_min(alpha_min.0)
+            .with_stages(stages.0)
+            .with_steps_per_stage(steps_per_stage.0)
+            .with_tol(tol.0)
+            .with_cg_tol(cg_tol.0)
+            .with_cg_max_iters(cg_max_iters.0)
+            .with_eps_sq(eps_sq.0)
+            .with_seed(seed.0);
         cfg.validate().map_err(core_error_to_py)?;
         let g = graph.inner();
         let inner = py
-            .detach(|| match dtype {
-                ScalarDtype::F64 => {
-                    MaxentStressSolver::<f64>::new(&*g, cfg).map(MaxentStressInner::F64)
+            .detach(|| match (target, choice, dtype) {
+                (SolverTargetKind::Layout2d, MaxentBackendChoice::BarnesHut, ScalarDtype::F64) => {
+                    MaxentStressSolver::<Layout2d<f64>, MaxentBarnesHut>::new_with_backend(
+                        &*g,
+                        cfg,
+                        MaxentBarnesHut::new(theta.0),
+                    )
+                    .map(MaxentStressInner::L2BhF64)
                 }
-                ScalarDtype::F32 => {
-                    MaxentStressSolver::<f32>::new(&*g, cfg).map(MaxentStressInner::F32)
+                (SolverTargetKind::Layout2d, MaxentBackendChoice::BarnesHut, ScalarDtype::F32) => {
+                    MaxentStressSolver::<Layout2d<f32>, MaxentBarnesHut>::new_with_backend(
+                        &*g,
+                        cfg,
+                        MaxentBarnesHut::new(theta.0),
+                    )
+                    .map(MaxentStressInner::L2BhF32)
                 }
+                (SolverTargetKind::Layout2d, MaxentBackendChoice::Exact, ScalarDtype::F64) => {
+                    MaxentStressSolver::<Layout2d<f64>, MaxentExact>::new_with_backend(
+                        &*g,
+                        cfg,
+                        MaxentExact::new(),
+                    )
+                    .map(MaxentStressInner::L2ExF64)
+                }
+                (SolverTargetKind::Layout2d, MaxentBackendChoice::Exact, ScalarDtype::F32) => {
+                    MaxentStressSolver::<Layout2d<f32>, MaxentExact>::new_with_backend(
+                        &*g,
+                        cfg,
+                        MaxentExact::new(),
+                    )
+                    .map(MaxentStressInner::L2ExF32)
+                }
+                (SolverTargetKind::Layout3d, MaxentBackendChoice::BarnesHut, ScalarDtype::F64) => {
+                    MaxentStressSolver::<Layout3d<f64>, MaxentBarnesHut>::new_with_backend(
+                        &*g,
+                        cfg,
+                        MaxentBarnesHut::new(theta.0),
+                    )
+                    .map(MaxentStressInner::L3BhF64)
+                }
+                (SolverTargetKind::Layout3d, MaxentBackendChoice::BarnesHut, ScalarDtype::F32) => {
+                    MaxentStressSolver::<Layout3d<f32>, MaxentBarnesHut>::new_with_backend(
+                        &*g,
+                        cfg,
+                        MaxentBarnesHut::new(theta.0),
+                    )
+                    .map(MaxentStressInner::L3BhF32)
+                }
+                (SolverTargetKind::Layout3d, MaxentBackendChoice::Exact, ScalarDtype::F64) => {
+                    MaxentStressSolver::<Layout3d<f64>, MaxentExact>::new_with_backend(
+                        &*g,
+                        cfg,
+                        MaxentExact::new(),
+                    )
+                    .map(MaxentStressInner::L3ExF64)
+                }
+                (SolverTargetKind::Layout3d, MaxentBackendChoice::Exact, ScalarDtype::F32) => {
+                    MaxentStressSolver::<Layout3d<f32>, MaxentExact>::new_with_backend(
+                        &*g,
+                        cfg,
+                        MaxentExact::new(),
+                    )
+                    .map(MaxentStressInner::L3ExF32)
+                }
+                (SolverTargetKind::LayoutNd, _, ScalarDtype::F64) => MaxentStressSolver::<
+                    LayoutNd<f64>,
+                    MaxentExact,
+                >::new_with_backend(
+                    &*g, cfg, MaxentExact::new()
+                )
+                .map(MaxentStressInner::NdExF64),
+                (SolverTargetKind::LayoutNd, _, ScalarDtype::F32) => MaxentStressSolver::<
+                    LayoutNd<f32>,
+                    MaxentExact,
+                >::new_with_backend(
+                    &*g, cfg, MaxentExact::new()
+                )
+                .map(MaxentStressInner::NdExF32),
+                _ => unreachable!(),
             })
             .map_err(core_error_to_py)?;
         Ok(Self { inner })
     }
 
-    /// Execute one Maxent-Stress majorization step in place on `layout` (`Layout2d | LayoutNd`).
     #[pyo3(signature = (layout), text_signature = "($self, layout)")]
     fn step(&mut self, py: Python<'_>, layout: &Bound<'_, PyAny>) -> PyResult<&'static str> {
-        execute_euclid_action(&mut self.inner, py, layout, SolverAction::Step)
+        execute_target_action(&mut self.inner, &mut None, py, layout, SolverAction::Step)
     }
 
-    /// Execute up to `steps` Maxent-Stress majorization steps in place on `layout` while releasing the GIL.
     #[pyo3(signature = (layout, steps), text_signature = "($self, layout, steps)")]
     fn run_steps(
         &mut self,
@@ -117,232 +344,75 @@ impl PyMaxentStressSolver {
         layout: &Bound<'_, PyAny>,
         steps: StrictUsize,
     ) -> PyResult<&'static str> {
-        execute_euclid_action(&mut self.inner, py, layout, SolverAction::RunSteps(steps.0))
+        execute_target_action(
+            &mut self.inner,
+            &mut None,
+            py,
+            layout,
+            SolverAction::RunSteps(steps.0),
+        )
     }
 
-    /// Run Maxent-Stress optimization to completion in place on `layout` while releasing the GIL.
     #[pyo3(signature = (layout), text_signature = "($self, layout)")]
     fn run(&mut self, py: Python<'_>, layout: &Bound<'_, PyAny>) -> PyResult<&'static str> {
-        execute_euclid_action(&mut self.inner, py, layout, SolverAction::Run)
+        execute_target_action(&mut self.inner, &mut None, py, layout, SolverAction::Run)
     }
 
-    /// Current annealing repulsion weight `alpha`.
+    #[getter]
+    fn target(&self) -> &'static str {
+        self.inner.target_kind().as_str()
+    }
+
     #[getter]
     fn current_alpha(&self) -> f64 {
-        match &self.inner {
-            MaxentStressInner::F64(s) => s.current_alpha(),
-            MaxentStressInner::F32(s) => s.current_alpha(),
-        }
+        match_maxent!(&self.inner, s => s.current_alpha())
     }
 
-    /// Effective repulsion exponent `q` (explicit `q`, or auto-selected `0.0` / `0.8`).
     #[getter]
     fn effective_q(&self) -> f64 {
-        match &self.inner {
-            MaxentStressInner::F64(s) => s.effective_q(),
-            MaxentStressInner::F32(s) => s.effective_q(),
-        }
+        match_maxent!(&self.inner, s => s.effective_q())
     }
 
-    /// Current solver status (`"initialized"`, `"running"`, `"converged"`, or `"completed"`).
     #[getter]
     fn status(&self) -> &'static str {
         solver_status_str(self.inner.solver_status())
     }
 
-    /// Number of iterations executed so far.
     #[getter]
     fn iteration(&self) -> usize {
         self.inner.solver_iteration()
     }
 
-    /// Configured total iterations (`stages * steps_per_stage`).
     #[getter]
-    fn total_iterations(&self) -> usize {
+    fn total_iterations(&self) -> Option<usize> {
         self.inner.solver_total_iterations()
     }
 
-    /// Whether the solver has reached `"converged"` or `"completed"`.
     #[getter]
     fn is_finished(&self) -> bool {
         self.inner.solver_status().is_finished()
     }
 
-    /// Expected number of vertices in `Layout2d`.
     #[getter]
     fn num_nodes(&self) -> usize {
-        match &self.inner {
-            MaxentStressInner::F64(s) => s.num_nodes(),
-            MaxentStressInner::F32(s) => s.num_nodes(),
-        }
+        match_maxent!(&self.inner, s => s.num_nodes())
     }
 
-    /// Solver scalar precision (`"float64"` or `"float32"`).
     #[getter]
     fn dtype(&self) -> &'static str {
         self.inner.dtype().as_str()
     }
 
-    /// Return a concise string representation of the `MaxentStressSolver`.
     fn __repr__(&self) -> String {
         format!(
-            "MaxentStressSolver(num_nodes={}, q={:.3}, alpha={:.4}, status='{}', iteration={}/{}, dtype='{}')",
+            "MaxentStressSolver(num_nodes={}, target='{}', q={:.3}, alpha={:.4}, status='{}', iteration={}/{}, dtype='{}')",
             self.num_nodes(),
+            self.target(),
             self.effective_q(),
             self.current_alpha(),
             self.status(),
             self.iteration(),
-            self.total_iterations(),
-            self.dtype()
-        )
-    }
-}
-
-/// Cooperative Gajer & Kobourov (2002) GRIP multilevel graph drawing solver.
-///
-/// Uses Maximal Independent Set (MIS) filtration with local Kamada-Kawai refinement on
-/// coarse levels and Fruchterman-Reingold forces on the finest level, supporting both
-/// `"float64"` and `"float32"` `Layout2d` while releasing the Python GIL.
-#[pyclass(name = "GripSolver", module = "egraph._core")]
-pub struct PyGripSolver {
-    inner: GripInner,
-}
-
-#[pymethods]
-impl PyGripSolver {
-    /// Construct a `GripSolver` from a `CsrGraph`.
-    #[new]
-    #[allow(clippy::too_many_arguments)]
-    #[pyo3(
-        signature = (
-            graph,
-            *,
-            rounds_min = StrictUsize(5),
-            rounds_max = StrictUsize(30),
-            local_neighborhood_size = StrictUsize(20),
-            repulsion_scale = StrictF64(0.05),
-            edge_length = StrictF64(1.0),
-            temp_r = StrictF64(0.15),
-            temp_s = StrictF64(3.0),
-            seed = StrictU64(42),
-            dtype = ScalarDtype::F64
-        ),
-        text_signature = "(graph, *, rounds_min=5, rounds_max=30, local_neighborhood_size=20, repulsion_scale=0.05, edge_length=1.0, temp_r=0.15, temp_s=3.0, seed=42, dtype='float64')"
-    )]
-    fn new(
-        py: Python<'_>,
-        graph: &PyCsrGraph,
-        rounds_min: StrictUsize,
-        rounds_max: StrictUsize,
-        local_neighborhood_size: StrictUsize,
-        repulsion_scale: StrictF64,
-        edge_length: StrictF64,
-        temp_r: StrictF64,
-        temp_s: StrictF64,
-        seed: StrictU64,
-        dtype: ScalarDtype,
-    ) -> PyResult<Self> {
-        let cfg = GripConfig {
-            rounds_min: rounds_min.0,
-            rounds_max: rounds_max.0,
-            local_neighborhood_size: local_neighborhood_size.0,
-            repulsion_scale: repulsion_scale.0,
-            edge_length: edge_length.0,
-            temp_r: temp_r.0,
-            temp_s: temp_s.0,
-            seed: seed.0,
-        };
-        cfg.validate().map_err(core_error_to_py)?;
-        let g = graph.inner();
-        let inner = py
-            .detach(|| match dtype {
-                ScalarDtype::F64 => GripSolver::<f64>::new(&*g, cfg).map(GripInner::F64),
-                ScalarDtype::F32 => GripSolver::<f32>::new(&*g, cfg).map(GripInner::F32),
-            })
-            .map_err(core_error_to_py)?;
-        Ok(Self { inner })
-    }
-
-    /// Execute one GRIP refinement round in place on `layout` while releasing the GIL.
-    #[pyo3(signature = (layout), text_signature = "($self, layout)")]
-    fn step(&mut self, py: Python<'_>, layout: &Bound<'_, PyLayout2d>) -> PyResult<&'static str> {
-        execute_solver_action(&mut self.inner, py, layout, SolverAction::Step)
-    }
-
-    /// Execute up to `steps` GRIP refinement rounds in place on `layout` while releasing the GIL.
-    #[pyo3(signature = (layout, steps), text_signature = "($self, layout, steps)")]
-    fn run_steps(
-        &mut self,
-        py: Python<'_>,
-        layout: &Bound<'_, PyLayout2d>,
-        steps: StrictUsize,
-    ) -> PyResult<&'static str> {
-        execute_solver_action(&mut self.inner, py, layout, SolverAction::RunSteps(steps.0))
-    }
-
-    /// Run GRIP multilevel optimization to completion in place on `layout` while releasing the GIL.
-    #[pyo3(signature = (layout), text_signature = "($self, layout)")]
-    fn run(&mut self, py: Python<'_>, layout: &Bound<'_, PyLayout2d>) -> PyResult<&'static str> {
-        execute_solver_action(&mut self.inner, py, layout, SolverAction::Run)
-    }
-
-    /// Maximum number of MIS filtration levels across connected components.
-    #[getter]
-    fn num_levels(&self) -> usize {
-        match &self.inner {
-            GripInner::F64(s) => s.num_levels(),
-            GripInner::F32(s) => s.num_levels(),
-        }
-    }
-
-    /// Current solver status (`"initialized"`, `"running"`, `"converged"`, or `"completed"`).
-    #[getter]
-    fn status(&self) -> &'static str {
-        solver_status_str(self.inner.solver_status())
-    }
-
-    /// Number of rounds executed so far.
-    #[getter]
-    fn iteration(&self) -> usize {
-        self.inner.solver_iteration()
-    }
-
-    /// Scheduled total refinement rounds across MIS levels.
-    #[getter]
-    fn total_iterations(&self) -> usize {
-        self.inner.solver_total_iterations()
-    }
-
-    /// Whether the solver has reached `"converged"` or `"completed"`.
-    #[getter]
-    fn is_finished(&self) -> bool {
-        self.inner.solver_status().is_finished()
-    }
-
-    /// Expected number of vertices in `Layout2d`.
-    #[getter]
-    fn num_nodes(&self) -> usize {
-        match &self.inner {
-            GripInner::F64(s) => s.num_nodes(),
-            GripInner::F32(s) => s.num_nodes(),
-        }
-    }
-
-    /// Solver scalar precision (`"float64"` or `"float32"`).
-    #[getter]
-    fn dtype(&self) -> &'static str {
-        self.inner.dtype().as_str()
-    }
-
-    /// Return a concise string representation of the `GripSolver`.
-    fn __repr__(&self) -> String {
-        format!(
-            "GripSolver(num_nodes={}, num_levels={}, status='{}', iteration={}/{}, dtype='{}')",
-            self.num_nodes(),
-            self.num_levels(),
-            self.status(),
-            self.iteration(),
-            self.total_iterations(),
+            format_optional_usize(self.total_iterations()),
             self.dtype()
         )
     }

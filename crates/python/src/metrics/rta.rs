@@ -1,41 +1,32 @@
 //! Landmark-Stratified Random Triplet Accuracy (`landmark_stratified_rta*`) bindings.
 
 use egraph::metrics as egraph_metrics;
-use egraph_metrics::RtaEvaluation;
 use numpy::{PyReadonlyArrayDyn, PyUntypedArray, PyUntypedArrayMethods};
-use pyo3::exceptions::{PyTypeError, PyValueError};
+use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
-use pyo3::types::{PyBool, PyDict};
+use pyo3::types::PyBool;
 
 use crate::csr_graph::PyCsrGraph;
+use crate::errors::{dimension_mismatch_err, invalid_input_err, non_finite_value_err};
 use crate::ffi_convert::{StrictU64, StrictUsize, extract_u32_1d, is_non_sequence_container};
 
-use super::nd_manifold_helpers::{MetricLayoutInput, dispatch_owned_metric_layout};
-
-fn rta_eval_to_py_dict(py: Python<'_>, eval: RtaEvaluation) -> PyResult<Py<PyDict>> {
-    let dict = PyDict::new(py);
-    dict.set_item("rta", eval.rta)?;
-    dict.set_item("num_landmarks", eval.num_landmarks)?;
-    dict.set_item("num_triplets", eval.num_triplets)?;
-    dict.set_item("num_strata", eval.num_strata)?;
-    dict.set_item("is_exact", eval.is_exact)?;
-    Ok(dict.unbind())
-}
+use super::nd_manifold_helpers::{MetricLayoutInput, dispatch_owned_metric};
+use super::result_types::PyRtaEvaluation;
 
 fn float_to_landmark_u32(v: f64) -> PyResult<u32> {
     if v.is_nan() {
-        return Err(PyValueError::new_err("landmark_dists contains NaN"));
+        return Err(non_finite_value_err("landmark_dists contains NaN"));
     }
     if v == f64::INFINITY {
         return Ok(u32::MAX);
     }
     if v < 0.0 {
-        return Err(PyValueError::new_err(format!(
+        return Err(invalid_input_err(format!(
             "landmark_dists entry {v} must be non-negative"
         )));
     }
     if v.fract() != 0.0 || v > u32::MAX as f64 {
-        return Err(PyValueError::new_err(format!(
+        return Err(invalid_input_err(format!(
             "landmark_dists float entry {v} must be a non-negative integer or +inf"
         )));
     }
@@ -57,7 +48,7 @@ fn extract_landmark_item_u32(item: &Bound<'_, PyAny>) -> PyResult<u32> {
     }
     if let Ok(iv) = item.extract::<i128>() {
         return u32::try_from(iv).map_err(|_| {
-            PyValueError::new_err(format!("landmark_dists entry {iv} out of range for u32"))
+            invalid_input_err(format!("landmark_dists entry {iv} out of range for u32"))
         });
     }
     if let Ok(fv) = item.extract::<f64>() {
@@ -72,7 +63,7 @@ fn extract_landmark_dists_flat(obj: &Bound<'_, PyAny>) -> PyResult<Vec<u32>> {
     if let Ok(untyped) = obj.cast::<PyUntypedArray>() {
         let ndim = untyped.ndim();
         if ndim != 1 && ndim != 2 {
-            return Err(PyValueError::new_err(format!(
+            return Err(dimension_mismatch_err(format!(
                 "landmark_dists must be a 1D or 2D array, got {ndim}D"
             )));
         }
@@ -117,7 +108,7 @@ fn extract_landmark_dists_flat(obj: &Bound<'_, PyAny>) -> PyResult<Vec<u32>> {
                         .iter()
                         .map(|&v| {
                             u32::try_from(v).map_err(|_| {
-                                PyValueError::new_err(format!(
+                                invalid_input_err(format!(
                                     "landmark_dists entry {v} out of range for u32"
                                 ))
                             })
@@ -171,7 +162,7 @@ fn extract_landmark_dists_flat(obj: &Bound<'_, PyAny>) -> PyResult<Vec<u32>> {
             match expected_cols {
                 None => expected_cols = Some(row_len),
                 Some(cols) if cols != row_len => {
-                    return Err(PyValueError::new_err(format!(
+                    return Err(dimension_mismatch_err(format!(
                         "landmark_dists has ragged row {r_idx}: expected {cols} columns, got {row_len}"
                     )));
                 }
@@ -185,8 +176,6 @@ fn extract_landmark_dists_flat(obj: &Bound<'_, PyAny>) -> PyResult<Vec<u32>> {
 }
 
 /// Compute Landmark-Stratified Random Triplet Accuracy (`L-Stratified-RTA`) in `[0.0, 1.0]`.
-///
-/// Supports `Layout2d`, `LayoutNd`, and `ManifoldLayout2d`. Releases the Python GIL during computation.
 #[pyfunction]
 #[pyo3(
     signature = (graph, layout, *, num_landmarks = StrictUsize(64), num_triplets = StrictUsize(1_000_000), min_degree = StrictUsize(2), seed = StrictU64(42)),
@@ -203,25 +192,13 @@ fn landmark_stratified_rta(
 ) -> PyResult<f64> {
     let owned = layout.extract_owned()?;
     let g = graph.inner();
-    let nl = num_landmarks.0;
-    let nt = num_triplets.0;
-    let md = min_degree.0;
-    let s = seed.0;
-    dispatch_owned_metric_layout(
-        py,
-        owned,
-        |l| egraph_metrics::landmark_stratified_rta(&*g, l, nl, nt, md, s),
-        |l| egraph_metrics::landmark_stratified_rta(&*g, l, nl, nt, md, s),
-        |l| egraph_metrics::landmark_stratified_rta_nd(&*g, l, nl, nt, md, s),
-        |l| egraph_metrics::landmark_stratified_rta_nd(&*g, l, nl, nt, md, s),
-        |l| egraph_metrics::landmark_stratified_rta_manifold(&*g, l, nl, nt, md, s),
-        |l| egraph_metrics::landmark_stratified_rta_manifold(&*g, l, nl, nt, md, s),
-    )
+    let (nl, nt, md, s) = (num_landmarks.0, num_triplets.0, min_degree.0, seed.0);
+    dispatch_owned_metric!(py, owned, |l| {
+        egraph_metrics::landmark_stratified_rta(&*g, l, nl, nt, md, s)
+    })
 }
 
-/// Compute Landmark-Stratified Random Triplet Accuracy (`L-Stratified-RTA`) with metadata dictionary.
-///
-/// Supports `Layout2d`, `LayoutNd`, and `ManifoldLayout2d`. Releases the Python GIL during computation.
+/// Compute Landmark-Stratified Random Triplet Accuracy (`L-Stratified-RTA`) with diagnostics.
 #[pyfunction]
 #[pyo3(
     signature = (graph, layout, *, num_landmarks = StrictUsize(64), num_triplets = StrictUsize(1_000_000), min_degree = StrictUsize(2), seed = StrictU64(42)),
@@ -235,31 +212,17 @@ fn landmark_stratified_rta_detail(
     num_triplets: StrictUsize,
     min_degree: StrictUsize,
     seed: StrictU64,
-) -> PyResult<Py<PyDict>> {
+) -> PyResult<PyRtaEvaluation> {
     let owned = layout.extract_owned()?;
     let g = graph.inner();
-    let nl = num_landmarks.0;
-    let nt = num_triplets.0;
-    let md = min_degree.0;
-    let s = seed.0;
-    let eval = dispatch_owned_metric_layout(
-        py,
-        owned,
-        |l| egraph_metrics::landmark_stratified_rta_detail(&*g, l, nl, nt, md, s),
-        |l| egraph_metrics::landmark_stratified_rta_detail(&*g, l, nl, nt, md, s),
-        |l| egraph_metrics::landmark_stratified_rta_detail_nd(&*g, l, nl, nt, md, s),
-        |l| egraph_metrics::landmark_stratified_rta_detail_nd(&*g, l, nl, nt, md, s),
-        |l| egraph_metrics::landmark_stratified_rta_detail_manifold(&*g, l, nl, nt, md, s),
-        |l| egraph_metrics::landmark_stratified_rta_detail_manifold(&*g, l, nl, nt, md, s),
-    )?;
-    rta_eval_to_py_dict(py, eval)
+    let (nl, nt, md, s) = (num_landmarks.0, num_triplets.0, min_degree.0, seed.0);
+    let inner = dispatch_owned_metric!(py, owned, |l| {
+        egraph_metrics::landmark_stratified_rta_detail(&*g, l, nl, nt, md, s)
+    })?;
+    Ok(PyRtaEvaluation { inner })
 }
 
 /// Compute Landmark-Stratified RTA from a precomputed `(P_L, N)` hop-distance table.
-///
-/// Supports `Layout2d`, `LayoutNd`, and `ManifoldLayout2d`, and accepts integer arrays
-/// (`2**32 - 1`, or `65535` for `uint16`, = unreachable) as well as `float64`/`float32`
-/// tables from `all_pairs_bfs` (`np.inf` = unreachable). Releases the Python GIL during computation.
 #[pyfunction]
 #[pyo3(
     signature = (layout, landmark_ids, landmark_dists, *, num_triplets = StrictUsize(1_000_000), seed = StrictU64(42)),
@@ -272,31 +235,15 @@ fn landmark_stratified_rta_from_landmarks(
     landmark_dists: &Bound<'_, PyAny>,
     num_triplets: StrictUsize,
     seed: StrictU64,
-) -> PyResult<Py<PyDict>> {
+) -> PyResult<PyRtaEvaluation> {
     let l_ids = extract_u32_1d(landmark_ids, "landmark_ids")?;
     let l_dists = extract_landmark_dists_flat(landmark_dists)?;
     let owned = layout.extract_owned()?;
-    let nt = num_triplets.0;
-    let s = seed.0;
-    let eval = dispatch_owned_metric_layout(
-        py,
-        owned,
-        |l| egraph_metrics::landmark_stratified_rta_from_landmarks(l, &l_ids, &l_dists, nt, s),
-        |l| egraph_metrics::landmark_stratified_rta_from_landmarks(l, &l_ids, &l_dists, nt, s),
-        |l| egraph_metrics::landmark_stratified_rta_from_landmarks_nd(l, &l_ids, &l_dists, nt, s),
-        |l| egraph_metrics::landmark_stratified_rta_from_landmarks_nd(l, &l_ids, &l_dists, nt, s),
-        |l| {
-            egraph_metrics::landmark_stratified_rta_from_landmarks_manifold(
-                l, &l_ids, &l_dists, nt, s,
-            )
-        },
-        |l| {
-            egraph_metrics::landmark_stratified_rta_from_landmarks_manifold(
-                l, &l_ids, &l_dists, nt, s,
-            )
-        },
-    )?;
-    rta_eval_to_py_dict(py, eval)
+    let (nt, s) = (num_triplets.0, seed.0);
+    let inner = dispatch_owned_metric!(py, owned, |l| {
+        egraph_metrics::landmark_stratified_rta_from_landmarks(l, &l_ids, &l_dists, nt, s)
+    })?;
+    Ok(PyRtaEvaluation { inner })
 }
 
 pub(super) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {

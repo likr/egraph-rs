@@ -13,7 +13,7 @@ use pyo3::prelude::*;
 pub(crate) use crossings::TorusLayoutInput;
 pub(crate) use geodesic::{
     ExtractedManifold, build_core_f32, build_core_f64, extract_manifold_for_solver,
-    write_back_manifold,
+    manifold_kind_str, write_back_manifold,
 };
 pub(crate) use layout::{ManifoldLayout2dInner, PyManifoldLayout2d};
 

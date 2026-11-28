@@ -118,7 +118,7 @@ class TestGumapRefinerAndStressSolvers(unittest.TestCase):
         self.assertGreater(float(np.linalg.norm(c0 - c1)), 1.0)
 
         # from_knn and from_fuzzy_set
-        knn, _, _ = eg.build_pure_2hop_knn(barbell)
+        knn = eg.build_pure_2hop_knn(barbell).knn
         fuzzy = eg.compute_fuzzy_simplicial_set(knn)
         s_knn = eg.GuMapSolver.from_knn(knn, iterations=15, seed=42)
         s_fuz = eg.GuMapSolver.from_fuzzy_set(fuzzy, iterations=15, seed=42)

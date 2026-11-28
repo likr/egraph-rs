@@ -117,15 +117,15 @@ fn load_dataset(py: Python<'_>, name: &str) -> PyResult<PyCsrGraph> {
     let csr = py
         .detach(|| -> CoreResult<CsrGraph<f64>> {
             match key.as_str() {
-                "1138bus" => Ok(egraph_dataset::dataset_1138_bus_csr()),
-                "3elt" => Ok(egraph_dataset::dataset_3_elt_csr()),
-                "dwt1005" => Ok(egraph_dataset::dataset_dwt_1005_csr()),
-                "dwt2680" => Ok(egraph_dataset::dataset_dwt_2680_csr()),
-                "poli" => Ok(egraph_dataset::dataset_poli_csr()),
-                "qh882" => Ok(egraph_dataset::dataset_qh882_csr()),
-                "uspowergrid" => Ok(egraph_dataset::dataset_uspower_grid_csr()),
-                "karate" => Ok(egraph_dataset::dataset_karate_csr()),
-                "lesmis" => Ok(egraph_dataset::dataset_lesmis_csr()),
+                "1138bus" => Ok(egraph_dataset::dataset_1138_bus()),
+                "3elt" => Ok(egraph_dataset::dataset_3_elt()),
+                "dwt1005" => Ok(egraph_dataset::dataset_dwt_1005()),
+                "dwt2680" => Ok(egraph_dataset::dataset_dwt_2680()),
+                "poli" => Ok(egraph_dataset::dataset_poli()),
+                "qh882" => Ok(egraph_dataset::dataset_qh882()),
+                "uspowergrid" => Ok(egraph_dataset::dataset_uspower_grid()),
+                "karate" => Ok(egraph_dataset::dataset_karate()),
+                "lesmis" => Ok(egraph_dataset::dataset_lesmis()),
                 _ => Err(CoreError::invalid_input(format!(
                     "unknown dataset {name:?}; expected one of '1138_bus', '3elt', 'dwt_1005', 'dwt_2680', 'poli', 'qh882', 'USpowerGrid', 'karate', 'lesmis'"
                 ))),
@@ -156,8 +156,8 @@ fn parse_csr_csv(
 /// Generate a deterministic undirected weighted graph on `num_nodes` vertices.
 #[pyfunction]
 #[pyo3(
-    signature = (num_nodes, avg_degree = StrictUsize(4), min_weight = StrictF64(0.1), max_weight = StrictF64(2.0), seed = StrictU64(42)),
-    text_signature = "(num_nodes, avg_degree=4, min_weight=0.1, max_weight=2.0, seed=42)"
+    signature = (num_nodes, *, avg_degree = StrictUsize(4), min_weight = StrictF64(0.1), max_weight = StrictF64(2.0), seed = StrictU64(42)),
+    text_signature = "(num_nodes, *, avg_degree=4, min_weight=0.1, max_weight=2.0, seed=42)"
 )]
 fn generate_weighted_graph(
     py: Python<'_>,
@@ -184,8 +184,8 @@ fn generate_weighted_graph(
 /// Generate a deterministic layered directed acyclic graph (DAG).
 #[pyfunction]
 #[pyo3(
-    signature = (num_layers, nodes_per_layer, edge_prob = StrictF64(0.5), seed = StrictU64(42)),
-    text_signature = "(num_layers, nodes_per_layer, edge_prob=0.5, seed=42)"
+    signature = (num_layers, nodes_per_layer, *, edge_prob = StrictF64(0.5), seed = StrictU64(42)),
+    text_signature = "(num_layers, nodes_per_layer, *, edge_prob=0.5, seed=42)"
 )]
 fn generate_layered_dag(
     py: Python<'_>,
@@ -210,8 +210,8 @@ fn generate_layered_dag(
 /// Generate a deterministic Stochastic Block Model graph and ground-truth community labels.
 #[pyfunction]
 #[pyo3(
-    signature = (block_sizes, p_intra = StrictF64(0.3), p_inter = StrictF64(0.02), seed = StrictU64(42)),
-    text_signature = "(block_sizes, p_intra=0.3, p_inter=0.02, seed=42)"
+    signature = (block_sizes, *, p_intra = StrictF64(0.3), p_inter = StrictF64(0.02), seed = StrictU64(42)),
+    text_signature = "(block_sizes, *, p_intra=0.3, p_inter=0.02, seed=42)"
 )]
 fn generate_sbm_graph<'py>(
     py: Python<'py>,
@@ -275,8 +275,8 @@ fn generate_spherical_grid(
 /// Generate a regular hyperbolic branching tree with `branching_factor` and `depth`.
 #[pyfunction]
 #[pyo3(
-    signature = (branching_factor = StrictUsize(2), depth = StrictUsize(4)),
-    text_signature = "(branching_factor=2, depth=4)"
+    signature = (*, branching_factor = StrictUsize(2), depth = StrictUsize(4)),
+    text_signature = "(*, branching_factor=2, depth=4)"
 )]
 fn generate_hyperbolic_tree(
     py: Python<'_>,
