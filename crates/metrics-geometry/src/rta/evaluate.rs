@@ -1,8 +1,8 @@
-use egraph_core::{CoreResult, DeterministicRng};
+use egraph_core::{CoreResult, DeterministicRng, MetricSpace};
 
 use super::RtaEvaluation;
 use super::row_stats::{
-    RowProvider, RowScratch, RtaCoordSpace, counting_sort_row, scan_row_octaves,
+    RowProvider, RowScratch, counting_sort_row, is_layout_collapsed, scan_row_octaves,
 };
 
 #[inline]
@@ -40,16 +40,16 @@ fn gen_range_u128(rng: &mut DeterministicRng, upper_exclusive: u128) -> u128 {
     }
 }
 
-pub(super) fn evaluate_rta_core<W, L: RtaCoordSpace>(
+pub(super) fn evaluate_rta_core<W, L: MetricSpace + ?Sized>(
     layout: &L,
     landmark_ids: &[u32],
     mut provider: RowProvider<'_, W>,
     num_triplets: usize,
     seed: u64,
 ) -> CoreResult<RtaEvaluation> {
-    let n = layout.num_nodes();
+    let n = layout.len();
     let p_l = landmark_ids.len();
-    if n < 3 || p_l == 0 || layout.is_collapsed() {
+    if n < 3 || p_l == 0 || is_layout_collapsed(layout) {
         return Ok(RtaEvaluation {
             rta: 0.0,
             num_landmarks: p_l,
@@ -149,16 +149,16 @@ pub(super) fn evaluate_rta_core<W, L: RtaCoordSpace>(
             for a in 0..(m_v - 1) {
                 let u = valid_nodes[a] as usize;
                 let d1 = valid_dists[a];
-                let r1_sq = layout.dist_sq(src, u);
+                let r1 = layout.distance(src, u);
                 for b in (a + 1)..m_v {
                     let d2 = valid_dists[b];
                     if d1 == d2 {
                         continue;
                     }
                     let v = valid_nodes[b] as usize;
-                    let r2_sq = layout.dist_sq(src, v);
+                    let r2 = layout.distance(src, v);
                     total_eval += 1;
-                    if (d1 < d2 && r1_sq < r2_sq) || (d1 > d2 && r1_sq > r2_sq) {
+                    if (d1 < d2 && r1 < r2) || (d1 > d2 && r1 > r2) {
                         total_ok += 1;
                     }
                 }
@@ -250,10 +250,10 @@ pub(super) fn evaluate_rta_core<W, L: RtaCoordSpace>(
                     let v = scratch.sorted_nodes[pos2] as usize;
                     let d1 = scratch.sorted_dists[pos1];
                     let d2 = scratch.sorted_dists[pos2];
-                    let r1_sq = layout.dist_sq(src, u);
-                    let r2_sq = layout.dist_sq(src, v);
+                    let r1 = layout.distance(src, u);
+                    let r2 = layout.distance(src, v);
                     eval_cnt += 1;
-                    if (d1 < d2 && r1_sq < r2_sq) || (d1 > d2 && r1_sq > r2_sq) {
+                    if (d1 < d2 && r1 < r2) || (d1 > d2 && r1 > r2) {
                         ok_cnt += 1;
                     }
                 }
@@ -307,10 +307,10 @@ pub(super) fn evaluate_rta_core<W, L: RtaCoordSpace>(
                     let v = scratch.sorted_nodes[pos2] as usize;
                     let d1 = scratch.sorted_dists[pos1];
                     let d2 = scratch.sorted_dists[pos2];
-                    let r1_sq = layout.dist_sq(src, u);
-                    let r2_sq = layout.dist_sq(src, v);
+                    let r1 = layout.distance(src, u);
+                    let r2 = layout.distance(src, v);
                     eval_cnt += 1;
-                    if (d1 < d2 && r1_sq < r2_sq) || (d1 > d2 && r1_sq > r2_sq) {
+                    if (d1 < d2 && r1 < r2) || (d1 > d2 && r1 > r2) {
                         ok_cnt += 1;
                     }
                 }

@@ -1,10 +1,12 @@
 mod directed_and_errors;
 mod parity_and_boundaries;
 mod regressions;
+mod spaces;
 
 use egraph_core::{CsrGraph, Layout2d, Scalar};
 
 use crate::extract_unique_edges;
+use crate::spatial_index::build_spatial_index;
 
 use super::*;
 
@@ -134,37 +136,37 @@ pub(super) fn assert_proximity_determinism_and_tree_parity<W: Scalar, S: Scalar>
     graph: &CsrGraph<W>,
     layout: &Layout2d<S>,
 ) {
-    let tree = build_kdtree_f64(layout).unwrap();
+    let tree = build_spatial_index(layout).unwrap();
 
     let gg_prop_1 = gabriel_graph_property(graph, layout).unwrap();
     let gg_prop_2 = gabriel_graph_property(graph, layout).unwrap();
-    let gg_prop_tree = gabriel_graph_property_with_tree(graph, layout, &tree).unwrap();
+    let gg_prop_tree = gabriel_graph_property_with_index(graph, layout, &tree).unwrap();
     assert_eq!(gg_prop_1.to_bits(), gg_prop_2.to_bits());
     assert_eq!(gg_prop_1.to_bits(), gg_prop_tree.to_bits());
 
     let nr_1 = node_resolution(layout).unwrap();
     let nr_2 = node_resolution(layout).unwrap();
-    let nr_tree = node_resolution_with_tree(layout, &tree).unwrap();
+    let nr_tree = node_resolution_with_index(layout, &tree).unwrap();
     assert_eq!(nr_1.to_bits(), nr_2.to_bits());
     assert_eq!(nr_1.to_bits(), nr_tree.to_bits());
 
     let rng_edges_1 = relative_neighborhood_edges(layout).unwrap();
-    let rng_edges_tree = relative_neighborhood_edges_with_tree(layout, &tree).unwrap();
+    let rng_edges_tree = relative_neighborhood_edges_with_index(layout, &tree).unwrap();
     assert_eq!(rng_edges_1, rng_edges_tree);
 
     let gg_edges_1 = gabriel_graph_edges(layout).unwrap();
-    let gg_edges_tree = gabriel_graph_edges_with_tree(layout, &tree).unwrap();
+    let gg_edges_tree = gabriel_graph_edges_with_index(layout, &tree).unwrap();
     assert_eq!(gg_edges_1, gg_edges_tree);
 
     let s_rng_1 = relative_neighborhood_preservation(graph, layout).unwrap();
     let s_rng_2 = relative_neighborhood_preservation(graph, layout).unwrap();
-    let s_rng_tree = relative_neighborhood_preservation_with_tree(graph, layout, &tree).unwrap();
+    let s_rng_tree = relative_neighborhood_preservation_with_index(graph, layout, &tree).unwrap();
     assert_eq!(s_rng_1.to_bits(), s_rng_2.to_bits());
     assert_eq!(s_rng_1.to_bits(), s_rng_tree.to_bits());
 
     let s_gg_1 = gabriel_graph_preservation(graph, layout).unwrap();
     let s_gg_2 = gabriel_graph_preservation(graph, layout).unwrap();
-    let s_gg_tree = gabriel_graph_preservation_with_tree(graph, layout, &tree).unwrap();
+    let s_gg_tree = gabriel_graph_preservation_with_index(graph, layout, &tree).unwrap();
     assert_eq!(s_gg_1.to_bits(), s_gg_2.to_bits());
     assert_eq!(s_gg_1.to_bits(), s_gg_tree.to_bits());
 }

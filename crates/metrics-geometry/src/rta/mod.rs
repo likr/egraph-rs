@@ -5,35 +5,24 @@
 //! and evaluates exact enumeration deterministically whenever `total_comparable <= num_triplets`.
 
 mod evaluate;
-mod manifold;
-mod nd;
 mod row_stats;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
-mod tests_manifold;
-#[cfg(test)]
-mod tests_nd;
+mod tests_spaces;
 
-use egraph_core::{CoreError, CoreResult, CsrGraph, Layout2d, Scalar};
+use egraph_core::{CoreError, CoreResult, CsrGraph, MetricSpace};
 use egraph_linalg::{BfsWorkspace, select_maxmin_sp_pivots};
 
-use crate::validate_graph_layout;
+use crate::spatial_index::validate_graph_layout;
 
 use evaluate::evaluate_rta_core;
-pub use manifold::{
-    landmark_stratified_rta_detail_manifold, landmark_stratified_rta_from_landmarks_f64_manifold,
-    landmark_stratified_rta_from_landmarks_manifold, landmark_stratified_rta_manifold,
-};
-pub use nd::{
-    landmark_stratified_rta_detail_nd, landmark_stratified_rta_from_landmarks_f64_nd,
-    landmark_stratified_rta_from_landmarks_nd, landmark_stratified_rta_nd,
-};
 use row_stats::{RowProvider, is_layout_collapsed};
 
 /// Detailed result returned by [`landmark_stratified_rta_detail`] and
 /// [`landmark_stratified_rta_from_landmarks`].
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct RtaEvaluation {
     /// Landmark-Stratified Random Triplet Accuracy in `[0.0, 1.0]`.
     pub rta: f64,
@@ -47,11 +36,11 @@ pub struct RtaEvaluation {
     pub is_exact: bool,
 }
 
-/// Evaluates Landmark-Stratified Random Triplet Accuracy (`L-Stratified-RTA`) in `[0.0, 1.0]`,
-/// returning detailed evaluation metadata ([`RtaEvaluation`]).
-pub fn landmark_stratified_rta_detail<W, S: Scalar>(
+/// Evaluates Landmark-Stratified Random Triplet Accuracy (`L-Stratified-RTA`) in `[0.0, 1.0]`
+/// across any [`MetricSpace`], returning detailed evaluation metadata ([`RtaEvaluation`]).
+pub fn landmark_stratified_rta_detail<W, L: MetricSpace + ?Sized>(
     graph: &CsrGraph<W>,
-    layout: &Layout2d<S>,
+    layout: &L,
     num_landmarks: usize,
     num_triplets: usize,
     min_degree: usize,
@@ -78,10 +67,11 @@ pub fn landmark_stratified_rta_detail<W, S: Scalar>(
     evaluate_rta_core(layout, &landmark_ids, provider, num_triplets, seed)
 }
 
-/// Evaluates Landmark-Stratified Random Triplet Accuracy (`L-Stratified-RTA`) in `[0.0, 1.0]`.
-pub fn landmark_stratified_rta<W, S: Scalar>(
+/// Evaluates Landmark-Stratified Random Triplet Accuracy (`L-Stratified-RTA`) in `[0.0, 1.0]`
+/// across any [`MetricSpace`].
+pub fn landmark_stratified_rta<W, L: MetricSpace + ?Sized>(
     graph: &CsrGraph<W>,
-    layout: &Layout2d<S>,
+    layout: &L,
     num_landmarks: usize,
     num_triplets: usize,
     min_degree: usize,
@@ -99,9 +89,10 @@ pub fn landmark_stratified_rta<W, S: Scalar>(
 }
 
 /// Evaluates Landmark-Stratified Random Triplet Accuracy from a precomputed flat row-major
-/// `(num_landmarks, N)` integer hop-distance table (`u32::MAX` denotes unreachable).
-pub fn landmark_stratified_rta_from_landmarks<S: Scalar>(
-    layout: &Layout2d<S>,
+/// `(num_landmarks, N)` integer hop-distance table (`u32::MAX` denotes unreachable) across any
+/// [`MetricSpace`].
+pub fn landmark_stratified_rta_from_landmarks<L: MetricSpace + ?Sized>(
+    layout: &L,
     landmark_ids: &[u32],
     landmark_dists: &[u32],
     num_triplets: usize,
@@ -150,11 +141,11 @@ pub fn landmark_stratified_rta_from_landmarks<S: Scalar>(
 }
 
 /// Evaluates Landmark-Stratified Random Triplet Accuracy from a precomputed flat row-major
-/// `(num_landmarks, N)` `f64` distance table, mapping `f64::INFINITY` to the unreachable
-/// sentinel (`u32::MAX`) and rejecting `NaN`, negative values, `-inf`, non-integer finite values,
-/// or finite values exceeding `u32::MAX`.
-pub fn landmark_stratified_rta_from_landmarks_f64<S: Scalar>(
-    layout: &Layout2d<S>,
+/// `(num_landmarks, N)` `f64` distance table across any [`MetricSpace`], mapping `f64::INFINITY`
+/// to the unreachable sentinel (`u32::MAX`) and rejecting `NaN`, negative values, `-inf`,
+/// non-integer finite values, or finite values exceeding `u32::MAX`.
+pub fn landmark_stratified_rta_from_landmarks_f64<L: MetricSpace + ?Sized>(
+    layout: &L,
     landmark_ids: &[u32],
     landmark_dists: &[f64],
     num_triplets: usize,

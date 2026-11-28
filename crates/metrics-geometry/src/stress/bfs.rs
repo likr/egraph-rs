@@ -1,6 +1,7 @@
 use egraph_core::{CoreError, CoreResult, CsrGraph, VisitStamp};
 
 /// Reusable scratch buffers for allocation-free repeated single-source BFS over [`CsrGraph`].
+#[non_exhaustive]
 #[derive(Debug, Clone)]
 pub struct BfsScratch {
     visited: VisitStamp,

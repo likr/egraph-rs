@@ -1,16 +1,16 @@
-use egraph_core::{CoreError, CoreResult, CsrGraph, DeterministicRng, Layout2d, Scalar};
+use egraph_core::{CoreError, CoreResult, CsrGraph, DeterministicRng, MetricSpace};
 
-use crate::validate_graph_layout;
+use crate::spatial_index::validate_graph_layout;
 
 use super::StressEvaluation;
 use super::bfs::{BfsScratch, bfs_single_source};
 use super::sns::{SnsMoments, finalize_moments};
 
 /// Computes $O(kN)$ pivot-sampled Scale-Normalized Stress (`SNS`) from `num_pivots`
-/// deterministic [`DeterministicRng`] source vertices.
-pub fn sampled_scale_normalized_stress<W, S: Scalar>(
+/// deterministic [`DeterministicRng`] source vertices across any [`MetricSpace`].
+pub fn sampled_scale_normalized_stress<W, L: MetricSpace + ?Sized>(
     graph: &CsrGraph<W>,
-    layout: &Layout2d<S>,
+    layout: &L,
     num_pivots: usize,
     seed: u64,
 ) -> CoreResult<f64> {
@@ -73,10 +73,10 @@ pub(super) fn select_degree_stratified_pivots<W>(
     pivots
 }
 
-/// Computes full [`StressEvaluation`] details for $O(kN)$ pivot-sampled `SNS`.
-pub fn sampled_scale_normalized_stress_detail<W, S: Scalar>(
+/// Computes full [`StressEvaluation`] details for $O(kN)$ pivot-sampled `SNS` across any [`MetricSpace`].
+pub fn sampled_scale_normalized_stress_detail<W, L: MetricSpace + ?Sized>(
     graph: &CsrGraph<W>,
-    layout: &Layout2d<S>,
+    layout: &L,
     num_pivots: usize,
     seed: u64,
 ) -> CoreResult<StressEvaluation> {
@@ -95,15 +95,11 @@ pub fn sampled_scale_normalized_stress_detail<W, S: Scalar>(
         is_pivot[p] = true;
     }
 
-    let xs = layout.x();
-    let ys = layout.y();
     let directed = graph.is_directed();
     let mut scratch = BfsScratch::new(n);
     let mut moments = SnsMoments::default();
 
     for &p in &pivots {
-        let xp = xs[p].to_f64();
-        let yp = ys[p].to_f64();
         let dists = bfs_single_source(graph, p, 1.0, &mut scratch)?;
         for (j, &d) in dists.iter().enumerate() {
             if j == p || !d.is_finite() || d <= 0.0 {
@@ -112,7 +108,7 @@ pub fn sampled_scale_normalized_stress_detail<W, S: Scalar>(
             if !directed && is_pivot[j] && j < p {
                 continue;
             }
-            let r = (xp - xs[j].to_f64()).hypot(yp - ys[j].to_f64());
+            let r = layout.distance(p, j);
             let w = 1.0 / (d * d);
             moments.push(r, d, w);
         }
@@ -125,8 +121,6 @@ pub fn sampled_scale_normalized_stress_detail<W, S: Scalar>(
     let alpha_star = moments.sum_w_d_r / moments.sum_w_r2;
     let mut raw_stress = 0.0_f64;
     for &p in &pivots {
-        let xp = xs[p].to_f64();
-        let yp = ys[p].to_f64();
         let dists = bfs_single_source(graph, p, 1.0, &mut scratch)?;
         for (j, &d) in dists.iter().enumerate() {
             if j == p || !d.is_finite() || d <= 0.0 {
@@ -135,7 +129,7 @@ pub fn sampled_scale_normalized_stress_detail<W, S: Scalar>(
             if !directed && is_pivot[j] && j < p {
                 continue;
             }
-            let r = (xp - xs[j].to_f64()).hypot(yp - ys[j].to_f64());
+            let r = layout.distance(p, j);
             let err = (alpha_star * r - d) / d;
             raw_stress += err * err;
         }

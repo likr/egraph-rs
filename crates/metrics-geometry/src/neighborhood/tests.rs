@@ -1,4 +1,4 @@
-use egraph_core::CoreError;
+use egraph_core::{CoreError, Layout2d};
 
 use super::sampled::sample_distinct_vertices;
 use super::*;
@@ -223,20 +223,22 @@ fn test_sampled_np1_and_np2_determinism_exact_parity_and_edge_cases() {
     );
 
     // 2. Deterministic reproducibility and seed sensitivity for both Floyd (k <= n/4)
-    // and partial Fisher-Yates (k > n/4), plus _with_tree parity.
-    let tree64 = build_kdtree_f64(&l64).unwrap();
+    // and partial Fisher-Yates (k > n/4), plus _with_index parity.
+    let tree64 = crate::spatial_index::build_spatial_index(&l64).unwrap();
     for &k in &[5usize, 25usize] {
         let s1_a = sampled_neighborhood_preservation_1hop(&g_undir, &l64, k, 42).unwrap();
-        let s1_b = sampled_neighborhood_preservation_1hop_with_tree(&g_undir, &l64, &tree64, k, 42)
-            .unwrap();
+        let s1_b =
+            sampled_neighborhood_preservation_1hop_with_index(&g_undir, &l64, &tree64, k, 42)
+                .unwrap();
         let s1_diff = sampled_neighborhood_preservation_1hop(&g_undir, &l64, k, 43).unwrap();
         assert_eq!(s1_a, s1_b);
         assert!((0.0..=1.0).contains(&s1_a));
         assert_ne!(s1_a, s1_diff);
 
         let s2_a = sampled_neighborhood_preservation_2hop(&g_undir, &l64, k, 42).unwrap();
-        let s2_b = sampled_neighborhood_preservation_2hop_with_tree(&g_undir, &l64, &tree64, k, 42)
-            .unwrap();
+        let s2_b =
+            sampled_neighborhood_preservation_2hop_with_index(&g_undir, &l64, &tree64, k, 42)
+                .unwrap();
         let s2_diff = sampled_neighborhood_preservation_2hop(&g_undir, &l64, k, 43).unwrap();
         assert_eq!(s2_a, s2_b);
         assert!((0.0..=1.0).contains(&s2_a));
@@ -328,13 +330,13 @@ fn test_sampled_np1_and_np2_determinism_exact_parity_and_edge_cases() {
         sampled_neighborhood_preservation_2hop(&path3, &bad_l, 2, 42),
         Err(CoreError::NonFiniteValue { .. })
     ));
-    let wrong_tree = build_kdtree_f64(&Layout2d::<f64>::zeros(5)).unwrap();
+    let wrong_tree = crate::spatial_index::build_spatial_index(&Layout2d::<f64>::zeros(5)).unwrap();
     assert!(matches!(
-        sampled_neighborhood_preservation_1hop_with_tree(&g_undir, &l64, &wrong_tree, 5, 42),
+        sampled_neighborhood_preservation_1hop_with_index(&g_undir, &l64, &wrong_tree, 5, 42),
         Err(CoreError::DimensionMismatch { .. })
     ));
     assert!(matches!(
-        sampled_neighborhood_preservation_2hop_with_tree(&g_undir, &l64, &wrong_tree, 5, 42),
+        sampled_neighborhood_preservation_2hop_with_index(&g_undir, &l64, &wrong_tree, 5, 42),
         Err(CoreError::DimensionMismatch { .. })
     ));
 }

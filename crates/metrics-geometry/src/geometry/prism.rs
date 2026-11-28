@@ -3,7 +3,8 @@ use egraph_core::{CoreError, CoreResult, Layout2d, Scalar};
 use crate::proximity::gabriel_graph_edges;
 
 /// PRISM layout-preservation distortion metrics comparing `original` and `adjusted` layouts.
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct PrismDistortion {
     /// Proximity edge length ratio coefficient of variation ($\sigma_{\mathrm{dist}}$):
     /// $\frac{1}{\bar{r}}\sqrt{\frac{1}{|E_P|}\sum_{(i,j)\in E_P}(r_{ij} - \bar{r})^2}$

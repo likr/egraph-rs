@@ -6,17 +6,16 @@ use egraph_spatial_crossings::{
 };
 
 pub use egraph_spatial_crossings::{
-    CrossingPair, CrossingSummary, TorusCrossing, TorusLayoutView, crossing_edges_hyperbolic,
-    crossing_edges_spherical, hyperbolic_crossing_number, spherical_crossing_number,
-    torus_crossing_number,
+    CrossingPair, CrossingSummary, TorusCrossing, TorusLayoutView, TorusView,
+    crossing_edges_hyperbolic, crossing_edges_spherical, hyperbolic_crossing_number,
+    spherical_crossing_number, torus_crossing_number,
 };
 
-use crate::{extract_unique_edges, validate_graph_layout};
+use crate::extract_unique_edges;
+use crate::spatial_index::validate_graph_layout;
 
 #[cfg(test)]
 mod tests;
-#[cfg(test)]
-mod tests_manifold;
 
 /// Counts the exact number of non-adjacent crossing edge pairs in `graph` under `layout`.
 pub fn crossing_number<W, S: Scalar>(
@@ -65,7 +64,7 @@ pub fn crossing_angle_from_pairs(pairs: &[CrossingPair]) -> f64 {
 }
 
 /// Finds all crossing edge sub-segment pairs for `graph` laid out on a 2D torus
-/// (accepting `&Layout2d<S>` or `&ManifoldLayout2d<S>` of kind [`ManifoldKind::Torus2d`]).
+/// (accepting `&TorusView<'_, S>` or `&ManifoldLayout2d<S>` of kind [`egraph_core::ManifoldKind::Torus2d`]).
 pub fn crossing_edges_torus<W, S: Scalar, L: TorusLayoutView<S> + ?Sized>(
     graph: &CsrGraph<W>,
     layout: &L,
@@ -77,7 +76,7 @@ pub fn crossing_edges_torus<W, S: Scalar, L: TorusLayoutView<S> + ?Sized>(
 }
 
 /// Finds all crossing edge sub-segment pairs for an explicit edge slice on a 2D torus
-/// (accepting `&Layout2d<S>` or `&ManifoldLayout2d<S>` of kind [`ManifoldKind::Torus2d`]).
+/// (accepting `&TorusView<'_, S>` or `&ManifoldLayout2d<S>` of kind [`egraph_core::ManifoldKind::Torus2d`]).
 pub fn crossing_edges_torus_from_edges<S: Scalar, L: TorusLayoutView<S> + ?Sized>(
     edges: &[(u32, u32)],
     layout: &L,

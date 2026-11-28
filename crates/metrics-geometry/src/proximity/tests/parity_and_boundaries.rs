@@ -2,6 +2,9 @@ use std::f64::consts::TAU;
 
 use egraph_core::{CoreError, CsrGraph, DeterministicRng, Layout2d};
 
+use crate::extract_unique_edges;
+use crate::spatial_index::build_spatial_index;
+
 use super::super::exact_predicates::euclidean_diameter_2d;
 use super::super::*;
 use super::{
@@ -213,7 +216,8 @@ fn test_kdtree_gg_rng_and_diameter_exact_brute_force_parity() {
 fn test_gabriel_property_and_node_resolution_brute_force_parity() {
     let g = CsrGraph::<f64>::from_edges(4, &[(0, 1), (1, 2), (2, 3), (0, 2)], None, false, false)
         .unwrap();
-    let layout = Layout2d::from_xy(vec![0.0, 4.0, 2.0, 1.9], vec![0.0, 0.0, 1.0, 0.2]).unwrap();
+    let layout =
+        Layout2d::<f64>::from_xy(vec![0.0, 4.0, 2.0, 1.9], vec![0.0, 0.0, 1.0, 0.2]).unwrap();
     let gg_prop = gabriel_graph_property(&g, &layout).unwrap();
     // Verify exact match against naive O(|E| * N) sum.
     let mut expected_gg = 0.0_f64;
@@ -254,30 +258,30 @@ fn test_empty_and_singleton_boundaries_all_12_functions() {
     // N = 0 (empty graph & empty layout)
     let g0 = CsrGraph::<f64>::from_edges(0, &[], None, false, false).unwrap();
     let l0 = Layout2d::<f64>::zeros(0);
-    let t0 = build_kdtree_f64(&l0).unwrap();
+    let t0 = build_spatial_index(&l0).unwrap();
     assert_eq!(gabriel_graph_property(&g0, &l0).unwrap(), 0.0);
     assert_eq!(
-        gabriel_graph_property_with_tree(&g0, &l0, &t0).unwrap(),
+        gabriel_graph_property_with_index(&g0, &l0, &t0).unwrap(),
         0.0
     );
     assert_eq!(node_resolution(&l0).unwrap(), 0.0);
-    assert_eq!(node_resolution_with_tree(&l0, &t0).unwrap(), 0.0);
+    assert_eq!(node_resolution_with_index(&l0, &t0).unwrap(), 0.0);
     assert!(relative_neighborhood_edges(&l0).unwrap().is_empty());
     assert!(
-        relative_neighborhood_edges_with_tree(&l0, &t0)
+        relative_neighborhood_edges_with_index(&l0, &t0)
             .unwrap()
             .is_empty()
     );
     assert!(gabriel_graph_edges(&l0).unwrap().is_empty());
-    assert!(gabriel_graph_edges_with_tree(&l0, &t0).unwrap().is_empty());
+    assert!(gabriel_graph_edges_with_index(&l0, &t0).unwrap().is_empty());
     assert_eq!(relative_neighborhood_preservation(&g0, &l0).unwrap(), 0.0);
     assert_eq!(
-        relative_neighborhood_preservation_with_tree(&g0, &l0, &t0).unwrap(),
+        relative_neighborhood_preservation_with_index(&g0, &l0, &t0).unwrap(),
         0.0
     );
     assert_eq!(gabriel_graph_preservation(&g0, &l0).unwrap(), 0.0);
     assert_eq!(
-        gabriel_graph_preservation_with_tree(&g0, &l0, &t0).unwrap(),
+        gabriel_graph_preservation_with_index(&g0, &l0, &t0).unwrap(),
         0.0
     );
     assert_proximity_determinism_and_tree_parity(&g0, &l0);
@@ -285,30 +289,30 @@ fn test_empty_and_singleton_boundaries_all_12_functions() {
     // N = 1 (singleton graph & layout): S_RNG = 1.0, S_GG = 1.0 (0/0 convention).
     let g1 = CsrGraph::<f64>::from_edges(1, &[], None, false, false).unwrap();
     let l1 = Layout2d::from_xy(vec![3.5], vec![-2.25]).unwrap();
-    let t1 = build_kdtree_f64(&l1).unwrap();
+    let t1 = build_spatial_index(&l1).unwrap();
     assert_eq!(gabriel_graph_property(&g1, &l1).unwrap(), 0.0);
     assert_eq!(
-        gabriel_graph_property_with_tree(&g1, &l1, &t1).unwrap(),
+        gabriel_graph_property_with_index(&g1, &l1, &t1).unwrap(),
         0.0
     );
     assert_eq!(node_resolution(&l1).unwrap(), 0.0);
-    assert_eq!(node_resolution_with_tree(&l1, &t1).unwrap(), 0.0);
+    assert_eq!(node_resolution_with_index(&l1, &t1).unwrap(), 0.0);
     assert!(relative_neighborhood_edges(&l1).unwrap().is_empty());
     assert!(
-        relative_neighborhood_edges_with_tree(&l1, &t1)
+        relative_neighborhood_edges_with_index(&l1, &t1)
             .unwrap()
             .is_empty()
     );
     assert!(gabriel_graph_edges(&l1).unwrap().is_empty());
-    assert!(gabriel_graph_edges_with_tree(&l1, &t1).unwrap().is_empty());
+    assert!(gabriel_graph_edges_with_index(&l1, &t1).unwrap().is_empty());
     assert_eq!(relative_neighborhood_preservation(&g1, &l1).unwrap(), 1.0);
     assert_eq!(
-        relative_neighborhood_preservation_with_tree(&g1, &l1, &t1).unwrap(),
+        relative_neighborhood_preservation_with_index(&g1, &l1, &t1).unwrap(),
         1.0
     );
     assert_eq!(gabriel_graph_preservation(&g1, &l1).unwrap(), 1.0);
     assert_eq!(
-        gabriel_graph_preservation_with_tree(&g1, &l1, &t1).unwrap(),
+        gabriel_graph_preservation_with_index(&g1, &l1, &t1).unwrap(),
         1.0
     );
     assert_proximity_determinism_and_tree_parity(&g1, &l1);

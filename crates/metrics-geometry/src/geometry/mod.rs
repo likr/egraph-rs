@@ -1,32 +1,22 @@
 //! Geometric shape, edge-length, angular, and PRISM layout-preservation metrics.
 
-mod angles_degeneracy;
-mod manifold;
-mod nd;
+mod angles;
+mod degeneracy;
 mod prism;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
-mod tests_manifold;
-#[cfg(test)]
-mod tests_nd;
+mod tests_spaces;
 
-use egraph_core::{CoreError, CoreResult, CsrGraph, Layout2d, Scalar};
+use egraph_core::{
+    CoreError, CoreResult, CsrGraph, Layout2d, MetricSpace, RiemannianLayout, Scalar,
+};
 
-use crate::{extract_unique_edges, validate_graph_layout};
+use crate::extract_unique_edges;
+use crate::spatial_index::validate_graph_layout;
 
-pub use angles_degeneracy::{
-    LayoutDegeneracy, MinimumAngleSummary, layout_degeneracy, minimum_angle, minimum_angle_summary,
-};
-pub use manifold::{
-    ideal_edge_lengths_from_distances_manifold, ideal_edge_lengths_manifold,
-    ideal_edge_lengths_scaled_manifold, ideal_edge_lengths_with_unit_manifold,
-    layout_degeneracy_manifold,
-};
-pub use nd::{
-    ideal_edge_lengths_from_distances_nd, ideal_edge_lengths_nd, ideal_edge_lengths_scaled_nd,
-    ideal_edge_lengths_with_unit_nd, layout_degeneracy_nd, layout_degeneracy_nd_with_index,
-};
+pub use angles::{MinimumAngleSummary, minimum_angle, minimum_angle_summary};
+pub use degeneracy::{LayoutDegeneracy, layout_degeneracy, layout_degeneracy_with_index};
 pub use prism::{PrismDistortion, prism_distortion, prism_distortion_with_edges};
 
 /// Computes the undirected angle in `[0.0, pi]` radians between 2D vectors `(x1, y1)` and `(x2, y2)`.
@@ -52,7 +42,47 @@ pub fn edge_angle<S: Scalar>(x1: S, y1: S, x2: S, y2: S) -> Option<f64> {
     if angle.is_finite() { Some(angle) } else { None }
 }
 
-/// Computes the PCA aspect ratio $\sigma_2 / \sigma_1 \in [0.0, 1.0]$ of `layout`.
+#[inline]
+fn norm_slice_f64(v: &[f64]) -> f64 {
+    let mut max_abs = 0.0_f64;
+    for &x in v {
+        if !x.is_finite() {
+            return f64::NAN;
+        }
+        max_abs = max_abs.max(x.abs());
+    }
+    if max_abs == 0.0 {
+        return 0.0;
+    }
+    let inv = 1.0 / max_abs;
+    let mut sum_sq = 0.0_f64;
+    for &x in v {
+        let s = x * inv;
+        sum_sq += s * s;
+    }
+    max_abs * sum_sq.sqrt()
+}
+
+#[inline]
+fn tangent_angle(a: &[f64], b: &[f64]) -> Option<f64> {
+    debug_assert_eq!(a.len(), b.len());
+    if a.len() == 2 {
+        return edge_angle(a[0], a[1], b[0], b[1]);
+    }
+    let norm_a = norm_slice_f64(a);
+    let norm_b = norm_slice_f64(b);
+    if !norm_a.is_finite() || !norm_b.is_finite() || norm_a == 0.0 || norm_b == 0.0 {
+        return None;
+    }
+    let mut dot = 0.0_f64;
+    for d in 0..a.len() {
+        dot += (a[d] / norm_a) * (b[d] / norm_b);
+    }
+    let angle = dot.clamp(-1.0, 1.0).acos();
+    if angle.is_finite() { Some(angle) } else { None }
+}
+
+/// Computes the PCA aspect ratio $\sigma_2 / \sigma_1 \in [0.0, 1.0]$ of 2D `layout`.
 ///
 /// Returns `0.0` for layouts with `<= 1` vertex or zero variance along the major axis.
 pub fn aspect_ratio<S: Scalar>(layout: &Layout2d<S>) -> CoreResult<f64> {
@@ -96,31 +126,32 @@ pub fn aspect_ratio<S: Scalar>(layout: &Layout2d<S>) -> CoreResult<f64> {
 }
 
 /// Computes the exponential angular-resolution penalty $\sum_{u \in V} \sum_{a < b} \exp(-\theta_{a u b})$
-/// over pairs of incident edges sharing a vertex.
-pub fn angular_resolution<W, S: Scalar>(
+/// over pairs of incident edges sharing a vertex across any [`RiemannianLayout`].
+pub fn angular_resolution<W, L: RiemannianLayout + ?Sized>(
     graph: &CsrGraph<W>,
-    layout: &Layout2d<S>,
+    layout: &L,
 ) -> CoreResult<f64> {
     validate_graph_layout(graph, layout, "angular_resolution")?;
     let n = layout.len();
-    let xs = layout.x();
-    let ys = layout.y();
+    let dim = layout.tangent_dim();
+    if n == 0 || dim == 0 {
+        return Ok(0.0);
+    }
+
+    let mut t1 = vec![0.0_f64; dim];
+    let mut t2 = vec![0.0_f64; dim];
     let mut sum = 0.0_f64;
 
     for u in 0..n {
-        let x0 = xs[u].to_f64();
-        let y0 = ys[u].to_f64();
         let nbrs = graph.neighbors(u);
         let deg = nbrs.len();
         for i in 1..deg {
             let v1 = nbrs[i] as usize;
-            let dx1 = xs[v1].to_f64() - x0;
-            let dy1 = ys[v1].to_f64() - y0;
+            layout.log_map_into(u, v1, &mut t1)?;
             for &v2_u32 in &nbrs[..i] {
                 let v2 = v2_u32 as usize;
-                let dx2 = xs[v2].to_f64() - x0;
-                let dy2 = ys[v2].to_f64() - y0;
-                if let Some(angle) = edge_angle(dx1, dy1, dx2, dy2) {
+                layout.log_map_into(u, v2, &mut t2)?;
+                if let Some(angle) = tangent_angle(&t1, &t2) {
                     sum += (-angle).exp();
                 }
             }
@@ -130,13 +161,14 @@ pub fn angular_resolution<W, S: Scalar>(
     Ok(sum)
 }
 
-/// Evaluates ideal edge-length preservation $\sum_{(u,v)\in E} ((\|x_u - x_v\| - \ell_{uv}) / \ell_{uv})^2$.
+/// Evaluates ideal edge-length preservation $\sum_{(u,v)\in E} ((d(x_u, x_v) - \ell_{uv}) / \ell_{uv})^2$
+/// across any [`MetricSpace`].
 ///
 /// Uses `graph.weights()` when `graph.is_weighted()` is true (skipping non-positive/non-finite
 /// weights), and falls back to unit length `1.0` for unweighted graphs.
-pub fn ideal_edge_lengths<W: Scalar, S: Scalar>(
+pub fn ideal_edge_lengths<W: Scalar, L: MetricSpace + ?Sized>(
     graph: &CsrGraph<W>,
-    layout: &Layout2d<S>,
+    layout: &L,
 ) -> CoreResult<f64> {
     validate_graph_layout(graph, layout, "ideal_edge_lengths")?;
     let Some(weights) = graph.weights() else {
@@ -144,8 +176,6 @@ pub fn ideal_edge_lengths<W: Scalar, S: Scalar>(
     };
 
     let n = layout.len();
-    let xs = layout.x();
-    let ys = layout.y();
     let directed = graph.is_directed();
     let indptr = graph.indptr();
     let indices = graph.indices();
@@ -153,8 +183,6 @@ pub fn ideal_edge_lengths<W: Scalar, S: Scalar>(
 
     for u in 0..n {
         let u32_u = u as u32;
-        let xu = xs[u].to_f64();
-        let yu = ys[u].to_f64();
         let start = indptr[u] as usize;
         let end = indptr[u + 1] as usize;
         for pos in start..end {
@@ -166,8 +194,7 @@ pub fn ideal_edge_lengths<W: Scalar, S: Scalar>(
             if !target_len.is_finite() || target_len <= 0.0 {
                 continue;
             }
-            let vi = v as usize;
-            let actual = (xu - xs[vi].to_f64()).hypot(yu - ys[vi].to_f64());
+            let actual = layout.distance(u, v as usize);
             let err = (actual - target_len) / target_len;
             sum += err * err;
         }
@@ -176,10 +203,11 @@ pub fn ideal_edge_lengths<W: Scalar, S: Scalar>(
     Ok(sum)
 }
 
-/// Evaluates [`ideal_edge_lengths`] against a uniform `unit_edge_length > 0.0`.
-pub fn ideal_edge_lengths_with_unit<W, S: Scalar>(
+/// Evaluates [`ideal_edge_lengths`] against a uniform `unit_edge_length > 0.0` across any
+/// [`MetricSpace`].
+pub fn ideal_edge_lengths_with_unit<W, L: MetricSpace + ?Sized>(
     graph: &CsrGraph<W>,
-    layout: &Layout2d<S>,
+    layout: &L,
     unit_edge_length: f64,
 ) -> CoreResult<f64> {
     validate_graph_layout(graph, layout, "ideal_edge_lengths_with_unit")?;
@@ -194,27 +222,23 @@ pub fn ideal_edge_lengths_with_unit<W, S: Scalar>(
         ));
     }
 
-    let xs = layout.x();
-    let ys = layout.y();
     let mut sum = 0.0_f64;
     for (u, v) in extract_unique_edges(graph) {
-        let ui = u as usize;
-        let vi = v as usize;
-        let actual = (xs[ui].to_f64() - xs[vi].to_f64()).hypot(ys[ui].to_f64() - ys[vi].to_f64());
+        let actual = layout.distance(u as usize, v as usize);
         let err = (actual - unit_edge_length) / unit_edge_length;
         sum += err * err;
     }
     Ok(sum)
 }
 
-/// Evaluates [`ideal_edge_lengths`] scaled by `unit_edge_length > 0.0`.
+/// Evaluates [`ideal_edge_lengths`] scaled by `unit_edge_length > 0.0` across any [`MetricSpace`].
 ///
 /// Uses `graph.weights() * unit_edge_length` on weighted graphs (skipping edges whose scaled
 /// target length is non-positive or non-finite), and delegates to [`ideal_edge_lengths_with_unit`]
 /// on unweighted graphs.
-pub fn ideal_edge_lengths_scaled<W: Scalar, S: Scalar>(
+pub fn ideal_edge_lengths_scaled<W: Scalar, L: MetricSpace + ?Sized>(
     graph: &CsrGraph<W>,
-    layout: &Layout2d<S>,
+    layout: &L,
     unit_edge_length: f64,
 ) -> CoreResult<f64> {
     validate_graph_layout(graph, layout, "ideal_edge_lengths_scaled")?;
@@ -233,8 +257,6 @@ pub fn ideal_edge_lengths_scaled<W: Scalar, S: Scalar>(
     };
 
     let n = layout.len();
-    let xs = layout.x();
-    let ys = layout.y();
     let directed = graph.is_directed();
     let indptr = graph.indptr();
     let indices = graph.indices();
@@ -242,8 +264,6 @@ pub fn ideal_edge_lengths_scaled<W: Scalar, S: Scalar>(
 
     for u in 0..n {
         let u32_u = u as u32;
-        let xu = xs[u].to_f64();
-        let yu = ys[u].to_f64();
         let start = indptr[u] as usize;
         let end = indptr[u + 1] as usize;
         for pos in start..end {
@@ -255,8 +275,7 @@ pub fn ideal_edge_lengths_scaled<W: Scalar, S: Scalar>(
             if !target_len.is_finite() || target_len <= 0.0 {
                 continue;
             }
-            let vi = v as usize;
-            let actual = (xu - xs[vi].to_f64()).hypot(yu - ys[vi].to_f64());
+            let actual = layout.distance(u, v as usize);
             let err = (actual - target_len) / target_len;
             sum += err * err;
         }
@@ -265,10 +284,11 @@ pub fn ideal_edge_lengths_scaled<W: Scalar, S: Scalar>(
     Ok(sum)
 }
 
-/// Evaluates [`ideal_edge_lengths`] using a flat row-major `N * N` target distance matrix.
-pub fn ideal_edge_lengths_from_distances<W, S: Scalar>(
+/// Evaluates [`ideal_edge_lengths`] using a flat row-major `N * N` target distance matrix across
+/// any [`MetricSpace`].
+pub fn ideal_edge_lengths_from_distances<W, L: MetricSpace + ?Sized>(
     graph: &CsrGraph<W>,
-    layout: &Layout2d<S>,
+    layout: &L,
     distances: &[f64],
 ) -> CoreResult<f64> {
     validate_graph_layout(graph, layout, "ideal_edge_lengths_from_distances")?;
@@ -284,8 +304,6 @@ pub fn ideal_edge_lengths_from_distances<W, S: Scalar>(
         ));
     }
 
-    let xs = layout.x();
-    let ys = layout.y();
     let mut sum = 0.0_f64;
     for (u, v) in extract_unique_edges(graph) {
         let ui = u as usize;
@@ -294,7 +312,7 @@ pub fn ideal_edge_lengths_from_distances<W, S: Scalar>(
         if !target_len.is_finite() || target_len <= 0.0 {
             continue;
         }
-        let actual = (xs[ui].to_f64() - xs[vi].to_f64()).hypot(ys[ui].to_f64() - ys[vi].to_f64());
+        let actual = layout.distance(ui, vi);
         let err = (actual - target_len) / target_len;
         sum += err * err;
     }

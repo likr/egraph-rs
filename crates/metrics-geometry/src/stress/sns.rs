@@ -1,6 +1,7 @@
-use egraph_core::{CoreError, CoreResult, CsrGraph, Layout2d, Scalar};
+use egraph_core::{CoreError, CoreResult, CsrGraph, MetricSpace, Scalar};
+use egraph_linalg::DijkstraWorkspace;
 
-use crate::validate_graph_layout;
+use crate::spatial_index::validate_graph_layout;
 
 use super::StressEvaluation;
 use super::bfs::{BfsScratch, bfs_single_source};
@@ -59,21 +60,87 @@ pub(super) fn finalize_moments(m: &SnsMoments) -> Option<StressEvaluation> {
     })
 }
 
+/// Computes Miller et al. (2024) Eq. (2) Geodesic Distortion in `[0.0, inf)` over `graph` and
+/// `layout` without post-hoc optimal $\alpha^*$ rescaling:
+/// $$\frac{1}{|P|} \sum_{(i, j) \in P} \frac{|d(x_i, x_j) - D_{ij}|}{D_{ij}}.$$
+///
+/// Uses BFS hop distances (`1.0` per edge) on unweighted graphs and Dijkstra shortest-path
+/// distances on weighted graphs, matching [`scale_normalized_stress`]. Evaluates undirected pairs
+/// `i < j` or directed pairs `i != j` with `0 < D_{ij} < inf`, returning `0.0` when $|P| = 0$.
+pub fn geodesic_distortion<W: Scalar, L: MetricSpace + ?Sized>(
+    graph: &CsrGraph<W>,
+    layout: &L,
+) -> CoreResult<f64> {
+    validate_graph_layout(graph, layout, "geodesic_distortion")?;
+    let n = layout.len();
+    if n <= 1 {
+        return Ok(0.0);
+    }
+
+    let directed = graph.is_directed();
+    let weighted = graph.is_weighted();
+    let mut bfs_scratch = if !weighted {
+        Some(BfsScratch::new(n))
+    } else {
+        None
+    };
+    let mut dijkstra_ws = if weighted {
+        Some(DijkstraWorkspace::new(n))
+    } else {
+        None
+    };
+    let mut dijkstra_buf = if weighted {
+        vec![f64::INFINITY; n]
+    } else {
+        Vec::new()
+    };
+
+    let mut sum_rel_err = 0.0_f64;
+    let mut pair_count = 0usize;
+
+    for i in 0..n {
+        let dists: &[f64] = if let Some(ws) = dijkstra_ws.as_mut() {
+            ws.dijkstra_from(graph, i, &mut dijkstra_buf)?;
+            &dijkstra_buf
+        } else if let Some(scratch) = bfs_scratch.as_mut() {
+            bfs_single_source(graph, i, 1.0, scratch)?
+        } else {
+            &[]
+        };
+
+        let j_start = if directed { 0 } else { i + 1 };
+        for (j, &d) in dists.iter().enumerate().skip(j_start) {
+            if j == i || !d.is_finite() || d <= 0.0 {
+                continue;
+            }
+            let r = layout.distance(i, j);
+            sum_rel_err += (r - d).abs() / d;
+            pair_count += 1;
+        }
+    }
+
+    if pair_count == 0 {
+        Ok(0.0)
+    } else {
+        Ok(sum_rel_err / pair_count as f64)
+    }
+}
+
 /// Computes closed-form Scale-Normalized Stress (`SNS`) in `[0.0, 1.0]` over `graph` and `layout`.
 ///
 /// Uses unweighted BFS hop distances (`1.0` per edge) with stress weights $w_{ij} = d_{ij}^{-2}$,
-/// $O(N)$ scratch memory via [`BfsScratch`], and `f64` accumulation.
-pub fn scale_normalized_stress<W, S: Scalar>(
+/// $O(N)$ scratch memory via [`BfsScratch`], and `f64` accumulation across any [`MetricSpace`].
+pub fn scale_normalized_stress<W, L: MetricSpace + ?Sized>(
     graph: &CsrGraph<W>,
-    layout: &Layout2d<S>,
+    layout: &L,
 ) -> CoreResult<f64> {
     Ok(scale_normalized_stress_detail(graph, layout)?.normalized_stress)
 }
 
 /// Computes full [`StressEvaluation`] details for closed-form `SNS` over `graph` and `layout`.
-pub fn scale_normalized_stress_detail<W, S: Scalar>(
+pub fn scale_normalized_stress_detail<W, L: MetricSpace + ?Sized>(
     graph: &CsrGraph<W>,
-    layout: &Layout2d<S>,
+    layout: &L,
 ) -> CoreResult<StressEvaluation> {
     validate_graph_layout(graph, layout, "scale_normalized_stress")?;
     let n = layout.len();
@@ -81,22 +148,18 @@ pub fn scale_normalized_stress_detail<W, S: Scalar>(
         return Ok(StressEvaluation::default());
     }
 
-    let xs = layout.x();
-    let ys = layout.y();
     let mut scratch = BfsScratch::new(n);
     let mut moments = SnsMoments::default();
     let directed = graph.is_directed();
 
     for i in 0..n {
-        let xi = xs[i].to_f64();
-        let yi = ys[i].to_f64();
         let dists = bfs_single_source(graph, i, 1.0, &mut scratch)?;
         let j_start = if directed { 0 } else { i + 1 };
         for (j, &d) in dists.iter().enumerate().skip(j_start) {
             if j == i || !d.is_finite() || d <= 0.0 {
                 continue;
             }
-            let r = (xi - xs[j].to_f64()).hypot(yi - ys[j].to_f64());
+            let r = layout.distance(i, j);
             let w = 1.0 / (d * d);
             moments.push(r, d, w);
         }
@@ -109,15 +172,13 @@ pub fn scale_normalized_stress_detail<W, S: Scalar>(
     let alpha_star = moments.sum_w_d_r / moments.sum_w_r2;
     let mut raw_stress = 0.0_f64;
     for i in 0..n {
-        let xi = xs[i].to_f64();
-        let yi = ys[i].to_f64();
         let dists = bfs_single_source(graph, i, 1.0, &mut scratch)?;
         let j_start = if directed { 0 } else { i + 1 };
         for (j, &d) in dists.iter().enumerate().skip(j_start) {
             if j == i || !d.is_finite() || d <= 0.0 {
                 continue;
             }
-            let r = (xi - xs[j].to_f64()).hypot(yi - ys[j].to_f64());
+            let r = layout.distance(i, j);
             let err = (alpha_star * r - d) / d;
             raw_stress += err * err;
         }
@@ -134,8 +195,8 @@ pub fn scale_normalized_stress_detail<W, S: Scalar>(
 
 /// Computes closed-form Scale-Normalized Stress (`SNS`) from a precomputed flat row-major `N * N`
 /// `distances` matrix and optional `weights` matrix (`w_ij = 1 / d_ij^2` when `None`).
-pub fn scale_normalized_stress_from_distances<S: Scalar>(
-    layout: &Layout2d<S>,
+pub fn scale_normalized_stress_from_distances<L: MetricSpace + ?Sized>(
+    layout: &L,
     distances: &[f64],
     weights: Option<&[f64]>,
 ) -> CoreResult<f64> {
@@ -147,7 +208,7 @@ pub fn scale_normalized_stress_from_distances<S: Scalar>(
 
 const DISTANCE_SYMMETRY_TOL: f64 = 1e-9;
 
-pub(super) fn validate_distance_matrix_symmetry(distances: &[f64], n: usize) -> CoreResult<()> {
+fn validate_distance_matrix_symmetry(distances: &[f64], n: usize) -> CoreResult<()> {
     for i in 0..n {
         let row_i = i * n;
         for j in (i + 1)..n {
@@ -171,8 +232,8 @@ pub(super) fn validate_distance_matrix_symmetry(distances: &[f64], n: usize) -> 
 }
 
 /// Computes full [`StressEvaluation`] details from precomputed `N * N` `distances` and optional `weights`.
-pub fn scale_normalized_stress_from_distances_detail<S: Scalar>(
-    layout: &Layout2d<S>,
+pub fn scale_normalized_stress_from_distances_detail<L: MetricSpace + ?Sized>(
+    layout: &L,
     distances: &[f64],
     weights: Option<&[f64]>,
 ) -> CoreResult<StressEvaluation> {
@@ -202,13 +263,8 @@ pub fn scale_normalized_stress_from_distances_detail<S: Scalar>(
     }
     validate_distance_matrix_symmetry(distances, n)?;
 
-    let xs = layout.x();
-    let ys = layout.y();
     let mut moments = SnsMoments::default();
-
     for i in 0..n {
-        let xi = xs[i].to_f64();
-        let yi = ys[i].to_f64();
         let row = i * n;
         for j in (i + 1)..n {
             let d = distances[row + j];
@@ -235,7 +291,7 @@ pub fn scale_normalized_stress_from_distances_detail<S: Scalar>(
                 }
                 None => 1.0 / (d * d),
             };
-            let r = (xi - xs[j].to_f64()).hypot(yi - ys[j].to_f64());
+            let r = layout.distance(i, j);
             moments.push(r, d, w);
         }
     }
@@ -262,8 +318,6 @@ pub fn scale_normalized_stress_from_distances_detail<S: Scalar>(
     let alpha_star = moments.sum_w_d_r / moments.sum_w_r2;
     let mut raw_stress = 0.0_f64;
     for i in 0..n {
-        let xi = xs[i].to_f64();
-        let yi = ys[i].to_f64();
         let row = i * n;
         for j in (i + 1)..n {
             let d = distances[row + j];
@@ -280,7 +334,7 @@ pub fn scale_normalized_stress_from_distances_detail<S: Scalar>(
                 }
                 None => 1.0 / (d * d),
             };
-            let r = (xi - xs[j].to_f64()).hypot(yi - ys[j].to_f64());
+            let r = layout.distance(i, j);
             let diff = alpha_star * r - d;
             raw_stress += w * diff * diff;
         }
@@ -296,14 +350,12 @@ pub fn scale_normalized_stress_from_distances_detail<S: Scalar>(
 }
 
 /// Computes closed-form Scale-Normalized Stress (`SNS`) from sparse `(i, j, d_ij, w_ij)` pairs.
-pub fn scale_normalized_stress_from_pairs<S: Scalar>(
-    layout: &Layout2d<S>,
+pub fn scale_normalized_stress_from_pairs<L: MetricSpace + ?Sized>(
+    layout: &L,
     pairs: &[(u32, u32, f64, f64)],
 ) -> CoreResult<StressEvaluation> {
     layout.validate_finite()?;
     let n = layout.len();
-    let xs = layout.x();
-    let ys = layout.y();
     let mut moments = SnsMoments::default();
 
     for &(u, v, d, w) in pairs {
@@ -329,7 +381,7 @@ pub fn scale_normalized_stress_from_pairs<S: Scalar>(
         if ui == vi || !d.is_finite() || d <= 0.0 || w == 0.0 {
             continue;
         }
-        let r = (xs[ui].to_f64() - xs[vi].to_f64()).hypot(ys[ui].to_f64() - ys[vi].to_f64());
+        let r = layout.distance(ui, vi);
         moments.push(r, d, w);
     }
 
@@ -360,7 +412,7 @@ pub fn scale_normalized_stress_from_pairs<S: Scalar>(
         if ui == vi || !d.is_finite() || d <= 0.0 || w == 0.0 {
             continue;
         }
-        let r = (xs[ui].to_f64() - xs[vi].to_f64()).hypot(ys[ui].to_f64() - ys[vi].to_f64());
+        let r = layout.distance(ui, vi);
         let diff = alpha_star * r - d;
         raw_stress += w * diff * diff;
     }

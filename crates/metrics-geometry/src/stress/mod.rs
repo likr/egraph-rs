@@ -7,40 +7,24 @@
 //! accumulated in `f64`.
 
 mod bfs;
-mod manifold;
-mod nd;
 mod sampled;
 mod sns;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
-mod tests_manifold;
-#[cfg(test)]
-mod tests_nd;
+mod tests_spaces;
 
 pub use bfs::{BfsScratch, all_pairs_bfs, all_pairs_bfs_into, bfs_single_source};
-pub use manifold::{
-    geodesic_distortion, sampled_scale_normalized_stress_detail_manifold,
-    sampled_scale_normalized_stress_manifold, scale_normalized_stress_detail_manifold,
-    scale_normalized_stress_from_distances_detail_manifold,
-    scale_normalized_stress_from_distances_manifold, scale_normalized_stress_from_pairs_manifold,
-    scale_normalized_stress_manifold,
-};
-pub use nd::{
-    sampled_scale_normalized_stress_detail_nd, sampled_scale_normalized_stress_nd,
-    scale_normalized_stress_detail_nd, scale_normalized_stress_from_distances_detail_nd,
-    scale_normalized_stress_from_distances_nd, scale_normalized_stress_from_pairs_nd,
-    scale_normalized_stress_nd,
-};
 pub use sampled::{sampled_scale_normalized_stress, sampled_scale_normalized_stress_detail};
 pub use sns::{
-    scale_normalized_stress, scale_normalized_stress_detail,
+    geodesic_distortion, scale_normalized_stress, scale_normalized_stress_detail,
     scale_normalized_stress_from_distances, scale_normalized_stress_from_distances_detail,
     scale_normalized_stress_from_pairs,
 };
 
 /// Detailed result from evaluating closed-form Scale-Normalized Stress (`SNS`).
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct StressEvaluation {
     /// Scale-normalized stress divided by $\sum w_{ij} d_{ij}^2$, lying in `[0.0, 1.0]`
     /// (equals mean relative squared error over evaluated pairs when $w_{ij} = d_{ij}^{-2}$).

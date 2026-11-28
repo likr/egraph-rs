@@ -1,279 +1,299 @@
 //! Spatial proximity metrics (`gabriel_graph_property`, `node_resolution`, and Eades et al.
-//! 2017 unweighted shape-based `S_RNG` / `S_GG`) accelerated via `StaticKdTree<2, f64>`.
+//! 2017 unweighted shape-based `S_RNG` / `S_GG`) across arbitrary [`MetricSpace`] layouts,
+//! accelerated via [`NearestNeighborIndex`] for Euclidean spaces.
 
+mod euclidean_pruning;
 pub(crate) mod exact_predicates;
-mod manifold;
-mod nd;
+mod metric_fallback;
 mod sector_pruning;
 #[cfg(test)]
 mod tests;
-#[cfg(test)]
-mod tests_manifold;
-#[cfg(test)]
-mod tests_nd;
 
-#[doc(hidden)]
-pub use manifold::{
-    gabriel_graph_edges_manifold, manifold_geodesic_diameter, manifold_geodesic_interpolate_point,
-    manifold_point_distance_to_node, relative_neighborhood_edges_manifold,
+use egraph_core::{CoreResult, CsrGraph, EuclideanLayout, MetricSpace, VisitStamp};
+use egraph_spatial_trees::NearestNeighborIndex;
+
+use crate::build_undirected_adjacency;
+use crate::spatial_index::{try_build_spatial_index, validate_graph_layout, validate_index_layout};
+
+use euclidean_pruning::{
+    gabriel_graph_property_euclidean_with_index, node_resolution_euclidean_with_index,
+    proximity_edges_euclidean_with_index,
 };
-pub use manifold::{
-    gabriel_graph_preservation_manifold, gabriel_graph_property_manifold, node_resolution_manifold,
-    relative_neighborhood_preservation_manifold,
+use metric_fallback::{
+    gabriel_graph_edges_metric, gabriel_graph_property_metric, node_resolution_metric,
+    relative_neighborhood_edges_metric,
 };
-
-pub use nd::{
-    gabriel_graph_edges_nd, gabriel_graph_edges_nd_with_index, gabriel_graph_preservation_nd,
-    gabriel_graph_preservation_nd_with_index, gabriel_graph_property_nd,
-    gabriel_graph_property_nd_with_index, node_resolution_nd, node_resolution_nd_with_index,
-    relative_neighborhood_edges_nd, relative_neighborhood_edges_nd_with_index,
-    relative_neighborhood_preservation_nd, relative_neighborhood_preservation_nd_with_index,
-};
-
-use egraph_core::{CoreResult, CsrGraph, Layout2d, Scalar, VisitStamp};
-use egraph_spatial_trees::StaticKdTree;
-
-use crate::{
-    build_kdtree_f64, build_undirected_adjacency, extract_unique_edges, validate_graph_layout,
-    validate_tree_layout,
-};
-
-use exact_predicates::euclidean_diameter_2d;
-use sector_pruning::{ProximityMode, proximity_edges_with_tree};
+use sector_pruning::ProximityMode;
 
 /// Evaluates violations of the Gabriel graph condition across all unique edges yielded by
-/// `extract_unique_edges(graph)`.
+/// `extract_unique_edges(graph)` on any [`MetricSpace`].
 ///
-/// For each edge `(u, v)`, computes the disk with diameter $\overline{uv}$ (center $c_{uv}$,
-/// radius $r_{uv}$) and accumulates $\max(0, r_{uv} - \|p_i - c_{uv}\|)^2$ over vertices
-/// inside the disk via [`StaticKdTree::within_radius_into`]. On directed graphs, every stored
-/// directed edge `(u, v)` is evaluated independently (so reciprocal pairs `(u, v)` and `(v, u)`
-/// are both summed), and zero-length edges (`r_{uv} <= 0.0`) are skipped.
-pub fn gabriel_graph_property<W, S: Scalar>(
+/// For Euclidean layouts, accelerates diametral-ball queries via [`NearestNeighborIndex`]. For
+/// `ManifoldLayout2d`, uses exact geodesic midpoints and manifold distances. On directed graphs,
+/// every stored directed edge `(u, v)` is evaluated independently, and zero-length edges are
+/// skipped.
+pub fn gabriel_graph_property<W, L: MetricSpace + 'static>(
     graph: &CsrGraph<W>,
-    layout: &Layout2d<S>,
+    layout: &L,
 ) -> CoreResult<f64> {
     validate_graph_layout(graph, layout, "gabriel_graph_property")?;
     if layout.len() <= 2 || graph.num_edges() == 0 {
         return Ok(0.0);
     }
-    let tree = build_kdtree_f64(layout)?;
-    gabriel_graph_property_with_tree(graph, layout, &tree)
+    if let Some(index) = try_build_spatial_index(layout)? {
+        return gabriel_graph_property_metric_or_euclidean(graph, layout, index.as_ref());
+    }
+    gabriel_graph_property_metric(graph, layout)
 }
 
-/// Computes [`gabriel_graph_property`] reusing a prebuilt [`StaticKdTree<2, f64>`].
-pub fn gabriel_graph_property_with_tree<W, S: Scalar>(
+fn gabriel_graph_property_metric_or_euclidean<W, L: MetricSpace + 'static>(
     graph: &CsrGraph<W>,
-    layout: &Layout2d<S>,
-    tree: &StaticKdTree<2, f64>,
+    layout: &L,
+    index: &dyn NearestNeighborIndex,
 ) -> CoreResult<f64> {
-    validate_graph_layout(graph, layout, "gabriel_graph_property_with_tree")?;
-    validate_tree_layout(tree, layout, "gabriel_graph_property_with_tree")?;
-    let n = layout.len();
-    if n <= 2 || graph.num_edges() == 0 {
-        return Ok(0.0);
+    let any: &dyn std::any::Any = layout;
+    if let Some(l) = any.downcast_ref::<egraph_core::Layout2d<f64>>() {
+        return gabriel_graph_property_euclidean_with_index(graph, l, index);
     }
-
-    let xs = layout.x();
-    let ys = layout.y();
-    let edges = extract_unique_edges(graph);
-    let mut disk_buf: Vec<(usize, f64)> = Vec::new();
-    let mut violation_sum = 0.0_f64;
-
-    for (u, v) in edges {
-        let ui = u as usize;
-        let vi = v as usize;
-        let x1 = xs[ui].to_f64();
-        let y1 = ys[ui].to_f64();
-        let x2 = xs[vi].to_f64();
-        let y2 = ys[vi].to_f64();
-        let r = 0.5 * (x1 - x2).hypot(y1 - y2);
-        if r <= 0.0 {
-            continue;
-        }
-        let cx = 0.5 * (x1 + x2);
-        let cy = 0.5 * (y1 + y2);
-        tree.within_radius_into(&[cx, cy], r, &mut disk_buf)?;
-        for &(idx, d_sq) in &disk_buf {
-            if idx == ui || idx == vi {
-                continue;
-            }
-            let dist = d_sq.sqrt();
-            if dist < r {
-                let viol = r - dist;
-                violation_sum += viol * viol;
-            }
-        }
+    if let Some(l) = any.downcast_ref::<egraph_core::Layout2d<f32>>() {
+        return gabriel_graph_property_euclidean_with_index(graph, l, index);
     }
-
-    Ok(violation_sum)
+    if let Some(l) = any.downcast_ref::<egraph_core::Layout3d<f64>>() {
+        return gabriel_graph_property_euclidean_with_index(graph, l, index);
+    }
+    if let Some(l) = any.downcast_ref::<egraph_core::Layout3d<f32>>() {
+        return gabriel_graph_property_euclidean_with_index(graph, l, index);
+    }
+    if let Some(l) = any.downcast_ref::<egraph_core::LayoutNd<f64>>() {
+        return gabriel_graph_property_euclidean_with_index(graph, l, index);
+    }
+    if let Some(l) = any.downcast_ref::<egraph_core::LayoutNd<f32>>() {
+        return gabriel_graph_property_euclidean_with_index(graph, l, index);
+    }
+    gabriel_graph_property_metric(graph, layout)
 }
 
-/// Computes the one-sided hinge node-resolution violation penalty:
-/// $\sum_{0 \le i < j < N} \max\left(0, 1 - \frac{\|x_i - x_j\|}{r \cdot d_{\max}}\right)^2$,
-/// where $r = 1 / \sqrt{N}$ and $d_{\max}$ is the exact Euclidean diameter of `layout`.
-pub fn node_resolution<S: Scalar>(layout: &Layout2d<S>) -> CoreResult<f64> {
+/// Computes [`gabriel_graph_property`] reusing a prebuilt [`NearestNeighborIndex`].
+pub fn gabriel_graph_property_with_index<
+    W,
+    L: EuclideanLayout + ?Sized,
+    I: NearestNeighborIndex + ?Sized,
+>(
+    graph: &CsrGraph<W>,
+    layout: &L,
+    index: &I,
+) -> CoreResult<f64> {
+    validate_graph_layout(graph, layout, "gabriel_graph_property_with_index")?;
+    validate_index_layout(index, layout, "gabriel_graph_property_with_index")?;
+    if layout.len() <= 2 || graph.num_edges() == 0 {
+        return Ok(0.0);
+    }
+    gabriel_graph_property_euclidean_with_index(graph, layout, index)
+}
+
+/// Computes the one-sided hinge node-resolution violation penalty across any [`MetricSpace`]:
+/// $\sum_{0 \le i < j < N} \max\left(0, 1 - \frac{d(x_i, x_j)}{r \cdot d_{\max}}\right)^2$,
+/// where $r = 1 / \sqrt{N}$ and $d_{\max}$ is the exact diameter of `layout`.
+pub fn node_resolution<L: MetricSpace + 'static>(layout: &L) -> CoreResult<f64> {
     layout.validate_finite()?;
     let n = layout.len();
     if n <= 1 {
         return Ok(0.0);
     }
-    let tree = build_kdtree_f64(layout)?;
-    node_resolution_with_tree(layout, &tree)
-}
-
-/// Computes [`node_resolution`] reusing a prebuilt [`StaticKdTree<2, f64>`].
-pub fn node_resolution_with_tree<S: Scalar>(
-    layout: &Layout2d<S>,
-    tree: &StaticKdTree<2, f64>,
-) -> CoreResult<f64> {
-    layout.validate_finite()?;
-    validate_tree_layout(tree, layout, "node_resolution_with_tree")?;
-    let n = layout.len();
-    if n <= 1 {
-        return Ok(0.0);
-    }
-
-    let d_max = euclidean_diameter_2d(layout);
-    if d_max <= 0.0 {
-        // Completely collapsed layout: every pair sits at distance 0 < ideal spacing.
-        let num_pairs = (n as f64) * ((n - 1) as f64) * 0.5;
-        return Ok(num_pairs);
-    }
-
-    let threshold = d_max / (n as f64).sqrt();
-    let xs = layout.x();
-    let ys = layout.y();
-    let mut buf: Vec<(usize, f64)> = Vec::new();
-    let mut sum = 0.0_f64;
-
-    for i in 0..n {
-        let q = [xs[i].to_f64(), ys[i].to_f64()];
-        tree.within_radius_into(&q, threshold, &mut buf)?;
-        for &(j, d_sq) in &buf {
-            if j <= i {
-                continue;
-            }
-            let dist = d_sq.sqrt();
-            if dist < threshold {
-                let hinge = 1.0 - dist / threshold;
-                sum += hinge * hinge;
-            }
+    if let Some(index) = try_build_spatial_index(layout)? {
+        let any: &dyn std::any::Any = layout;
+        if let Some(l) = any.downcast_ref::<egraph_core::Layout2d<f64>>() {
+            return node_resolution_euclidean_with_index(l, index.as_ref());
+        }
+        if let Some(l) = any.downcast_ref::<egraph_core::Layout2d<f32>>() {
+            return node_resolution_euclidean_with_index(l, index.as_ref());
+        }
+        if let Some(l) = any.downcast_ref::<egraph_core::Layout3d<f64>>() {
+            return node_resolution_euclidean_with_index(l, index.as_ref());
+        }
+        if let Some(l) = any.downcast_ref::<egraph_core::Layout3d<f32>>() {
+            return node_resolution_euclidean_with_index(l, index.as_ref());
+        }
+        if let Some(l) = any.downcast_ref::<egraph_core::LayoutNd<f64>>() {
+            return node_resolution_euclidean_with_index(l, index.as_ref());
+        }
+        if let Some(l) = any.downcast_ref::<egraph_core::LayoutNd<f32>>() {
+            return node_resolution_euclidean_with_index(l, index.as_ref());
         }
     }
+    Ok(node_resolution_metric(layout))
+}
 
-    Ok(sum)
+/// Computes [`node_resolution`] reusing a prebuilt [`NearestNeighborIndex`].
+pub fn node_resolution_with_index<L: EuclideanLayout + ?Sized, I: NearestNeighborIndex + ?Sized>(
+    layout: &L,
+    index: &I,
+) -> CoreResult<f64> {
+    layout.validate_finite()?;
+    validate_index_layout(index, layout, "node_resolution_with_index")?;
+    if layout.len() <= 1 {
+        return Ok(0.0);
+    }
+    node_resolution_euclidean_with_index(layout, index)
+}
+
+fn dispatch_proximity_edges<L: MetricSpace + 'static>(
+    layout: &L,
+    mode: ProximityMode,
+) -> CoreResult<Vec<(u32, u32)>> {
+    if let Some(index) = try_build_spatial_index(layout)? {
+        let any: &dyn std::any::Any = layout;
+        if let Some(l) = any.downcast_ref::<egraph_core::Layout2d<f64>>() {
+            return proximity_edges_euclidean_with_index(l, index.as_ref(), mode);
+        }
+        if let Some(l) = any.downcast_ref::<egraph_core::Layout2d<f32>>() {
+            return proximity_edges_euclidean_with_index(l, index.as_ref(), mode);
+        }
+        if let Some(l) = any.downcast_ref::<egraph_core::Layout3d<f64>>() {
+            return proximity_edges_euclidean_with_index(l, index.as_ref(), mode);
+        }
+        if let Some(l) = any.downcast_ref::<egraph_core::Layout3d<f32>>() {
+            return proximity_edges_euclidean_with_index(l, index.as_ref(), mode);
+        }
+        if let Some(l) = any.downcast_ref::<egraph_core::LayoutNd<f64>>() {
+            return proximity_edges_euclidean_with_index(l, index.as_ref(), mode);
+        }
+        if let Some(l) = any.downcast_ref::<egraph_core::LayoutNd<f32>>() {
+            return proximity_edges_euclidean_with_index(l, index.as_ref(), mode);
+        }
+    }
+    match mode {
+        ProximityMode::RelativeNeighborhood => Ok(relative_neighborhood_edges_metric(layout)),
+        ProximityMode::Gabriel => gabriel_graph_edges_metric(layout),
+    }
 }
 
 /// Extracts exact undirected Relative Neighborhood Graph (`RNG`) edges `(u, v)` (`u < v`)
-/// over the 2D coordinates in `layout`.
-pub fn relative_neighborhood_edges<S: Scalar>(layout: &Layout2d<S>) -> CoreResult<Vec<(u32, u32)>> {
-    let tree = build_kdtree_f64(layout)?;
-    relative_neighborhood_edges_with_tree(layout, &tree)
-}
-
-/// Extracts [`relative_neighborhood_edges`] reusing a prebuilt [`StaticKdTree<2, f64>`].
-pub fn relative_neighborhood_edges_with_tree<S: Scalar>(
-    layout: &Layout2d<S>,
-    tree: &StaticKdTree<2, f64>,
+/// across any [`MetricSpace`].
+pub fn relative_neighborhood_edges<L: MetricSpace + 'static>(
+    layout: &L,
 ) -> CoreResult<Vec<(u32, u32)>> {
     layout.validate_finite()?;
-    validate_tree_layout(tree, layout, "relative_neighborhood_edges_with_tree")?;
-    proximity_edges_with_tree(layout, tree, ProximityMode::RelativeNeighborhood)
+    dispatch_proximity_edges(layout, ProximityMode::RelativeNeighborhood)
+}
+
+/// Extracts [`relative_neighborhood_edges`] reusing a prebuilt [`NearestNeighborIndex`].
+pub fn relative_neighborhood_edges_with_index<
+    L: EuclideanLayout + ?Sized,
+    I: NearestNeighborIndex + ?Sized,
+>(
+    layout: &L,
+    index: &I,
+) -> CoreResult<Vec<(u32, u32)>> {
+    layout.validate_finite()?;
+    validate_index_layout(index, layout, "relative_neighborhood_edges_with_index")?;
+    proximity_edges_euclidean_with_index(layout, index, ProximityMode::RelativeNeighborhood)
 }
 
 /// Extracts exact undirected Gabriel Graph (`GG`) edges `(u, v)` (`u < v`)
-/// over the 2D coordinates in `layout`.
-pub fn gabriel_graph_edges<S: Scalar>(layout: &Layout2d<S>) -> CoreResult<Vec<(u32, u32)>> {
-    let tree = build_kdtree_f64(layout)?;
-    gabriel_graph_edges_with_tree(layout, &tree)
+/// across any [`MetricSpace`].
+pub fn gabriel_graph_edges<L: MetricSpace + 'static>(layout: &L) -> CoreResult<Vec<(u32, u32)>> {
+    layout.validate_finite()?;
+    dispatch_proximity_edges(layout, ProximityMode::Gabriel)
 }
 
-/// Extracts [`gabriel_graph_edges`] reusing a prebuilt [`StaticKdTree<2, f64>`].
-pub fn gabriel_graph_edges_with_tree<S: Scalar>(
-    layout: &Layout2d<S>,
-    tree: &StaticKdTree<2, f64>,
+/// Extracts [`gabriel_graph_edges`] reusing a prebuilt [`NearestNeighborIndex`].
+pub fn gabriel_graph_edges_with_index<
+    L: EuclideanLayout + ?Sized,
+    I: NearestNeighborIndex + ?Sized,
+>(
+    layout: &L,
+    index: &I,
 ) -> CoreResult<Vec<(u32, u32)>> {
     layout.validate_finite()?;
-    validate_tree_layout(tree, layout, "gabriel_graph_edges_with_tree")?;
-    proximity_edges_with_tree(layout, tree, ProximityMode::Gabriel)
+    validate_index_layout(index, layout, "gabriel_graph_edges_with_index")?;
+    proximity_edges_euclidean_with_index(layout, index, ProximityMode::Gabriel)
 }
 
 /// Computes Eades et al. (2017) unweighted shape-based Relative Neighborhood Graph preservation
 /// (`S_RNG`) in `[0.0, 1.0]` as Mean Jaccard Similarity (`MJS`) between undirected graph
-/// 1-hop neighborhoods and spatial `RNG(layout)`.
+/// 1-hop neighborhoods and spatial `RNG(layout)` across any [`MetricSpace`].
 ///
 /// Note: This implements the classical unweighted `S_RNG` metric of Eades et al. (JGAA 2017),
 /// not Hong et al. (PacificVis 2022) degree-sensitive `dRNG` or Fang et al. (PacificVis 2025)
-/// degree-constrained `dcRNG` (both deferred pending primary specification PDFs). Input graphs
-/// are deduplicated as undirected simple neighborhoods (directed graphs are symmetrized and
-/// self-loops are excluded). Returns `0.0` for `N == 0`, and scores `N == 1` or mutually
-/// isolated vertices (`deg_G == 0 && deg_RNG == 0`) as `1.0` (`0/0` convention).
-pub fn relative_neighborhood_preservation<W, S: Scalar>(
+/// degree-constrained `dcRNG`. Input graphs are deduplicated as undirected simple neighborhoods.
+/// Returns `0.0` for `N == 0`, and scores `N == 1` or mutually isolated vertices as `1.0`.
+pub fn relative_neighborhood_preservation<W, L: MetricSpace + 'static>(
     graph: &CsrGraph<W>,
-    layout: &Layout2d<S>,
+    layout: &L,
 ) -> CoreResult<f64> {
     validate_graph_layout(graph, layout, "relative_neighborhood_preservation")?;
     if layout.is_empty() {
         return Ok(0.0);
     }
-    let tree = build_kdtree_f64(layout)?;
-    relative_neighborhood_preservation_with_tree(graph, layout, &tree)
+    let rng_edges = dispatch_proximity_edges(layout, ProximityMode::RelativeNeighborhood)?;
+    Ok(mean_jaccard_graph_vs_edges(graph, &rng_edges))
 }
 
-/// Computes [`relative_neighborhood_preservation`] reusing a prebuilt [`StaticKdTree<2, f64>`].
-pub fn relative_neighborhood_preservation_with_tree<W, S: Scalar>(
+/// Computes [`relative_neighborhood_preservation`] reusing a prebuilt [`NearestNeighborIndex`].
+pub fn relative_neighborhood_preservation_with_index<
+    W,
+    L: EuclideanLayout + ?Sized,
+    I: NearestNeighborIndex + ?Sized,
+>(
     graph: &CsrGraph<W>,
-    layout: &Layout2d<S>,
-    tree: &StaticKdTree<2, f64>,
+    layout: &L,
+    index: &I,
 ) -> CoreResult<f64> {
     validate_graph_layout(
         graph,
         layout,
-        "relative_neighborhood_preservation_with_tree",
+        "relative_neighborhood_preservation_with_index",
     )?;
-    validate_tree_layout(tree, layout, "relative_neighborhood_preservation_with_tree")?;
+    validate_index_layout(
+        index,
+        layout,
+        "relative_neighborhood_preservation_with_index",
+    )?;
     if layout.is_empty() {
         return Ok(0.0);
     }
-    let rng_edges = proximity_edges_with_tree(layout, tree, ProximityMode::RelativeNeighborhood)?;
+    let rng_edges =
+        proximity_edges_euclidean_with_index(layout, index, ProximityMode::RelativeNeighborhood)?;
     Ok(mean_jaccard_graph_vs_edges(graph, &rng_edges))
 }
 
 /// Computes Eades et al. (2017) unweighted shape-based Gabriel Graph preservation (`S_GG`)
 /// in `[0.0, 1.0]` as Mean Jaccard Similarity (`MJS`) between undirected graph 1-hop
-/// neighborhoods and spatial `GG(layout)`.
+/// neighborhoods and spatial `GG(layout)` across any [`MetricSpace`].
 ///
 /// Note: This implements the classical unweighted `S_GG` metric of Eades et al. (JGAA 2017),
 /// not Hong et al. (PacificVis 2022) degree-sensitive `dGG` or Fang et al. (PacificVis 2025)
-/// degree-constrained `dcGG` (both deferred pending primary specification PDFs). Input graphs
-/// are deduplicated as undirected simple neighborhoods (directed graphs are symmetrized and
-/// self-loops are excluded). Returns `0.0` for `N == 0`, and scores `N == 1` or mutually
-/// isolated vertices (`deg_G == 0 && deg_GG == 0`) as `1.0` (`0/0` convention).
-pub fn gabriel_graph_preservation<W, S: Scalar>(
+/// degree-constrained `dcGG`. Input graphs are deduplicated as undirected simple neighborhoods.
+/// Returns `0.0` for `N == 0`, and scores `N == 1` or mutually isolated vertices as `1.0`.
+pub fn gabriel_graph_preservation<W, L: MetricSpace + 'static>(
     graph: &CsrGraph<W>,
-    layout: &Layout2d<S>,
+    layout: &L,
 ) -> CoreResult<f64> {
     validate_graph_layout(graph, layout, "gabriel_graph_preservation")?;
     if layout.is_empty() {
         return Ok(0.0);
     }
-    let tree = build_kdtree_f64(layout)?;
-    gabriel_graph_preservation_with_tree(graph, layout, &tree)
+    let gg_edges = dispatch_proximity_edges(layout, ProximityMode::Gabriel)?;
+    Ok(mean_jaccard_graph_vs_edges(graph, &gg_edges))
 }
 
-/// Computes [`gabriel_graph_preservation`] reusing a prebuilt [`StaticKdTree<2, f64>`].
-pub fn gabriel_graph_preservation_with_tree<W, S: Scalar>(
+/// Computes [`gabriel_graph_preservation`] reusing a prebuilt [`NearestNeighborIndex`].
+pub fn gabriel_graph_preservation_with_index<
+    W,
+    L: EuclideanLayout + ?Sized,
+    I: NearestNeighborIndex + ?Sized,
+>(
     graph: &CsrGraph<W>,
-    layout: &Layout2d<S>,
-    tree: &StaticKdTree<2, f64>,
+    layout: &L,
+    index: &I,
 ) -> CoreResult<f64> {
-    validate_graph_layout(graph, layout, "gabriel_graph_preservation_with_tree")?;
-    validate_tree_layout(tree, layout, "gabriel_graph_preservation_with_tree")?;
+    validate_graph_layout(graph, layout, "gabriel_graph_preservation_with_index")?;
+    validate_index_layout(index, layout, "gabriel_graph_preservation_with_index")?;
     if layout.is_empty() {
         return Ok(0.0);
     }
-    let gg_edges = proximity_edges_with_tree(layout, tree, ProximityMode::Gabriel)?;
+    let gg_edges = proximity_edges_euclidean_with_index(layout, index, ProximityMode::Gabriel)?;
     Ok(mean_jaccard_graph_vs_edges(graph, &gg_edges))
 }
 

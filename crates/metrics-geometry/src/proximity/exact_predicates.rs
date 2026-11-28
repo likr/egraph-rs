@@ -1,6 +1,8 @@
 use std::cmp::Ordering;
 
-use egraph_core::{Layout2d, Scalar};
+#[cfg(test)]
+use egraph_core::Layout2d;
+use egraph_core::Scalar;
 
 #[inline]
 pub(super) fn dist_sq_2d(a: [f64; 2], b: [f64; 2]) -> f64 {
@@ -226,13 +228,18 @@ fn dist_2d_safe(a: [f64; 2], b: [f64; 2]) -> f64 {
 
 /// Computes the exact Euclidean diameter $\max_{i, j} \|p_i - p_j\|_2$ in $O(N \log N)$ time
 /// via exact-predicate Andrew's monotone chain convex hull and rotating calipers.
+#[cfg(test)]
 pub(crate) fn euclidean_diameter_2d<S: Scalar>(layout: &Layout2d<S>) -> f64 {
-    let n = layout.len();
+    euclidean_diameter_2d_slices(layout.x(), layout.y())
+}
+
+/// Computes the exact Euclidean diameter over paired `x` and `y` coordinate slices.
+pub(crate) fn euclidean_diameter_2d_slices<S: Scalar>(xs: &[S], ys: &[S]) -> f64 {
+    let n = xs.len();
+    debug_assert_eq!(n, ys.len());
     if n <= 1 {
         return 0.0;
     }
-    let xs = layout.x();
-    let ys = layout.y();
     if n <= 64 {
         let mut best_d = 0.0_f64;
         for i in 0..n {

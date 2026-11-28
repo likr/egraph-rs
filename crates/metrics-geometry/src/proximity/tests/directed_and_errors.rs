@@ -197,7 +197,7 @@ fn assert_all_12_reject_non_finite<W: Scalar, S: Scalar>(
         Err(CoreError::NonFiniteValue { .. })
     ));
     assert!(matches!(
-        gabriel_graph_property_with_tree(graph, bad_layout, valid_tree_same_len),
+        gabriel_graph_property_with_index(graph, bad_layout, valid_tree_same_len),
         Err(CoreError::NonFiniteValue { .. })
     ));
     assert!(matches!(
@@ -205,7 +205,7 @@ fn assert_all_12_reject_non_finite<W: Scalar, S: Scalar>(
         Err(CoreError::NonFiniteValue { .. })
     ));
     assert!(matches!(
-        node_resolution_with_tree(bad_layout, valid_tree_same_len),
+        node_resolution_with_index(bad_layout, valid_tree_same_len),
         Err(CoreError::NonFiniteValue { .. })
     ));
     assert!(matches!(
@@ -213,7 +213,7 @@ fn assert_all_12_reject_non_finite<W: Scalar, S: Scalar>(
         Err(CoreError::NonFiniteValue { .. })
     ));
     assert!(matches!(
-        relative_neighborhood_edges_with_tree(bad_layout, valid_tree_same_len),
+        relative_neighborhood_edges_with_index(bad_layout, valid_tree_same_len),
         Err(CoreError::NonFiniteValue { .. })
     ));
     assert!(matches!(
@@ -221,7 +221,7 @@ fn assert_all_12_reject_non_finite<W: Scalar, S: Scalar>(
         Err(CoreError::NonFiniteValue { .. })
     ));
     assert!(matches!(
-        gabriel_graph_edges_with_tree(bad_layout, valid_tree_same_len),
+        gabriel_graph_edges_with_index(bad_layout, valid_tree_same_len),
         Err(CoreError::NonFiniteValue { .. })
     ));
     assert!(matches!(
@@ -229,7 +229,7 @@ fn assert_all_12_reject_non_finite<W: Scalar, S: Scalar>(
         Err(CoreError::NonFiniteValue { .. })
     ));
     assert!(matches!(
-        relative_neighborhood_preservation_with_tree(graph, bad_layout, valid_tree_same_len),
+        relative_neighborhood_preservation_with_index(graph, bad_layout, valid_tree_same_len),
         Err(CoreError::NonFiniteValue { .. })
     ));
     assert!(matches!(
@@ -237,7 +237,7 @@ fn assert_all_12_reject_non_finite<W: Scalar, S: Scalar>(
         Err(CoreError::NonFiniteValue { .. })
     ));
     assert!(matches!(
-        gabriel_graph_preservation_with_tree(graph, bad_layout, valid_tree_same_len),
+        gabriel_graph_preservation_with_index(graph, bad_layout, valid_tree_same_len),
         Err(CoreError::NonFiniteValue { .. })
     ));
 }
@@ -246,7 +246,7 @@ fn assert_all_12_reject_non_finite<W: Scalar, S: Scalar>(
 fn test_non_finite_extreme_overflow_and_dimension_mismatch_all_12() {
     // 1. Non-finite (NaN, +Inf, -Inf) at N = 1 and N = 2 for f64 and f32 across all 12 functions.
     let g1_64 = CsrGraph::<f64>::from_edges(1, &[], None, false, false).unwrap();
-    let t1 = build_kdtree_f64(&Layout2d::<f64>::zeros(1)).unwrap();
+    let t1 = StaticKdTree::<2, f64>::from_layout(&Layout2d::<f64>::zeros(1)).unwrap();
     for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
         let lx = Layout2d::from_xy(vec![bad], vec![0.0]).unwrap();
         let ly = Layout2d::from_xy(vec![0.0], vec![bad]).unwrap();
@@ -255,7 +255,7 @@ fn test_non_finite_extreme_overflow_and_dimension_mismatch_all_12() {
     }
 
     let g2_64 = CsrGraph::<f64>::from_edges(2, &[(0, 1)], None, false, false).unwrap();
-    let t2 = build_kdtree_f64(&Layout2d::<f64>::zeros(2)).unwrap();
+    let t2 = StaticKdTree::<2, f64>::from_layout(&Layout2d::<f64>::zeros(2)).unwrap();
     for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
         let l = Layout2d::from_xy(vec![0.0, bad], vec![0.0, 1.0]).unwrap();
         assert_all_12_reject_non_finite(&g2_64, &l, &t2);
@@ -274,16 +274,16 @@ fn test_non_finite_extreme_overflow_and_dimension_mismatch_all_12() {
     let g3_64 =
         CsrGraph::<f64>::from_edges(3, &[(0, 1), (1, 2), (2, 0)], None, false, false).unwrap();
     let l_huge = Layout2d::from_xy(vec![0.0, 1e200, -1e200], vec![0.0, 1e200, 0.0]).unwrap();
-    let t_huge = build_kdtree_f64(&l_huge).unwrap();
+    let t_huge = StaticKdTree::<2, f64>::from_layout(&l_huge).unwrap();
     for res in [
         gabriel_graph_property(&g3_64, &l_huge),
-        gabriel_graph_property_with_tree(&g3_64, &l_huge, &t_huge),
+        gabriel_graph_property_with_index(&g3_64, &l_huge, &t_huge),
         node_resolution(&l_huge),
-        node_resolution_with_tree(&l_huge, &t_huge),
+        node_resolution_with_index(&l_huge, &t_huge),
         relative_neighborhood_preservation(&g3_64, &l_huge),
-        relative_neighborhood_preservation_with_tree(&g3_64, &l_huge, &t_huge),
+        relative_neighborhood_preservation_with_index(&g3_64, &l_huge, &t_huge),
         gabriel_graph_preservation(&g3_64, &l_huge),
-        gabriel_graph_preservation_with_tree(&g3_64, &l_huge, &t_huge),
+        gabriel_graph_preservation_with_index(&g3_64, &l_huge, &t_huge),
     ] {
         assert!(matches!(res, Ok(_) | Err(CoreError::NonFiniteValue { .. })));
     }
@@ -292,7 +292,7 @@ fn test_non_finite_extreme_overflow_and_dimension_mismatch_all_12() {
         Ok(_) | Err(CoreError::NonFiniteValue { .. })
     ));
     assert!(matches!(
-        relative_neighborhood_edges_with_tree(&l_huge, &t_huge),
+        relative_neighborhood_edges_with_index(&l_huge, &t_huge),
         Ok(_) | Err(CoreError::NonFiniteValue { .. })
     ));
     assert!(matches!(
@@ -300,14 +300,14 @@ fn test_non_finite_extreme_overflow_and_dimension_mismatch_all_12() {
         Ok(_) | Err(CoreError::NonFiniteValue { .. })
     ));
     assert!(matches!(
-        gabriel_graph_edges_with_tree(&l_huge, &t_huge),
+        gabriel_graph_edges_with_index(&l_huge, &t_huge),
         Ok(_) | Err(CoreError::NonFiniteValue { .. })
     ));
 
     // 3. DimensionMismatch: graph/layout mismatch and tree/layout mismatch across all applicable functions.
     let l4 = Layout2d::from_xy(vec![0.0, 1.0, 1.0, 0.0], vec![0.0, 0.0, 1.0, 1.0]).unwrap();
-    let t4 = build_kdtree_f64(&l4).unwrap();
-    let t3 = build_kdtree_f64(&Layout2d::<f64>::zeros(3)).unwrap();
+    let t4 = StaticKdTree::<2, f64>::from_layout(&l4).unwrap();
+    let t3 = StaticKdTree::<2, f64>::from_layout(&Layout2d::<f64>::zeros(3)).unwrap();
 
     // Graph (3) vs layout (4).
     assert!(matches!(
@@ -315,7 +315,7 @@ fn test_non_finite_extreme_overflow_and_dimension_mismatch_all_12() {
         Err(CoreError::DimensionMismatch { .. })
     ));
     assert!(matches!(
-        gabriel_graph_property_with_tree(&g3_64, &l4, &t4),
+        gabriel_graph_property_with_index(&g3_64, &l4, &t4),
         Err(CoreError::DimensionMismatch { .. })
     ));
     assert!(matches!(
@@ -323,7 +323,7 @@ fn test_non_finite_extreme_overflow_and_dimension_mismatch_all_12() {
         Err(CoreError::DimensionMismatch { .. })
     ));
     assert!(matches!(
-        relative_neighborhood_preservation_with_tree(&g3_64, &l4, &t4),
+        relative_neighborhood_preservation_with_index(&g3_64, &l4, &t4),
         Err(CoreError::DimensionMismatch { .. })
     ));
     assert!(matches!(
@@ -331,34 +331,34 @@ fn test_non_finite_extreme_overflow_and_dimension_mismatch_all_12() {
         Err(CoreError::DimensionMismatch { .. })
     ));
     assert!(matches!(
-        gabriel_graph_preservation_with_tree(&g3_64, &l4, &t4),
+        gabriel_graph_preservation_with_index(&g3_64, &l4, &t4),
         Err(CoreError::DimensionMismatch { .. })
     ));
 
     // Graph (4) & layout (4) vs tree (3).
     let g4_64 = CsrGraph::<f64>::from_edges(4, &[(0, 1), (1, 2)], None, false, false).unwrap();
     assert!(matches!(
-        gabriel_graph_property_with_tree(&g4_64, &l4, &t3),
+        gabriel_graph_property_with_index(&g4_64, &l4, &t3),
         Err(CoreError::DimensionMismatch { .. })
     ));
     assert!(matches!(
-        node_resolution_with_tree(&l4, &t3),
+        node_resolution_with_index(&l4, &t3),
         Err(CoreError::DimensionMismatch { .. })
     ));
     assert!(matches!(
-        relative_neighborhood_edges_with_tree(&l4, &t3),
+        relative_neighborhood_edges_with_index(&l4, &t3),
         Err(CoreError::DimensionMismatch { .. })
     ));
     assert!(matches!(
-        gabriel_graph_edges_with_tree(&l4, &t3),
+        gabriel_graph_edges_with_index(&l4, &t3),
         Err(CoreError::DimensionMismatch { .. })
     ));
     assert!(matches!(
-        relative_neighborhood_preservation_with_tree(&g4_64, &l4, &t3),
+        relative_neighborhood_preservation_with_index(&g4_64, &l4, &t3),
         Err(CoreError::DimensionMismatch { .. })
     ));
     assert!(matches!(
-        gabriel_graph_preservation_with_tree(&g4_64, &l4, &t3),
+        gabriel_graph_preservation_with_index(&g4_64, &l4, &t3),
         Err(CoreError::DimensionMismatch { .. })
     ));
 }

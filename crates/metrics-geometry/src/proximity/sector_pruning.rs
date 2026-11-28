@@ -1,7 +1,7 @@
 use std::f64::consts::{FRAC_PI_2, FRAC_PI_3, PI, TAU};
 
-use egraph_core::{CoreResult, Layout2d, Scalar};
-use egraph_spatial_trees::StaticKdTree;
+use egraph_core::CoreResult;
+use egraph_spatial_trees::{KdQueryScratch, NearestNeighborIndex};
 
 use super::exact_predicates::dist_sq_2d;
 
@@ -14,28 +14,21 @@ pub(super) enum ProximityMode {
     RelativeNeighborhood,
 }
 
-pub(super) fn proximity_edges_with_tree<S: Scalar>(
-    layout: &Layout2d<S>,
-    tree: &StaticKdTree<2, f64>,
+pub(super) fn proximity_edges_2d_with_index<I: NearestNeighborIndex + ?Sized>(
+    pts: &[[f64; 2]],
+    index: &I,
     mode: ProximityMode,
 ) -> CoreResult<Vec<(u32, u32)>> {
-    let n = layout.len();
+    let n = pts.len();
     if n < 2 {
         return Ok(Vec::new());
-    }
-
-    let xs = layout.x();
-    let ys = layout.y();
-    let mut pts = Vec::with_capacity(n);
-    for i in 0..n {
-        pts.push([xs[i].to_f64(), ys[i].to_f64()]);
     }
 
     let mut min_x = f64::INFINITY;
     let mut max_x = f64::NEG_INFINITY;
     let mut min_y = f64::INFINITY;
     let mut max_y = f64::NEG_INFINITY;
-    for &[x, y] in &pts {
+    for &[x, y] in pts {
         min_x = min_x.min(x);
         max_x = max_x.max(x);
         min_y = min_y.min(y);
@@ -47,20 +40,21 @@ pub(super) fn proximity_edges_with_tree<S: Scalar>(
     let mut r_max = vec![f64::INFINITY; n];
     let mut covered = vec![false; n];
     let mut uncovered = Vec::new();
+    let mut kd_scratch = KdQueryScratch::with_capacity(128);
     let mut knn_buf: Vec<(usize, f64)> = Vec::new();
 
     // Pass 1: derive angular sector upper bounds from local k-NN witnesses so interior
     // vertices only inspect O(1) candidates within `r_max[i]`.
     for i in 0..n {
         let mut k = 32usize.min(n - 1);
-        tree.k_nearest_excluding_self_into(i, k, &mut knn_buf)?;
-        update_sector_bounds(i, &pts, &knn_buf, mode, d_max_bound, &mut sector_bounds[i]);
+        index.query_knn_excluding_self_with_scratch(i, k, &mut kd_scratch, &mut knn_buf)?;
+        update_sector_bounds(i, pts, &knn_buf, mode, d_max_bound, &mut sector_bounds[i]);
         let mut bound = sector_bounds[i].iter().copied().fold(0.0_f64, f64::max);
 
         if !bound.is_finite() && n - 1 > 32 {
             k = 128usize.min(n - 1);
-            tree.k_nearest_excluding_self_into(i, k, &mut knn_buf)?;
-            update_sector_bounds(i, &pts, &knn_buf, mode, d_max_bound, &mut sector_bounds[i]);
+            index.query_knn_excluding_self_with_scratch(i, k, &mut kd_scratch, &mut knn_buf)?;
+            update_sector_bounds(i, pts, &knn_buf, mode, d_max_bound, &mut sector_bounds[i]);
             bound = sector_bounds[i].iter().copied().fold(0.0_f64, f64::max);
         }
 
@@ -82,7 +76,7 @@ pub(super) fn proximity_edges_with_tree<S: Scalar>(
             continue;
         }
         let query_r = (r_max[i] * (1.0 + 1e-12)).min(f64::MAX);
-        tree.within_radius_into(&pts[i], query_r, &mut cand_buf)?;
+        index.query_radius(&pts[i], query_r, &mut cand_buf)?;
         for &(j, d_ij_sq) in &cand_buf {
             if j == i || d_ij_sq <= 0.0 {
                 continue;
@@ -95,7 +89,16 @@ pub(super) fn proximity_edges_with_tree<S: Scalar>(
             if d_ij > sector_bounds[i][s_j] {
                 continue;
             }
-            if is_proximity_edge(i, j, d_ij_sq, &pts, tree, mode, &mut witness_buf)? {
+            if is_proximity_edge(
+                i,
+                j,
+                d_ij_sq,
+                pts,
+                index,
+                mode,
+                &mut kd_scratch,
+                &mut witness_buf,
+            )? {
                 let (a, b) = if i < j { (i, j) } else { (j, i) };
                 edges.push((a as u32, b as u32));
             }
@@ -120,7 +123,16 @@ pub(super) fn proximity_edges_with_tree<S: Scalar>(
             if d_uv > sector_bounds[v][sv] {
                 continue;
             }
-            if is_proximity_edge(u, v, d_uv_sq, &pts, tree, mode, &mut witness_buf)? {
+            if is_proximity_edge(
+                u,
+                v,
+                d_uv_sq,
+                pts,
+                index,
+                mode,
+                &mut kd_scratch,
+                &mut witness_buf,
+            )? {
                 edges.push((u as u32, v as u32));
             }
         }
@@ -179,14 +191,10 @@ fn update_sector_bounds(
             let max_delta = wrap_abs_angle(theta_r - phi0).max(wrap_abs_angle(theta_r - phi1));
             if max_delta < max_allow {
                 let cos_min = max_delta.cos();
-                if let ProximityMode::RelativeNeighborhood = mode {
-                    // For RNG, `is_proximity_edge` requires `d_jr^2 < d_ij^2 * (1 - 1e-12)`.
-                    // A tiny witness `d_r << 1e-12 * d_ij` fails to shrink `d_jr^2` below the
-                    // tolerance threshold, so a witness only safely prunes up to `d_max_bound`
-                    // when `2 * d_r * cos_min - d_r^2/d_ij >= 1e-11 * d_ij`.
-                    if d_r < d_max_bound * (1e-11 / cos_min) {
-                        continue;
-                    }
+                if let ProximityMode::RelativeNeighborhood = mode
+                    && d_r < d_max_bound * (1e-11 / cos_min)
+                {
+                    continue;
                 }
                 let candidate = match mode {
                     ProximityMode::Gabriel => (d_r / cos_min) * (1.0 + 1e-7),
@@ -200,13 +208,15 @@ fn update_sector_bounds(
     }
 }
 
-fn is_proximity_edge(
+#[allow(clippy::too_many_arguments)]
+fn is_proximity_edge<I: NearestNeighborIndex + ?Sized>(
     i: usize,
     j: usize,
     d_ij_sq: f64,
     pts: &[[f64; 2]],
-    tree: &StaticKdTree<2, f64>,
+    index: &I,
     mode: ProximityMode,
+    kd_scratch: &mut KdQueryScratch,
     witness_buf: &mut Vec<(usize, f64)>,
 ) -> CoreResult<bool> {
     // Difference-based midpoint avoids catastrophic cancellation at large coordinate offsets,
@@ -227,7 +237,7 @@ fn is_proximity_edge(
     let eps_mid = 4.0 * f64::EPSILON * max_coord_abs;
     let padded_r = base_r_sq.sqrt() + eps_mid;
     let query_r_sq = (padded_r * padded_r).min(f64::MAX);
-    tree.within_radius_sq_into(&mid, query_r_sq, witness_buf)?;
+    index.query_radius_sq_with_scratch(&mid, query_r_sq, kd_scratch, witness_buf)?;
 
     for &(r, _) in witness_buf.iter() {
         if r == i || r == j {
