@@ -1,7 +1,8 @@
 //! WebAssembly linear-memory `Layout2d` and `LayoutNd` coordinate buffer bindings.
 
 use crate::js_convert::{
-    core_err_to_js, ffi_err_to_js, invalid_input_err, parse_non_negative_usize, parse_seed_u64,
+    core_err_to_js, ffi_err_to_js, invalid_input_err, non_finite_err, parse_non_negative_usize,
+    parse_seed_u64,
 };
 use egraph::core::{CoreError, Layout2d, LayoutNd};
 use egraph_ffi::InterleavedLayout2d;
@@ -142,6 +143,9 @@ impl JsLayout2d {
     #[wasm_bindgen(js_name = setX)]
     pub fn set_x(&mut self, index: f64, value: f32) -> Result<(), JsValue> {
         let idx = parse_non_negative_usize(index, "index")?;
+        if !value.is_finite() {
+            return Err(non_finite_err("Layout2d.setX value must be finite"));
+        }
         self.inner.set_x(idx, value).map_err(ffi_err_to_js)
     }
 
@@ -149,6 +153,9 @@ impl JsLayout2d {
     #[wasm_bindgen(js_name = setY)]
     pub fn set_y(&mut self, index: f64, value: f32) -> Result<(), JsValue> {
         let idx = parse_non_negative_usize(index, "index")?;
+        if !value.is_finite() {
+            return Err(non_finite_err("Layout2d.setY value must be finite"));
+        }
         self.inner.set_y(idx, value).map_err(ffi_err_to_js)
     }
 

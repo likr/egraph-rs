@@ -227,4 +227,27 @@ fn linlog_fr_and_fa2_overlap_step_eq_run() {
         ("nodeRadii", f64_js(&[1.0, 2.0])),
     ]);
     assert!(JsForceAtlas2Solver::new(&graph, &bad_fa2).is_err());
+
+    // Conflicting backend + useBarnesHut must fail fast with InvalidInput
+    let conflict_exact = make_opts(&[
+        ("backend", JsValue::from_str("exact")),
+        ("useBarnesHut", JsValue::from_bool(true)),
+    ]);
+    let conflict_bh = make_opts(&[
+        ("backend", JsValue::from_str("barnesHut")),
+        ("useBarnesHut", JsValue::from_bool(false)),
+    ]);
+    for err in [
+        JsForceAtlas2Solver::new(&graph, &conflict_exact).unwrap_err(),
+        JsForceAtlas2Solver::new(&graph, &conflict_bh).unwrap_err(),
+        JsLinLogSolver::new(&graph, &conflict_exact).unwrap_err(),
+        JsYifanHuSolver::new(&graph, &conflict_exact).unwrap_err(),
+    ] {
+        assert_eq!(
+            js_sys::Reflect::get(&err, &"code".into())
+                .unwrap()
+                .as_string(),
+            Some("InvalidInput".to_owned())
+        );
+    }
 }

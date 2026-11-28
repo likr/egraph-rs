@@ -5,6 +5,7 @@ use egraph_wasm::linalg_chebyshev::{
     js_chebyshev_dog_jl_embedding, js_chebyshev_dog_jl_embedding_matrix, js_chebyshev_heat_spmv,
     js_chebyshev_heat_spmv_matrix,
 };
+use egraph_wasm::linalg_laplacian::js_laplacian;
 use egraph_wasm::linalg_matrix::{js_anisotropic_laplacian, js_spectral_moment_stats};
 use egraph_wasm::linalg_resistance::{
     js_compute_effective_resistances, js_resistance_curvature_flow,
@@ -312,7 +313,7 @@ fn amg_pcg_solver_hardened_and_cooperative() {
     let hub = make_hub_chain_graph();
     let mut hub_solver = JsAmgPcgSolver::from_graph_laplacian(
         &hub,
-        Some("combinatorial".to_owned()),
+        &JsValue::from_str("combinatorial"),
         Some(0.0),
         &JsValue::UNDEFINED,
     )
@@ -325,7 +326,7 @@ fn amg_pcg_solver_hardened_and_cooperative() {
     assert!(
         JsAmgPcgSolver::from_graph_laplacian(
             &hub,
-            Some("random_walk".to_owned()),
+            &JsValue::from_str("random_walk"),
             Some(0.0),
             &JsValue::UNDEFINED,
         )
@@ -334,12 +335,33 @@ fn amg_pcg_solver_hardened_and_cooperative() {
     assert!(
         JsAmgPcgSolver::from_graph_laplacian(
             &hub,
-            Some("rw".to_owned()),
+            &JsValue::from_str("rw"),
             Some(0.0),
             &JsValue::UNDEFINED,
         )
         .is_err()
     );
+    let obj_kind_err = JsAmgPcgSolver::from_graph_laplacian(
+        &hub,
+        &make_opts(&[("kind", JsValue::from_str("combinatorial"))]),
+        Some(0.0),
+        &JsValue::UNDEFINED,
+    )
+    .unwrap_err();
+    assert_eq!(
+        js_sys::Reflect::get(&obj_kind_err, &"code".into())
+            .unwrap()
+            .as_string(),
+        Some("InvalidInput".to_owned())
+    );
+    assert!(
+        js_laplacian(
+            &hub,
+            &make_opts(&[("kind", JsValue::from_str("combinatorial"))])
+        )
+        .is_ok()
+    );
+    assert!(js_laplacian(&hub, &JsValue::from_f64(1.0)).is_err());
 }
 
 #[wasm_bindgen_test]

@@ -266,7 +266,8 @@ export function runMetricsLayoutAndSpatialSmoke({ eg, webPkg }) {
 
   // Adversarial inputs must throw Error with .code (never WebAssembly.RuntimeError)
   const shortLayout = Layout2d.zeros(3);
-  const nanLayout = Layout2d.fromCoords(new Float32Array([Number.NaN, 0, ...gridCoords.slice(2)]));
+  const nanLayout = Layout2d.fromCoords(gridCoords);
+  nanLayout.coordsView()[0] = Number.NaN;
   assertJsError(() => scaleNormalizedStress(grid, shortLayout), "sns dimension mismatch", "DimensionMismatch");
   assertJsError(() => sweepCrossingNumber(grid, nanLayout), "crossings non-finite", "NonFiniteValue");
   assertJsError(() => neighborhoodPreservation1Hop(grid, shortLayout), "np1 dimension mismatch", "DimensionMismatch");

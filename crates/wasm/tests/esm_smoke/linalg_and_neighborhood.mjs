@@ -29,6 +29,8 @@ export async function runLinalgAndNeighborhoodSmoke({ eg, webPkg }) {
     extract1hop2hopCsr,
     findAbParams,
     korenSpectralInit,
+    laplacian,
+    AmgPcgSolver,
     partialBfsKnn,
     pivotMdsInit,
     selectMaxminSpPivots,
@@ -263,6 +265,12 @@ export async function runLinalgAndNeighborhoodSmoke({ eg, webPkg }) {
   assertJsError(() => chebyshevHeatSpmv(grid, new Float64Array([Number.NaN]), 1, 1.0), "linalg NaN vec", "NonFiniteValue");
   assertJsError(() => KnnGraph.fromCsr(2, new Uint32Array([0, 1, 1]), new Uint32Array([1]), new Float64Array([-1.0])), "linalg neg dist", "InvalidInput");
   assertJsError(() => lm.altDistances(new Uint32Array([0]), new Uint32Array([99])), "linalg alt OOB", "IndexOutOfBounds");
+  const lapObj = laplacian(grid, { kind: "combinatorial" });
+  assert.equal(lapObj.numNodes, 16);
+  lapObj.free();
+  assertJsError(() => laplacian(grid, { kind: "symmetric_normalized" }), "laplacian snake_case", "InvalidInput");
+  assertJsError(() => laplacian(grid, 123), "laplacian numeric", "InvalidInput");
+  assertJsError(() => AmgPcgSolver.fromGraphLaplacian(grid, { kind: "combinatorial" }), "amg obj kind", "InvalidInput");
 
   lm.free();
   fuzzy.free();

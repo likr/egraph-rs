@@ -129,12 +129,27 @@ export function runCoreBuffersSmoke({ eg, webPkg }) {
     assert.equal(layout.x(2), 9.0);
     assert.equal(layout.y(2), -8.5);
 
-    // Finiteness checks
-    layout.setX(3, Number.NaN);
-    assert.equal(layout.isAllFinite(), false);
-    layout.setX(3, 0.0);
+    // Fail-fast NonFiniteValue rejections on constructors/setters
+    assert.throws(
+      () => Layout2d.fromCoords(new Float32Array([0, 0, Number.NaN, 1])),
+      (err) => err instanceof Error && err.code === "NonFiniteValue",
+    );
+    assert.throws(
+      () => layout.setX(3, Number.NaN),
+      (err) => err instanceof Error && err.code === "NonFiniteValue",
+    );
+    assert.throws(
+      () => layout.setY(3, Number.POSITIVE_INFINITY),
+      (err) => err instanceof Error && err.code === "NonFiniteValue",
+    );
     assert.equal(layout.isAllFinite(), true);
-    layout.setY(3, Number.POSITIVE_INFINITY);
+
+    // Direct linear-memory write is still caught by isAllFinite()
+    viewAfterGrow[6] = Number.NaN;
+    assert.equal(layout.isAllFinite(), false);
+    viewAfterGrow[6] = 0.0;
+    assert.equal(layout.isAllFinite(), true);
+    viewAfterGrow[7] = Number.POSITIVE_INFINITY;
     assert.equal(layout.isAllFinite(), false);
 
     layout.free();
@@ -169,6 +184,23 @@ export function runCoreBuffersSmoke({ eg, webPkg }) {
     assert.equal(v3b[5], 4.25);
     assert.deepEqual(Array.from(offB), [0, 2, 4]);
     assert.equal(ptsB.length, 12);
+
+    assert.throws(
+      () => Layout3d.fromXyz(new Float32Array([0, Number.POSITIVE_INFINITY]), new Float32Array([0, 0]), new Float32Array([0, 0])),
+      (err) => err instanceof Error && err.code === "NonFiniteValue",
+    );
+    assert.throws(
+      () => l3.setX(0, Number.NaN),
+      (err) => err instanceof Error && err.code === "NonFiniteValue",
+    );
+    assert.throws(
+      () => l3.setY(0, Number.POSITIVE_INFINITY),
+      (err) => err instanceof Error && err.code === "NonFiniteValue",
+    );
+    assert.throws(
+      () => l3.setZ(0, Number.NEGATIVE_INFINITY),
+      (err) => err instanceof Error && err.code === "NonFiniteValue",
+    );
 
     poly.free();
     g.free();

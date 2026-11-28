@@ -13,7 +13,7 @@ use crate::js_convert::{
     core_err_to_js, ffi_err_to_js, invalid_input_err, parse_non_negative_u32,
     parse_non_negative_usize,
 };
-use crate::js_options::{get_prop, normalize_enum_token};
+use crate::js_options::{check_options_arg, get_prop, normalize_enum_token, opt_string_prop};
 use crate::layout_buffers::JsLayout2d;
 
 const DEFAULT_MIN_LAYER_DISTANCE: f32 = 1.0;
@@ -231,17 +231,30 @@ pub fn js_transitive_reduction(graph: &JsCsrGraph) -> Result<JsCsrGraph, JsValue
     Ok(JsCsrGraph::from_inner(csr_unit_to_f32(&reduced)?))
 }
 
-fn parse_layering_method(method: Option<String>) -> Result<LayeringMethod, JsValue> {
-    match method {
-        None => Ok(LayeringMethod::LongestPath),
-        Some(raw) => match normalize_enum_token(&raw)?.as_str() {
-            "longestpath" | "lp" => Ok(LayeringMethod::LongestPath),
-            "networksimplex" | "ns" => Ok(LayeringMethod::NetworkSimplex),
-            _ => Err(invalid_input_err(format!(
-                "unknown LayeringMethod {raw:?}; expected 'longestPath' or 'networkSimplex'"
-            ))),
-        },
+fn parse_layering_method_str(raw: &str) -> Result<LayeringMethod, JsValue> {
+    match normalize_enum_token(raw)?.as_str() {
+        "longestpath" | "lp" => Ok(LayeringMethod::LongestPath),
+        "networksimplex" | "ns" => Ok(LayeringMethod::NetworkSimplex),
+        _ => Err(invalid_input_err(format!(
+            "unknown LayeringMethod {raw:?}; expected 'longestPath' or 'networkSimplex'"
+        ))),
     }
+}
+
+fn parse_layering_method(method_or_options: &JsValue) -> Result<LayeringMethod, JsValue> {
+    if method_or_options.is_undefined() || method_or_options.is_null() {
+        return Ok(LayeringMethod::LongestPath);
+    }
+    if let Some(raw) = method_or_options.as_string() {
+        return parse_layering_method_str(&raw);
+    }
+    if check_options_arg(method_or_options, "assignLayers")? {
+        return match opt_string_prop(method_or_options, "method")? {
+            Some(raw) => parse_layering_method_str(&raw),
+            None => Ok(LayeringMethod::LongestPath),
+        };
+    }
+    Ok(LayeringMethod::LongestPath)
 }
 
 /// Identifies back-edges `(u, v)` whose reversal eliminates all directed cycles in `graph`,
@@ -266,7 +279,7 @@ pub fn js_remove_cycles(graph: &JsCsrGraph) -> Result<JsCsrGraph, JsValue> {
 
 /// Assigns hierarchical layers (`0, 1, ...`) to all vertices of a directed `CsrGraph`.
 #[wasm_bindgen(js_name = assignLayers)]
-pub fn js_assign_layers(graph: &JsCsrGraph, method: Option<String>) -> Result<Vec<u32>, JsValue> {
+pub fn js_assign_layers(graph: &JsCsrGraph, method: &JsValue) -> Result<Vec<u32>, JsValue> {
     let m = parse_layering_method(method)?;
     assign_layers(graph.inner(), m).map_err(core_err_to_js)
 }

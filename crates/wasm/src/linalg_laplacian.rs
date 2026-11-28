@@ -8,7 +8,7 @@ use wasm_bindgen::prelude::*;
 
 use crate::csr_graph::JsCsrGraph;
 use crate::js_convert::{core_err_to_js, invalid_input_err, set_js_prop};
-use crate::js_options::normalize_enum_token;
+use crate::js_options::{check_options_arg, normalize_enum_token, opt_string_prop};
 use crate::linalg_matrix::JsCsrMatrix;
 
 fn parse_laplacian_kind(raw: &str) -> Result<LaplacianKind, JsValue> {
@@ -26,10 +26,18 @@ fn parse_laplacian_kind(raw: &str) -> Result<LaplacianKind, JsValue> {
 
 /// Builds a `CsrMatrix` graph Laplacian of the requested `kind` (default `"symmetricNormalized"`).
 #[wasm_bindgen(js_name = laplacian)]
-pub fn js_laplacian(graph: &JsCsrGraph, kind: Option<String>) -> Result<JsCsrMatrix, JsValue> {
-    let k = match kind {
-        Some(raw) => parse_laplacian_kind(&raw)?,
-        None => LaplacianKind::SymmetricNormalized,
+pub fn js_laplacian(graph: &JsCsrGraph, kind: &JsValue) -> Result<JsCsrMatrix, JsValue> {
+    let k = if kind.is_undefined() || kind.is_null() {
+        LaplacianKind::SymmetricNormalized
+    } else if let Some(raw) = kind.as_string() {
+        parse_laplacian_kind(&raw)?
+    } else if check_options_arg(kind, "laplacian")? {
+        match opt_string_prop(kind, "kind")? {
+            Some(raw) => parse_laplacian_kind(&raw)?,
+            None => LaplacianKind::SymmetricNormalized,
+        }
+    } else {
+        LaplacianKind::SymmetricNormalized
     };
     Ok(JsCsrMatrix::from_inner(laplacian(graph.inner(), k)))
 }

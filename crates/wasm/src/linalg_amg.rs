@@ -218,13 +218,18 @@ impl JsAmgPcgSolver {
     #[wasm_bindgen(js_name = fromGraphLaplacian)]
     pub fn from_graph_laplacian(
         graph: &JsCsrGraph,
-        kind: Option<String>,
+        kind: &JsValue,
         shift: Option<f64>,
         options: &JsValue,
     ) -> Result<JsAmgPcgSolver, JsValue> {
-        let lap_kind = match kind {
-            Some(ref k) => parse_amg_laplacian_kind(k)?,
-            None => LaplacianKind::Combinatorial,
+        let lap_kind = if kind.is_undefined() || kind.is_null() {
+            LaplacianKind::Combinatorial
+        } else if let Some(k) = kind.as_string() {
+            parse_amg_laplacian_kind(&k)?
+        } else {
+            return Err(invalid_input_err(
+                "AmgPcgSolver.fromGraphLaplacian: kind must be 'combinatorial' or 'symmetricNormalized' (pass options as the 4th argument)",
+            ));
         };
         let (cfg, _) = parse_amg_pcg_config(options)?;
         let inner =

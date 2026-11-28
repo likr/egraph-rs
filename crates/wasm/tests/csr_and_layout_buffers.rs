@@ -1,5 +1,6 @@
 use egraph_wasm::csr_graph::JsCsrGraph;
 use egraph_wasm::layout_buffers::{JsLayout2d, JsLayoutNd, wasm_memory};
+use egraph_wasm::layout3d::JsLayout3d;
 use wasm_bindgen::JsValue;
 use wasm_bindgen_test::*;
 
@@ -125,9 +126,37 @@ fn layout2d_lifecycle_linear_memory_and_errors() {
     assert_eq!(layout.x(2.0).unwrap(), 9.25);
     assert_eq!(layout.y(2.0).unwrap(), -7.5);
 
-    // Non-finite check
-    layout.set_x(0.0, f32::NAN).unwrap();
+    // Fail-fast NonFiniteValue checks on Layout2d constructors/setters
+    let assert_non_finite = |err: JsValue| {
+        assert_eq!(
+            js_sys::Reflect::get(&err, &"code".into())
+                .unwrap()
+                .as_string(),
+            Some("NonFiniteValue".to_owned())
+        );
+    };
+    assert_non_finite(JsLayout2d::from_coords(&[0.0, 0.0, f32::NAN, 1.0]).unwrap_err());
+    assert_non_finite(JsLayout2d::from_coords(&[f32::INFINITY, 0.0]).unwrap_err());
+    assert_non_finite(layout.set_x(0.0, f32::NAN).unwrap_err());
+    assert_non_finite(layout.set_y(0.0, f32::INFINITY).unwrap_err());
+    assert!(layout.is_all_finite());
+
+    // Direct linear-memory write is detected by is_all_finite()
+    view.set_index(0, f32::NAN);
     assert!(!layout.is_all_finite());
+    view.set_index(0, 0.0);
+    assert!(layout.is_all_finite());
+
+    // Fail-fast NonFiniteValue checks on Layout3d from_xyz & setters
+    assert_non_finite(
+        JsLayout3d::from_xyz(&[0.0, f32::INFINITY], &[0.0, 0.0], &[0.0, 0.0]).unwrap_err(),
+    );
+    assert_non_finite(JsLayout3d::from_xyz(&[0.0], &[f32::NAN], &[0.0]).unwrap_err());
+    let mut l3 = JsLayout3d::zeros(2.0).unwrap();
+    assert_non_finite(l3.set_x(0.0, f32::NAN).unwrap_err());
+    assert_non_finite(l3.set_y(0.0, f32::INFINITY).unwrap_err());
+    assert_non_finite(l3.set_z(0.0, f32::NEG_INFINITY).unwrap_err());
+    assert!(l3.is_all_finite());
 
     // Round-trip fromCoords
     let from_coords = JsLayout2d::from_coords(&[1.0, 2.0, 3.0, 4.0]).expect("even coords");

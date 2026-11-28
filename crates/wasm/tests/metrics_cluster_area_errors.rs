@@ -79,9 +79,12 @@ fn cluster_area_faithfulness_adversarial_label_and_param_errors() {
         );
     }
 
-    let mut nan_coords = imb_coords;
+    let mut nan_coords = imb_coords.clone();
     nan_coords[0] = f32::NAN;
-    let nan_layout = JsLayout2d::from_coords(&nan_coords).unwrap();
+    assert!(JsLayout2d::from_coords(&nan_coords).is_err());
+
+    let mut nan_layout = JsLayout2d::from_coords(&imb_coords).unwrap();
+    nan_layout.inner_mut().as_mut_slice()[0] = f32::NAN;
     assert!(
         js_cluster_area_faithfulness(&nan_layout, &imb_labels_js, &JsValue::UNDEFINED).is_err()
     );

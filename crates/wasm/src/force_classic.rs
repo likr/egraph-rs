@@ -45,47 +45,51 @@ pub(crate) fn parse_force_backend_for_target(
         None
     };
 
-    let use_bh = match target {
-        JsTargetKind::Manifold2d => {
-            return Err(unsupported_err(format!(
-                "{solver_name} does not support target 'manifold2d'"
-            )));
-        }
-        JsTargetKind::Layout2d | JsTargetKind::Layout3d => match backend_str {
-            Some(ref b) => match normalize_enum_token(b)?.as_str() {
-                "barneshut" | "bh" => true,
-                "exact" => false,
-                _ => {
-                    return Err(invalid_input_err(format!(
-                        "unknown {solver_name} backend {b:?}; expected 'barnesHut' or 'exact'"
-                    )));
-                }
-            },
-            None => use_bh_opt.unwrap_or(true),
-        },
-        JsTargetKind::LayoutNd => {
-            if let Some(ref b) = backend_str {
-                match normalize_enum_token(b)?.as_str() {
-                    "exact" => {}
-                    "barneshut" | "bh" => {
-                        return Err(unsupported_err(format!(
-                            "{solver_name} target 'layoutNd' only supports backend 'exact'"
-                        )));
-                    }
-                    _ => {
-                        return Err(invalid_input_err(format!(
-                            "unknown {solver_name} backend {b:?}; expected 'exact'"
-                        )));
-                    }
-                }
-            } else if use_bh_opt == Some(true) {
-                return Err(unsupported_err(format!(
-                    "{solver_name} target 'layoutNd' only supports backend 'exact'"
+    if target == JsTargetKind::Manifold2d {
+        return Err(unsupported_err(format!(
+            "{solver_name} does not support target 'manifold2d'"
+        )));
+    }
+
+    let parsed_backend = match backend_str {
+        Some(ref b) => match normalize_enum_token(b)?.as_str() {
+            "barneshut" | "bh" => Some(true),
+            "exact" => Some(false),
+            _ => {
+                let expected = if target == JsTargetKind::LayoutNd {
+                    "'exact'"
+                } else {
+                    "'barnesHut' or 'exact'"
+                };
+                return Err(invalid_input_err(format!(
+                    "unknown {solver_name} backend {b:?}; expected {expected}"
                 )));
             }
-            false
-        }
+        },
+        None => None,
     };
+
+    let use_bh = match (parsed_backend, use_bh_opt) {
+        (Some(false), Some(true)) => {
+            return Err(invalid_input_err(format!(
+                "conflicting {solver_name} options: backend='exact' cannot be combined with useBarnesHut=true"
+            )));
+        }
+        (Some(true), Some(false)) => {
+            return Err(invalid_input_err(format!(
+                "conflicting {solver_name} options: backend='barnesHut' cannot be combined with useBarnesHut=false"
+            )));
+        }
+        (Some(b), _) => b,
+        (None, Some(b)) => b,
+        (None, None) => matches!(target, JsTargetKind::Layout2d | JsTargetKind::Layout3d),
+    };
+
+    if target == JsTargetKind::LayoutNd && use_bh {
+        return Err(unsupported_err(format!(
+            "{solver_name} target 'layoutNd' only supports backend 'exact'"
+        )));
+    }
     Ok((use_bh, theta))
 }
 

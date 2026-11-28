@@ -133,7 +133,7 @@ export const forceOverlapDtsReplacements = [
   ],
   [
     /export function assignLayers\([^;]+\): Uint32Array;/,
-    "export function assignLayers(graph: CsrGraph, method?: LayeringMethod | string | null): Uint32Array;",
+    "export function assignLayers(graph: CsrGraph, methodOrOptions?: LayeringMethod | { method?: LayeringMethod | null } | null): Uint32Array;",
   ],
   [
     /(export class FdebSolver \{[\s\S]*?)constructor\(polylines: EdgePolylines, options: any\);/,

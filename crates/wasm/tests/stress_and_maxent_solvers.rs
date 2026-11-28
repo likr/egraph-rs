@@ -166,4 +166,16 @@ fn maxent_stress_step_eq_run_and_getters() {
 
     let bad_q = make_opts(&[("q", JsValue::from_f64(-2.0))]);
     assert!(JsMaxentStressSolver::new(&graph, &bad_q).is_err());
+
+    let conflict_opts = make_opts(&[
+        ("backend", JsValue::from_str("exact")),
+        ("useBarnesHut", JsValue::from_bool(true)),
+    ]);
+    let conflict_err = JsMaxentStressSolver::new(&graph, &conflict_opts).unwrap_err();
+    assert_eq!(
+        js_sys::Reflect::get(&conflict_err, &"code".into())
+            .unwrap()
+            .as_string(),
+        Some("InvalidInput".to_owned())
+    );
 }

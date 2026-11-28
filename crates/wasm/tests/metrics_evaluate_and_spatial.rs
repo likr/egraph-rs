@@ -94,7 +94,7 @@ fn selective_evaluate_metrics_and_adversarial_errors() {
     assert!(js_prism_distortion(&layout, &short_layout).is_err());
 
     let mut nan_layout = JsLayout2d::zeros(16.0).unwrap();
-    nan_layout.set_x(0.0, f32::NAN).unwrap();
+    nan_layout.inner_mut().as_mut_slice()[0] = f32::NAN;
     let nan_err = js_scale_normalized_stress(&grid, &nan_layout).unwrap_err();
     assert_eq!(
         js_sys::Reflect::get(&nan_err, &"code".into())
@@ -305,6 +305,6 @@ fn delaunay_triangulation_square_collinear_and_errors() {
     assert!(dt_col.triangles().is_empty());
 
     let mut nan_layout = JsLayout2d::zeros(3.0).unwrap();
-    nan_layout.set_y(1.0, f32::INFINITY).unwrap();
+    nan_layout.inner_mut().as_mut_slice()[3] = f32::INFINITY;
     assert!(js_delaunay_triangulation(&nan_layout).is_err());
 }

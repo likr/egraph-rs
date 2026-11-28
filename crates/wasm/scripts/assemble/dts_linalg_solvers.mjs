@@ -44,6 +44,10 @@ export const linalgNeighborhoodDtsReplacements = [
     "export function symmetricNormalizedLaplacian(graph: CsrGraph): SymmetricNormalizedLaplacianResult;",
   ],
   [
+    /export function laplacian\([^;]+\): CsrMatrix;/,
+    "export function laplacian(graph: CsrGraph, kindOrOptions?: \"combinatorial\" | \"symmetricNormalized\" | \"randomWalk\" | { kind?: \"combinatorial\" | \"symmetricNormalized\" | \"randomWalk\" | null } | null): CsrMatrix;",
+  ],
+  [
     /static fromCsr\(num_nodes: number, indptr: Uint32Array \| number\[\], indices: Uint32Array \| number\[\], distances: Float64Array \| number\[\]\): KnnGraph;/,
     "static fromCsr(numNodes: number, indptr: Uint32Array | number[], indices: Uint32Array | number[], distances: Float64Array | number[]): KnnGraph;",
   ],

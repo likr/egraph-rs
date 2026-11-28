@@ -361,7 +361,9 @@ export function runMetricsClusterAreaSmoke({ eg, webPkg }) {
   }
   const nanImbCoords = new Float32Array(imbCoords);
   nanImbCoords[0] = Number.NaN;
-  const nanImbLayout = Layout2d.fromCoords(nanImbCoords);
+  assertJsError(() => Layout2d.fromCoords(nanImbCoords), "Layout2d.fromCoords nan", "NonFiniteValue");
+  const nanImbLayout = Layout2d.fromCoords(imbCoords);
+  nanImbLayout.coordsView()[0] = Number.NaN;
   assertJsError(() => clusterAreaFaithfulness(nanImbLayout, imbLabels), "gcaf nan layout", "NonFiniteValue");
   nanImbLayout.free();
   for (const badG of [11, -1, 1.5]) {

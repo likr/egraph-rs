@@ -247,6 +247,15 @@ export async function runForceAndConstraintsSmoke({ eg, webPkg }) {
   const dag = removeCycles(cycGraph);
   assert.equal(cycleEdges(dag).length, 0);
   const layersNs = assignLayers(dag, "networkSimplex");
+  const layersNsObj = assignLayers(dag, { method: "networkSimplex" });
+  assert.deepEqual(Array.from(layersNsObj), Array.from(layersNs));
+  assertJsError(() => assignLayers(dag, { method: "longest_path" }), "assignLayers snake_case obj", "InvalidInput");
+  assertJsError(() => assignLayers(dag, 123), "assignLayers number", "InvalidInput");
+  assertJsError(
+    () => new ForceAtlas2Solver(grid, { backend: "exact", useBarnesHut: true }),
+    "FA2 conflicting backend+useBarnesHut",
+    "InvalidInput",
+  );
   assert.equal(layersNs.length, 4);
   const layeredCs = generateLayeredConstraints(dag, layersNs, 2.5);
   const lDag = Layout2d.zeros(4);

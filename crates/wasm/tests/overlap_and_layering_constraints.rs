@@ -96,7 +96,7 @@ fn separation_constraints_and_rectangle_projection() {
         None,
     )
     .unwrap();
-    let layers = js_assign_layers(&dag, Some("longestPath".to_owned())).unwrap();
+    let layers = js_assign_layers(&dag, &JsValue::from_str("longestPath")).unwrap();
     let layered_cs = js_generate_layered_constraints(&dag, &layers, Some(3.0)).unwrap();
     let js_cs = js_sys::Array::new();
     for c in layered_cs {
@@ -168,20 +168,47 @@ fn layering_cycle_edges_remove_cycles_and_assign_layers() {
         None,
     )
     .unwrap();
-    let lp = js_assign_layers(&span_dag, Some("longestPath".to_owned())).unwrap();
-    let ns = js_assign_layers(&span_dag, Some("networkSimplex".to_owned())).unwrap();
+    let lp = js_assign_layers(&span_dag, &JsValue::from_str("longestPath")).unwrap();
+    let ns = js_assign_layers(&span_dag, &JsValue::from_str("networkSimplex")).unwrap();
+    let ns_obj = js_assign_layers(
+        &span_dag,
+        &make_opts(&[("method", JsValue::from_str("networkSimplex"))]),
+    )
+    .unwrap();
+    let lp_default_obj = js_assign_layers(&span_dag, &make_opts(&[])).unwrap();
     assert_eq!(lp.len(), 5);
     assert_eq!(ns.len(), 5);
+    assert_eq!(ns_obj, ns);
+    assert_eq!(lp_default_obj, lp);
     assert_eq!(*ns.iter().min().unwrap(), 0);
     assert_eq!(lp[4], 0);
     assert_eq!(ns[4], 2);
 
-    // Adversarial: undirected graph rejected and bogus method rejected
+    // Adversarial: undirected graph rejected, snake_case / bogus method / invalid arg type rejected cleanly
     let undir = make_grid(2, 2);
     assert!(js_cycle_edges(&undir).is_err());
     assert!(js_remove_cycles(&undir).is_err());
-    assert!(js_assign_layers(&undir, None).is_err());
-    assert!(js_assign_layers(&span_dag, Some("badMethod".to_owned())).is_err());
+    assert!(js_assign_layers(&undir, &JsValue::UNDEFINED).is_err());
+    let assert_invalid_input = |err: JsValue| {
+        assert_eq!(
+            js_sys::Reflect::get(&err, &"code".into())
+                .unwrap()
+                .as_string(),
+            Some("InvalidInput".to_owned())
+        );
+    };
+    assert_invalid_input(js_assign_layers(&span_dag, &JsValue::from_str("badMethod")).unwrap_err());
+    assert_invalid_input(
+        js_assign_layers(
+            &span_dag,
+            &make_opts(&[("method", JsValue::from_str("longest_path"))]),
+        )
+        .unwrap_err(),
+    );
+    assert_invalid_input(
+        js_assign_layers(&span_dag, &make_opts(&[("method", JsValue::from_f64(1.0))])).unwrap_err(),
+    );
+    assert_invalid_input(js_assign_layers(&span_dag, &JsValue::from_f64(42.0)).unwrap_err());
 }
 
 #[wasm_bindgen_test]

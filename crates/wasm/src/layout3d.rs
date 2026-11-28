@@ -75,6 +75,7 @@ impl JsLayout3d {
     #[wasm_bindgen(js_name = fromXyz)]
     pub fn from_xyz(x: &[f32], y: &[f32], z: &[f32]) -> Result<JsLayout3d, JsValue> {
         let soa = Layout3d::<f32>::from_xyz_slices(x, y, z).map_err(core_err_to_js)?;
+        soa.validate_finite().map_err(core_err_to_js)?;
         Ok(Self::from_layout3d(&soa))
     }
 
@@ -161,6 +162,9 @@ impl JsLayout3d {
     #[wasm_bindgen(js_name = setX)]
     pub fn set_x(&mut self, index: f64, value: f32) -> Result<(), JsValue> {
         let idx = parse_non_negative_usize(index, "index")?;
+        if !value.is_finite() {
+            return Err(non_finite_err("Layout3d.setX value must be finite"));
+        }
         self.inner.set_x(idx, value).map_err(ffi_err_to_js)
     }
 
@@ -168,6 +172,9 @@ impl JsLayout3d {
     #[wasm_bindgen(js_name = setY)]
     pub fn set_y(&mut self, index: f64, value: f32) -> Result<(), JsValue> {
         let idx = parse_non_negative_usize(index, "index")?;
+        if !value.is_finite() {
+            return Err(non_finite_err("Layout3d.setY value must be finite"));
+        }
         self.inner.set_y(idx, value).map_err(ffi_err_to_js)
     }
 
@@ -175,6 +182,9 @@ impl JsLayout3d {
     #[wasm_bindgen(js_name = setZ)]
     pub fn set_z(&mut self, index: f64, value: f32) -> Result<(), JsValue> {
         let idx = parse_non_negative_usize(index, "index")?;
+        if !value.is_finite() {
+            return Err(non_finite_err("Layout3d.setZ value must be finite"));
+        }
         self.inner.set_z(idx, value).map_err(ffi_err_to_js)
     }
 
