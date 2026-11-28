@@ -9,18 +9,15 @@ mod tests_manifold;
 #[cfg(test)]
 mod tests_nd;
 
-use std::any::TypeId;
 use std::marker::PhantomData;
 
 use egraph_core::{
-    CoreError, CoreResult, CsrGraph, IterativeSolver, Layout2d, ManifoldKind, ManifoldLayout2d,
-    RiemannianLayout, Scalar, SolverStatus,
+    CoreError, CoreResult, CsrGraph, IterativeSolver, Layout2d, RiemannianLayout, Scalar,
+    SolverStatus,
 };
 use egraph_linalg::{BfsWorkspace, DijkstraWorkspace};
 
-use solver::{
-    KamadaKawaiState, KkStepFn, KkValidateFn, step_unified, validate_manifold, validate_riemannian,
-};
+use solver::{KamadaKawaiState, step_unified, validate_riemannian};
 
 /// Hyperparameters for [`KamadaKawaiSolver`].
 #[non_exhaustive]
@@ -97,12 +94,10 @@ impl KamadaKawaiConfig {
 #[derive(Debug, Clone)]
 pub struct KamadaKawaiSolver<L: RiemannianLayout = Layout2d<f64>> {
     state: KamadaKawaiState,
-    validate_fn: KkValidateFn<L>,
-    step_fn: KkStepFn<L>,
     _layout: PhantomData<fn() -> L>,
 }
 
-impl<L: RiemannianLayout + 'static> KamadaKawaiSolver<L> {
+impl<L: RiemannianLayout> KamadaKawaiSolver<L> {
     /// Constructs a [`KamadaKawaiSolver`] from a [`CsrGraph`] using [`BfsWorkspace`]
     /// (unweighted) or [`DijkstraWorkspace`] (weighted).
     #[inline]
@@ -248,14 +243,6 @@ impl<L: RiemannianLayout + 'static> KamadaKawaiSolver<L> {
             SolverStatus::Initialized
         };
 
-        let is_manifold = TypeId::of::<L>() == TypeId::of::<ManifoldLayout2d<L::Scalar>>();
-        let validate_fn: KkValidateFn<L> = if is_manifold {
-            validate_manifold::<L>
-        } else {
-            validate_riemannian::<L>
-        };
-        let step_fn: KkStepFn<L> = step_unified::<L>;
-
         Ok(Self {
             state: KamadaKawaiState {
                 config,
@@ -267,20 +254,14 @@ impl<L: RiemannianLayout + 'static> KamadaKawaiSolver<L> {
                 grad: Vec::new(),
                 hessian: Vec::new(),
                 delta: Vec::new(),
-                is_manifold,
                 locked_dim: None,
-                locked_manifold: None::<ManifoldKind>,
                 iter: 0,
                 status,
             },
-            validate_fn,
-            step_fn,
             _layout: PhantomData,
         })
     }
-}
 
-impl<L: RiemannianLayout> KamadaKawaiSolver<L> {
     /// Returns the solver configuration.
     #[inline]
     pub fn config(&self) -> &KamadaKawaiConfig {
@@ -326,7 +307,7 @@ impl<L: RiemannianLayout> IterativeSolver for KamadaKawaiSolver<L> {
     type Target = L;
 
     fn validate_target(&self, target: &Self::Target) -> CoreResult<()> {
-        (self.validate_fn)(&self.state, target)
+        validate_riemannian(&self.state, target)
     }
 
     fn step(&mut self, target: &mut Self::Target) -> CoreResult<SolverStatus> {
@@ -336,7 +317,7 @@ impl<L: RiemannianLayout> IterativeSolver for KamadaKawaiSolver<L> {
             return Ok(self.state.status);
         }
 
-        if let Err(err) = (self.step_fn)(&mut self.state, target) {
+        if let Err(err) = step_unified(&mut self.state, target) {
             if matches!(
                 err,
                 CoreError::NumericalBreakdown(_) | CoreError::NonFiniteValue { .. }

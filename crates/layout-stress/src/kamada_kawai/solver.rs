@@ -1,10 +1,4 @@
-use std::any::Any;
-
-use egraph_core::{
-    CoreError, CoreResult, ManifoldKind, ManifoldLayout2d, RiemannianLayout, SolverStatus,
-};
-
-use crate::manifold_utils::{clamp_manifold_tangent_step, guard_spherical_boundary};
+use egraph_core::{CoreError, CoreResult, RiemannianLayout, SolverStatus};
 
 use super::KamadaKawaiConfig;
 
@@ -23,15 +17,10 @@ pub(super) struct KamadaKawaiState {
     pub(super) grad: Vec<f64>,
     pub(super) hessian: Vec<f64>,
     pub(super) delta: Vec<f64>,
-    pub(super) is_manifold: bool,
     pub(super) locked_dim: Option<usize>,
-    pub(super) locked_manifold: Option<ManifoldKind>,
     pub(super) iter: usize,
     pub(super) status: SolverStatus,
 }
-
-pub(super) type KkValidateFn<L> = fn(&KamadaKawaiState, &L) -> CoreResult<()>;
-pub(super) type KkStepFn<L> = fn(&mut KamadaKawaiState, &mut L) -> CoreResult<()>;
 
 #[inline]
 fn euclid_norm(vec: &[f64]) -> f64 {
@@ -151,30 +140,6 @@ pub(super) fn validate_riemannian<L: RiemannianLayout>(
     target.validate_finite()
 }
 
-pub(super) fn validate_manifold<L: RiemannianLayout + 'static>(
-    state: &KamadaKawaiState,
-    target: &L,
-) -> CoreResult<()> {
-    if target.len() != state.num_nodes {
-        return Err(CoreError::dimension_mismatch(
-            state.num_nodes,
-            target.len(),
-            "KamadaKawaiSolver::validate_target",
-        ));
-    }
-    let layout = (target as &dyn Any)
-        .downcast_ref::<ManifoldLayout2d<L::Scalar>>()
-        .ok_or_else(|| CoreError::numerical_breakdown("KamadaKawaiSolver target type mismatch"))?;
-    if let Some(prev) = state.locked_manifold
-        && prev != layout.kind()
-    {
-        return Err(CoreError::invalid_input(
-            "KamadaKawaiSolver::validate_target: cannot switch ManifoldKind on stateful solver",
-        ));
-    }
-    layout.validate_finite()
-}
-
 fn ensure_scratch(state: &mut KamadaKawaiState, d: usize) -> CoreResult<()> {
     let needed_hessian = d
         .checked_mul(d)
@@ -235,39 +200,16 @@ fn select_node<L: RiemannianLayout>(
     }
 }
 
-fn apply_tangent_step<L: RiemannianLayout + 'static>(
-    layout: &mut L,
-    node: usize,
-    delta: &mut [f64],
-    is_manifold: bool,
-) -> CoreResult<()> {
-    if is_manifold {
-        let m_layout = (layout as &mut dyn Any)
-            .downcast_mut::<ManifoldLayout2d<L::Scalar>>()
-            .ok_or_else(|| {
-                CoreError::numerical_breakdown("KamadaKawaiSolver target type mismatch")
-            })?;
-        let (cx, cy) = clamp_manifold_tangent_step(m_layout, delta[0], delta[1]);
-        delta[0] = cx;
-        delta[1] = cy;
-        m_layout.exp_map(node, delta)?;
-        guard_spherical_boundary(m_layout, node)?;
-        return Ok(());
-    }
-    layout.exp_map(node, delta)
-}
-
-fn steepest_descent_fallback<L: RiemannianLayout + 'static>(
+fn steepest_descent_fallback<L: RiemannianLayout>(
     state: &mut KamadaKawaiState,
     layout: &mut L,
     m: usize,
     d: usize,
     delta2: f64,
-    scale: f64,
 ) -> CoreResult<()> {
     let g_norm = delta2.sqrt();
     if g_norm > 0.0 && g_norm.is_finite() {
-        let step_len = (0.1 / g_norm).min(0.25) * scale;
+        let step_len = (0.1 / g_norm).min(0.25);
         let mut all_finite = true;
         for a in 0..d {
             let cand = -step_len * state.grad[a];
@@ -278,13 +220,13 @@ fn steepest_descent_fallback<L: RiemannianLayout + 'static>(
             state.delta[a] = cand;
         }
         if all_finite {
-            apply_tangent_step(layout, m, &mut state.delta[..d], state.is_manifold)?;
+            layout.exp_map(m, &state.delta[..d])?;
         }
     }
     Ok(())
 }
 
-pub(super) fn step_unified<L: RiemannianLayout + 'static>(
+pub(super) fn step_unified<L: RiemannianLayout>(
     state: &mut KamadaKawaiState,
     layout: &mut L,
 ) -> CoreResult<()> {
@@ -292,19 +234,6 @@ pub(super) fn step_unified<L: RiemannianLayout + 'static>(
     if d > 0 && state.locked_dim.is_none() {
         state.locked_dim = Some(d);
     }
-    let scale = if state.is_manifold {
-        let m_layout = (layout as &dyn Any)
-            .downcast_ref::<ManifoldLayout2d<L::Scalar>>()
-            .ok_or_else(|| {
-                CoreError::numerical_breakdown("KamadaKawaiSolver target type mismatch")
-            })?;
-        if state.locked_manifold.is_none() {
-            state.locked_manifold = Some(m_layout.kind());
-        }
-        m_layout.scale()
-    } else {
-        1.0
-    };
 
     let n = state.num_nodes;
     if n <= 1 {
@@ -313,8 +242,8 @@ pub(super) fn step_unified<L: RiemannianLayout + 'static>(
     }
 
     ensure_scratch(state, d)?;
-    let min_sep = MIN_SEPARATION * scale.min(1.0);
-    let max_newton = MAX_NEWTON_STEP * scale;
+    let min_sep = MIN_SEPARATION;
+    let max_newton = MAX_NEWTON_STEP;
 
     let Some(m) = select_node(state, layout, d, min_sep)? else {
         state.status = SolverStatus::Converged;
@@ -332,6 +261,7 @@ pub(super) fn step_unified<L: RiemannianLayout + 'static>(
             let mut hxy = 0.0_f64;
             let mut dedx = 0.0_f64;
             let mut dedy = 0.0_f64;
+            let mut max_dist_seen = 0.0_f64;
 
             for i in 0..n {
                 if i == m {
@@ -348,6 +278,9 @@ pub(super) fn step_unified<L: RiemannianLayout + 'static>(
                 let dist = dx.hypot(dy);
                 if dist <= min_sep || !dist.is_finite() {
                     continue;
+                }
+                if dist > max_dist_seen {
+                    max_dist_seen = dist;
                 }
                 let d3 = dist * dist * dist;
                 if d3 > 0.0 && d3.is_finite() {
@@ -369,7 +302,7 @@ pub(super) fn step_unified<L: RiemannianLayout + 'static>(
 
             let det = hxx * hyy - hxy * hxy;
             if !det.is_finite() || det <= HESSIAN_DET_TOL || hxx <= 0.0 || hyy <= 0.0 {
-                steepest_descent_fallback(state, layout, m, 2, delta2, scale)?;
+                steepest_descent_fallback(state, layout, m, 2, delta2)?;
                 break;
             }
 
@@ -378,15 +311,20 @@ pub(super) fn step_unified<L: RiemannianLayout + 'static>(
             if !delta_x.is_finite() || !delta_y.is_finite() {
                 break;
             }
+            let step_cap = if max_dist_seen > 0.0 {
+                max_newton.min((0.5 * max_dist_seen).max(0.5))
+            } else {
+                max_newton
+            };
             let step_norm = delta_x.hypot(delta_y);
-            if step_norm > max_newton {
-                let s = max_newton / step_norm;
+            if step_norm > step_cap {
+                let s = step_cap / step_norm;
                 delta_x *= s;
                 delta_y *= s;
             }
             state.delta[0] = -delta_x;
             state.delta[1] = -delta_y;
-            apply_tangent_step(layout, m, &mut state.delta[..2], state.is_manifold)?;
+            layout.exp_map(m, &state.delta[..2])?;
 
             if step_norm <= state.config.eps * 1e-2 {
                 break;
@@ -441,7 +379,7 @@ pub(super) fn step_unified<L: RiemannianLayout + 'static>(
                 d,
                 HESSIAN_DET_TOL,
             ) {
-                steepest_descent_fallback(state, layout, m, d, delta2, scale)?;
+                steepest_descent_fallback(state, layout, m, d, delta2)?;
                 break;
             }
 
@@ -461,7 +399,7 @@ pub(super) fn step_unified<L: RiemannianLayout + 'static>(
             for v in &mut state.delta[..d] {
                 *v = -*v;
             }
-            apply_tangent_step(layout, m, &mut state.delta[..d], state.is_manifold)?;
+            layout.exp_map(m, &state.delta[..d])?;
 
             if step_norm <= state.config.eps * 1e-2 {
                 break;

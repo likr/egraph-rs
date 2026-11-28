@@ -3,7 +3,10 @@ use egraph_core::{
     LayoutStorage, MetricSpace, RiemannianLayout, Scalar, SolverStatus,
 };
 
-use super::{PcgWorkspace, StressMajorizationConfig, StressMajorizationSolver};
+use super::{
+    DefaultStressStrategy, EuclideanPcg, GeodesicGradient, PcgWorkspace, StressMajorizationConfig,
+    StressMajorizationSolver,
+};
 
 fn grid_graph(rows: usize, cols: usize) -> CsrGraph<f64> {
     let n = rows * cols;
@@ -270,13 +273,16 @@ fn test_stress_majorization_fatal_breakdown_transitions_to_failed() {
         }
     }
 
+    impl DefaultStressStrategy for FailingRiemannian {
+        type Strategy = GeodesicGradient;
+    }
+
     let g = CsrGraph::<()>::from_unweighted_edges(2, &[(0, 1)], false, false).unwrap();
-    let mut solver =
-        StressMajorizationSolver::<FailingRiemannian>::from_unweighted_graph_riemannian(
-            &g,
-            StressMajorizationConfig::new(),
-        )
-        .unwrap();
+    let mut solver = StressMajorizationSolver::<FailingRiemannian>::from_unweighted_graph(
+        &g,
+        StressMajorizationConfig::new(),
+    )
+    .unwrap();
     let mut target = FailingRiemannian {
         coords: vec![0.0, 0.0, 0.2, 0.0],
     };
@@ -289,4 +295,105 @@ fn test_stress_majorization_fatal_breakdown_transitions_to_failed() {
     assert!(solver.status().is_failed());
     assert!(solver.status().is_finished());
     assert_eq!(solver.step(&mut target).unwrap(), SolverStatus::Failed);
+}
+
+#[test]
+fn test_stress_majorization_option1_strategies_and_custom_open_riemannian() {
+    let g = grid_graph(3, 3);
+    let cfg = StressMajorizationConfig::new().with_max_iterations(15);
+
+    // Explicit EuclideanPcg::new() via new_with_strategy matches default EuclideanPcg.
+    let mut s_def = StressMajorizationSolver::<Layout2d<f64>>::new(&g, cfg.clone()).unwrap();
+    let mut s_exp = StressMajorizationSolver::<Layout2d<f64>, EuclideanPcg>::new_with_strategy(
+        &g,
+        cfg.clone(),
+        EuclideanPcg::new(),
+    )
+    .unwrap();
+    assert_eq!(s_def.strategy(), &EuclideanPcg::new());
+    assert_eq!(s_exp.strategy(), &EuclideanPcg::new());
+    let mut l_def = seeded_layout::<f64>(9, 1.5, 42);
+    let mut l_exp = l_def.clone();
+    s_def.run(&mut l_def).unwrap();
+    s_exp.run(&mut l_exp).unwrap();
+    assert_eq!(l_def.x(), l_exp.x());
+    assert_eq!(l_def.y(), l_exp.y());
+
+    // GeodesicGradient can also be selected explicitly on Euclidean Layout3d.
+    let mut s_geo3d =
+        StressMajorizationSolver::<Layout3d<f64>, GeodesicGradient>::from_graph_with_strategy(
+            &g,
+            cfg.clone(),
+            GeodesicGradient::new(),
+        )
+        .unwrap();
+    let mut l3 = Layout3d::<f64>::init(9, 42, 2.0).unwrap();
+    let before3 = s_geo3d.compute_stress(&l3).unwrap();
+    assert!(s_geo3d.run(&mut l3).unwrap().is_finished());
+    assert!(s_geo3d.compute_stress(&l3).unwrap() < before3);
+
+    // Open extension: an external RiemannianLayout implementing DefaultStressStrategy
+    // works with GeodesicGradient without modifying egraph-layout-stress.
+    #[derive(Clone)]
+    struct OpenSurfaceMock {
+        coords: Vec<f64>,
+    }
+
+    impl LayoutStorage for OpenSurfaceMock {
+        type Scalar = f64;
+        fn len(&self) -> usize {
+            self.coords.len() / 2
+        }
+        fn validate_finite(&self) -> CoreResult<()> {
+            if self.coords.iter().all(|v| v.is_finite()) {
+                Ok(())
+            } else {
+                Err(CoreError::non_finite("OpenSurfaceMock"))
+            }
+        }
+    }
+
+    impl MetricSpace for OpenSurfaceMock {
+        fn distance(&self, i: usize, j: usize) -> f64 {
+            let dx = self.coords[i * 2] - self.coords[j * 2];
+            let dy = self.coords[i * 2 + 1] - self.coords[j * 2 + 1];
+            dx.hypot(dy)
+        }
+    }
+
+    impl RiemannianLayout for OpenSurfaceMock {
+        fn tangent_dim(&self) -> usize {
+            2
+        }
+        fn log_map_into(&self, i: usize, j: usize, out: &mut [f64]) -> CoreResult<()> {
+            out[0] = self.coords[j * 2] - self.coords[i * 2];
+            out[1] = self.coords[j * 2 + 1] - self.coords[i * 2 + 1];
+            Ok(())
+        }
+        fn exp_map(&mut self, i: usize, delta: &[f64]) -> CoreResult<()> {
+            self.coords[i * 2] += delta[0];
+            self.coords[i * 2 + 1] += delta[1];
+            Ok(())
+        }
+        fn parallel_transport_into(
+            &self,
+            _i: usize,
+            _delta: &[f64],
+            _vec: &mut [f64],
+        ) -> CoreResult<()> {
+            Ok(())
+        }
+    }
+
+    impl DefaultStressStrategy for OpenSurfaceMock {
+        type Strategy = GeodesicGradient;
+    }
+
+    let mut s_open = StressMajorizationSolver::<OpenSurfaceMock>::from_graph(&g, cfg).unwrap();
+    let mut l_open = OpenSurfaceMock {
+        coords: (0..18).map(|k| (k as f64) * 0.25).collect(),
+    };
+    let s_before = s_open.compute_stress(&l_open).unwrap();
+    assert!(s_open.run(&mut l_open).unwrap().is_finished());
+    assert!(s_open.compute_stress(&l_open).unwrap() < s_before);
 }

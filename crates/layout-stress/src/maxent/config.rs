@@ -25,12 +25,6 @@ pub struct MaxentStressConfig {
     pub cg_tol: f64,
     /// Maximum PCG iterations per linear solve (`default: 10`).
     pub cg_max_iters: usize,
-    /// Barnes-Hut opening angle $\theta \ge 0.0$ for `ArenaQuadtree2d` (`Layout2d`) or
-    /// `ArenaOctree3d` (`Layout3d`) (`default: 1.2`).
-    pub theta: f64,
-    /// Whether to use Barnes-Hut spatial-tree approximation (`true` for `Layout2d` / `Layout3d`)
-    /// or exact $O(N^2)$ repulsion (`false`, required for `LayoutNd`) (`default: true`).
-    pub use_barnes_hut: bool,
     /// Softening squared distance $\varepsilon^2 > 0.0$ in repulsive denominator (`default: 1e-6`).
     pub eps_sq: f64,
     /// Deterministic PRNG seed for AMG tie-breaking and collapsed-layout initialization (`default: 42`).
@@ -49,8 +43,6 @@ impl Default for MaxentStressConfig {
             tol: 1e-3,
             cg_tol: 0.1,
             cg_max_iters: 10,
-            theta: 1.2,
-            use_barnes_hut: true,
             eps_sq: 1e-6,
             seed: 42,
         }
@@ -114,19 +106,6 @@ impl MaxentStressConfig {
     /// Sets the maximum PCG iterations per linear solve `cg_max_iters`.
     pub fn with_cg_max_iters(mut self, cg_max_iters: usize) -> Self {
         self.cg_max_iters = cg_max_iters;
-        self
-    }
-
-    /// Sets the Barnes-Hut opening angle `theta`.
-    pub fn with_theta(mut self, theta: f64) -> Self {
-        self.theta = theta;
-        self
-    }
-
-    /// Sets whether Barnes-Hut spatial-tree repulsion (`true`) or exact $O(N^2)$ repulsion
-    /// (`false`) is used.
-    pub fn with_use_barnes_hut(mut self, use_barnes_hut: bool) -> Self {
-        self.use_barnes_hut = use_barnes_hut;
         self
     }
 
@@ -203,15 +182,6 @@ impl MaxentStressConfig {
             return Err(CoreError::invalid_input(
                 "MaxentStressConfig::cg_max_iters must be >= 1",
             ));
-        }
-        if !self.theta.is_finite() {
-            return Err(CoreError::non_finite("MaxentStressConfig::theta"));
-        }
-        if self.theta < 0.0 {
-            return Err(CoreError::invalid_input(format!(
-                "MaxentStressConfig::theta must be >= 0.0, got {}",
-                self.theta
-            )));
         }
         if !self.eps_sq.is_finite() {
             return Err(CoreError::non_finite("MaxentStressConfig::eps_sq"));

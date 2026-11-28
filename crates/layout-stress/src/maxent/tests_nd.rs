@@ -1,6 +1,6 @@
 use egraph_core::{CoreError, CsrGraph, IterativeSolver, Layout3d, LayoutNd, SolverStatus};
 
-use super::{MaxentStressConfig, MaxentStressSolver};
+use super::{BarnesHut, Exact, MaxentStressConfig, MaxentStressSolver};
 use crate::{StressMajorizationConfig, StressMajorizationSolver};
 
 fn grid_graph(rows: usize, cols: usize) -> CsrGraph<f64> {
@@ -24,13 +24,18 @@ fn grid_graph(rows: usize, cols: usize) -> CsrGraph<f64> {
 fn test_maxent_nd_step_vs_run_bit_exact_3d_5d() {
     let g = grid_graph(3, 4);
 
-    // f64 dims=3 with LayoutNd (Exact repulsion)
+    // f64 dims=3 with LayoutNd (defaults to Exact repulsion)
     let cfg_exact = MaxentStressConfig::new()
-        .with_use_barnes_hut(false)
         .with_stages(3)
         .with_steps_per_stage(10);
     let mut s1 = MaxentStressSolver::<LayoutNd<f64>>::new(&g, cfg_exact.clone()).unwrap();
-    let mut s2 = MaxentStressSolver::<LayoutNd<f64>>::new(&g, cfg_exact.clone()).unwrap();
+    let mut s2 = MaxentStressSolver::<LayoutNd<f64>, Exact>::new_with_backend(
+        &g,
+        cfg_exact.clone(),
+        Exact::new(),
+    )
+    .unwrap();
+    assert_eq!(s1.backend(), &Exact::new());
     let mut l1 = LayoutNd::zeros(g.num_nodes(), 3).unwrap();
     let mut l2 = LayoutNd::zeros(g.num_nodes(), 3).unwrap();
 
@@ -49,7 +54,6 @@ fn test_maxent_nd_step_vs_run_bit_exact_3d_5d() {
 
     // f32 dims=3 with LayoutNd (Exact repulsion)
     let cfg32 = MaxentStressConfig::new()
-        .with_use_barnes_hut(false)
         .with_stages(3)
         .with_steps_per_stage(8);
     let mut s1 = MaxentStressSolver::<LayoutNd<f32>>::new(&g, cfg32.clone()).unwrap();
@@ -68,7 +72,6 @@ fn test_maxent_nd_step_vs_run_bit_exact_3d_5d() {
 
     // f64 dims=5 with LayoutNd (Exact repulsion)
     let cfg5 = MaxentStressConfig::new()
-        .with_use_barnes_hut(false)
         .with_stages(3)
         .with_steps_per_stage(8);
     let mut s5_1 = MaxentStressSolver::<LayoutNd<f64>>::new(&g, cfg5.clone()).unwrap();
@@ -103,7 +106,6 @@ fn test_maxent_3d_barnes_hut_stress_decrease_q_variants_and_exact_parity() {
             &g,
             MaxentStressConfig::new()
                 .with_q(Some(q_val))
-                .with_use_barnes_hut(true)
                 .with_stages(4)
                 .with_steps_per_stage(20),
         )
@@ -119,19 +121,17 @@ fn test_maxent_3d_barnes_hut_stress_decrease_q_variants_and_exact_parity() {
     // Exact vs Barnes-Hut theta=0.0 parity on Layout3d
     let mut l_bh = l_init.clone();
     let mut l_ex = l_init;
-    let mut s_bh = MaxentStressSolver::<Layout3d<f64>>::new(
+    let mut s_bh = MaxentStressSolver::<Layout3d<f64>, BarnesHut>::new_with_backend(
         &g,
         MaxentStressConfig::new()
-            .with_use_barnes_hut(true)
-            .with_theta(0.0)
             .with_stages(2)
             .with_steps_per_stage(5),
+        BarnesHut::new(0.0),
     )
     .unwrap();
-    let mut s_ex = MaxentStressSolver::<Layout3d<f64>>::new(
+    let mut s_ex = MaxentStressSolver::<Layout3d<f64>, Exact>::new(
         &g,
         MaxentStressConfig::new()
-            .with_use_barnes_hut(false)
             .with_stages(2)
             .with_steps_per_stage(5),
     )
@@ -147,7 +147,7 @@ fn test_maxent_3d_barnes_hut_stress_decrease_q_variants_and_exact_parity() {
 
 #[test]
 fn test_maxent_nd_edge_cases_and_degenerate_geometries() {
-    let cfg_exact = MaxentStressConfig::new().with_use_barnes_hut(false);
+    let cfg_exact = MaxentStressConfig::new();
 
     // n=0 and n=1
     let g0 = CsrGraph::<f64>::from_edges(0, &[], None, false, false).unwrap();
@@ -232,13 +232,7 @@ fn test_maxent_nd_validation_errors_and_fail_fast() {
         Err(CoreError::InvalidInput(_))
     ));
 
-    // use_barnes_hut == true on LayoutNd fails fast at construction.
-    assert!(matches!(
-        MaxentStressSolver::<LayoutNd<f64>>::new(&g, MaxentStressConfig::default()),
-        Err(CoreError::UnsupportedOperation(_))
-    ));
-
-    let cfg_exact = MaxentStressConfig::new().with_use_barnes_hut(false);
+    let cfg_exact = MaxentStressConfig::new();
     let mut s_nd = MaxentStressSolver::<LayoutNd<f64>>::new(&g, cfg_exact.clone()).unwrap();
 
     // NaN / Inf rejected via both step and run_steps(target, 0).

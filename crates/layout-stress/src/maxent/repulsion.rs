@@ -1,11 +1,114 @@
 use egraph_core::{
-    CoreError, CoreResult, EuclideanLayout, EuclideanStorageRef, Layout2d, Layout3d,
-    RepulsionBackend, Scalar,
+    CoreError, CoreResult, EuclideanLayout, EuclideanStorageRef, Layout2d, Layout3d, LayoutNd,
+    LayoutStorage, RepulsionBackend, Scalar,
 };
 use egraph_spatial_trees::{ArenaOctree3d, ArenaQuadtree2d};
 
+/// Exact $O(N^2)$ pairwise repulsion backend for [`MaxentStressSolver`](super::MaxentStressSolver).
+#[non_exhaustive]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Exact {}
+
+impl Exact {
+    /// Creates a new [`Exact`] repulsion backend.
+    #[inline]
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
+/// Barnes-Hut spatial-tree repulsion backend (`ArenaQuadtree2d` on [`Layout2d`], `ArenaOctree3d`
+/// on [`Layout3d`]) for [`MaxentStressSolver`](super::MaxentStressSolver).
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq)]
+pub struct BarnesHut {
+    theta: f64,
+}
+
+impl Default for BarnesHut {
+    #[inline]
+    fn default() -> Self {
+        Self { theta: 1.2 }
+    }
+}
+
+impl BarnesHut {
+    /// Creates a [`BarnesHut`] repulsion backend with opening angle `theta >= 0.0`.
+    #[inline]
+    pub fn new(theta: f64) -> Self {
+        Self { theta }
+    }
+
+    /// Sets the Barnes-Hut opening angle `theta >= 0.0`.
+    #[inline]
+    pub fn with_theta(mut self, theta: f64) -> Self {
+        self.theta = theta;
+        self
+    }
+
+    /// Returns the configured Barnes-Hut opening angle `theta`.
+    #[inline]
+    pub fn theta(&self) -> f64 {
+        self.theta
+    }
+
+    /// Validates Barnes-Hut parameters.
+    pub fn validate(&self) -> CoreResult<()> {
+        if !self.theta.is_finite() {
+            return Err(CoreError::non_finite("BarnesHut::theta"));
+        }
+        if self.theta < 0.0 {
+            return Err(CoreError::invalid_input(format!(
+                "BarnesHut::theta must be >= 0.0, got {}",
+                self.theta
+            )));
+        }
+        Ok(())
+    }
+}
+
+/// Open repulsion-backend contract for [`MaxentStressSolver`](super::MaxentStressSolver).
+///
+/// External crates (such as `egraph-surface`) can implement this trait for custom layouts and
+/// repulsion backends without modifying `egraph-layout-stress`.
+pub trait MaxentRepulsion<L: LayoutStorage + ?Sized> {
+    /// Reusable per-solver repulsion evaluator (e.g. spatial tree + scratch buffers).
+    type Evaluator: RepulsionBackend<L> + Clone;
+
+    /// Validates backend-specific hyperparameters before solver construction.
+    fn validate(&self) -> CoreResult<()> {
+        Ok(())
+    }
+
+    /// Constructs the reusable repulsion evaluator for `num_nodes` vertices, repulsion exponent
+    /// `q`, and softening squared distance `eps_sq`.
+    fn build_evaluator(&self, num_nodes: usize, q: f64, eps_sq: f64)
+    -> CoreResult<Self::Evaluator>;
+}
+
+/// Associates each [`LayoutStorage`] target type with its default [`MaxentRepulsion`] backend.
+pub trait DefaultMaxentBackend: LayoutStorage {
+    /// Default repulsion backend selected by [`MaxentStressSolver`](super::MaxentStressSolver)
+    /// when `B` is not explicitly specified.
+    type Backend: MaxentRepulsion<Self>;
+}
+
+impl<S: Scalar> DefaultMaxentBackend for Layout2d<S> {
+    type Backend = BarnesHut;
+}
+
+impl<S: Scalar> DefaultMaxentBackend for Layout3d<S> {
+    type Backend = BarnesHut;
+}
+
+impl<S: Scalar> DefaultMaxentBackend for LayoutNd<S> {
+    type Backend = Exact;
+}
+
+/// Internal `ArenaQuadtree2d` repulsion evaluator for [`BarnesHut`] on [`Layout2d`].
+#[doc(hidden)]
 #[derive(Debug, Clone)]
-pub(super) struct Quadtree2dMaxentBackend {
+pub struct Quadtree2dMaxentEvaluator {
     quadtree: ArenaQuadtree2d<f64>,
     theta: f64,
     q: f64,
@@ -14,8 +117,8 @@ pub(super) struct Quadtree2dMaxentBackend {
     y_cur: Vec<f64>,
 }
 
-impl Quadtree2dMaxentBackend {
-    pub(super) fn new(num_nodes: usize, theta: f64, q: f64, eps_sq: f64) -> Self {
+impl Quadtree2dMaxentEvaluator {
+    fn new(num_nodes: usize, theta: f64, q: f64, eps_sq: f64) -> Self {
         Self {
             quadtree: ArenaQuadtree2d::new(),
             theta,
@@ -27,7 +130,7 @@ impl Quadtree2dMaxentBackend {
     }
 }
 
-impl<S: Scalar> RepulsionBackend<Layout2d<S>> for Quadtree2dMaxentBackend {
+impl<S: Scalar> RepulsionBackend<Layout2d<S>> for Quadtree2dMaxentEvaluator {
     fn accumulate_repulsion(
         &mut self,
         layout: &Layout2d<S>,
@@ -41,7 +144,7 @@ impl<S: Scalar> RepulsionBackend<Layout2d<S>> for Quadtree2dMaxentBackend {
             return Err(CoreError::dimension_mismatch(
                 expected,
                 forces.len(),
-                "Quadtree2dMaxentBackend::accumulate_repulsion",
+                "Quadtree2dMaxentEvaluator::accumulate_repulsion",
             ));
         }
         if self.x_cur.len() != n {
@@ -61,8 +164,10 @@ impl<S: Scalar> RepulsionBackend<Layout2d<S>> for Quadtree2dMaxentBackend {
     }
 }
 
+/// Internal `ArenaOctree3d` repulsion evaluator for [`BarnesHut`] on [`Layout3d`].
+#[doc(hidden)]
 #[derive(Debug, Clone)]
-pub(super) struct Octree3dMaxentBackend {
+pub struct Octree3dMaxentEvaluator {
     octree: ArenaOctree3d<f64>,
     theta: f64,
     q: f64,
@@ -72,8 +177,8 @@ pub(super) struct Octree3dMaxentBackend {
     z_cur: Vec<f64>,
 }
 
-impl Octree3dMaxentBackend {
-    pub(super) fn new(num_nodes: usize, theta: f64, q: f64, eps_sq: f64) -> Self {
+impl Octree3dMaxentEvaluator {
+    fn new(num_nodes: usize, theta: f64, q: f64, eps_sq: f64) -> Self {
         Self {
             octree: ArenaOctree3d::new(),
             theta,
@@ -86,7 +191,7 @@ impl Octree3dMaxentBackend {
     }
 }
 
-impl<S: Scalar> RepulsionBackend<Layout3d<S>> for Octree3dMaxentBackend {
+impl<S: Scalar> RepulsionBackend<Layout3d<S>> for Octree3dMaxentEvaluator {
     fn accumulate_repulsion(
         &mut self,
         layout: &Layout3d<S>,
@@ -100,7 +205,7 @@ impl<S: Scalar> RepulsionBackend<Layout3d<S>> for Octree3dMaxentBackend {
             return Err(CoreError::dimension_mismatch(
                 expected,
                 forces.len(),
-                "Octree3dMaxentBackend::accumulate_repulsion",
+                "Octree3dMaxentEvaluator::accumulate_repulsion",
             ));
         }
         if self.x_cur.len() != n {
@@ -124,15 +229,17 @@ impl<S: Scalar> RepulsionBackend<Layout3d<S>> for Octree3dMaxentBackend {
     }
 }
 
+/// Internal exact $O(N^2)$ repulsion evaluator for [`Exact`] on any [`EuclideanLayout`].
+#[doc(hidden)]
 #[derive(Debug, Clone)]
-pub(super) struct ExactMaxentBackend {
+pub struct ExactMaxentEvaluator {
     q: f64,
     eps_sq: f64,
     cur_flat: Vec<f64>,
 }
 
-impl ExactMaxentBackend {
-    pub(super) fn new(q: f64, eps_sq: f64) -> Self {
+impl ExactMaxentEvaluator {
+    fn new(q: f64, eps_sq: f64) -> Self {
         Self {
             q,
             eps_sq,
@@ -141,7 +248,7 @@ impl ExactMaxentBackend {
     }
 }
 
-impl<L: EuclideanLayout> RepulsionBackend<L> for ExactMaxentBackend {
+impl<L: EuclideanLayout> RepulsionBackend<L> for ExactMaxentEvaluator {
     fn accumulate_repulsion(&mut self, layout: &L, forces: &mut [f64]) -> CoreResult<Option<f64>> {
         let n = layout.len();
         let d = layout.dims();
@@ -152,7 +259,7 @@ impl<L: EuclideanLayout> RepulsionBackend<L> for ExactMaxentBackend {
             return Err(CoreError::dimension_mismatch(
                 expected,
                 forces.len(),
-                "ExactMaxentBackend::accumulate_repulsion",
+                "ExactMaxentEvaluator::accumulate_repulsion",
             ));
         }
         if self.cur_flat.len() != expected {
@@ -209,5 +316,61 @@ impl<L: EuclideanLayout> RepulsionBackend<L> for ExactMaxentBackend {
         }
 
         Ok(None)
+    }
+}
+
+impl<L: EuclideanLayout> MaxentRepulsion<L> for Exact {
+    type Evaluator = ExactMaxentEvaluator;
+
+    #[inline]
+    fn build_evaluator(
+        &self,
+        _num_nodes: usize,
+        q: f64,
+        eps_sq: f64,
+    ) -> CoreResult<Self::Evaluator> {
+        Ok(ExactMaxentEvaluator::new(q, eps_sq))
+    }
+}
+
+impl<S: Scalar> MaxentRepulsion<Layout2d<S>> for BarnesHut {
+    type Evaluator = Quadtree2dMaxentEvaluator;
+
+    fn validate(&self) -> CoreResult<()> {
+        BarnesHut::validate(self)
+    }
+
+    #[inline]
+    fn build_evaluator(
+        &self,
+        num_nodes: usize,
+        q: f64,
+        eps_sq: f64,
+    ) -> CoreResult<Self::Evaluator> {
+        self.validate()?;
+        Ok(Quadtree2dMaxentEvaluator::new(
+            num_nodes, self.theta, q, eps_sq,
+        ))
+    }
+}
+
+impl<S: Scalar> MaxentRepulsion<Layout3d<S>> for BarnesHut {
+    type Evaluator = Octree3dMaxentEvaluator;
+
+    fn validate(&self) -> CoreResult<()> {
+        BarnesHut::validate(self)
+    }
+
+    #[inline]
+    fn build_evaluator(
+        &self,
+        num_nodes: usize,
+        q: f64,
+        eps_sq: f64,
+    ) -> CoreResult<Self::Evaluator> {
+        self.validate()?;
+        Ok(Octree3dMaxentEvaluator::new(
+            num_nodes, self.theta, q, eps_sq,
+        ))
     }
 }

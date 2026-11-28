@@ -1,5 +1,6 @@
 use egraph_core::{
-    CoreResult, CsrGraph, DeterministicRng, Layout2d, Layout3d, LayoutGenerator, LayoutNd, Scalar,
+    CoreResult, CsrGraph, DeterministicRng, EuclideanLayout, EuclideanStorageMut, Layout2d,
+    Layout3d, LayoutGenerator, LayoutNd, Scalar,
 };
 use egraph_linalg_mds::{Hde, HdeConfig, PivotMds, PivotMdsConfig};
 
@@ -17,80 +18,69 @@ fn build_init_graph(core: &MaxentCoreState) -> CoreResult<CsrGraph<f64>> {
     }
 }
 
-pub(super) fn initialize_collapsed_2d<S: Scalar>(
+pub(super) fn initialize_collapsed_euclidean<L: EuclideanLayout>(
     core: &MaxentCoreState,
-    layout: &mut Layout2d<S>,
+    layout: &mut L,
 ) -> CoreResult<()> {
     let n = core.num_nodes;
     let init_graph = build_init_graph(core)?;
-    let pmds_cfg = PivotMdsConfig::new().with_seed(core.config.seed);
-    let mut generator = PivotMds::<Layout2d<S>, f64>::from_config(&init_graph, pmds_cfg);
-    if let Ok(pmds_layout) = generator.generate()
-        && !is_layout_collapsed_euclidean(&pmds_layout)
-    {
-        let (dst_x, dst_y) = layout.xy_mut();
-        dst_x.copy_from_slice(pmds_layout.x());
-        dst_y.copy_from_slice(pmds_layout.y());
-        return Ok(());
+
+    match layout.as_euclidean_storage_mut() {
+        EuclideanStorageMut::Soa2d { x, y } => {
+            let pmds_cfg = PivotMdsConfig::new().with_seed(core.config.seed);
+            let mut generator =
+                PivotMds::<Layout2d<L::Scalar>, f64>::from_config(&init_graph, pmds_cfg);
+            if let Ok(pmds_layout) = generator.generate()
+                && !is_layout_collapsed_euclidean(&pmds_layout)
+            {
+                x.copy_from_slice(pmds_layout.x());
+                y.copy_from_slice(pmds_layout.y());
+                return Ok(());
+            }
+
+            let mut rng = DeterministicRng::from_seed_u64(core.config.seed);
+            for i in 0..n {
+                x[i] = L::Scalar::from_f64(rng.next_f64() - 0.5);
+                y[i] = L::Scalar::from_f64(rng.next_f64() - 0.5);
+            }
+        }
+        EuclideanStorageMut::Soa3d { x, y, z } => {
+            let hde_cfg = HdeConfig::new().with_seed(core.config.seed);
+            let mut generator = Hde::<Layout3d<L::Scalar>, f64>::from_config(&init_graph, hde_cfg);
+            if let Ok(hde_layout) = generator.generate()
+                && !is_layout_collapsed_euclidean(&hde_layout)
+            {
+                x.copy_from_slice(hde_layout.x());
+                y.copy_from_slice(hde_layout.y());
+                z.copy_from_slice(hde_layout.z());
+                return Ok(());
+            }
+
+            let mut rng = DeterministicRng::from_seed_u64(core.config.seed);
+            for i in 0..n {
+                x[i] = L::Scalar::from_f64(rng.next_f64() - 0.5);
+                y[i] = L::Scalar::from_f64(rng.next_f64() - 0.5);
+                z[i] = L::Scalar::from_f64(rng.next_f64() - 0.5);
+            }
+        }
+        EuclideanStorageMut::FlatNd { coords, dims, .. } => {
+            let hde_cfg = HdeConfig::new()
+                .with_output_dims(Some(dims))
+                .with_seed(core.config.seed);
+            let mut generator = Hde::<LayoutNd<L::Scalar>, f64>::from_config(&init_graph, hde_cfg);
+            if let Ok(hde_layout) = generator.generate()
+                && !is_layout_collapsed_euclidean(&hde_layout)
+            {
+                coords.copy_from_slice(hde_layout.coords());
+                return Ok(());
+            }
+
+            let mut rng = DeterministicRng::from_seed_u64(core.config.seed);
+            for v in coords.iter_mut() {
+                *v = L::Scalar::from_f64(rng.next_f64() - 0.5);
+            }
+        }
     }
 
-    let mut rng = DeterministicRng::from_seed_u64(core.config.seed);
-    let (dst_x, dst_y) = layout.xy_mut();
-    for i in 0..n {
-        dst_x[i] = S::from_f64(rng.next_f64() - 0.5);
-        dst_y[i] = S::from_f64(rng.next_f64() - 0.5);
-    }
-    Ok(())
-}
-
-pub(super) fn initialize_collapsed_3d<S: Scalar>(
-    core: &MaxentCoreState,
-    layout: &mut Layout3d<S>,
-) -> CoreResult<()> {
-    let n = core.num_nodes;
-    let init_graph = build_init_graph(core)?;
-    let hde_cfg = HdeConfig::new().with_seed(core.config.seed);
-    let mut generator = Hde::<Layout3d<S>, f64>::from_config(&init_graph, hde_cfg);
-    if let Ok(hde_layout) = generator.generate()
-        && !is_layout_collapsed_euclidean(&hde_layout)
-    {
-        let (dst_x, dst_y, dst_z) = layout.xyz_mut();
-        dst_x.copy_from_slice(hde_layout.x());
-        dst_y.copy_from_slice(hde_layout.y());
-        dst_z.copy_from_slice(hde_layout.z());
-        return Ok(());
-    }
-
-    let mut rng = DeterministicRng::from_seed_u64(core.config.seed);
-    let (dst_x, dst_y, dst_z) = layout.xyz_mut();
-    for i in 0..n {
-        dst_x[i] = S::from_f64(rng.next_f64() - 0.5);
-        dst_y[i] = S::from_f64(rng.next_f64() - 0.5);
-        dst_z[i] = S::from_f64(rng.next_f64() - 0.5);
-    }
-    Ok(())
-}
-
-pub(super) fn initialize_collapsed_nd<S: Scalar>(
-    core: &MaxentCoreState,
-    layout: &mut LayoutNd<S>,
-) -> CoreResult<()> {
-    let d = layout.dims();
-    let init_graph = build_init_graph(core)?;
-    let hde_cfg = HdeConfig::new()
-        .with_output_dims(Some(d))
-        .with_seed(core.config.seed);
-    let mut generator = Hde::<LayoutNd<S>, f64>::from_config(&init_graph, hde_cfg);
-    if let Ok(hde_layout) = generator.generate()
-        && !is_layout_collapsed_euclidean(&hde_layout)
-    {
-        layout.coords_mut().copy_from_slice(hde_layout.coords());
-        return Ok(());
-    }
-
-    let mut rng = DeterministicRng::from_seed_u64(core.config.seed);
-    for v in layout.coords_mut().iter_mut() {
-        *v = S::from_f64(rng.next_f64() - 0.5);
-    }
     Ok(())
 }

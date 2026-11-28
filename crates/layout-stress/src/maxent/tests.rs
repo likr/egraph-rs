@@ -1,6 +1,9 @@
-use egraph_core::{CoreError, CsrGraph, IterativeSolver, Layout2d, Layout3d, SolverStatus};
+use egraph_core::{
+    CoreError, CoreResult, CsrGraph, IterativeSolver, Layout2d, Layout3d, RepulsionBackend, Scalar,
+    SolverStatus,
+};
 
-use super::{MaxentStressConfig, MaxentStressSolver};
+use super::{BarnesHut, Exact, MaxentRepulsion, MaxentStressConfig, MaxentStressSolver};
 
 fn grid_graph(rows: usize, cols: usize) -> CsrGraph<f64> {
     let n = rows * cols;
@@ -59,6 +62,34 @@ fn test_maxent_config_validation() {
         MaxentStressConfig::new().with_eps_sq(0.0).validate(),
         Err(CoreError::InvalidInput(_))
     ));
+    assert_eq!(BarnesHut::default().theta(), 1.2);
+    assert_eq!(BarnesHut::new(0.5).with_theta(0.8).theta(), 0.8);
+    assert!(matches!(
+        BarnesHut::new(-0.1).validate(),
+        Err(CoreError::InvalidInput(_))
+    ));
+    assert!(matches!(
+        BarnesHut::new(f64::NAN).validate(),
+        Err(CoreError::NonFiniteValue { .. })
+    ));
+
+    let g = grid_graph(2, 2);
+    assert!(matches!(
+        MaxentStressSolver::<Layout2d<f64>, BarnesHut>::new_with_backend(
+            &g,
+            MaxentStressConfig::default(),
+            BarnesHut::new(-0.5),
+        ),
+        Err(CoreError::InvalidInput(_))
+    ));
+    assert!(matches!(
+        MaxentStressSolver::<Layout2d<f64>, BarnesHut>::from_unweighted_graph_with_backend(
+            &g,
+            MaxentStressConfig::default(),
+            BarnesHut::new(f64::NAN),
+        ),
+        Err(CoreError::NonFiniteValue { .. })
+    ));
 }
 
 #[test]
@@ -106,13 +137,18 @@ fn test_maxent_step_run_bit_exact_f64_f32_and_3d() {
     let g = grid_graph(3, 4);
 
     // f64 bit-exact step() == run(), both Barnes-Hut and exact O(N^2) on Layout2d and Layout3d.
-    for &use_bh in &[true, false] {
-        let cfg = MaxentStressConfig::new()
-            .with_use_barnes_hut(use_bh)
-            .with_stages(3)
-            .with_steps_per_stage(10);
+    let cfg = MaxentStressConfig::new()
+        .with_stages(3)
+        .with_steps_per_stage(10);
+    {
         let mut s1 = MaxentStressSolver::<Layout2d<f64>>::new(&g, cfg.clone()).unwrap();
-        let mut s2 = MaxentStressSolver::<Layout2d<f64>>::new(&g, cfg.clone()).unwrap();
+        let mut s2 = MaxentStressSolver::<Layout2d<f64>, BarnesHut>::from_graph_with_backend(
+            &g,
+            cfg.clone(),
+            BarnesHut::default(),
+        )
+        .unwrap();
+        assert_eq!(s1.backend().theta(), 1.2);
         let mut l1 = Layout2d::zeros(g.num_nodes());
         let mut l2 = Layout2d::zeros(g.num_nodes());
 
@@ -133,7 +169,51 @@ fn test_maxent_step_run_bit_exact_f64_f32_and_3d() {
         );
 
         let mut s3_1 = MaxentStressSolver::<Layout3d<f64>>::new(&g, cfg.clone()).unwrap();
-        let mut s3_2 = MaxentStressSolver::<Layout3d<f64>>::new(&g, cfg).unwrap();
+        let mut s3_2 =
+            MaxentStressSolver::<Layout3d<f64>, BarnesHut>::from_graph(&g, cfg.clone()).unwrap();
+        let mut l3_1 = Layout3d::zeros(g.num_nodes());
+        let mut l3_2 = Layout3d::zeros(g.num_nodes());
+        let st3 = s3_1.run(&mut l3_1).unwrap();
+        while !s3_2.status().is_finished() {
+            s3_2.step(&mut l3_2).unwrap();
+        }
+        assert_eq!(st3, s3_2.status());
+        for i in 0..g.num_nodes() {
+            assert_eq!(l3_1.x()[i].to_bits(), l3_2.x()[i].to_bits());
+            assert_eq!(l3_1.y()[i].to_bits(), l3_2.y()[i].to_bits());
+            assert_eq!(l3_1.z()[i].to_bits(), l3_2.z()[i].to_bits());
+        }
+    }
+
+    {
+        let mut s1 = MaxentStressSolver::<Layout2d<f64>, Exact>::new(&g, cfg.clone()).unwrap();
+        let mut s2 = MaxentStressSolver::<Layout2d<f64>, Exact>::new_with_backend(
+            &g,
+            cfg.clone(),
+            Exact::new(),
+        )
+        .unwrap();
+        let mut l1 = Layout2d::zeros(g.num_nodes());
+        let mut l2 = Layout2d::zeros(g.num_nodes());
+
+        let st1 = s1.run(&mut l1).unwrap();
+        let mut st2 = SolverStatus::Initialized;
+        while !st2.is_finished() {
+            st2 = s2.step(&mut l2).unwrap();
+        }
+        assert_eq!(st1, st2);
+        assert_eq!(s1.iteration(), s2.iteration());
+        assert_eq!(
+            l1.x().iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
+            l2.x().iter().map(|v| v.to_bits()).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            l1.y().iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
+            l2.y().iter().map(|v| v.to_bits()).collect::<Vec<_>>()
+        );
+
+        let mut s3_1 = MaxentStressSolver::<Layout3d<f64>, Exact>::new(&g, cfg.clone()).unwrap();
+        let mut s3_2 = MaxentStressSolver::<Layout3d<f64>, Exact>::new(&g, cfg).unwrap();
         let mut l3_1 = Layout3d::zeros(g.num_nodes());
         let mut l3_2 = Layout3d::zeros(g.num_nodes());
         let st3 = s3_1.run(&mut l3_1).unwrap();
@@ -272,4 +352,47 @@ fn test_maxent_edge_cases_disconnected_isolated_weighted_directed_and_validation
         s_dir.run_steps(&mut l_nan, 0),
         Err(CoreError::NonFiniteValue { .. })
     ));
+
+    // Open MaxentRepulsion trait: custom external backend works seamlessly.
+    #[derive(Clone, Default)]
+    struct ZeroRepulsionBackend;
+
+    #[derive(Clone)]
+    struct ZeroRepulsionEval;
+
+    impl<S: Scalar> RepulsionBackend<Layout2d<S>> for ZeroRepulsionEval {
+        fn accumulate_repulsion(
+            &mut self,
+            _layout: &Layout2d<S>,
+            forces: &mut [f64],
+        ) -> CoreResult<Option<f64>> {
+            forces.fill(0.0);
+            Ok(None)
+        }
+    }
+
+    impl<S: Scalar> MaxentRepulsion<Layout2d<S>> for ZeroRepulsionBackend {
+        type Evaluator = ZeroRepulsionEval;
+        fn build_evaluator(
+            &self,
+            _num_nodes: usize,
+            _q: f64,
+            _eps_sq: f64,
+        ) -> CoreResult<Self::Evaluator> {
+            Ok(ZeroRepulsionEval)
+        }
+    }
+
+    let mut s_custom_backend =
+        MaxentStressSolver::<Layout2d<f64>, ZeroRepulsionBackend>::new_with_backend(
+            &g_path,
+            MaxentStressConfig::new()
+                .with_stages(1)
+                .with_steps_per_stage(3),
+            ZeroRepulsionBackend,
+        )
+        .unwrap();
+    let mut l_cb = Layout2d::zeros(5);
+    assert!(s_custom_backend.run(&mut l_cb).unwrap().is_finished());
+    assert!(l_cb.is_all_finite());
 }

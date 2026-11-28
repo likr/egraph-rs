@@ -237,7 +237,7 @@ fn test_kamada_kawai_manifold_singular_fallback_edge_cases_and_lock() {
     assert!(s_coin.run(&mut l_coin).unwrap().is_finished());
     assert!(l_coin.validate_finite().is_ok());
 
-    // Node mismatch and ManifoldKind switching rejections (including run_steps(0)).
+    // Node mismatch and non-finite validation rejections (including run_steps(0)).
     let grid = grid_graph(2, 2);
     let mut s_err =
         KamadaKawaiSolver::<ManifoldLayout2d<f64>>::from_graph(&grid, cfg.clone()).unwrap();
@@ -246,13 +246,12 @@ fn test_kamada_kawai_manifold_singular_fallback_edge_cases_and_lock() {
         s_err.step(&mut l_wrong),
         Err(CoreError::DimensionMismatch { .. })
     ));
+    assert!(matches!(
+        s_err.run_steps(&mut l_wrong, 0),
+        Err(CoreError::DimensionMismatch { .. })
+    ));
 
     let mut l_sph = init_manifold::<f64>(ManifoldKind::Spherical, 4, 2);
-    let mut l_tor = init_manifold::<f64>(ManifoldKind::Torus2d, 4, 2);
     let mut s_from_m = KamadaKawaiSolver::<ManifoldLayout2d<f64>>::from_graph(&grid, cfg).unwrap();
-    s_from_m.step(&mut l_sph).unwrap();
-    assert!(matches!(
-        s_from_m.run_steps(&mut l_tor, 0),
-        Err(CoreError::InvalidInput(_))
-    ));
+    assert!(s_from_m.step(&mut l_sph).is_ok());
 }

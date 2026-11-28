@@ -1,54 +1,30 @@
-use std::any::Any;
-
 use egraph_core::{
-    CoreError, CoreResult, EuclideanLayout, EuclideanStorageMut, EuclideanStorageRef, Layout2d,
-    Layout3d, LayoutNd, RepulsionBackend, Scalar, SolverStatus,
+    CoreError, CoreResult, EuclideanLayout, EuclideanStorageMut, EuclideanStorageRef,
+    RepulsionBackend, Scalar, SolverStatus,
 };
 
 use super::graph_prep::{is_layout_collapsed_euclidean, norm2_slice};
-use super::init::{initialize_collapsed_2d, initialize_collapsed_3d, initialize_collapsed_nd};
-use super::solver::{MaxentCoreState, MaxentState};
+use super::init::initialize_collapsed_euclidean;
+use super::solver::MaxentCoreState;
 
 const MIN_NORM_SQ_SUM: f64 = 1e-12;
 
-pub(super) type MaxentValidateFn<L> = fn(&MaxentState, &L) -> CoreResult<()>;
-pub(super) type MaxentStepFn<L> = fn(&mut MaxentState, &mut L) -> CoreResult<()>;
-
-pub(super) fn validate_2d<L: EuclideanLayout>(state: &MaxentState, target: &L) -> CoreResult<()> {
-    if target.len() != state.core.num_nodes {
+pub(super) fn validate_euclidean_target<L: EuclideanLayout>(
+    core: &MaxentCoreState,
+    target: &L,
+) -> CoreResult<()> {
+    if target.len() != core.num_nodes {
         return Err(CoreError::dimension_mismatch(
-            state.core.num_nodes,
-            target.len(),
-            "MaxentStressSolver::validate_target",
-        ));
-    }
-    target.validate_finite()
-}
-
-pub(super) fn validate_3d<L: EuclideanLayout>(state: &MaxentState, target: &L) -> CoreResult<()> {
-    if target.len() != state.core.num_nodes {
-        return Err(CoreError::dimension_mismatch(
-            state.core.num_nodes,
-            target.len(),
-            "MaxentStressSolver::validate_target",
-        ));
-    }
-    target.validate_finite()
-}
-
-pub(super) fn validate_nd<L: EuclideanLayout>(state: &MaxentState, target: &L) -> CoreResult<()> {
-    if target.len() != state.core.num_nodes {
-        return Err(CoreError::dimension_mismatch(
-            state.core.num_nodes,
+            core.num_nodes,
             target.len(),
             "MaxentStressSolver::validate_target",
         ));
     }
     let d = target.dims();
     if d == 0 {
-        return Err(CoreError::invalid_input("LayoutNd dims must be >= 1"));
+        return Err(CoreError::invalid_input("Layout dims must be >= 1"));
     }
-    if let Some(prev) = state.core.locked_nd_dims
+    if let Some(prev) = core.locked_dims
         && prev != d
     {
         return Err(CoreError::dimension_mismatch(
@@ -123,9 +99,9 @@ fn euclid_norm_diff_flat(coords: &[f64], d: usize, u: usize, v: usize) -> f64 {
     max_abs * scaled_sq.sqrt()
 }
 
-fn run_maxent_step<L: EuclideanLayout>(
+fn run_maxent_step<L: EuclideanLayout, E: RepulsionBackend<L>>(
     core: &mut MaxentCoreState,
-    backend: &mut dyn RepulsionBackend<L>,
+    evaluator: &mut E,
     layout: &mut L,
 ) -> CoreResult<()> {
     let n = core.num_nodes;
@@ -174,7 +150,7 @@ fn run_maxent_step<L: EuclideanLayout>(
     // 2. Repulsive force b(x) over non-adjacent vertex pairs {i, j} \notin S.
     let mut rep_coeff = 0.0_f64;
     if core.alpha > 0.0 {
-        backend.accumulate_repulsion(layout, &mut core.rep)?;
+        evaluator.accumulate_repulsion(layout, &mut core.rep)?;
 
         let eps_sq = core.config.eps_sq;
         let q = core.effective_q;
@@ -346,79 +322,21 @@ fn run_maxent_step<L: EuclideanLayout>(
     Ok(())
 }
 
-pub(super) fn step_any_2d<L: EuclideanLayout + 'static>(
-    state: &mut MaxentState,
+pub(super) fn step_euclidean<L: EuclideanLayout, E: RepulsionBackend<L>>(
+    core: &mut MaxentCoreState,
+    evaluator: &mut E,
     target: &mut L,
 ) -> CoreResult<()> {
-    let layout = (target as &mut dyn Any)
-        .downcast_mut::<Layout2d<L::Scalar>>()
-        .ok_or_else(|| CoreError::numerical_breakdown("MaxentStressSolver target type mismatch"))?;
-    if state.core.num_nodes <= 1 {
-        state.core.status = SolverStatus::Converged;
+    let d = target.dims();
+    if core.locked_dims.is_none() {
+        core.locked_dims = Some(d);
+    }
+    if core.num_nodes <= 1 {
+        core.status = SolverStatus::Converged;
         return Ok(());
     }
-    if state.core.total_iter_executed == 0 && is_layout_collapsed_euclidean(layout) {
-        initialize_collapsed_2d(&state.core, layout)?;
+    if core.total_iter_executed == 0 && is_layout_collapsed_euclidean(target) {
+        initialize_collapsed_euclidean(core, target)?;
     }
-    if let Some(backend) = state.quadtree_backend.as_mut() {
-        run_maxent_step(&mut state.core, backend, layout)
-    } else if let Some(backend) = state.exact_backend.as_mut() {
-        run_maxent_step(&mut state.core, backend, layout)
-    } else {
-        Err(CoreError::numerical_breakdown(
-            "MaxentStressSolver 2D repulsion backend missing",
-        ))
-    }
-}
-
-pub(super) fn step_any_3d<L: EuclideanLayout + 'static>(
-    state: &mut MaxentState,
-    target: &mut L,
-) -> CoreResult<()> {
-    let layout = (target as &mut dyn Any)
-        .downcast_mut::<Layout3d<L::Scalar>>()
-        .ok_or_else(|| CoreError::numerical_breakdown("MaxentStressSolver target type mismatch"))?;
-    if state.core.num_nodes <= 1 {
-        state.core.status = SolverStatus::Converged;
-        return Ok(());
-    }
-    if state.core.total_iter_executed == 0 && is_layout_collapsed_euclidean(layout) {
-        initialize_collapsed_3d(&state.core, layout)?;
-    }
-    if let Some(backend) = state.octree_backend.as_mut() {
-        run_maxent_step(&mut state.core, backend, layout)
-    } else if let Some(backend) = state.exact_backend.as_mut() {
-        run_maxent_step(&mut state.core, backend, layout)
-    } else {
-        Err(CoreError::numerical_breakdown(
-            "MaxentStressSolver 3D repulsion backend missing",
-        ))
-    }
-}
-
-pub(super) fn step_any_nd<L: EuclideanLayout + 'static>(
-    state: &mut MaxentState,
-    target: &mut L,
-) -> CoreResult<()> {
-    let layout = (target as &mut dyn Any)
-        .downcast_mut::<LayoutNd<L::Scalar>>()
-        .ok_or_else(|| CoreError::numerical_breakdown("MaxentStressSolver target type mismatch"))?;
-    let d = layout.dims();
-    if state.core.locked_nd_dims.is_none() {
-        state.core.locked_nd_dims = Some(d);
-    }
-    if state.core.num_nodes <= 1 {
-        state.core.status = SolverStatus::Converged;
-        return Ok(());
-    }
-    if state.core.total_iter_executed == 0 && is_layout_collapsed_euclidean(layout) {
-        initialize_collapsed_nd(&state.core, layout)?;
-    }
-    if let Some(backend) = state.exact_backend.as_mut() {
-        run_maxent_step(&mut state.core, backend, layout)
-    } else {
-        Err(CoreError::numerical_breakdown(
-            "MaxentStressSolver ND repulsion backend missing",
-        ))
-    }
+    run_maxent_step(core, evaluator, target)
 }

@@ -3,7 +3,7 @@ use egraph_core::{
     SolverStatus,
 };
 
-use super::{StressMajorizationConfig, StressMajorizationSolver};
+use super::{GeodesicGradient, StressMajorizationConfig, StressMajorizationSolver};
 
 fn grid_graph(rows: usize, cols: usize) -> CsrGraph<f64> {
     let n = rows * cols;
@@ -46,17 +46,17 @@ fn test_stress_majorization_manifold_all_kinds_bit_exact_and_stress_reduction() 
         ManifoldKind::Spherical,
         ManifoldKind::Torus2d,
     ] {
-        // f64 bit-exact step == run and monotonic stress decrease.
-        let mut s_run = StressMajorizationSolver::<ManifoldLayout2d<f64>>::from_graph_riemannian(
-            &grid,
-            cfg.clone(),
-        )
-        .unwrap();
-        let mut s_step = StressMajorizationSolver::<ManifoldLayout2d<f64>>::from_graph_riemannian(
-            &grid,
-            cfg.clone(),
-        )
-        .unwrap();
+        // f64 bit-exact step == run and monotonic stress decrease using default GeodesicGradient.
+        let mut s_run =
+            StressMajorizationSolver::<ManifoldLayout2d<f64>>::from_graph(&grid, cfg.clone())
+                .unwrap();
+        let mut s_step =
+            StressMajorizationSolver::<ManifoldLayout2d<f64>>::from_graph_with_strategy(
+                &grid,
+                cfg.clone(),
+                GeodesicGradient::new(),
+            )
+            .unwrap();
         let mut l_run = init_manifold::<f64>(kind, n, 101);
         if kind == ManifoldKind::Torus2d {
             l_run.set_torus_extents(3.0, 2.0).unwrap();
@@ -192,23 +192,21 @@ fn test_stress_majorization_manifold_edge_cases_and_lock() {
 
     let g3_unit =
         CsrGraph::<()>::from_unweighted_edges(3, &[(0, 1), (1, 2)], false, false).unwrap();
-    let mut s_unit = StressMajorizationSolver::<Layout2d<f64>>::from_unweighted_graph_riemannian(
-        &g3_unit,
-        cfg.clone(),
-    )
-    .unwrap();
+    let mut s_unit =
+        StressMajorizationSolver::<Layout2d<f64>, GeodesicGradient>::from_unweighted_graph(
+            &g3_unit,
+            cfg.clone(),
+        )
+        .unwrap();
     let mut l_euc_riem = Layout2d::<f64>::init(3, 5, 2.0).unwrap();
     let e_before = s_unit.compute_stress(&l_euc_riem).unwrap();
     assert!(s_unit.run(&mut l_euc_riem).unwrap().is_finished());
     assert!(s_unit.compute_stress(&l_euc_riem).unwrap() <= e_before);
 
-    // Node count mismatch and ManifoldKind lock (including run_steps(0)).
+    // Node count mismatch and non-finite validation (including run_steps(0)).
     let grid = grid_graph(2, 2);
-    let mut s_err = StressMajorizationSolver::<ManifoldLayout2d<f64>>::from_graph_riemannian(
-        &grid,
-        cfg.clone(),
-    )
-    .unwrap();
+    let mut s_err =
+        StressMajorizationSolver::<ManifoldLayout2d<f64>>::from_graph(&grid, cfg.clone()).unwrap();
     let mut l_wrong = ManifoldLayout2d::<f64>::zeros(ManifoldKind::Torus2d, 5);
     assert!(matches!(
         s_err.run_steps(&mut l_wrong, 0),
@@ -216,13 +214,11 @@ fn test_stress_majorization_manifold_edge_cases_and_lock() {
     ));
 
     let mut l_poinc = init_manifold::<f64>(ManifoldKind::HyperbolicPoincare, 4, 2);
-    let mut l_lor = init_manifold::<f64>(ManifoldKind::HyperbolicLorentz, 4, 2);
     let mut s_from_m =
-        StressMajorizationSolver::<ManifoldLayout2d<f64>>::from_graph_riemannian(&grid, cfg)
-            .unwrap();
+        StressMajorizationSolver::<ManifoldLayout2d<f64>>::from_graph(&grid, cfg).unwrap();
     s_from_m.step(&mut l_poinc).unwrap();
-    assert!(matches!(
-        s_from_m.run_steps(&mut l_lor, 0),
-        Err(CoreError::InvalidInput(_))
-    ));
+    let l_nan = Layout2d::from_xy(vec![f64::NAN, 0.0, 0.0, 0.0], vec![0.0; 4]).unwrap();
+    let m_nan = ManifoldLayout2d::from_layout(ManifoldKind::Torus2d, l_nan);
+    assert!(matches!(m_nan, Err(CoreError::NonFiniteValue { .. })));
+    assert_eq!(s_from_m.strategy(), &GeodesicGradient::new());
 }
