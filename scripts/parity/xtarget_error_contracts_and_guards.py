@@ -154,8 +154,11 @@ def run_cross_target_error_contracts_parity(
     eg.SelLayoutSolver(g16, layout_backend="t_fdp", t_fdp_config={"backend": "exact", "iterations": 20, "seed": 42}, dtype="float32").run(l2_sel_ex)
     l2_sel_fft = eg.Layout2d.init(16, seed=17, dtype="float32")
     eg.SelLayoutSolver(g16, layout_backend="t_fdp", t_fdp_config={"backend": "ib_fft", "iterations": 20, "seed": 42}, dtype="float32").run(l2_sel_fft)
+    l2_sel_bh = eg.Layout2d.init(16, seed=17, dtype="float32")
+    eg.SelLayoutSolver(g16, layout_backend="t_fdp", t_fdp_config={"backend": "barnes_hut", "iterations": 20, "seed": 42}, dtype="float32").run(l2_sel_bh)
     sel_ex_py = l2_sel_ex.coords(copy=True).ravel()
     sel_fft_py = l2_sel_fft.coords(copy=True).ravel()
+    sel_bh_py = l2_sel_bh.coords(copy=True).ravel()
     assert not np.allclose(sel_ex_py, sel_fft_py), "py/sel: exact vs ib_fft should diverge"
 
     spec_payload = {"g8_edges": [int(v) for e in g8_edges for v in e], "g16_edges": [int(v) for e in make_grid_edges(4, 4) for v in e]}
@@ -276,8 +279,12 @@ svSelEx.run(l2SelEx);
 const l2SelFft = mod.Layout2d.init(16, { seed: 17n });
 const svSelFft = new mod.SelLayoutSolver(g16, { layoutBackend: 'tFdp', tFdpConfig: { backend: 'ibFft', iterations: 20, seed: 42 } });
 svSelFft.run(l2SelFft);
+const l2SelBh = mod.Layout2d.init(16, { seed: 17n });
+const svSelBh = new mod.SelLayoutSolver(g16, { layoutBackend: 'tFdp', tFdpConfig: { backend: 'barnesHut', iterations: 20, seed: 42 } });
+svSelBh.run(l2SelBh);
 const selExArr = Array.from(l2SelEx.coordsView());
 const selFftArr = Array.from(l2SelFft.coordsView());
+const selBhArr = Array.from(l2SelBh.coordsView());
 assert.ok(selExArr.some((v, i) => Math.abs(v - selFftArr[i]) > 1e-6), 'wasm/sel: exact vs ibFft should diverge');
 
 const out = {
@@ -289,7 +296,9 @@ const out = {
   tsAuto3d: Array.from(l3Auto3d.coordsView()),
   selEx: selExArr,
   selFft: selFftArr,
+  selBh: selBhArr,
 };
+svSelBh.free?.(); l2SelBh.free?.();
 svSelFft.free?.(); l2SelFft.free?.(); svSelEx.free?.(); l2SelEx.free?.();
 svAuto3d.free?.(); l3Auto3d.free?.(); svAuto2d.free?.(); l2Auto2d.free?.();
 svTs.free?.(); l2Ts.free?.(); svSgd.free?.(); l2Sgd.free?.(); l3Seed.free?.(); l2Seed.free?.();
@@ -307,6 +316,7 @@ console.log(JSON.stringify(out));
     max_f32_diff = max(max_f32_diff, check_array_close("tsnet/auto3d", ts_auto3d_py, ws["tsAuto3d"], 1e-5))
     max_f32_diff = max(max_f32_diff, check_array_close("sel/tfdp/exact", sel_ex_py, ws["selEx"], 1e-5))
     max_f32_diff = max(max_f32_diff, check_array_close("sel/tfdp/ib_fft", sel_fft_py, ws["selFft"], 1e-5))
+    max_f32_diff = max(max_f32_diff, check_array_close("sel/tfdp/barnes_hut", sel_bh_py, ws["selBh"], 1e-5))
 
     return [{
         "case": "cross_target_error_contracts_and_guards_py_vs_wasm",
