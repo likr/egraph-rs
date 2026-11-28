@@ -38,7 +38,8 @@ impl<S: Scalar> InterleavedLayout2d<S> {
         })
     }
 
-    /// Creates an interleaved buffer by copying an even-length `[x0, y0, ...]` slice.
+    /// Creates an interleaved buffer by copying an even-length `[x0, y0, ...]` slice whose
+    /// coordinates are all finite.
     pub fn from_interleaved(coords: &[S]) -> FfiResult<Self> {
         if !coords.len().is_multiple_of(2) {
             return Err(FfiError::new(
@@ -47,6 +48,12 @@ impl<S: Scalar> InterleavedLayout2d<S> {
                     "expected even-length interleaved coordinates, got {}",
                     coords.len()
                 ),
+            ));
+        }
+        if !coords.iter().all(|v| v.is_finite()) {
+            return Err(FfiError::new(
+                ErrorKind::NonFiniteValue,
+                "InterleavedLayout2d::from_interleaved contains non-finite coordinate",
             ));
         }
         Ok(Self {
@@ -213,6 +220,13 @@ mod tests {
     fn test_interleaved_layout_validation_and_non_finite() {
         let odd = InterleavedLayout2d::<f64>::from_interleaved(&[1.0, 2.0, 3.0]).unwrap_err();
         assert_eq!(odd.kind, ErrorKind::DimensionMismatch);
+
+        let non_finite_nan =
+            InterleavedLayout2d::<f64>::from_interleaved(&[1.0, f64::NAN]).unwrap_err();
+        assert_eq!(non_finite_nan.kind, ErrorKind::NonFiniteValue);
+        let non_finite_inf =
+            InterleavedLayout2d::<f32>::from_interleaved(&[f32::INFINITY, 0.0]).unwrap_err();
+        assert_eq!(non_finite_inf.kind, ErrorKind::NonFiniteValue);
 
         let mut buf = InterleavedLayout2d::from_interleaved(&[1.0_f64, 2.0, 3.0, 4.0]).unwrap();
         assert_eq!(buf.x(2).unwrap_err().kind, ErrorKind::IndexOutOfBounds);
