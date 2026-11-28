@@ -1,53 +1,88 @@
-use egraph_core::{CoreResult, LayoutNd, Scalar};
+use egraph_core::{CoreError, CoreResult, LayoutNd, LayoutStorage, Scalar};
 
-use super::solver::GuMapState;
+use super::target::{GuMapCore, GuMapSpaceKind, GuMapWorkspace};
 
 const MIN_DIST_SQ_CLAMP: f64 = 1e-8;
 const REPULSIVE_DIST_SQ_EPS: f64 = 1e-4;
 const GRAD_CLAMP: f64 = 4.0;
 
+pub(super) fn validate_nd<S: Scalar>(
+    core: &GuMapCore,
+    workspace: &GuMapWorkspace,
+    target: &LayoutNd<S>,
+) -> CoreResult<()> {
+    if target.len() != core.num_nodes {
+        return Err(CoreError::dimension_mismatch(
+            core.num_nodes,
+            target.len(),
+            "GuMapSolver::validate_target",
+        ));
+    }
+    let dims = target.dims();
+    if dims == 0 {
+        return Err(CoreError::invalid_input("LayoutNd dims must be >= 1"));
+    }
+    if let GuMapSpaceKind::EuclideanNd { locked_dims } = &workspace.0
+        && let Some(prev) = *locked_dims
+        && prev != dims
+    {
+        return Err(CoreError::dimension_mismatch(
+            prev,
+            dims,
+            "GuMapSolver::validate_target::dims",
+        ));
+    }
+    LayoutStorage::validate_finite(target)
+}
+
 pub(super) fn step_nd<S: Scalar>(
-    state: &mut GuMapState<S>,
+    core: &mut GuMapCore,
+    workspace: &mut GuMapWorkspace,
     layout: &mut LayoutNd<S>,
 ) -> CoreResult<()> {
     let dims = layout.dims();
-    if state.locked_nd_dims.is_none() {
-        state.locked_nd_dims = Some(dims);
+    if let GuMapSpaceKind::EuclideanNd { locked_dims } = &mut workspace.0 {
+        if locked_dims.is_none() {
+            *locked_dims = Some(dims);
+        }
+    } else {
+        return Err(CoreError::numerical_breakdown(
+            "GuMapNdWorkspace variant mismatch",
+        ));
     }
 
-    let n = state.num_nodes;
+    let n = core.num_nodes;
     let coords = layout.coords_mut();
 
-    if state.epoch == 0 && coords.iter().all(|&v| v == S::ZERO) {
+    if core.epoch == 0 && coords.iter().all(|&v| v == S::ZERO) {
         for val in coords.iter_mut() {
-            *val = S::from_f64(state.rng.next_f64() * 20.0 - 10.0);
+            *val = S::from_f64(core.rng.next_f64() * 20.0 - 10.0);
         }
     }
 
     let alpha = S::from_f64(
-        state.config.learning_rate
-            * (1.0 - (state.epoch as f64) / (state.config.iterations as f64)),
+        core.config.learning_rate * (1.0 - (core.epoch as f64) / (core.config.iterations as f64)),
     );
-    let a_s = S::from_f64(state.a);
-    let b_s = S::from_f64(state.b);
-    let two_b_s = S::from_f64(2.0 * state.b);
-    let two_ab_s = S::from_f64(2.0 * state.a * state.b);
+    let a_s = S::from_f64(core.a);
+    let b_s = S::from_f64(core.b);
+    let two_b_s = S::from_f64(2.0 * core.b);
+    let two_ab_s = S::from_f64(2.0 * core.a * core.b);
     let four_s = S::from_f64(GRAD_CLAMP);
     let neg_four_s = -four_s;
     let eps_sq_s = S::from_f64(MIN_DIST_SQ_CLAMP);
     let rep_eps_s = S::from_f64(REPULSIVE_DIST_SQ_EPS);
 
-    let neg_rate = state.config.negative_sample_rate;
-    let m = state.edge_src.len();
+    let neg_rate = core.config.negative_sample_rate;
+    let m = core.edge_src.len();
 
     for idx in 0..m {
-        let p_edge = state.edge_weight[idx] as f64;
-        if p_edge <= 0.0 || (p_edge < 1.0 && state.rng.next_f64() > p_edge) {
+        let p_edge = core.edge_weight[idx] as f64;
+        if p_edge <= 0.0 || (p_edge < 1.0 && core.rng.next_f64() > p_edge) {
             continue;
         }
 
-        let i = state.edge_src[idx] as usize;
-        let j = state.edge_tgt[idx] as usize;
+        let i = core.edge_src[idx] as usize;
+        let j = core.edge_tgt[idx] as usize;
         let i_base = i * dims;
         let j_base = j * dims;
 
@@ -78,7 +113,7 @@ pub(super) fn step_nd<S: Scalar>(
         }
 
         for _ in 0..neg_rate {
-            let k = state.rng.gen_range_usize(n);
+            let k = core.rng.gen_range_usize(n);
             if k == i {
                 continue;
             }
@@ -109,7 +144,7 @@ pub(super) fn step_nd<S: Scalar>(
                 if new_i.is_finite() {
                     coords[i_base + d] = new_i;
                 }
-                if state.config.symmetric_negative {
+                if core.config.symmetric_negative {
                     let new_k = coords[k_base + d] - r_delta;
                     if new_k.is_finite() {
                         coords[k_base + d] = new_k;

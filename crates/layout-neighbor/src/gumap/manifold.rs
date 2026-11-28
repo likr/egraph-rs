@@ -1,21 +1,44 @@
 use std::f64::consts::TAU;
 
-use egraph_core::{CoreResult, ManifoldKind, ManifoldLayout2d, Scalar};
+use egraph_core::{CoreError, CoreResult, LayoutStorage, ManifoldKind, ManifoldLayout2d, Scalar};
 
 use crate::manifold_utils::apply_clamped_manifold_step;
 
-use super::solver::GuMapState;
+use super::target::{GuMapCore, GuMapSpaceKind, GuMapWorkspace};
 
 const MIN_DIST_SQ_CLAMP: f64 = 1e-8;
 const REPULSIVE_DIST_SQ_EPS: f64 = 1e-4;
 const GRAD_CLAMP: f64 = 4.0;
 
+pub(super) fn validate_manifold<S: Scalar>(
+    core: &GuMapCore,
+    workspace: &GuMapWorkspace,
+    target: &ManifoldLayout2d<S>,
+) -> CoreResult<()> {
+    if target.len() != core.num_nodes {
+        return Err(CoreError::dimension_mismatch(
+            core.num_nodes,
+            target.len(),
+            "GuMapSolver::validate_target",
+        ));
+    }
+    if let GuMapSpaceKind::Manifold2d { locked_kind } = &workspace.0
+        && let Some(prev) = *locked_kind
+        && prev != target.kind()
+    {
+        return Err(CoreError::invalid_input(
+            "GuMapSolver::validate_target: cannot switch ManifoldKind on stateful solver",
+        ));
+    }
+    LayoutStorage::validate_finite(target)
+}
+
 fn scatter_zero_manifold_if_needed<S: Scalar>(
-    state: &mut GuMapState<S>,
+    core: &mut GuMapCore,
     layout: &mut ManifoldLayout2d<S>,
 ) -> CoreResult<()> {
-    let n = state.num_nodes;
-    if state.epoch != 0
+    let n = core.num_nodes;
+    if core.epoch != 0
         || !layout.x().iter().all(|&v| v == S::ZERO)
         || !layout.y().iter().all(|&v| v == S::ZERO)
     {
@@ -25,19 +48,19 @@ fn scatter_zero_manifold_if_needed<S: Scalar>(
     for idx in 0..n {
         let (px, py) = match kind {
             ManifoldKind::HyperbolicPoincare | ManifoldKind::HyperbolicLorentz => {
-                let r = 0.5 * state.rng.next_f64().sqrt();
-                let theta = TAU * state.rng.next_f64();
+                let r = 0.5 * core.rng.next_f64().sqrt();
+                let theta = TAU * core.rng.next_f64();
                 (r * theta.cos(), r * theta.sin())
             }
             ManifoldKind::Spherical => {
-                let lon = TAU * state.rng.next_f64();
-                let u = (2.0 * state.rng.next_f64() - 1.0).clamp(-1.0, 1.0);
+                let lon = TAU * core.rng.next_f64();
+                let u = (2.0 * core.rng.next_f64() - 1.0).clamp(-1.0, 1.0);
                 (lon, u.acos())
             }
-            ManifoldKind::Torus2d => (state.rng.next_f64(), state.rng.next_f64()),
+            ManifoldKind::Torus2d => (core.rng.next_f64(), core.rng.next_f64()),
             _ => {
-                let r = 0.5 * state.rng.next_f64().sqrt();
-                let theta = TAU * state.rng.next_f64();
+                let r = 0.5 * core.rng.next_f64().sqrt();
+                let theta = TAU * core.rng.next_f64();
                 (r * theta.cos(), r * theta.sin())
             }
         };
@@ -47,33 +70,40 @@ fn scatter_zero_manifold_if_needed<S: Scalar>(
 }
 
 pub(super) fn step_manifold<S: Scalar>(
-    state: &mut GuMapState<S>,
+    core: &mut GuMapCore,
+    workspace: &mut GuMapWorkspace,
     layout: &mut ManifoldLayout2d<S>,
 ) -> CoreResult<()> {
-    if state.locked_manifold.is_none() {
-        state.locked_manifold = Some(layout.kind());
+    if let GuMapSpaceKind::Manifold2d { locked_kind } = &mut workspace.0 {
+        if locked_kind.is_none() {
+            *locked_kind = Some(layout.kind());
+        }
+    } else {
+        return Err(CoreError::numerical_breakdown(
+            "GuMapManifoldWorkspace variant mismatch",
+        ));
     }
 
-    scatter_zero_manifold_if_needed(state, layout)?;
+    scatter_zero_manifold_if_needed(core, layout)?;
 
-    let n = state.num_nodes;
-    let alpha = state.config.learning_rate
-        * (1.0 - (state.epoch as f64) / (state.config.iterations as f64));
-    let a = state.a;
-    let b = state.b;
+    let n = core.num_nodes;
+    let alpha =
+        core.config.learning_rate * (1.0 - (core.epoch as f64) / (core.config.iterations as f64));
+    let a = core.a;
+    let b = core.b;
     let two_b = 2.0 * b;
     let two_ab = 2.0 * a * b;
-    let neg_rate = state.config.negative_sample_rate;
-    let m = state.edge_src.len();
+    let neg_rate = core.config.negative_sample_rate;
+    let m = core.edge_src.len();
 
     for idx in 0..m {
-        let p_edge = state.edge_weight[idx] as f64;
-        if p_edge <= 0.0 || (p_edge < 1.0 && state.rng.next_f64() > p_edge) {
+        let p_edge = core.edge_weight[idx] as f64;
+        if p_edge <= 0.0 || (p_edge < 1.0 && core.rng.next_f64() > p_edge) {
             continue;
         }
 
-        let i = state.edge_src[idx] as usize;
-        let j = state.edge_tgt[idx] as usize;
+        let i = core.edge_src[idx] as usize;
+        let j = core.edge_tgt[idx] as usize;
 
         let (tix_s, tiy_s) = layout.tangent_delta(i, j)?;
         let (tjx_s, tjy_s) = layout.tangent_delta(j, i)?;
@@ -96,12 +126,12 @@ pub(super) fn step_manifold<S: Scalar>(
         }
 
         for _ in 0..neg_rate {
-            let k = state.rng.gen_range_usize(n);
+            let k = core.rng.gen_range_usize(n);
             if k == i {
                 continue;
             }
             let (r_tix_s, r_tiy_s) = layout.tangent_delta(i, k)?;
-            let tk = if state.config.symmetric_negative {
+            let tk = if core.config.symmetric_negative {
                 Some(layout.tangent_delta(k, i)?)
             } else {
                 None

@@ -273,11 +273,11 @@ fn test_gumap_from_fuzzy_set_interleaves_symmetric_pairs() {
     let solver =
         GuMapSolver::<Layout2d<f64>>::from_fuzzy_set(probs, GuMapConfig::default()).unwrap();
     let got: Vec<(u32, u32)> = solver
-        .state
+        .core
         .edge_src
         .iter()
         .copied()
-        .zip(solver.state.edge_tgt.iter().copied())
+        .zip(solver.core.edge_tgt.iter().copied())
         .collect();
     assert_eq!(
         got,

@@ -1,6 +1,6 @@
 use egraph_core::{CoreError, CoreResult, RiemannianLayout};
 
-use super::solver::GuMapState;
+use super::target::{GuMapCore, GuMapSpaceKind, GuMapWorkspace};
 
 const MIN_DIST_SQ_CLAMP: f64 = 1e-8;
 const REPULSIVE_DIST_SQ_EPS: f64 = 1e-4;
@@ -14,51 +14,86 @@ pub(super) struct GuMapRiemannianScratch {
     delta: Vec<f64>,
 }
 
-pub(super) fn step_riemannian<L: RiemannianLayout>(
-    state: &mut GuMapState<L::Scalar>,
+pub(super) fn validate_riemannian<L: RiemannianLayout + ?Sized>(
+    core: &GuMapCore,
+    workspace: &GuMapWorkspace,
+    target: &L,
+) -> CoreResult<()> {
+    if target.len() != core.num_nodes {
+        return Err(CoreError::dimension_mismatch(
+            core.num_nodes,
+            target.len(),
+            "GuMapSolver::validate_target",
+        ));
+    }
+    let dims = target.tangent_dim();
+    if dims == 0 && core.num_nodes > 0 {
+        return Err(CoreError::invalid_input("tangent_dim must be >= 1"));
+    }
+    if let GuMapSpaceKind::Riemannian(Some(scratch)) = &workspace.0
+        && scratch.dims != dims
+    {
+        return Err(CoreError::dimension_mismatch(
+            scratch.dims,
+            dims,
+            "GuMapSolver::riemannian::tangent_dim",
+        ));
+    }
+    target.validate_finite()
+}
+
+pub(super) fn step_riemannian<L: RiemannianLayout + ?Sized>(
+    core: &mut GuMapCore,
+    workspace: &mut GuMapWorkspace,
     layout: &mut L,
 ) -> CoreResult<()> {
     let dims = layout.tangent_dim();
-    if let Some(scratch) = &state.riemannian_scratch {
-        if scratch.dims != dims {
-            return Err(CoreError::dimension_mismatch(
-                scratch.dims,
-                dims,
-                "GuMapSolver::riemannian::tangent_dim",
+    let scratch = match &mut workspace.0 {
+        GuMapSpaceKind::Riemannian(slot) => {
+            if let Some(existing) = slot {
+                if existing.dims != dims {
+                    return Err(CoreError::dimension_mismatch(
+                        existing.dims,
+                        dims,
+                        "GuMapSolver::riemannian::tangent_dim",
+                    ));
+                }
+            } else {
+                *slot = Some(GuMapRiemannianScratch {
+                    dims,
+                    log_ij: vec![0.0; dims],
+                    log_ji: vec![0.0; dims],
+                    delta: vec![0.0; dims],
+                });
+            }
+            slot.as_mut()
+                .ok_or_else(|| CoreError::numerical_breakdown("GuMapRiemannianScratch missing"))?
+        }
+        _ => {
+            return Err(CoreError::numerical_breakdown(
+                "GuMapRiemannianWorkspace variant mismatch",
             ));
         }
-    } else {
-        state.riemannian_scratch = Some(GuMapRiemannianScratch {
-            dims,
-            log_ij: vec![0.0; dims],
-            log_ji: vec![0.0; dims],
-            delta: vec![0.0; dims],
-        });
-    }
+    };
 
-    let n = state.num_nodes;
-    let alpha = state.config.learning_rate
-        * (1.0 - (state.epoch as f64) / (state.config.iterations as f64));
-    let a = state.a;
-    let b = state.b;
+    let n = core.num_nodes;
+    let alpha =
+        core.config.learning_rate * (1.0 - (core.epoch as f64) / (core.config.iterations as f64));
+    let a = core.a;
+    let b = core.b;
     let two_b = 2.0 * b;
     let two_ab = 2.0 * a * b;
-    let neg_rate = state.config.negative_sample_rate;
-    let m = state.edge_src.len();
-
-    let scratch = state
-        .riemannian_scratch
-        .as_mut()
-        .ok_or_else(|| CoreError::numerical_breakdown("GuMapRiemannianScratch missing"))?;
+    let neg_rate = core.config.negative_sample_rate;
+    let m = core.edge_src.len();
 
     for idx in 0..m {
-        let p_edge = state.edge_weight[idx] as f64;
-        if p_edge <= 0.0 || (p_edge < 1.0 && state.rng.next_f64() > p_edge) {
+        let p_edge = core.edge_weight[idx] as f64;
+        if p_edge <= 0.0 || (p_edge < 1.0 && core.rng.next_f64() > p_edge) {
             continue;
         }
 
-        let i = state.edge_src[idx] as usize;
-        let j = state.edge_tgt[idx] as usize;
+        let i = core.edge_src[idx] as usize;
+        let j = core.edge_tgt[idx] as usize;
 
         layout.log_map_into(i, j, &mut scratch.log_ij)?;
         layout.log_map_into(j, i, &mut scratch.log_ji)?;
@@ -84,12 +119,12 @@ pub(super) fn step_riemannian<L: RiemannianLayout>(
         }
 
         for _ in 0..neg_rate {
-            let k = state.rng.gen_range_usize(n);
+            let k = core.rng.gen_range_usize(n);
             if k == i {
                 continue;
             }
             layout.log_map_into(i, k, &mut scratch.log_ij)?;
-            let sym = state.config.symmetric_negative;
+            let sym = core.config.symmetric_negative;
             if sym {
                 layout.log_map_into(k, i, &mut scratch.log_ji)?;
             }

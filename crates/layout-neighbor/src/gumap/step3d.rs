@@ -1,54 +1,64 @@
-use egraph_core::{CoreResult, Layout3d, Scalar};
+use egraph_core::{CoreError, CoreResult, Layout3d, LayoutStorage, Scalar};
 
-use super::solver::GuMapState;
+use super::target::GuMapCore;
 
 const MIN_DIST_SQ_CLAMP: f64 = 1e-8;
 const REPULSIVE_DIST_SQ_EPS: f64 = 1e-4;
 const GRAD_CLAMP: f64 = 4.0;
 
-pub(super) fn step_3d<S: Scalar>(
-    state: &mut GuMapState<S>,
-    layout: &mut Layout3d<S>,
+pub(super) fn validate_basic_3d<S: Scalar>(
+    core: &GuMapCore,
+    target: &Layout3d<S>,
 ) -> CoreResult<()> {
-    let n = state.num_nodes;
+    if target.len() != core.num_nodes {
+        return Err(CoreError::dimension_mismatch(
+            core.num_nodes,
+            target.len(),
+            "GuMapSolver::validate_target",
+        ));
+    }
+    LayoutStorage::validate_finite(target)
+}
+
+pub(super) fn step_3d<S: Scalar>(core: &mut GuMapCore, layout: &mut Layout3d<S>) -> CoreResult<()> {
+    let n = core.num_nodes;
     let (xs, ys, zs) = layout.xyz_mut();
 
-    if state.epoch == 0
+    if core.epoch == 0
         && xs.iter().all(|&v| v == S::ZERO)
         && ys.iter().all(|&v| v == S::ZERO)
         && zs.iter().all(|&v| v == S::ZERO)
     {
         for idx in 0..n {
-            xs[idx] = S::from_f64(state.rng.next_f64() * 20.0 - 10.0);
-            ys[idx] = S::from_f64(state.rng.next_f64() * 20.0 - 10.0);
-            zs[idx] = S::from_f64(state.rng.next_f64() * 20.0 - 10.0);
+            xs[idx] = S::from_f64(core.rng.next_f64() * 20.0 - 10.0);
+            ys[idx] = S::from_f64(core.rng.next_f64() * 20.0 - 10.0);
+            zs[idx] = S::from_f64(core.rng.next_f64() * 20.0 - 10.0);
         }
     }
 
     let alpha = S::from_f64(
-        state.config.learning_rate
-            * (1.0 - (state.epoch as f64) / (state.config.iterations as f64)),
+        core.config.learning_rate * (1.0 - (core.epoch as f64) / (core.config.iterations as f64)),
     );
-    let a_s = S::from_f64(state.a);
-    let b_s = S::from_f64(state.b);
-    let two_b_s = S::from_f64(2.0 * state.b);
-    let two_ab_s = S::from_f64(2.0 * state.a * state.b);
+    let a_s = S::from_f64(core.a);
+    let b_s = S::from_f64(core.b);
+    let two_b_s = S::from_f64(2.0 * core.b);
+    let two_ab_s = S::from_f64(2.0 * core.a * core.b);
     let four_s = S::from_f64(GRAD_CLAMP);
     let neg_four_s = -four_s;
     let eps_sq_s = S::from_f64(MIN_DIST_SQ_CLAMP);
     let rep_eps_s = S::from_f64(REPULSIVE_DIST_SQ_EPS);
 
-    let neg_rate = state.config.negative_sample_rate;
-    let m = state.edge_src.len();
+    let neg_rate = core.config.negative_sample_rate;
+    let m = core.edge_src.len();
 
     for idx in 0..m {
-        let p_edge = state.edge_weight[idx] as f64;
-        if p_edge <= 0.0 || (p_edge < 1.0 && state.rng.next_f64() > p_edge) {
+        let p_edge = core.edge_weight[idx] as f64;
+        if p_edge <= 0.0 || (p_edge < 1.0 && core.rng.next_f64() > p_edge) {
             continue;
         }
 
-        let i = state.edge_src[idx] as usize;
-        let j = state.edge_tgt[idx] as usize;
+        let i = core.edge_src[idx] as usize;
+        let j = core.edge_tgt[idx] as usize;
 
         let dx = xs[i] - xs[j];
         let dy = ys[i] - ys[j];
@@ -90,7 +100,7 @@ pub(super) fn step_3d<S: Scalar>(
         }
 
         for _ in 0..neg_rate {
-            let k = state.rng.gen_range_usize(n);
+            let k = core.rng.gen_range_usize(n);
             if k == i {
                 continue;
             }
@@ -127,7 +137,7 @@ pub(super) fn step_3d<S: Scalar>(
             if new_iz.is_finite() {
                 zs[i] = new_iz;
             }
-            if state.config.symmetric_negative {
+            if core.config.symmetric_negative {
                 let new_kx = xs[k] - r_delta_x;
                 let new_ky = ys[k] - r_delta_y;
                 let new_kz = zs[k] - r_delta_z;

@@ -1,5 +1,4 @@
 use egraph_core::{CoreError, CoreResult};
-use egraph_spatial_fft::{IbFftConfig, InterpolationOrder};
 
 /// Repulsion approximation backend used by [`TFdpSolver`](super::TFdpSolver) and
 /// [`IbUmapSolver`](super::IbUmapSolver).
@@ -137,28 +136,26 @@ impl RhoSchedule {
     }
 }
 
-/// Configuration for [`TFdpSolver`](super::TFdpSolver) (`t-FDP` bounded Student-$t$ force-directed placement).
+/// Space-independent hyperparameters for [`TFdpSolver`](super::TFdpSolver) (`t-FDP` bounded
+/// Student-$t$ force-directed placement).
+///
+/// Repulsion approximation settings (`theta`, FFT grid parameters) live on concrete backend
+/// types (`Exact`, `BarnesHut`, `IbFft`).
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq)]
 pub struct TFdpConfig {
-    /// Repulsion evaluation backend (`IbFft` by default).
-    pub backend: FieldRepulsionBackend,
     /// Total optimization steps (`default: 200`).
     pub iterations: usize,
     /// Base gradient descent learning rate (`default: 1.0`).
     pub learning_rate: f64,
     /// Velocity momentum coefficient in `[0.0, 1.0)` (`default: 0.8`).
     pub momentum: f64,
-    /// Barnes-Hut opening angle threshold $\theta \ge 0$ (`default: 0.5`).
-    pub theta: f64,
     /// Attractive Student-$t$ scale $\alpha > 0$ (`default: 1.0`).
     pub alpha: f64,
     /// Repulsive kernel exponent $\gamma > 0$ in $(1 + d^2)^{-\gamma}$ (`default: 1.0`).
     pub gamma: f64,
     /// Dynamic repulsion schedule $\rho(t)$ across `0..iterations`.
     pub rho: RhoSchedule,
-    /// Interpolation-based 2D FFT grid configuration.
-    pub ibfft: IbFftConfig,
     /// Explicit deterministic seed for fallback zero-layout jitter (`default: 42`).
     pub seed: u64,
 }
@@ -166,15 +163,12 @@ pub struct TFdpConfig {
 impl Default for TFdpConfig {
     fn default() -> Self {
         Self {
-            backend: FieldRepulsionBackend::IbFft,
             iterations: 200,
             learning_rate: 1.0,
             momentum: 0.8,
-            theta: 0.5,
             alpha: 1.0,
             gamma: 1.0,
             rho: RhoSchedule::default(),
-            ibfft: IbFftConfig::default(),
             seed: 42,
         }
     }
@@ -184,12 +178,6 @@ impl TFdpConfig {
     /// Creates a new [`TFdpConfig`] initialized with default values.
     pub fn new() -> Self {
         Self::default()
-    }
-
-    /// Sets the repulsion backend.
-    pub fn with_backend(mut self, backend: FieldRepulsionBackend) -> Self {
-        self.backend = backend;
-        self
     }
 
     /// Sets total optimization iterations.
@@ -207,12 +195,6 @@ impl TFdpConfig {
     /// Sets the velocity momentum coefficient.
     pub fn with_momentum(mut self, momentum: f64) -> Self {
         self.momentum = momentum;
-        self
-    }
-
-    /// Sets the Barnes-Hut opening angle threshold `theta`.
-    pub fn with_theta(mut self, theta: f64) -> Self {
-        self.theta = theta;
         self
     }
 
@@ -234,19 +216,13 @@ impl TFdpConfig {
         self
     }
 
-    /// Sets the interpolation-based 2D FFT grid configuration.
-    pub fn with_ibfft(mut self, ibfft: IbFftConfig) -> Self {
-        self.ibfft = ibfft;
-        self
-    }
-
     /// Sets the deterministic RNG seed.
     pub fn with_seed(mut self, seed: u64) -> Self {
         self.seed = seed;
         self
     }
 
-    /// Validates all `t-FDP` hyperparameters and nested schedules/configs.
+    /// Validates all `t-FDP` hyperparameters and nested schedules.
     pub fn validate(&self) -> CoreResult<()> {
         if !self.learning_rate.is_finite() {
             return Err(CoreError::non_finite("TFdpConfig::learning_rate"));
@@ -264,15 +240,6 @@ impl TFdpConfig {
             return Err(CoreError::invalid_input(format!(
                 "momentum must be in [0.0, 1.0), got {}",
                 self.momentum
-            )));
-        }
-        if !self.theta.is_finite() {
-            return Err(CoreError::non_finite("TFdpConfig::theta"));
-        }
-        if self.theta < 0.0 {
-            return Err(CoreError::invalid_input(format!(
-                "theta must be >= 0.0, got {}",
-                self.theta
             )));
         }
         if !self.alpha.is_finite() {
@@ -293,31 +260,6 @@ impl TFdpConfig {
                 self.gamma
             )));
         }
-        self.rho.validate()?;
-        self.ibfft.validate()
-    }
-
-    /// Returns the configured FFT interpolation order (`ibfft.order`).
-    #[inline]
-    pub fn interpolation_order(&self) -> InterpolationOrder {
-        self.ibfft.order
-    }
-
-    /// Returns the configured FFT nominal interval count (`ibfft.intervals`).
-    #[inline]
-    pub fn intervals(&self) -> usize {
-        self.ibfft.intervals
-    }
-
-    /// Returns the configured minimum FFT grid dimension (`ibfft.min_grid_dim`).
-    #[inline]
-    pub fn min_grid_dim(&self) -> usize {
-        self.ibfft.min_grid_dim
-    }
-
-    /// Returns the configured maximum FFT grid dimension (`ibfft.max_grid_dim`).
-    #[inline]
-    pub fn max_grid_dim(&self) -> usize {
-        self.ibfft.max_grid_dim
+        self.rho.validate()
     }
 }

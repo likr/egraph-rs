@@ -2,13 +2,13 @@
 //! and cooperative [`IterativeSolver`](egraph_core::IterativeSolver) stepping.
 
 mod config;
-mod dispatch;
 mod manifold;
 mod nd;
 mod riemannian;
 mod solver;
 mod step2d;
 mod step3d;
+mod target;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
@@ -18,3 +18,6 @@ mod tests_nd;
 
 pub use config::GuMapConfig;
 pub use solver::GuMapSolver;
+pub use target::GuMapTarget;
+#[doc(hidden)]
+pub use target::{GuMapCore, GuMapWorkspace};

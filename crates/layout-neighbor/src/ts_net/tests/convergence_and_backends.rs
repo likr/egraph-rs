@@ -2,7 +2,9 @@ use egraph_core::{IterativeSolver, Layout2d, SolverStatus};
 use egraph_neighborhood::SparseProbabilities;
 use egraph_spatial_fft::{IbFftConfig, InterpolationOrder};
 
-use super::super::{TsNetBackend, TsNetConfig, TsNetSolver, TsNetStage};
+use crate::backends::{Auto2d, BarnesHut, Exact, FitFft, LinearFft, TsNetBackend2d};
+
+use super::super::{TsNetConfig, TsNetSolver, TsNetStage};
 use super::{
     make_barbell_graph, make_grid_graph, make_stages, mean_edge_and_all_distances, rms_radius,
     seeded_layout,
@@ -14,21 +16,29 @@ fn test_step_vs_run_bit_exact_f64_and_f32() {
     let n = grid.num_nodes();
 
     for backend in [
-        TsNetBackend::Exact,
-        TsNetBackend::BarnesHut,
-        TsNetBackend::FftInterpolation,
-        TsNetBackend::LinearFft,
+        TsNetBackend2d::Exact(Exact::new()),
+        TsNetBackend2d::BarnesHut(BarnesHut::default()),
+        TsNetBackend2d::FitFft(FitFft::new()),
+        TsNetBackend2d::LinearFft(LinearFft::new()),
     ] {
-        let cfg = TsNetConfig::pure_2hop()
-            .with_backend(backend)
-            .with_stages(make_stages(8, 8, 8, 0.6));
+        let cfg = TsNetConfig::pure_2hop().with_stages(make_stages(8, 8, 8, 0.6));
 
         let mut l_run = seeded_layout::<f64>(n, 0.5, 7);
         let mut l_step = l_run.clone();
         let mut s_run =
-            TsNetSolver::<Layout2d<f64>>::from_graph_pure_2hop(&grid, cfg.clone()).unwrap();
+            TsNetSolver::<Layout2d<f64>, TsNetBackend2d>::from_graph_pure_2hop_with_backend(
+                &grid,
+                cfg.clone(),
+                backend.clone(),
+            )
+            .unwrap();
         let mut s_step =
-            TsNetSolver::<Layout2d<f64>>::from_graph_pure_2hop(&grid, cfg.clone()).unwrap();
+            TsNetSolver::<Layout2d<f64>, TsNetBackend2d>::from_graph_pure_2hop_with_backend(
+                &grid,
+                cfg.clone(),
+                backend.clone(),
+            )
+            .unwrap();
 
         assert_eq!(s_run.status(), SolverStatus::Initialized);
         assert_eq!(s_run.total_iterations(), Some(24));
@@ -56,8 +66,17 @@ fn test_step_vs_run_bit_exact_f64_and_f32() {
         let mut l32_run = seeded_layout::<f32>(n, 0.5, 7);
         let mut l32_step = l32_run.clone();
         let mut s32_run =
-            TsNetSolver::<Layout2d<f32>>::from_graph_pure_2hop(&grid, cfg.clone()).unwrap();
-        let mut s32_step = TsNetSolver::<Layout2d<f32>>::from_graph_pure_2hop(&grid, cfg).unwrap();
+            TsNetSolver::<Layout2d<f32>, TsNetBackend2d>::from_graph_pure_2hop_with_backend(
+                &grid,
+                cfg.clone(),
+                backend.clone(),
+            )
+            .unwrap();
+        let mut s32_step =
+            TsNetSolver::<Layout2d<f32>, TsNetBackend2d>::from_graph_pure_2hop_with_backend(
+                &grid, cfg, backend,
+            )
+            .unwrap();
         assert_eq!(s32_run.run(&mut l32_run).unwrap(), SolverStatus::Completed);
         for _ in 0..24 {
             s32_step.step(&mut l32_step).unwrap();
@@ -77,19 +96,22 @@ fn test_all_backends_converge_on_barbell_and_grid_without_nan() {
     let grid_pure = make_grid_graph(6, 6);
 
     for backend in [
-        TsNetBackend::Exact,
-        TsNetBackend::BarnesHut,
-        TsNetBackend::FftInterpolation,
-        TsNetBackend::LinearFft,
+        TsNetBackend2d::Exact(Exact::new()),
+        TsNetBackend2d::BarnesHut(BarnesHut::default()),
+        TsNetBackend2d::FitFft(FitFft::new()),
+        TsNetBackend2d::LinearFft(LinearFft::new()),
     ] {
         let cfg_small = TsNetConfig::pure_2hop()
-            .with_backend(backend)
             .with_learning_rate(Some(15.0))
             .with_stages(make_stages(80, 80, 100, 0.4));
         let mut l_barbell = seeded_layout::<f64>(barbell.num_nodes(), 0.2, 11);
         let mut solver_b =
-            TsNetSolver::<Layout2d<f64>>::from_graph_pure_2hop(&barbell, cfg_small.clone())
-                .unwrap();
+            TsNetSolver::<Layout2d<f64>, TsNetBackend2d>::from_graph_pure_2hop_with_backend(
+                &barbell,
+                cfg_small.clone(),
+                backend.clone(),
+            )
+            .unwrap();
         assert_eq!(
             solver_b.run(&mut l_barbell).unwrap(),
             SolverStatus::Completed
@@ -114,7 +136,12 @@ fn test_all_backends_converge_on_barbell_and_grid_without_nan() {
 
         let mut l_grid_small = seeded_layout::<f64>(grid_small.num_nodes(), 0.2, 19);
         let mut solver_gs =
-            TsNetSolver::<Layout2d<f64>>::from_graph_pure_2hop(&grid_small, cfg_small).unwrap();
+            TsNetSolver::<Layout2d<f64>, TsNetBackend2d>::from_graph_pure_2hop_with_backend(
+                &grid_small,
+                cfg_small,
+                backend.clone(),
+            )
+            .unwrap();
         assert_eq!(
             solver_gs.run(&mut l_grid_small).unwrap(),
             SolverStatus::Completed
@@ -128,7 +155,6 @@ fn test_all_backends_converge_on_barbell_and_grid_without_nan() {
 
         let grid_5x5 = make_grid_graph(5, 5);
         let cfg_classic = TsNetConfig::pure_2hop()
-            .with_backend(backend)
             .with_learning_rate(Some(50.0))
             .with_stages(vec![
                 TsNetStage::new()
@@ -147,7 +173,12 @@ fn test_all_backends_converge_on_barbell_and_grid_without_nan() {
             ]);
         let mut l_classic = seeded_layout::<f64>(grid_5x5.num_nodes(), 1.0, 19);
         let mut solver_c =
-            TsNetSolver::<Layout2d<f64>>::from_graph_pure_2hop(&grid_5x5, cfg_classic).unwrap();
+            TsNetSolver::<Layout2d<f64>, TsNetBackend2d>::from_graph_pure_2hop_with_backend(
+                &grid_5x5,
+                cfg_classic,
+                backend.clone(),
+            )
+            .unwrap();
         assert_eq!(
             solver_c.run(&mut l_classic).unwrap(),
             SolverStatus::Completed
@@ -159,10 +190,13 @@ fn test_all_backends_converge_on_barbell_and_grid_without_nan() {
             "{backend:?}: classic 5x5 grid locality failed (mean_edge={edge_c}, mean_all={all_c})"
         );
 
-        let cfg_pure = TsNetConfig::pure_2hop().with_backend(backend);
+        let cfg_pure = TsNetConfig::pure_2hop();
         let mut l_grid = seeded_layout::<f64>(grid_pure.num_nodes(), 1.0, 19);
         let mut solver_g =
-            TsNetSolver::<Layout2d<f64>>::from_graph_pure_2hop(&grid_pure, cfg_pure).unwrap();
+            TsNetSolver::<Layout2d<f64>, TsNetBackend2d>::from_graph_pure_2hop_with_backend(
+                &grid_pure, cfg_pure, backend,
+            )
+            .unwrap();
         assert_eq!(
             solver_g.run_steps(&mut l_grid, 30).unwrap(),
             SolverStatus::Running
@@ -182,10 +216,10 @@ fn test_stage3_lambda_r_positive_expands_outward_regression() {
     let init_rms = rms_radius(&compact_init);
 
     for backend in [
-        TsNetBackend::Exact,
-        TsNetBackend::BarnesHut,
-        TsNetBackend::FftInterpolation,
-        TsNetBackend::LinearFft,
+        TsNetBackend2d::Exact(Exact::new()),
+        TsNetBackend2d::BarnesHut(BarnesHut::default()),
+        TsNetBackend2d::FitFft(FitFft::new()),
+        TsNetBackend2d::LinearFft(LinearFft::new()),
     ] {
         let stages = vec![
             TsNetStage::new()
@@ -196,11 +230,16 @@ fn test_stage3_lambda_r_positive_expands_outward_regression() {
                 .with_lambda_r(1.0),
         ];
         let cfg = TsNetConfig::pure_2hop()
-            .with_backend(backend)
             .with_learning_rate(Some(50.0))
             .with_stages(stages);
         let probs = SparseProbabilities::empty(grid.num_nodes());
-        let mut solver = TsNetSolver::<Layout2d<f64>>::from_probabilities(probs, cfg).unwrap();
+        let mut solver =
+            TsNetSolver::<Layout2d<f64>, TsNetBackend2d>::from_probabilities_with_backend(
+                probs,
+                cfg,
+                backend.clone(),
+            )
+            .unwrap();
         let mut layout = compact_init.clone();
         solver.run(&mut layout).unwrap();
         let final_rms = rms_radius(&layout);
@@ -211,20 +250,23 @@ fn test_stage3_lambda_r_positive_expands_outward_regression() {
     }
 
     for backend in [
-        TsNetBackend::Exact,
-        TsNetBackend::BarnesHut,
-        TsNetBackend::FftInterpolation,
-        TsNetBackend::LinearFft,
+        TsNetBackend2d::Exact(Exact::new()),
+        TsNetBackend2d::BarnesHut(BarnesHut::default()),
+        TsNetBackend2d::FitFft(FitFft::new()),
+        TsNetBackend2d::LinearFft(LinearFft::new()),
     ] {
         let cfg_pre = TsNetConfig::pure_2hop()
-            .with_backend(backend)
             .with_learning_rate(Some(15.0))
             .with_stages(make_stages(40, 40, 0, 0.0));
         let mut post_stage2 = seeded_layout::<f64>(grid.num_nodes(), 0.5, 99);
-        TsNetSolver::<Layout2d<f64>>::from_graph_pure_2hop(&grid, cfg_pre)
-            .unwrap()
-            .run(&mut post_stage2)
-            .unwrap();
+        TsNetSolver::<Layout2d<f64>, TsNetBackend2d>::from_graph_pure_2hop_with_backend(
+            &grid,
+            cfg_pre,
+            backend.clone(),
+        )
+        .unwrap()
+        .run(&mut post_stage2)
+        .unwrap();
 
         let make_s3 = |lr: f64| {
             vec![
@@ -237,21 +279,28 @@ fn test_stage3_lambda_r_positive_expands_outward_regression() {
             ]
         };
         let cfg_no_rep = TsNetConfig::pure_2hop()
-            .with_backend(backend)
             .with_learning_rate(Some(15.0))
             .with_stages(make_s3(0.0));
         let cfg_with_rep = cfg_no_rep.clone().with_stages(make_s3(0.6));
         let mut l_no_rep = post_stage2.clone();
         let mut l_with_rep = post_stage2;
 
-        TsNetSolver::<Layout2d<f64>>::from_graph_pure_2hop(&grid, cfg_no_rep)
-            .unwrap()
-            .run(&mut l_no_rep)
-            .unwrap();
-        TsNetSolver::<Layout2d<f64>>::from_graph_pure_2hop(&grid, cfg_with_rep)
-            .unwrap()
-            .run(&mut l_with_rep)
-            .unwrap();
+        TsNetSolver::<Layout2d<f64>, TsNetBackend2d>::from_graph_pure_2hop_with_backend(
+            &grid,
+            cfg_no_rep,
+            backend.clone(),
+        )
+        .unwrap()
+        .run(&mut l_no_rep)
+        .unwrap();
+        TsNetSolver::<Layout2d<f64>, TsNetBackend2d>::from_graph_pure_2hop_with_backend(
+            &grid,
+            cfg_with_rep,
+            backend.clone(),
+        )
+        .unwrap()
+        .run(&mut l_with_rep)
+        .unwrap();
 
         let rms_no_rep = rms_radius(&l_no_rep);
         let rms_with_rep = rms_radius(&l_with_rep);
@@ -267,26 +316,42 @@ fn test_fit_field_fft_call_counts_and_linear_fft_forces_bilinear() {
     let grid = make_grid_graph(4, 5);
     let init = seeded_layout::<f64>(grid.num_nodes(), 1.0, 55);
 
-    for (backend, expected_order) in [
-        (TsNetBackend::FftInterpolation, InterpolationOrder::Cubic),
-        (TsNetBackend::LinearFft, InterpolationOrder::Bilinear),
-    ] {
-        let cfg = TsNetConfig::pure_2hop()
-            .with_backend(backend)
-            .with_stages(make_stages(2, 1, 2, 0.6))
-            .with_ibfft(IbFftConfig::default().with_order(InterpolationOrder::Cubic));
-        let mut solver = TsNetSolver::<Layout2d<f64>>::from_graph_pure_2hop(&grid, cfg).unwrap();
-        assert_eq!(
-            solver
-                .state
-                .fit_field
-                .as_ref()
-                .unwrap()
-                .config()
-                .ibfft
-                .order,
-            expected_order
-        );
+    let cfg = TsNetConfig::pure_2hop().with_stages(make_stages(2, 1, 2, 0.6));
+
+    // FitFft uses Cubic by default.
+    let mut s_fit = TsNetSolver::<Layout2d<f64>, FitFft>::from_graph_pure_2hop_with_backend(
+        &grid,
+        cfg.clone(),
+        FitFft::new().with_ibfft(IbFftConfig::default().with_order(InterpolationOrder::Cubic)),
+    )
+    .unwrap();
+    assert_eq!(
+        s_fit.backend_state.fit_field.config().ibfft.order,
+        InterpolationOrder::Cubic
+    );
+
+    // LinearFft forces Bilinear even if Cubic IbFftConfig is passed or field is mutated.
+    let mut lin_backend = LinearFft::new();
+    lin_backend.ibfft.order = InterpolationOrder::Cubic;
+    let mut s_lin = TsNetSolver::<Layout2d<f64>, LinearFft>::from_graph_pure_2hop_with_backend(
+        &grid,
+        cfg.clone(),
+        lin_backend,
+    )
+    .unwrap();
+    assert_eq!(
+        s_lin.backend_state.fit_field.config().ibfft.order,
+        InterpolationOrder::Bilinear
+    );
+
+    fn check_fft_calls<B>(
+        solver: &mut TsNetSolver<Layout2d<f64>, B>,
+        init: &Layout2d<f64>,
+        expected_order: InterpolationOrder,
+        get_order: impl Fn(&TsNetSolver<Layout2d<f64>, B>) -> InterpolationOrder,
+    ) where
+        B: super::super::TsNetRepulsion<Layout2d<f64>>,
+    {
         assert!(solver.last_fft_stats().is_none());
         assert_eq!(solver.total_fft_2d_calls(), 0);
 
@@ -308,27 +373,76 @@ fn test_fit_field_fft_call_counts_and_linear_fft_forces_bilinear() {
         assert!(s3.total_fft_2d_calls <= 8);
         assert_eq!(s3.total_fft_2d_calls, 8);
         assert_eq!(solver.total_fft_2d_calls(), 23);
-        assert_eq!(
-            solver
-                .state
-                .fit_field
-                .as_ref()
-                .unwrap()
-                .config()
-                .ibfft
-                .order,
-            expected_order
-        );
+        assert_eq!(get_order(solver), expected_order);
     }
 
-    for backend in [TsNetBackend::Exact, TsNetBackend::BarnesHut] {
-        let cfg = TsNetConfig::pure_2hop()
-            .with_backend(backend)
-            .with_stages(make_stages(2, 0, 0, 0.0));
-        let mut solver = TsNetSolver::<Layout2d<f64>>::from_graph_pure_2hop(&grid, cfg).unwrap();
+    check_fft_calls(&mut s_fit, &init, InterpolationOrder::Cubic, |s| {
+        s.backend_state.fit_field.config().ibfft.order
+    });
+    check_fft_calls(&mut s_lin, &init, InterpolationOrder::Bilinear, |s| {
+        s.backend_state.fit_field.config().ibfft.order
+    });
+
+    let cfg_s1 = TsNetConfig::pure_2hop().with_stages(make_stages(2, 0, 0, 0.0));
+    let mut s_exact =
+        TsNetSolver::<Layout2d<f64>, Exact>::from_graph_pure_2hop(&grid, cfg_s1.clone()).unwrap();
+    let mut s_bh =
+        TsNetSolver::<Layout2d<f64>, BarnesHut>::from_graph_pure_2hop(&grid, cfg_s1).unwrap();
+    for s in [
+        &mut s_exact as &mut dyn IterativeSolver<Target = Layout2d<f64>>,
+        &mut s_bh as &mut dyn IterativeSolver<Target = Layout2d<f64>>,
+    ] {
         let mut layout = init.clone();
-        solver.run(&mut layout).unwrap();
-        assert!(solver.last_fft_stats().is_none());
-        assert_eq!(solver.total_fft_2d_calls(), 0);
+        s.run(&mut layout).unwrap();
+    }
+    assert!(s_exact.last_fft_stats().is_none());
+    assert_eq!(s_exact.total_fft_2d_calls(), 0);
+    assert!(s_bh.last_fft_stats().is_none());
+    assert_eq!(s_bh.total_fft_2d_calls(), 0);
+}
+
+#[test]
+fn test_tsnet_backend_auto2d_resolution_at_256_threshold() {
+    let g_small = make_grid_graph(16, 16); // N = 256 -> Exact
+    let g_large = make_grid_graph(17, 16); // N = 272 -> LinearFft (Bilinear p=1)
+    let cfg = TsNetConfig::pure_2hop().with_stages(make_stages(1, 0, 0, 0.0));
+
+    // Layout2d defaults to Auto2d.
+    let mut s_small = TsNetSolver::<Layout2d<f64>>::new(&g_small, cfg.clone()).unwrap();
+    assert!(s_small.backend_state.is_exact());
+    let mut l_small = seeded_layout::<f64>(256, 0.5, 11);
+    s_small.run(&mut l_small).unwrap();
+    assert_eq!(s_small.total_fft_2d_calls(), 0);
+
+    let mut s_large = TsNetSolver::<Layout2d<f64>>::new(&g_large, cfg.clone()).unwrap();
+    assert!(!s_large.backend_state.is_exact());
+    assert_eq!(
+        s_large
+            .backend_state
+            .fit_field()
+            .unwrap()
+            .config()
+            .ibfft
+            .order,
+        InterpolationOrder::Bilinear
+    );
+    let mut l_large = seeded_layout::<f64>(272, 0.5, 11);
+    s_large.run(&mut l_large).unwrap();
+    assert!(s_large.total_fft_2d_calls() > 0);
+
+    // Custom threshold on Auto2d works and matches LinearFft bit-for-bit.
+    let custom_auto = Auto2d::new().with_exact_threshold(100);
+    let mut s_custom =
+        TsNetSolver::<Layout2d<f64>, Auto2d>::new_with_backend(&g_small, cfg.clone(), custom_auto)
+            .unwrap();
+    let mut s_lin = TsNetSolver::<Layout2d<f64>, LinearFft>::new(&g_small, cfg).unwrap();
+    assert!(!s_custom.backend_state.is_exact());
+    let mut l_c = seeded_layout::<f64>(256, 0.5, 11);
+    let mut l_l = l_c.clone();
+    s_custom.run(&mut l_c).unwrap();
+    s_lin.run(&mut l_l).unwrap();
+    for i in 0..256 {
+        assert_eq!(l_c.x()[i].to_bits(), l_l.x()[i].to_bits());
+        assert_eq!(l_c.y()[i].to_bits(), l_l.y()[i].to_bits());
     }
 }

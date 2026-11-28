@@ -4,7 +4,9 @@ use egraph_core::{
 };
 use egraph_neighborhood::SparseProbabilities;
 
-use super::super::{TsNetBackend, TsNetConfig, TsNetSolver};
+use crate::backends::Exact;
+
+use super::super::{TsNetConfig, TsNetSolver};
 use super::{make_barbell_graph, make_grid_graph, make_stages};
 
 fn init_manifold<S: Scalar>(kind: ManifoldKind, n: usize, seed: u64) -> ManifoldLayout2d<S> {
@@ -58,67 +60,60 @@ fn test_tsnet_manifold_all_kinds_bit_exact_and_constructors() {
         ManifoldKind::Spherical,
         ManifoldKind::Torus2d,
     ] {
-        for backend in [TsNetBackend::Exact, TsNetBackend::Auto] {
-            let cfg = TsNetConfig::pure_2hop()
-                .with_backend(backend)
-                .with_stages(make_stages(8, 8, 8, 0.5));
+        let cfg = TsNetConfig::pure_2hop().with_stages(make_stages(8, 8, 8, 0.5));
 
-            let mut l_run = init_manifold::<f64>(kind, n, 17);
-            if kind == ManifoldKind::Torus2d {
-                l_run.set_torus_extents(2.5, 1.5).unwrap();
-            } else {
-                l_run.set_scale(1.5).unwrap();
-            }
-            let mut l_step = l_run.clone();
-            let mut s_run =
-                TsNetSolver::<ManifoldLayout2d<f64>>::from_graph_pure_2hop(&grid, cfg.clone())
-                    .unwrap();
-            let mut s_step =
-                TsNetSolver::<ManifoldLayout2d<f64>>::from_graph_pure_2hop(&grid, cfg.clone())
-                    .unwrap();
+        let mut l_run = init_manifold::<f64>(kind, n, 17);
+        if kind == ManifoldKind::Torus2d {
+            l_run.set_torus_extents(2.5, 1.5).unwrap();
+        } else {
+            l_run.set_scale(1.5).unwrap();
+        }
+        let mut l_step = l_run.clone();
+        // DefaultTsNetBackend for ManifoldLayout2d resolves to Exact.
+        let mut s_run =
+            TsNetSolver::<ManifoldLayout2d<f64>>::from_graph_pure_2hop(&grid, cfg.clone()).unwrap();
+        let mut s_step =
+            TsNetSolver::<ManifoldLayout2d<f64>, Exact>::from_graph_pure_2hop(&grid, cfg.clone())
+                .unwrap();
 
-            assert_eq!(s_run.resolved_backend(), TsNetBackend::Exact);
-            assert_eq!(s_run.run(&mut l_run).unwrap(), SolverStatus::Completed);
-            assert!(l_run.validate_finite().is_ok());
+        assert_eq!(s_run.run(&mut l_run).unwrap(), SolverStatus::Completed);
+        assert!(l_run.validate_finite().is_ok());
 
-            assert_eq!(
-                s_step.run_steps(&mut l_step, 5).unwrap(),
-                SolverStatus::Running
-            );
-            while !s_step.status().is_finished() {
-                s_step.step(&mut l_step).unwrap();
-            }
-            assert_eq!(s_run.status(), s_step.status());
-            assert_eq!(s_run.iteration(), s_step.iteration());
-            assert_eq!(s_run.total_fft_2d_calls(), 0);
-            for i in 0..n {
-                assert_eq!(l_run.x()[i].to_bits(), l_step.x()[i].to_bits());
-                assert_eq!(l_run.y()[i].to_bits(), l_step.y()[i].to_bits());
-            }
+        assert_eq!(
+            s_step.run_steps(&mut l_step, 5).unwrap(),
+            SolverStatus::Running
+        );
+        while !s_step.status().is_finished() {
+            s_step.step(&mut l_step).unwrap();
+        }
+        assert_eq!(s_run.status(), s_step.status());
+        assert_eq!(s_run.iteration(), s_step.iteration());
+        assert_eq!(s_run.total_fft_2d_calls(), 0);
+        for i in 0..n {
+            assert_eq!(l_run.x()[i].to_bits(), l_step.x()[i].to_bits());
+            assert_eq!(l_run.y()[i].to_bits(), l_step.y()[i].to_bits());
+        }
 
-            let mut l32_run = init_manifold::<f32>(kind, n, 17);
-            let mut l32_step = l32_run.clone();
-            let mut s32_run =
-                TsNetSolver::<ManifoldLayout2d<f32>>::from_graph_pure_2hop(&grid, cfg.clone())
-                    .unwrap();
-            let mut s32_step =
-                TsNetSolver::<ManifoldLayout2d<f32>>::from_graph_pure_2hop(&grid, cfg).unwrap();
-            assert_eq!(s32_run.run(&mut l32_run).unwrap(), SolverStatus::Completed);
-            assert!(l32_run.validate_finite().is_ok());
-            for _ in 0..24 {
-                s32_step.step(&mut l32_step).unwrap();
-            }
-            assert_eq!(s32_step.status(), SolverStatus::Completed);
-            for i in 0..n {
-                assert_eq!(l32_run.x()[i].to_bits(), l32_step.x()[i].to_bits());
-                assert_eq!(l32_run.y()[i].to_bits(), l32_step.y()[i].to_bits());
-            }
+        let mut l32_run = init_manifold::<f32>(kind, n, 17);
+        let mut l32_step = l32_run.clone();
+        let mut s32_run =
+            TsNetSolver::<ManifoldLayout2d<f32>>::from_graph_pure_2hop(&grid, cfg.clone()).unwrap();
+        let mut s32_step =
+            TsNetSolver::<ManifoldLayout2d<f32>>::from_graph_pure_2hop(&grid, cfg).unwrap();
+        assert_eq!(s32_run.run(&mut l32_run).unwrap(), SolverStatus::Completed);
+        assert!(l32_run.validate_finite().is_ok());
+        for _ in 0..24 {
+            s32_step.step(&mut l32_step).unwrap();
+        }
+        assert_eq!(s32_step.status(), SolverStatus::Completed);
+        for i in 0..n {
+            assert_eq!(l32_run.x()[i].to_bits(), l32_step.x()[i].to_bits());
+            assert_eq!(l32_run.y()[i].to_bits(), l32_step.y()[i].to_bits());
         }
     }
 
     let barbell = make_barbell_graph(6);
     let cfg_bb = TsNetConfig::pure_2hop()
-        .with_backend(TsNetBackend::Exact)
         .with_learning_rate(Some(12.0))
         .with_stages(make_stages(40, 40, 40, 0.4));
     let mut s_rn = TsNetSolver::<ManifoldLayout2d<f64>>::from_graph_row_normalized(
@@ -142,9 +137,7 @@ fn test_tsnet_manifold_all_kinds_bit_exact_and_constructors() {
     .unwrap();
     let mut s_prob = TsNetSolver::<ManifoldLayout2d<f64>>::from_probabilities(
         probs,
-        TsNetConfig::pure_2hop()
-            .with_backend(TsNetBackend::Auto)
-            .with_stages(make_stages(5, 5, 5, 0.0)),
+        TsNetConfig::pure_2hop().with_stages(make_stages(5, 5, 5, 0.0)),
     )
     .unwrap();
     let mut l_prob = init_manifold::<f64>(ManifoldKind::HyperbolicLorentz, 3, 8);
@@ -178,7 +171,6 @@ fn test_tsnet_manifold_velocity_parallel_transport() {
         let pre_step = layout.clone();
 
         let cfg = TsNetConfig::pure_2hop()
-            .with_backend(TsNetBackend::Exact)
             .with_jacobi_precondition(false)
             .with_learning_rate(Some(0.25))
             .with_momentum(0.8)
@@ -188,12 +180,12 @@ fn test_tsnet_manifold_velocity_parallel_transport() {
             TsNetSolver::<ManifoldLayout2d<f64>>::from_probabilities(probs.clone(), cfg).unwrap();
         solver.step(&mut layout).unwrap();
 
-        // Compute the geodesic step delta_0 = log_{pre}(post) and verify that `vel` after step 1
-        // has been parallel-transported along `delta_0` (preserving norm and matching
-        // `pre_step.parallel_transport_into(0, &delta_0, &mut delta_0)`).
         let mut delta = [0.0_f64; 2];
-        pre_step.log_map_into(0, 0, &mut delta).unwrap(); // sanity check
-        let v_after = [solver.state.vel_x[0], solver.state.vel_y[0]];
+        pre_step.log_map_into(0, 0, &mut delta).unwrap();
+        let v_after = [
+            solver.space.vel_x().unwrap()[0],
+            solver.space.vel_y().unwrap()[0],
+        ];
         let norm_after = v_after[0].hypot(v_after[1]);
         assert!(norm_after > 1e-6, "{kind:?}: expected non-zero velocity");
 
@@ -203,23 +195,22 @@ fn test_tsnet_manifold_velocity_parallel_transport() {
         let step_dir_dot = (dx0 * v_after[0] + dy0 * v_after[1]).abs();
         assert!(step_dir_dot.is_finite());
 
-        // Also test explicit pre-seeded velocity transport: set `vel = [0.25, -0.15]` on an
-        // edgeless graph with lambda_kl=0, lambda_c=0.1, momentum=1-1e-9, so the step is pure
-        // compression + momentum and verify finite transported norm.
+        // Test explicit pre-seeded velocity transport on an edgeless graph.
         let mut edgeless_l = ManifoldLayout2d::from_xy(kind, xs, ys).unwrap();
         let edgeless_p = SparseProbabilities::empty(2);
         let cfg_t = TsNetConfig::pure_2hop()
-            .with_backend(TsNetBackend::Exact)
             .with_jacobi_precondition(false)
             .with_learning_rate(Some(0.5))
             .with_momentum(1.0 - 1e-9)
             .with_stages(make_stages(1, 0, 0, 0.0));
         let mut s_t =
             TsNetSolver::<ManifoldLayout2d<f64>>::from_probabilities(edgeless_p, cfg_t).unwrap();
-        s_t.state.vel_x[0] = 0.25;
-        s_t.state.vel_y[0] = -0.15;
+        s_t.space.vel_x_mut().unwrap()[0] = 0.25;
+        if let super::super::repulsion::TsNetSpaceKind::Manifold2d(ref mut m) = s_t.space.0 {
+            m.vel_y[0] = -0.15;
+        }
         s_t.step(&mut edgeless_l).unwrap();
-        let transported_norm = s_t.state.vel_x[0].hypot(s_t.state.vel_y[0]);
+        let transported_norm = s_t.space.vel_x().unwrap()[0].hypot(s_t.space.vel_y().unwrap()[0]);
         assert!(transported_norm > 0.1 && transported_norm.is_finite());
     }
 
@@ -228,7 +219,6 @@ fn test_tsnet_manifold_velocity_parallel_transport() {
         ManifoldLayout2d::from_xy(ManifoldKind::Spherical, vec![0.4, 1.2], vec![0.5, 0.7]).unwrap();
     let l_ref = l_s.clone();
     let cfg_s = TsNetConfig::pure_2hop()
-        .with_backend(TsNetBackend::Exact)
         .with_jacobi_precondition(false)
         .with_learning_rate(Some(0.3))
         .with_momentum(0.0)
@@ -236,8 +226,6 @@ fn test_tsnet_manifold_velocity_parallel_transport() {
     let mut s_s = TsNetSolver::<ManifoldLayout2d<f64>>::from_probabilities(probs, cfg_s).unwrap();
     s_s.step(&mut l_s).unwrap();
 
-    // Since momentum=0.0, step 0 velocity was purely `-lr * grad`, which equals the geodesic
-    // tangent displacement from `l_ref` to `l_s`, so `log_{q}(p) == -P_{p -> q}(log_p(q)) == -v_after`.
     let mixed = ManifoldLayout2d::from_xy(
         ManifoldKind::Spherical,
         vec![l_s.x()[0], l_ref.x()[0]],
@@ -248,57 +236,20 @@ fn test_tsnet_manifold_velocity_parallel_transport() {
     mixed.log_map_into(0, 1, &mut back_vec).unwrap();
     let back_x = back_vec[0];
     let back_y = back_vec[1];
+    let vx = s_s.space.vel_x().unwrap()[0];
+    let vy = s_s.space.vel_y().unwrap()[0];
     assert!(
-        (s_s.state.vel_x[0] + back_x).abs() < 1e-10 && (s_s.state.vel_y[0] + back_y).abs() < 1e-10,
-        "expected transported velocity == -log_q(p): vel=({}, {}), -back=({}, {})",
-        s_s.state.vel_x[0],
-        s_s.state.vel_y[0],
+        (vx + back_x).abs() < 1e-10 && (vy + back_y).abs() < 1e-10,
+        "expected transported velocity == -log_q(p): vel=({vx}, {vy}), -back=({}, {})",
         -back_x,
         -back_y
     );
 }
 
 #[test]
-fn test_tsnet_manifold_auto_large_and_errors() {
-    // N = 272 > 256: Auto on ManifoldLayout2d resolves directly to Exact.
-    let large_grid = make_grid_graph(17, 16);
-    let n = large_grid.num_nodes();
-    let cfg_auto = TsNetConfig::pure_2hop()
-        .with_backend(TsNetBackend::Auto)
-        .with_stages(make_stages(1, 0, 0, 0.0));
-    let mut s_auto = TsNetSolver::<ManifoldLayout2d<f64>>::from_graph_row_normalized(
-        &large_grid,
-        0.5,
-        Some(16),
-        cfg_auto,
-    )
-    .unwrap();
-    assert_eq!(s_auto.resolved_backend(), TsNetBackend::Exact);
-    let mut l_auto = init_manifold::<f64>(ManifoldKind::HyperbolicPoincare, n, 11);
-    assert_eq!(s_auto.step(&mut l_auto).unwrap(), SolverStatus::Completed);
-    assert_eq!(s_auto.total_fft_2d_calls(), 0);
-    assert!(l_auto.validate_finite().is_ok());
-
-    // Euclidean-only backends fail fast at construction on ManifoldLayout2d.
+fn test_tsnet_manifold_edge_cases_and_errors() {
     let grid = make_grid_graph(3, 3);
-    for bad_backend in [
-        TsNetBackend::BarnesHut,
-        TsNetBackend::FftInterpolation,
-        TsNetBackend::LinearFft,
-    ] {
-        let cfg = TsNetConfig::pure_2hop()
-            .with_backend(bad_backend)
-            .with_stages(make_stages(3, 0, 0, 0.0));
-        assert!(matches!(
-            TsNetSolver::<ManifoldLayout2d<f64>>::from_graph_pure_2hop(&grid, cfg),
-            Err(CoreError::UnsupportedOperation(_))
-        ));
-    }
-
-    // Edge cases: n=0, n=1, coincident.
-    let cfg_ex = TsNetConfig::pure_2hop()
-        .with_backend(TsNetBackend::Exact)
-        .with_stages(make_stages(4, 4, 4, 0.0));
+    let cfg_ex = TsNetConfig::pure_2hop().with_stages(make_stages(4, 4, 4, 0.0));
     let g0 = CsrGraph::<()>::from_unweighted_edges(0, &[], false, false).unwrap();
     let mut s0 =
         TsNetSolver::<ManifoldLayout2d<f64>>::from_graph_pure_2hop(&g0, cfg_ex.clone()).unwrap();

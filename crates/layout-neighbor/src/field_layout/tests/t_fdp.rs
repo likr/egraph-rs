@@ -3,6 +3,8 @@ use egraph_core::{
 };
 use egraph_neighborhood::{DogVaradhanConfig, KnnGraph};
 
+use crate::backends::{BarnesHut, Exact, IbFft, TFdpBackend2d};
+
 use super::super::{FieldRepulsionBackend, IbUmapConfig, IbUmapSolver, TFdpConfig, TFdpSolver};
 use super::{barbell_graph, grid_graph, seeded_layout};
 
@@ -10,18 +12,25 @@ use super::{barbell_graph, grid_graph, seeded_layout};
 fn test_t_fdp_step_vs_run_bit_exact_f64_and_f32_all_backends() {
     let grid = grid_graph(4, 4);
     for backend in [
-        FieldRepulsionBackend::IbFft,
-        FieldRepulsionBackend::BarnesHut,
-        FieldRepulsionBackend::Exact,
+        TFdpBackend2d::IbFft(IbFft::new()),
+        TFdpBackend2d::BarnesHut(BarnesHut::default()),
+        TFdpBackend2d::Exact(Exact::new()),
     ] {
-        let cfg = TFdpConfig::new()
-            .with_backend(backend)
-            .with_iterations(20)
-            .with_seed(77);
+        let cfg = TFdpConfig::new().with_iterations(20).with_seed(77);
 
         // f64 bit-exact parity
-        let mut s_run = TFdpSolver::<Layout2d<f64>>::new(&grid, cfg.clone()).unwrap();
-        let mut s_step = TFdpSolver::<Layout2d<f64>>::new(&grid, cfg.clone()).unwrap();
+        let mut s_run = TFdpSolver::<Layout2d<f64>, TFdpBackend2d>::new_with_backend(
+            &grid,
+            cfg.clone(),
+            backend.clone(),
+        )
+        .unwrap();
+        let mut s_step = TFdpSolver::<Layout2d<f64>, TFdpBackend2d>::new_with_backend(
+            &grid,
+            cfg.clone(),
+            backend.clone(),
+        )
+        .unwrap();
         let mut l_run = seeded_layout::<f64>(grid.num_nodes(), 1.5, 19);
         let mut l_step = l_run.clone();
 
@@ -50,8 +59,15 @@ fn test_t_fdp_step_vs_run_bit_exact_f64_and_f32_all_backends() {
         }
 
         // f32 bit-exact parity
-        let mut s32_run = TFdpSolver::<Layout2d<f32>>::new(&grid, cfg.clone()).unwrap();
-        let mut s32_step = TFdpSolver::<Layout2d<f32>>::new(&grid, cfg).unwrap();
+        let mut s32_run = TFdpSolver::<Layout2d<f32>, TFdpBackend2d>::new_with_backend(
+            &grid,
+            cfg.clone(),
+            backend.clone(),
+        )
+        .unwrap();
+        let mut s32_step =
+            TFdpSolver::<Layout2d<f32>, TFdpBackend2d>::new_with_backend(&grid, cfg, backend)
+                .unwrap();
         let mut l32_run = seeded_layout::<f32>(grid.num_nodes(), 1.5, 19);
         let mut l32_step = l32_run.clone();
         s32_run.run(&mut l32_run).unwrap();
@@ -71,29 +87,20 @@ fn test_t_fdp_ibfft_vs_exact_and_barnes_hut_consistency() {
     let init = seeded_layout::<f64>(barbell.num_nodes(), 2.0, 101);
 
     for gamma in [1.0, 1.5, 2.0] {
-        let mut s_exact = TFdpSolver::<Layout2d<f64>>::new(
+        let mut s_exact = TFdpSolver::<Layout2d<f64>, Exact>::new(
             &barbell,
-            TFdpConfig::new()
-                .with_backend(FieldRepulsionBackend::Exact)
-                .with_iterations(15)
-                .with_gamma(gamma),
+            TFdpConfig::new().with_iterations(15).with_gamma(gamma),
         )
         .unwrap();
-        let mut s_ibfft = TFdpSolver::<Layout2d<f64>>::new(
+        let mut s_ibfft = TFdpSolver::<Layout2d<f64>, IbFft>::new(
             &barbell,
-            TFdpConfig::new()
-                .with_backend(FieldRepulsionBackend::IbFft)
-                .with_iterations(15)
-                .with_gamma(gamma),
+            TFdpConfig::new().with_iterations(15).with_gamma(gamma),
         )
         .unwrap();
-        let mut s_bh_exact = TFdpSolver::<Layout2d<f64>>::new(
+        let mut s_bh_exact = TFdpSolver::<Layout2d<f64>, BarnesHut>::new_with_backend(
             &barbell,
-            TFdpConfig::new()
-                .with_backend(FieldRepulsionBackend::BarnesHut)
-                .with_iterations(15)
-                .with_theta(0.0)
-                .with_gamma(gamma),
+            TFdpConfig::new().with_iterations(15).with_gamma(gamma),
+            BarnesHut::new(0.0),
         )
         .unwrap();
 
@@ -127,21 +134,15 @@ fn test_t_fdp_3d_octree_and_nd_exact() {
     let init_3d = Layout3d::<f64>::init(n, 101, 2.0).unwrap();
 
     for gamma in [1.0, 1.5, 2.0] {
-        let mut s_exact = TFdpSolver::<Layout3d<f64>>::new(
+        let mut s_exact = TFdpSolver::<Layout3d<f64>, Exact>::new(
             &barbell,
-            TFdpConfig::new()
-                .with_backend(FieldRepulsionBackend::Exact)
-                .with_iterations(15)
-                .with_gamma(gamma),
+            TFdpConfig::new().with_iterations(15).with_gamma(gamma),
         )
         .unwrap();
-        let mut s_bh = TFdpSolver::<Layout3d<f64>>::new(
+        let mut s_bh = TFdpSolver::<Layout3d<f64>, BarnesHut>::new_with_backend(
             &barbell,
-            TFdpConfig::new()
-                .with_backend(FieldRepulsionBackend::BarnesHut)
-                .with_iterations(15)
-                .with_theta(0.0)
-                .with_gamma(gamma),
+            TFdpConfig::new().with_iterations(15).with_gamma(gamma),
+            BarnesHut::new(0.0),
         )
         .unwrap();
 
@@ -158,33 +159,18 @@ fn test_t_fdp_3d_octree_and_nd_exact() {
         }
     }
 
-    // 3D barbell separation with BarnesHut
-    let mut s_sep = TFdpSolver::<Layout3d<f64>>::new(
-        &barbell,
-        TFdpConfig::new()
-            .with_backend(FieldRepulsionBackend::BarnesHut)
-            .with_iterations(120),
-    )
-    .unwrap();
+    // 3D barbell separation with default backend (BarnesHut)
+    let mut s_sep =
+        TFdpSolver::<Layout3d<f64>>::new(&barbell, TFdpConfig::new().with_iterations(120)).unwrap();
     let mut l_sep = Layout3d::<f64>::zeros(n);
     assert_eq!(s_sep.run(&mut l_sep).unwrap(), SolverStatus::Completed);
     assert!(l_sep.is_all_finite());
 
-    // 4D LayoutNd Exact parity with step == run and dimension lock
-    let mut s_nd_run = TFdpSolver::<LayoutNd<f64>>::new(
-        &barbell,
-        TFdpConfig::new()
-            .with_backend(FieldRepulsionBackend::Exact)
-            .with_iterations(15),
-    )
-    .unwrap();
-    let mut s_nd_step = TFdpSolver::<LayoutNd<f64>>::new(
-        &barbell,
-        TFdpConfig::new()
-            .with_backend(FieldRepulsionBackend::Exact)
-            .with_iterations(15),
-    )
-    .unwrap();
+    // 4D LayoutNd default backend (Exact) parity with step == run and dimension lock
+    let mut s_nd_run =
+        TFdpSolver::<LayoutNd<f64>>::new(&barbell, TFdpConfig::new().with_iterations(15)).unwrap();
+    let mut s_nd_step =
+        TFdpSolver::<LayoutNd<f64>>::new(&barbell, TFdpConfig::new().with_iterations(15)).unwrap();
     let mut l_nd_run = LayoutNd::<f64>::init(n, 4, 17, 1.0).unwrap();
     let mut l_nd_step = l_nd_run.clone();
     s_nd_run.run(&mut l_nd_run).unwrap();
@@ -261,10 +247,9 @@ fn test_zero_per_step_allocations_directed_graph_and_custom_ab_alpha() {
     let dir_graph =
         CsrGraph::<f64>::from_edges(24, &dir_edges, Some(&dir_weights), true, false).unwrap();
 
-    let mut s_fdp = TFdpSolver::<Layout2d<f64>>::new(
+    let mut s_fdp = TFdpSolver::<Layout2d<f64>, IbFft>::new(
         &dir_graph,
         TFdpConfig::new()
-            .with_backend(FieldRepulsionBackend::IbFft)
             .with_iterations(20)
             .with_alpha(2.0)
             .with_gamma(1.0),
@@ -276,31 +261,20 @@ fn test_zero_per_step_allocations_directed_graph_and_custom_ab_alpha() {
     assert!(stats.total_fft_2d_calls > 0);
     assert!(stats.nx < 512 && stats.ny < 512);
 
-    let (attr_cap, vel_cap, next_cap, rep_cap, phi_cap) = s_fdp.state_capacities();
+    let caps = s_fdp.state_capacities();
     s_fdp.run(&mut l_fdp).unwrap();
-    assert_eq!(
-        s_fdp.state_capacities(),
-        (attr_cap, vel_cap, next_cap, rep_cap, phi_cap)
-    );
+    assert_eq!(s_fdp.state_capacities(), caps);
     assert!(l_fdp.is_all_finite());
 
     // Span guard prevents 512x512 FFT blowup on huge coordinate spans and matches Exact forces.
     let mut wide_layout = seeded_layout::<f64>(24, 5000.0, 17);
     let mut wide_exact = wide_layout.clone();
-    let mut s_wide_fft = TFdpSolver::<Layout2d<f64>>::new(
-        &dir_graph,
-        TFdpConfig::new()
-            .with_backend(FieldRepulsionBackend::IbFft)
-            .with_iterations(2),
-    )
-    .unwrap();
-    let mut s_wide_exact = TFdpSolver::<Layout2d<f64>>::new(
-        &dir_graph,
-        TFdpConfig::new()
-            .with_backend(FieldRepulsionBackend::Exact)
-            .with_iterations(2),
-    )
-    .unwrap();
+    let mut s_wide_fft =
+        TFdpSolver::<Layout2d<f64>, IbFft>::new(&dir_graph, TFdpConfig::new().with_iterations(2))
+            .unwrap();
+    let mut s_wide_exact =
+        TFdpSolver::<Layout2d<f64>, Exact>::new(&dir_graph, TFdpConfig::new().with_iterations(2))
+            .unwrap();
     s_wide_fft.run(&mut wide_layout).unwrap();
     s_wide_exact.run(&mut wide_exact).unwrap();
     let wide_stats = s_wide_fft.last_fft_stats().unwrap();

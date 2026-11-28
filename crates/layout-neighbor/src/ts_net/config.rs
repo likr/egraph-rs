@@ -1,29 +1,7 @@
 use egraph_core::{CoreError, CoreResult};
 use egraph_neighborhood::{PerplexityConfig, SymmetrizationMode};
-use egraph_spatial_fft::{IbFftConfig, InterpolationOrder};
 
 pub(super) const MIN_LAMBDA_SUM: f64 = 1e-12;
-
-/// Repulsion approximation backend used by [`TsNetSolver`](super::TsNetSolver).
-#[non_exhaustive]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub enum TsNetBackend {
-    /// Exact $O(N^2)$ pairwise Student-$t$ KL repulsion and entropy repulsion.
-    Exact,
-    /// $O(N \log N)$ Barnes-Hut spatial tree approximation (`ArenaQuadtree2d` on `Layout2d`,
-    /// `ArenaOctree3d` on `Layout3d`).
-    BarnesHut,
-    /// Fused 2D FFT interpolation for KL and entropy repulsion via [`FitField2d`](egraph_spatial_fft::FitField2d).
-    #[default]
-    FftInterpolation,
-    /// Linear-time fused 2D FFT interpolation enforcing [`InterpolationOrder::Bilinear`] ($p=1$).
-    LinearFft,
-    /// Adaptive backend resolved at construction for the target layout:
-    /// - `Layout2d`: `Exact` for $N \le 256$, `LinearFft` ($p=1$) for $N > 256$.
-    /// - `Layout3d`: `Exact` for $N \le 256$, `BarnesHut` (`ArenaOctree3d`) for $N > 256$.
-    /// - `LayoutNd` / `ManifoldLayout2d` / other `RiemannianLayout`: `Exact`.
-    Auto,
-}
 
 /// Hyperparameters governing a single optimization stage of [`TsNetSolver`](super::TsNetSolver).
 #[non_exhaustive]
@@ -112,12 +90,14 @@ impl TsNetStage {
     }
 }
 
-/// Configuration for [`TsNetSolver`](super::TsNetSolver), defaulting to the Pure 1+2-Hop adaptive preset.
+/// Space-independent hyperparameters for [`TsNetSolver`](super::TsNetSolver), defaulting to
+/// the Pure 1+2-Hop adaptive preset.
+///
+/// Repulsion approximation settings (`theta`, FFT grid parameters, auto thresholds) live on
+/// concrete backend types (`Exact`, `BarnesHut`, `FitFft`, `LinearFft`, `Auto2d`, `Auto3d`).
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq)]
 pub struct TsNetConfig {
-    /// Repulsion computation backend (`FftInterpolation` by default).
-    pub backend: TsNetBackend,
     /// Multiplier $c$ for node-wise 2-hop adaptive perplexity (`0.9`).
     pub perplexity_c: f64,
     /// Lower clamp for node-wise 2-hop adaptive perplexity (`5.0`).
@@ -145,10 +125,6 @@ pub struct TsNetConfig {
     pub momentum: f64,
     /// Entropy softening constant $\varepsilon_r > 0$ (`0.05`).
     pub epsilon_r: f64,
-    /// Barnes-Hut opening angle threshold $\theta \ge 0$ (`0.5`).
-    pub theta: f64,
-    /// Interpolation-based 2D FFT grid configuration (`Cubic` $p=3$ for `FftInterpolation`, `intervals=25`, `64..=512`).
-    pub ibfft: IbFftConfig,
     /// Deterministic explicit RNG seed (`42`).
     pub seed: u64,
 }
@@ -195,7 +171,6 @@ impl TsNetConfig {
     /// Returns the Pure 1+2-Hop node-wise adaptive Fit-tsNET preset configuration.
     pub fn pure_2hop() -> Self {
         Self {
-            backend: TsNetBackend::FftInterpolation,
             perplexity_c: 0.9,
             min_perplexity: 5.0,
             max_perplexity: 1200.0,
@@ -209,16 +184,8 @@ impl TsNetConfig {
             jacobi_precondition: true,
             momentum: 0.8,
             epsilon_r: 0.05,
-            theta: 0.5,
-            ibfft: IbFftConfig::default().with_order(InterpolationOrder::Cubic),
             seed: 42,
         }
-    }
-
-    /// Sets the repulsion computation backend.
-    pub fn with_backend(mut self, backend: TsNetBackend) -> Self {
-        self.backend = backend;
-        self
     }
 
     /// Sets the node-wise 2-hop adaptive perplexity multiplier `perplexity_c`.
@@ -299,38 +266,10 @@ impl TsNetConfig {
         self
     }
 
-    /// Sets the Barnes-Hut opening angle threshold `theta`.
-    pub fn with_theta(mut self, theta: f64) -> Self {
-        self.theta = theta;
-        self
-    }
-
-    /// Sets the interpolation-based 2D FFT grid configuration.
-    pub fn with_ibfft(mut self, ibfft: IbFftConfig) -> Self {
-        self.ibfft = ibfft;
-        self
-    }
-
     /// Sets the deterministic RNG seed.
     pub fn with_seed(mut self, seed: u64) -> Self {
         self.seed = seed;
         self
-    }
-
-    /// Resolves [`TsNetBackend::Auto`] for a 2D graph with `num_nodes` vertices
-    /// (`Exact` for $N \le 256$, `LinearFft` for $N > 256$).
-    #[inline]
-    pub fn resolve_backend(&self, num_nodes: usize) -> TsNetBackend {
-        match self.backend {
-            TsNetBackend::Auto => {
-                if num_nodes <= 256 {
-                    TsNetBackend::Exact
-                } else {
-                    TsNetBackend::LinearFft
-                }
-            }
-            other => other,
-        }
     }
 
     /// Resolves the effective base learning rate for a graph with `num_nodes` vertices:
@@ -347,7 +286,7 @@ impl TsNetConfig {
         &self.stages
     }
 
-    /// Validates all hyperparameters, stage definitions, and nested `ibfft` settings.
+    /// Validates all hyperparameters and stage definitions.
     pub fn validate(&self) -> CoreResult<()> {
         if !self.perplexity_c.is_finite() || self.perplexity_c <= 0.0 {
             return Err(CoreError::invalid_input(format!(
@@ -410,45 +349,7 @@ impl TsNetConfig {
                 self.epsilon_r
             )));
         }
-        if !self.theta.is_finite() || self.theta < 0.0 {
-            return Err(CoreError::invalid_input(format!(
-                "theta must be finite and >= 0.0, got {}",
-                self.theta
-            )));
-        }
-        self.ibfft.validate()
-    }
-
-    pub(super) fn effective_ibfft_for(&self, resolved_backend: TsNetBackend) -> IbFftConfig {
-        let mut cfg = self.ibfft.clone();
-        if resolved_backend == TsNetBackend::LinearFft {
-            cfg.order = InterpolationOrder::Bilinear;
-        }
-        cfg
-    }
-
-    /// Returns the configured FFT interpolation order (`ibfft.order`).
-    #[inline]
-    pub fn interpolation_order(&self) -> InterpolationOrder {
-        self.ibfft.order
-    }
-
-    /// Returns the configured FFT nominal interval count (`ibfft.intervals`).
-    #[inline]
-    pub fn intervals(&self) -> usize {
-        self.ibfft.intervals
-    }
-
-    /// Returns the configured minimum FFT grid dimension (`ibfft.min_grid_dim`).
-    #[inline]
-    pub fn min_grid_dim(&self) -> usize {
-        self.ibfft.min_grid_dim
-    }
-
-    /// Returns the configured maximum FFT grid dimension (`ibfft.max_grid_dim`).
-    #[inline]
-    pub fn max_grid_dim(&self) -> usize {
-        self.ibfft.max_grid_dim
+        Ok(())
     }
 
     pub(super) fn perplexity_config(&self) -> PerplexityConfig {

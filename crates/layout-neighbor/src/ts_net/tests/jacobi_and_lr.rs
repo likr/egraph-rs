@@ -1,20 +1,21 @@
 use egraph_core::{CsrGraph, IterativeSolver, Layout2d, SolverStatus};
 use egraph_neighborhood::{SparseProbabilities, SymmetrizationMode};
 
+use crate::backends::{BarnesHut, Exact, FitFft};
+
 use super::super::config::compute_stage_lr;
-use super::super::{TsNetBackend, TsNetConfig, TsNetSolver, TsNetStage};
+use super::super::{TsNetConfig, TsNetSolver, TsNetStage};
 use super::{make_barbell_graph, make_grid_graph, make_stages, seeded_layout};
 
 #[test]
 fn test_stage_lr_stability_cap_and_velocity_rescaling() {
     let g = make_barbell_graph(3); // n = 6
     let cfg_small = TsNetConfig::pure_2hop()
-        .with_backend(TsNetBackend::Exact)
         .with_stages(make_stages(2, 2, 2, 0.6))
         .with_learning_rate(Some(200.0))
         .with_momentum(0.8);
     let mut solver_small =
-        TsNetSolver::<Layout2d<f64>>::from_graph_pure_2hop(&g, cfg_small).unwrap();
+        TsNetSolver::<Layout2d<f64>, Exact>::from_graph_pure_2hop(&g, cfg_small).unwrap();
     let mut layout_small = seeded_layout::<f64>(6, 0.5, 31);
     solver_small.step(&mut layout_small).unwrap();
     assert!((solver_small.current_stage_lr() - 12.0).abs() < 1e-10);
@@ -28,11 +29,11 @@ fn test_stage_lr_stability_cap_and_velocity_rescaling() {
 
     let g30 = make_grid_graph(5, 6); // n = 30
     let cfg_30 = TsNetConfig::pure_2hop()
-        .with_backend(TsNetBackend::Exact)
         .with_stages(make_stages(2, 2, 2, 0.6))
         .with_learning_rate(Some(200.0))
         .with_momentum(0.8);
-    let mut solver30 = TsNetSolver::<Layout2d<f64>>::from_graph_pure_2hop(&g30, cfg_30).unwrap();
+    let mut solver30 =
+        TsNetSolver::<Layout2d<f64>, Exact>::from_graph_pure_2hop(&g30, cfg_30).unwrap();
     let mut l30 = seeded_layout::<f64>(30, 0.5, 31);
     solver30.step(&mut l30).unwrap();
     assert!((solver30.current_stage_lr() - 60.0).abs() < 1e-10);
@@ -40,7 +41,7 @@ fn test_stage_lr_stability_cap_and_velocity_rescaling() {
     solver30.step(&mut l30).unwrap();
     assert!((solver30.current_stage_lr() - 60.0).abs() < 1e-10);
     solver30.step(&mut l30).unwrap();
-    let vel_x_end_s2 = solver30.state.vel_x[0];
+    let vel_x_end_s2 = solver30.space.vel_x().unwrap()[0];
     solver30.step(&mut l30).unwrap();
     assert!((solver30.current_stage_lr() - 50.0).abs() < 1e-10);
     assert!(vel_x_end_s2.is_finite());
@@ -48,11 +49,11 @@ fn test_stage_lr_stability_cap_and_velocity_rescaling() {
 
     let g120 = make_grid_graph(10, 12); // n = 120
     let cfg_120 = TsNetConfig::pure_2hop()
-        .with_backend(TsNetBackend::BarnesHut)
         .with_stages(make_stages(2, 2, 2, 0.6))
         .with_learning_rate(Some(2500.0))
         .with_momentum(0.8);
-    let mut solver120 = TsNetSolver::<Layout2d<f64>>::from_graph_pure_2hop(&g120, cfg_120).unwrap();
+    let mut solver120 =
+        TsNetSolver::<Layout2d<f64>, BarnesHut>::from_graph_pure_2hop(&g120, cfg_120).unwrap();
     let mut l120 = seeded_layout::<f64>(120, 0.5, 31);
     solver120.step(&mut l120).unwrap();
     assert!((solver120.current_stage_lr() - 2019.6).abs() < 1e-8);
@@ -69,10 +70,10 @@ fn test_stage_lr_stability_cap_and_velocity_rescaling() {
 fn test_auto_lr_scaling_stage3_small_n_cap_and_row_normalized_pure_2hop() {
     let g6 = make_barbell_graph(3); // N = 6
     let cfg_s3 = TsNetConfig::pure_2hop()
-        .with_backend(TsNetBackend::Exact)
         .with_stages(make_stages(0, 0, 2, 0.0))
         .with_learning_rate(None);
-    let mut solver6 = TsNetSolver::<Layout2d<f64>>::from_graph_pure_2hop(&g6, cfg_s3).unwrap();
+    let mut solver6 =
+        TsNetSolver::<Layout2d<f64>, Exact>::from_graph_pure_2hop(&g6, cfg_s3).unwrap();
     let mut l6 = seeded_layout::<f64>(6, 0.5, 13);
     solver6.step(&mut l6).unwrap();
     assert!((solver6.current_stage_lr() - 10.0).abs() < 1e-12);
@@ -122,10 +123,10 @@ fn test_auto_lr_scaling_stage3_small_n_cap_and_row_normalized_pure_2hop() {
     )
     .unwrap();
     let max_p_diff = s_std
-        .state
+        .core
         .p_vals
         .iter()
-        .zip(s_rn.state.p_vals.iter())
+        .zip(s_rn.core.p_vals.iter())
         .map(|(a, b)| (a - b).abs())
         .fold(0.0_f64, f64::max);
     assert!(
@@ -192,15 +193,22 @@ fn test_jacobi_precondition_weights_regular_isolated_and_hub() {
     assert!((s_sl.inv_jacobi()[3] - 1.0).abs() < 1e-12);
 
     let cfg_off = TsNetConfig::pure_2hop()
-        .with_backend(TsNetBackend::Exact)
         .with_jacobi_precondition(false)
         .with_stages(make_stages(6, 4, 4, 0.0));
-    let mut s64_run =
-        TsNetSolver::<Layout2d<f64>>::from_graph_row_normalized(&star, 0.0, None, cfg_off.clone())
-            .unwrap();
-    let mut s64_step =
-        TsNetSolver::<Layout2d<f64>>::from_graph_row_normalized(&star, 0.0, None, cfg_off.clone())
-            .unwrap();
+    let mut s64_run = TsNetSolver::<Layout2d<f64>, Exact>::from_graph_row_normalized(
+        &star,
+        0.0,
+        None,
+        cfg_off.clone(),
+    )
+    .unwrap();
+    let mut s64_step = TsNetSolver::<Layout2d<f64>, Exact>::from_graph_row_normalized(
+        &star,
+        0.0,
+        None,
+        cfg_off.clone(),
+    )
+    .unwrap();
     assert!(s64_run.inv_jacobi().is_empty());
     let mut l64_run = seeded_layout::<f64>(n_star, 0.5, 17);
     let mut l64_step = l64_run.clone();
@@ -214,11 +222,16 @@ fn test_jacobi_precondition_weights_regular_isolated_and_hub() {
         assert_eq!(l64_run.y()[i].to_bits(), l64_step.y()[i].to_bits());
     }
 
-    let mut s32_run =
-        TsNetSolver::<Layout2d<f32>>::from_graph_row_normalized(&star, 0.0, None, cfg_off.clone())
-            .unwrap();
+    let mut s32_run = TsNetSolver::<Layout2d<f32>, Exact>::from_graph_row_normalized(
+        &star,
+        0.0,
+        None,
+        cfg_off.clone(),
+    )
+    .unwrap();
     let mut s32_step =
-        TsNetSolver::<Layout2d<f32>>::from_graph_row_normalized(&star, 0.0, None, cfg_off).unwrap();
+        TsNetSolver::<Layout2d<f32>, Exact>::from_graph_row_normalized(&star, 0.0, None, cfg_off)
+            .unwrap();
     assert!(s32_run.inv_jacobi().is_empty());
     let mut l32_run = seeded_layout::<f32>(n_star, 0.5, 17);
     let mut l32_step = l32_run.clone();
@@ -263,10 +276,9 @@ fn test_jacobi_precondition_prevents_hub_overshoot_and_512_grid_blowup() {
     .unwrap();
 
     let cfg_off = TsNetConfig::pure_2hop()
-        .with_backend(TsNetBackend::FftInterpolation)
         .with_jacobi_precondition(false)
         .with_stages(make_stages(10, 0, 0, 0.0));
-    let mut s_off = TsNetSolver::<Layout2d<f64>>::from_graph_row_normalized(
+    let mut s_off = TsNetSolver::<Layout2d<f64>, FitFft>::from_graph_row_normalized(
         &barrel,
         0.0,
         None,
@@ -276,7 +288,7 @@ fn test_jacobi_precondition_prevents_hub_overshoot_and_512_grid_blowup() {
     let mut l_off = init_f64.clone();
     s_off.run_steps(&mut l_off, 2).unwrap();
     let r_hub_off = l_off.x()[0].hypot(l_off.y()[0]);
-    let spec_off = s_off.state.fit_field.as_ref().unwrap().grid_spec().unwrap();
+    let spec_off = s_off.backend_state.fit_field.grid_spec().unwrap();
     assert!(
         r_hub_off > 100.0,
         "expected baseline hub ejection without Jacobi, got r_hub_off={r_hub_off}"
@@ -288,12 +300,20 @@ fn test_jacobi_precondition_prevents_hub_overshoot_and_512_grid_blowup() {
 
     let cfg_on = cfg_off.with_jacobi_precondition(true);
 
-    let mut s64_run =
-        TsNetSolver::<Layout2d<f64>>::from_graph_row_normalized(&barrel, 0.0, None, cfg_on.clone())
-            .unwrap();
-    let mut s64_step =
-        TsNetSolver::<Layout2d<f64>>::from_graph_row_normalized(&barrel, 0.0, None, cfg_on.clone())
-            .unwrap();
+    let mut s64_run = TsNetSolver::<Layout2d<f64>, FitFft>::from_graph_row_normalized(
+        &barrel,
+        0.0,
+        None,
+        cfg_on.clone(),
+    )
+    .unwrap();
+    let mut s64_step = TsNetSolver::<Layout2d<f64>, FitFft>::from_graph_row_normalized(
+        &barrel,
+        0.0,
+        None,
+        cfg_on.clone(),
+    )
+    .unwrap();
     let mut l64_run = init_f64.clone();
     let mut l64_step = init_f64;
     assert_eq!(
@@ -305,13 +325,7 @@ fn test_jacobi_precondition_prevents_hub_overshoot_and_512_grid_blowup() {
     }
     assert!(l64_run.is_all_finite());
     let r_hub_64 = l64_run.x()[0].hypot(l64_run.y()[0]);
-    let spec_64 = s64_run
-        .state
-        .fit_field
-        .as_ref()
-        .unwrap()
-        .grid_spec()
-        .unwrap();
+    let spec_64 = s64_run.backend_state.fit_field.grid_spec().unwrap();
     assert!(
         r_hub_64 < 20.0,
         "expected bounded hub displacement (f64), got {r_hub_64}"
@@ -325,11 +339,15 @@ fn test_jacobi_precondition_prevents_hub_overshoot_and_512_grid_blowup() {
         assert_eq!(l64_run.y()[i].to_bits(), l64_step.y()[i].to_bits());
     }
 
-    let mut s32_run =
-        TsNetSolver::<Layout2d<f32>>::from_graph_row_normalized(&barrel, 0.0, None, cfg_on.clone())
-            .unwrap();
+    let mut s32_run = TsNetSolver::<Layout2d<f32>, FitFft>::from_graph_row_normalized(
+        &barrel,
+        0.0,
+        None,
+        cfg_on.clone(),
+    )
+    .unwrap();
     let mut s32_step =
-        TsNetSolver::<Layout2d<f32>>::from_graph_row_normalized(&barrel, 0.0, None, cfg_on)
+        TsNetSolver::<Layout2d<f32>, FitFft>::from_graph_row_normalized(&barrel, 0.0, None, cfg_on)
             .unwrap();
     let mut l32_run = init_f32.clone();
     let mut l32_step = init_f32;
@@ -342,13 +360,7 @@ fn test_jacobi_precondition_prevents_hub_overshoot_and_512_grid_blowup() {
     }
     assert!(l32_run.is_all_finite());
     let r_hub_32 = (l32_run.x()[0] as f64).hypot(l32_run.y()[0] as f64);
-    let spec_32 = s32_run
-        .state
-        .fit_field
-        .as_ref()
-        .unwrap()
-        .grid_spec()
-        .unwrap();
+    let spec_32 = s32_run.backend_state.fit_field.grid_spec().unwrap();
     assert!(
         r_hub_32 < 20.0,
         "expected bounded hub displacement (f32), got {r_hub_32}"

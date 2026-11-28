@@ -4,7 +4,7 @@ use egraph_core::{
 };
 use egraph_neighborhood::{DogVaradhanConfig, SparseProbabilities};
 
-use super::{GuMapConfig, GuMapSolver};
+use super::{GuMapConfig, GuMapSolver, GuMapTarget};
 
 fn barbell_graph(clique_size: usize) -> CsrGraph<f64> {
     let n = 2 * clique_size;
@@ -373,6 +373,7 @@ fn test_gumap_nd_edge_cases_validation_and_custom_riemannian() {
             Ok(())
         }
     }
+    impl GuMapTarget for CustomSurfaceMock {}
 
     let mut mock = CustomSurfaceMock {
         coords: (0..9).map(|i| [(i % 3) as f64, (i / 3) as f64]).collect(),

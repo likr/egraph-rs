@@ -1,14 +1,12 @@
-use egraph_core::{
-    CoreError, CsrGraph, IterativeSolver, Layout2d, Layout3d, LayoutNd, SolverStatus,
-};
+use egraph_core::{CoreError, CsrGraph, IterativeSolver, Layout2d, SolverStatus};
 use egraph_neighborhood::{
     DogVaradhanConfig, DogVaradhanLandmarks, SparseProbabilities,
     compute_regularized_dog_varadhan_landmarks,
 };
 
-use super::super::{
-    FieldRepulsionBackend, IbUmapConfig, IbUmapSolver, RhoSchedule, TFdpConfig, TFdpSolver,
-};
+use crate::backends::{BarnesHut, IbFft};
+
+use super::super::{IbUmapConfig, IbUmapSolver, RhoSchedule, TFdpConfig, TFdpSolver};
 use super::{grid_graph, seeded_layout};
 
 #[test]
@@ -122,27 +120,22 @@ fn test_field_layout_edge_cases_and_error_guards() {
     ));
     assert_eq!(sd_umap.status(), SolverStatus::Completed);
 
-    // Fail-fast backend checks at construction on Layout3d and LayoutNd
+    // Invalid backend config fails fast at construction.
     assert!(matches!(
-        TFdpSolver::<Layout3d<f64>>::new(
+        TFdpSolver::<Layout2d<f64>, BarnesHut>::new_with_backend(
             &disc,
-            TFdpConfig::new().with_backend(FieldRepulsionBackend::IbFft),
+            TFdpConfig::new(),
+            BarnesHut::new(-0.1),
         ),
-        Err(CoreError::UnsupportedOperation(_))
+        Err(CoreError::InvalidInput(_))
     ));
     assert!(matches!(
-        TFdpSolver::<LayoutNd<f64>>::new(
+        TFdpSolver::<Layout2d<f64>, IbFft>::new_with_backend(
             &disc,
-            TFdpConfig::new().with_backend(FieldRepulsionBackend::BarnesHut),
+            TFdpConfig::new(),
+            IbFft::new().with_intervals(0),
         ),
-        Err(CoreError::UnsupportedOperation(_))
-    ));
-    assert!(matches!(
-        TFdpSolver::<LayoutNd<f64>>::new(
-            &disc,
-            TFdpConfig::new().with_backend(FieldRepulsionBackend::IbFft),
-        ),
-        Err(CoreError::UnsupportedOperation(_))
+        Err(CoreError::InvalidInput(_))
     ));
 
     // Negative or NaN config & weight guards
@@ -152,7 +145,6 @@ fn test_field_layout_edge_cases_and_error_guards() {
         tfdp_cfg.clone().with_momentum(1.0),
         tfdp_cfg.clone().with_alpha(0.0),
         tfdp_cfg.clone().with_gamma(-0.5),
-        tfdp_cfg.clone().with_theta(-0.1),
         tfdp_cfg
             .clone()
             .with_rho(RhoSchedule::new().with_power(0.0)),
