@@ -1,9 +1,9 @@
-use egraph_core::{CoreError, CoreResult, Layout2d, Scalar};
-use egraph_metrics_cluster::cluster_area::ClusterAreaConfig;
+use egraph_core::{CoreError, CoreResult};
+use egraph_metrics_cluster::ClusterAreaConfig;
 
 /// Configuration parameters for `eval-baselines` cluster separation, CVI, and Sprawlter targets.
-#[cfg(feature = "eval-baselines")]
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ClusterBaselineConfig {
     /// Neighborhood size `k` for `SepmeKnng` (must be `>= 1`; default `2`).
     pub sepme_knng_k: usize,
@@ -29,7 +29,6 @@ pub struct ClusterBaselineConfig {
     pub sprawlter_node_radius: f64,
 }
 
-#[cfg(feature = "eval-baselines")]
 impl Default for ClusterBaselineConfig {
     fn default() -> Self {
         Self {
@@ -48,8 +47,89 @@ impl Default for ClusterBaselineConfig {
     }
 }
 
-#[cfg(feature = "eval-baselines")]
 impl ClusterBaselineConfig {
+    /// Creates a new [`ClusterBaselineConfig`] initialized to [`Self::default`].
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets the neighborhood size `k` for `SepmeKnng`.
+    #[inline]
+    pub fn with_sepme_knng_k(mut self, sepme_knng_k: usize) -> Self {
+        self.sepme_knng_k = sepme_knng_k;
+        self
+    }
+
+    /// Sets the neighborhood size `k` for `NeighborhoodHit`.
+    #[inline]
+    pub fn with_neighborhood_hit_k(mut self, neighborhood_hit_k: usize) -> Self {
+        self.neighborhood_hit_k = neighborhood_hit_k;
+        self
+    }
+
+    /// Sets the grid resolution for `DistributionConsistency`.
+    #[inline]
+    pub fn with_dc_grid_size(mut self, dc_grid_size: usize) -> Self {
+        self.dc_grid_size = dc_grid_size;
+        self
+    }
+
+    /// Sets the grid resolution for `ClassDensityMeasure` and `HistogramDensityMeasure`.
+    #[inline]
+    pub fn with_cdm_grid_size(mut self, cdm_grid_size: usize) -> Self {
+        self.cdm_grid_size = cdm_grid_size;
+        self
+    }
+
+    /// Sets the optional Gaussian KDE bandwidth for `ClassDensityMeasure`.
+    #[inline]
+    pub fn with_cdm_bandwidth(mut self, cdm_bandwidth: Option<f64>) -> Self {
+        self.cdm_bandwidth = cdm_bandwidth;
+        self
+    }
+
+    /// Sets the histogram bin count for `PairwiseDistanceOverlapError`.
+    #[inline]
+    pub fn with_num_bins(mut self, num_bins: usize) -> Self {
+        self.num_bins = num_bins;
+        self
+    }
+
+    /// Sets the observable angle parameter `gamma` in `[0.0, 1.0]` for `SepmeGong`.
+    #[inline]
+    pub fn with_gong_gamma(mut self, gong_gamma: f64) -> Self {
+        self.gong_gamma = gong_gamma;
+        self
+    }
+
+    /// Sets the number of $k$-means++ initializations for `CqKmeans*`.
+    #[inline]
+    pub fn with_kmeans_n_init(mut self, kmeans_n_init: usize) -> Self {
+        self.kmeans_n_init = kmeans_n_init;
+        self
+    }
+
+    /// Sets the maximum Lloyd iterations for `CqKmeans*`.
+    #[inline]
+    pub fn with_kmeans_max_iters(mut self, kmeans_max_iters: usize) -> Self {
+        self.kmeans_max_iters = kmeans_max_iters;
+        self
+    }
+
+    /// Sets the deterministic RNG seed for `CqKmeans*`.
+    #[inline]
+    pub fn with_seed(mut self, seed: u64) -> Self {
+        self.seed = seed;
+        self
+    }
+
+    /// Sets the uniform square half-extent radius for `SprawlterNn` and `NorMetrics`.
+    #[inline]
+    pub fn with_sprawlter_node_radius(mut self, sprawlter_node_radius: f64) -> Self {
+        self.sprawlter_node_radius = sprawlter_node_radius;
+        self
+    }
+
     /// Validates all cluster-baseline configuration parameters.
     pub fn validate(&self) -> CoreResult<()> {
         if self.sepme_knng_k == 0 {
@@ -122,16 +202,21 @@ impl ClusterBaselineConfig {
 }
 
 /// Configuration parameters for parameterized targets in [`super::evaluate_metrics`].
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq)]
 pub struct MetricConfig {
     /// Number of deterministic degree-stratified BFS pivot sources for `SampledScaleNormalizedStress`.
     pub sns_num_pivots: usize,
     /// Explicit RNG seed for `SampledScaleNormalizedStress`.
     pub sns_seed: u64,
-    /// Number of deterministic samples for `SampledCrossingNumber`, `SampledCrosslessness`, `SampledNp1`, and `SampledNp2`.
+    /// Number of deterministic samples for `SampledCrossingNumber` and `SampledCrosslessness`.
     pub crossing_num_samples: usize,
-    /// Explicit RNG seed for `SampledCrossingNumber`, `SampledCrosslessness`, `SampledNp1`, and `SampledNp2`.
+    /// Explicit RNG seed for `SampledCrossingNumber` and `SampledCrosslessness`.
     pub crossing_seed: u64,
+    /// Number of deterministic vertex samples for `SampledNp1` and `SampledNp2`.
+    pub np_num_samples: usize,
+    /// Explicit RNG seed for `SampledNp1` and `SampledNp2`.
+    pub np_seed: u64,
     /// Unit target edge-length scale factor in `IdealEdgeLengths` (uniform length on unweighted graphs, weight multiplier on weighted graphs).
     pub ideal_edge_length: f64,
     /// Number of Core-First MaxMin shortest-path landmarks for `LandmarkStratifiedRta`.
@@ -152,9 +237,7 @@ pub struct MetricConfig {
     pub patch_nig_seed: u64,
     /// Configuration parameters for `ClusterAreaFaithfulness` (`G-CAF`).
     pub cluster_area: ClusterAreaConfig,
-    /// Configuration parameters for `eval-baselines` cluster/separation/Sprawlter targets.
-    #[cfg(feature = "eval-baselines")]
-    pub cluster_baselines: ClusterBaselineConfig,
+    cluster_baselines: ClusterBaselineConfig,
 }
 
 impl Default for MetricConfig {
@@ -164,6 +247,8 @@ impl Default for MetricConfig {
             sns_seed: 42,
             crossing_num_samples: 4096,
             crossing_seed: 42,
+            np_num_samples: 4096,
+            np_seed: 42,
             ideal_edge_length: 1.0,
             rta_num_landmarks: 64,
             rta_num_triplets: 1_000_000,
@@ -174,13 +259,142 @@ impl Default for MetricConfig {
             patch_nig_pad_frac: 0.04,
             patch_nig_seed: 42,
             cluster_area: ClusterAreaConfig::default(),
-            #[cfg(feature = "eval-baselines")]
             cluster_baselines: ClusterBaselineConfig::default(),
         }
     }
 }
 
 impl MetricConfig {
+    /// Creates a new [`MetricConfig`] initialized to [`Self::default`].
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets the number of deterministic pivots for `SampledScaleNormalizedStress`.
+    #[inline]
+    pub fn with_sns_num_pivots(mut self, sns_num_pivots: usize) -> Self {
+        self.sns_num_pivots = sns_num_pivots;
+        self
+    }
+
+    /// Sets the explicit RNG seed for `SampledScaleNormalizedStress`.
+    #[inline]
+    pub fn with_sns_seed(mut self, sns_seed: u64) -> Self {
+        self.sns_seed = sns_seed;
+        self
+    }
+
+    /// Sets the number of deterministic edge-pair samples for `SampledCrossingNumber` and `SampledCrosslessness`.
+    #[inline]
+    pub fn with_crossing_num_samples(mut self, crossing_num_samples: usize) -> Self {
+        self.crossing_num_samples = crossing_num_samples;
+        self
+    }
+
+    /// Sets the explicit RNG seed for `SampledCrossingNumber` and `SampledCrosslessness`.
+    #[inline]
+    pub fn with_crossing_seed(mut self, crossing_seed: u64) -> Self {
+        self.crossing_seed = crossing_seed;
+        self
+    }
+
+    /// Sets the number of deterministic vertex samples for `SampledNp1` and `SampledNp2`.
+    #[inline]
+    pub fn with_np_num_samples(mut self, np_num_samples: usize) -> Self {
+        self.np_num_samples = np_num_samples;
+        self
+    }
+
+    /// Sets the explicit RNG seed for `SampledNp1` and `SampledNp2`.
+    #[inline]
+    pub fn with_np_seed(mut self, np_seed: u64) -> Self {
+        self.np_seed = np_seed;
+        self
+    }
+
+    /// Sets the unit target edge-length scale factor for `IdealEdgeLengths`.
+    #[inline]
+    pub fn with_ideal_edge_length(mut self, ideal_edge_length: f64) -> Self {
+        self.ideal_edge_length = ideal_edge_length;
+        self
+    }
+
+    /// Sets the number of MaxMin shortest-path landmarks for `LandmarkStratifiedRta`.
+    #[inline]
+    pub fn with_rta_num_landmarks(mut self, rta_num_landmarks: usize) -> Self {
+        self.rta_num_landmarks = rta_num_landmarks;
+        self
+    }
+
+    /// Sets the triplet sample budget for `LandmarkStratifiedRta`.
+    #[inline]
+    pub fn with_rta_num_triplets(mut self, rta_num_triplets: usize) -> Self {
+        self.rta_num_triplets = rta_num_triplets;
+        self
+    }
+
+    /// Sets the minimum vertex degree preference for `LandmarkStratifiedRta`.
+    #[inline]
+    pub fn with_rta_min_degree(mut self, rta_min_degree: usize) -> Self {
+        self.rta_min_degree = rta_min_degree;
+        self
+    }
+
+    /// Sets the explicit RNG seed for `LandmarkStratifiedRta`.
+    #[inline]
+    pub fn with_rta_seed(mut self, rta_seed: u64) -> Self {
+        self.rta_seed = rta_seed;
+        self
+    }
+
+    /// Sets the half-width patch radius for `AdjustedPatchNig`.
+    #[inline]
+    pub fn with_patch_nig_radius(mut self, patch_nig_radius: usize) -> Self {
+        self.patch_nig_radius = patch_nig_radius;
+        self
+    }
+
+    /// Sets the equal-aspect canvas size in pixels for `AdjustedPatchNig`.
+    #[inline]
+    pub fn with_patch_nig_canvas_size(mut self, patch_nig_canvas_size: usize) -> Self {
+        self.patch_nig_canvas_size = patch_nig_canvas_size;
+        self
+    }
+
+    /// Sets the viewport padding fraction for `AdjustedPatchNig`.
+    #[inline]
+    pub fn with_patch_nig_pad_frac(mut self, patch_nig_pad_frac: f64) -> Self {
+        self.patch_nig_pad_frac = patch_nig_pad_frac;
+        self
+    }
+
+    /// Sets the explicit RNG seed for `AdjustedPatchNig`.
+    #[inline]
+    pub fn with_patch_nig_seed(mut self, patch_nig_seed: u64) -> Self {
+        self.patch_nig_seed = patch_nig_seed;
+        self
+    }
+
+    /// Sets the configuration parameters for `ClusterAreaFaithfulness` (`G-CAF`).
+    #[inline]
+    pub fn with_cluster_area(mut self, cluster_area: ClusterAreaConfig) -> Self {
+        self.cluster_area = cluster_area;
+        self
+    }
+
+    /// Sets the configuration parameters for `eval-baselines` cluster/separation/Sprawlter targets.
+    #[inline]
+    pub fn with_baseline_config(mut self, cfg: ClusterBaselineConfig) -> Self {
+        self.cluster_baselines = cfg;
+        self
+    }
+
+    /// Returns the configuration parameters for `eval-baselines` cluster/separation/Sprawlter targets.
+    #[inline]
+    pub fn baseline_config(&self) -> &ClusterBaselineConfig {
+        &self.cluster_baselines
+    }
+
     /// Validates all configuration parameters.
     pub fn validate(&self) -> CoreResult<()> {
         if self.sns_num_pivots == 0 {
@@ -190,6 +404,9 @@ impl MetricConfig {
             return Err(CoreError::invalid_input(
                 "crossing_num_samples must be >= 1",
             ));
+        }
+        if self.np_num_samples == 0 {
+            return Err(CoreError::invalid_input("np_num_samples must be >= 1"));
         }
         if !self.ideal_edge_length.is_finite() {
             return Err(CoreError::non_finite("MetricConfig::ideal_edge_length"));
@@ -222,47 +439,7 @@ impl MetricConfig {
             ));
         }
         self.cluster_area.validate()?;
-        #[cfg(feature = "eval-baselines")]
         self.cluster_baselines.validate()?;
         Ok(())
-    }
-}
-
-/// Optional auxiliary inputs passed to [`super::evaluate_metrics_with_inputs`].
-#[derive(Debug, Clone, Copy)]
-pub struct MetricInputs<'a, S: Scalar = f64> {
-    /// Optional cluster/community label slice of length `N`.
-    pub labels: Option<&'a [u32]>,
-    /// Optional positive finite vertex weights of length `N` for `ClusterAreaFaithfulness`
-    /// (mutually exclusive with `cluster_weights`).
-    pub node_weights: Option<&'a [f64]>,
-    /// Optional positive finite cluster weights of length `K` for `ClusterAreaFaithfulness`
-    /// (mutually exclusive with `node_weights`).
-    pub cluster_weights: Option<&'a [f64]>,
-    /// Optional reference layout of length `N` required by `PrismDistortion` and `NorMetrics`.
-    pub original_layout: Option<&'a Layout2d<S>>,
-    /// Optional per-node rectangle half-widths of length `N` for `SprawlterNn` and `NorMetrics`.
-    pub sprawlter_half_widths: Option<&'a [S]>,
-    /// Optional per-node rectangle half-heights of length `N` for `SprawlterNn` and `NorMetrics`.
-    pub sprawlter_half_heights: Option<&'a [S]>,
-}
-
-impl<'a, S: Scalar> Default for MetricInputs<'a, S> {
-    fn default() -> Self {
-        Self {
-            labels: None,
-            node_weights: None,
-            cluster_weights: None,
-            original_layout: None,
-            sprawlter_half_widths: None,
-            sprawlter_half_heights: None,
-        }
-    }
-}
-
-impl<'a, S: Scalar> MetricInputs<'a, S> {
-    /// Creates empty [`MetricInputs`] with all optional fields set to `None`.
-    pub fn new() -> Self {
-        Self::default()
     }
 }

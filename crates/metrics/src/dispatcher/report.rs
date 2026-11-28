@@ -23,17 +23,17 @@ pub enum MetricTarget {
     Crosslessness,
     /// DRGraph Eq. (17) sampled crosslessness $1 - \sqrt{\hat{c} / c_{\max}} \in [0.0, 1.0]$.
     SampledCrosslessness,
-    /// Exact edge crossing count on the unit torus `[0, 1)^2`.
+    /// Exact edge crossing count on a 2D torus (`ManifoldKind::Torus2d`).
     TorusCrossingNumber,
-    /// Exact list of crossing edge sub-segment pairs on the unit torus `[0, 1)^2`.
+    /// Exact list of crossing edge sub-segment pairs on a 2D torus (`ManifoldKind::Torus2d`).
     CrossingEdgesTorus,
     /// 1-hop neighborhood preservation (`NP1`).
     NeighborhoodPreservation1Hop,
     /// 2-hop neighborhood preservation (`NP2`).
     NeighborhoodPreservation2Hop,
-    /// $O(\text{num\_samples} \cdot k \log N)$ deterministic sampled 1-hop neighborhood preservation (`Sampled NP1`).
+    /// $O(\text{np\_num\_samples} \cdot k \log N)$ deterministic sampled 1-hop neighborhood preservation (`Sampled NP1`).
     SampledNp1,
-    /// $O(\text{num\_samples} \cdot k \log N)$ deterministic sampled 2-hop neighborhood preservation (`Sampled NP2`).
+    /// $O(\text{np\_num\_samples} \cdot k \log N)$ deterministic sampled 2-hop neighborhood preservation (`Sampled NP2`).
     SampledNp2,
     /// Gabriel graph property violation sum.
     GabrielGraphProperty,
@@ -117,7 +117,7 @@ pub enum MetricTarget {
     /// Pairwise Distance-Overlap Error (`PDOE`); requires `labels`.
     #[cfg(feature = "eval-baselines")]
     PairwiseDistanceOverlapError,
-    /// Sprawlter-NN composite overlap clutter measure using per-node half-extents or uniform `sprawlter_node_radius`.
+    /// Sprawlter-NN composite overlap clutter measure using per-node `sprawlter_extents` or uniform `sprawlter_node_radius`.
     #[cfg(feature = "eval-baselines")]
     SprawlterNn,
     /// Chen et al. (2020) 5-metric Node Overlap Removal (`NOR`) summary;
@@ -126,85 +126,151 @@ pub enum MetricTarget {
     NorMetrics,
 }
 
+/// Optional cluster/separation/NOR baseline sub-report populated when `eval-baselines` targets
+/// are requested in [`super::evaluate_metrics`].
+#[non_exhaustive]
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ClusterBaselineReport {
+    /// Distance Consistency (`DSC`).
+    pub distance_consistency: Option<f64>,
+    /// Distribution Consistency (`DC`).
+    pub distribution_consistency: Option<f64>,
+    /// Class Density Measure (`CDM`).
+    pub class_density_measure: Option<f64>,
+    /// 2D Histogram Density Measure (`2D-HDM`).
+    pub histogram_density_measure: Option<f64>,
+    /// SepMe $k$-NN graph DIR CPT.
+    pub sepme_knng: Option<f64>,
+    /// SepMe Relative Neighborhood Graph DIR CPT.
+    pub sepme_rng: Option<f64>,
+    /// SepMe Gabriel Graph DIR CPT.
+    pub sepme_gab: Option<f64>,
+    /// SepMe $\gamma$-Observable Neighbor Graph DIR CPT.
+    pub sepme_gong: Option<f64>,
+    /// Neighborhood Hit ($M_{\mathrm{NH}}$).
+    pub neighborhood_hit: Option<f64>,
+    /// Silhouette coefficient.
+    pub silhouette_score: Option<f64>,
+    /// Calinski-Harabasz Index.
+    pub calinski_harabasz_score: Option<f64>,
+    /// Davies-Bouldin Index.
+    pub davies_bouldin_score: Option<f64>,
+    /// $k$-means Cluster Quality ARI.
+    pub cq_kmeans_ari: Option<f64>,
+    /// $k$-means Cluster Quality AMI.
+    pub cq_kmeans_ami: Option<f64>,
+    /// Average-linkage HAC Cluster Quality Homogeneity.
+    pub cq_hac_hom: Option<f64>,
+    /// Average-linkage HAC Cluster Quality AMI.
+    pub cq_hac_ami: Option<f64>,
+    /// Pairwise Distance-Overlap Error (`PDOE`).
+    pub pairwise_distance_overlap_error: Option<f64>,
+    /// Sprawlter-NN composite overlap clutter measure.
+    pub sprawlter_nn: Option<f64>,
+    /// NOR Object Overlap (`OO-NNI`).
+    pub nor_oo_nni: Option<f64>,
+    /// NOR Spread Minimization (`SP-CH-A`).
+    pub nor_sp_ch_a: Option<f64>,
+    /// NOR Global Shape (`GS-BB-IAR`).
+    pub nor_gs_bb_iar: Option<f64>,
+    /// NOR Node Movement (`NM-DM-IMSE`).
+    pub nor_nm_dm_imse: Option<f64>,
+    /// NOR Edge Length Preservation (`EL-RSD`).
+    pub nor_el_rsd: Option<f64>,
+}
+
+impl ClusterBaselineReport {
+    /// Creates an empty [`ClusterBaselineReport`] with all fields set to `None`.
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
 /// Selective evaluation report containing `Some(...)` strictly for requested [`MetricTarget`]s.
+#[non_exhaustive]
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct MetricReport {
+    /// Exact closed-form Scale-Normalized Stress (`SNS`).
     pub scale_normalized_stress: Option<f64>,
+    /// Pivot-sampled Scale-Normalized Stress (`SNS`).
     pub sampled_scale_normalized_stress: Option<f64>,
+    /// Geodesic distortion on `ManifoldLayout2d`.
     pub geodesic_distortion: Option<f64>,
+    /// Exact sweep-line edge crossing count.
     pub crossing_number: Option<usize>,
+    /// Exact sweep-line list of non-adjacent crossing edge pairs.
     pub crossing_edges: Option<Vec<CrossingPair>>,
+    /// Exact sweep-line edge crossing-angle penalty.
     pub crossing_angle: Option<f64>,
+    /// Sampled edge crossing count estimate.
     pub sampled_crossing_number: Option<f64>,
+    /// Exact crosslessness score.
     pub crosslessness: Option<f64>,
+    /// Sampled crosslessness score.
     pub sampled_crosslessness: Option<f64>,
+    /// Exact torus edge crossing count.
     pub torus_crossing_number: Option<usize>,
+    /// Exact torus crossing edge sub-segment pairs.
     pub crossing_edges_torus: Option<Vec<TorusCrossing>>,
+    /// 1-hop neighborhood preservation (`NP1`).
     pub neighborhood_preservation_1hop: Option<f64>,
+    /// 2-hop neighborhood preservation (`NP2`).
     pub neighborhood_preservation_2hop: Option<f64>,
+    /// Sampled 1-hop neighborhood preservation (`Sampled NP1`).
     pub sampled_np1: Option<f64>,
+    /// Sampled 2-hop neighborhood preservation (`Sampled NP2`).
     pub sampled_np2: Option<f64>,
+    /// Gabriel graph property violation sum.
     pub gabriel_graph_property: Option<f64>,
+    /// One-sided hinge node-resolution violation sum.
     pub node_resolution: Option<f64>,
+    /// Unweighted shape-based `S_RNG` Mean Jaccard Similarity.
     pub relative_neighborhood_preservation: Option<f64>,
+    /// Unweighted shape-based `S_GG` Mean Jaccard Similarity.
     pub gabriel_graph_preservation: Option<f64>,
+    /// PCA singular-value aspect ratio.
     pub aspect_ratio: Option<f64>,
+    /// Exponential angular-resolution penalty.
     pub angular_resolution: Option<f64>,
+    /// DRGraph Eq. (19) strict minimum-angle resolution (`A2`).
     pub minimum_angle: Option<f64>,
+    /// DRGraph Eq. (19) minimum-angle resolution (`A1`).
     pub minimum_angle_a1: Option<f64>,
+    /// Scalar layout-degeneracy summary in `[0.0, 1.0]`.
     pub layout_degeneracy: Option<f64>,
+    /// Weighted or unit ideal edge-length relative squared error.
     pub ideal_edge_lengths: Option<f64>,
+    /// PRISM distance distortion ($\sigma_{\mathrm{dist}}$).
     pub prism_sigma_dist: Option<f64>,
+    /// PRISM Procrustes dissimilarity ($\sigma_{\mathrm{disp}}$).
     pub prism_sigma_disp: Option<f64>,
+    /// Adjusted Patch Normalized Information Gain.
     pub adjusted_patch_nig: Option<f64>,
+    /// Grid-based Cluster Area Faithfulness (`G-CAF`).
     pub cluster_area_faithfulness: Option<f64>,
+    /// Landmark-Stratified Random Triplet Accuracy (`L-Stratified-RTA`).
     pub landmark_stratified_rta: Option<f64>,
+    baselines: Option<ClusterBaselineReport>,
+}
+
+impl MetricReport {
+    /// Creates an empty [`MetricReport`] with all fields set to `None`.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Returns the cluster/separation/NOR baseline sub-report when `eval-baselines` targets
+    /// were requested and evaluated.
+    #[inline]
+    pub fn baseline_metrics(&self) -> Option<&ClusterBaselineReport> {
+        self.baselines.as_ref()
+    }
+
     #[cfg(feature = "eval-baselines")]
-    pub distance_consistency: Option<f64>,
-    #[cfg(feature = "eval-baselines")]
-    pub distribution_consistency: Option<f64>,
-    #[cfg(feature = "eval-baselines")]
-    pub class_density_measure: Option<f64>,
-    #[cfg(feature = "eval-baselines")]
-    pub histogram_density_measure: Option<f64>,
-    #[cfg(feature = "eval-baselines")]
-    pub sepme_knng: Option<f64>,
-    #[cfg(feature = "eval-baselines")]
-    pub sepme_rng: Option<f64>,
-    #[cfg(feature = "eval-baselines")]
-    pub sepme_gab: Option<f64>,
-    #[cfg(feature = "eval-baselines")]
-    pub sepme_gong: Option<f64>,
-    #[cfg(feature = "eval-baselines")]
-    pub neighborhood_hit: Option<f64>,
-    #[cfg(feature = "eval-baselines")]
-    pub silhouette_score: Option<f64>,
-    #[cfg(feature = "eval-baselines")]
-    pub calinski_harabasz_score: Option<f64>,
-    #[cfg(feature = "eval-baselines")]
-    pub davies_bouldin_score: Option<f64>,
-    #[cfg(feature = "eval-baselines")]
-    pub cq_kmeans_ari: Option<f64>,
-    #[cfg(feature = "eval-baselines")]
-    pub cq_kmeans_ami: Option<f64>,
-    #[cfg(feature = "eval-baselines")]
-    pub cq_hac_hom: Option<f64>,
-    #[cfg(feature = "eval-baselines")]
-    pub cq_hac_ami: Option<f64>,
-    #[cfg(feature = "eval-baselines")]
-    pub pairwise_distance_overlap_error: Option<f64>,
-    #[cfg(feature = "eval-baselines")]
-    pub sprawlter_nn: Option<f64>,
-    #[cfg(feature = "eval-baselines")]
-    pub nor_oo_nni: Option<f64>,
-    #[cfg(feature = "eval-baselines")]
-    pub nor_sp_ch_a: Option<f64>,
-    #[cfg(feature = "eval-baselines")]
-    pub nor_gs_bb_iar: Option<f64>,
-    #[cfg(feature = "eval-baselines")]
-    pub nor_nm_dm_imse: Option<f64>,
-    #[cfg(feature = "eval-baselines")]
-    pub nor_el_rsd: Option<f64>,
+    #[inline]
+    pub(super) fn set_baselines(&mut self, baselines: ClusterBaselineReport) {
+        self.baselines = Some(baselines);
+    }
 }
 
 #[derive(Default)]
@@ -357,8 +423,32 @@ impl RequestedFlags {
         flags
     }
 
+    #[cfg(feature = "eval-baselines")]
     #[inline]
-    pub(super) fn needs_kdtree(&self) -> bool {
+    pub(super) fn has_any_baseline(&self) -> bool {
+        self.distance_consistency
+            || self.distribution_consistency
+            || self.class_density_measure
+            || self.histogram_density_measure
+            || self.sepme_knng
+            || self.sepme_rng
+            || self.sepme_gab
+            || self.sepme_gong
+            || self.neighborhood_hit
+            || self.silhouette_score
+            || self.calinski_harabasz_score
+            || self.davies_bouldin_score
+            || self.cq_kmeans_ari
+            || self.cq_kmeans_ami
+            || self.cq_hac_hom
+            || self.cq_hac_ami
+            || self.pairwise_distance_overlap_error
+            || self.sprawlter_nn
+            || self.nor_metrics
+    }
+
+    #[inline]
+    pub(super) fn needs_spatial_index(&self) -> bool {
         let base = self.np1
             || self.np2
             || self.sampled_np1
@@ -366,7 +456,8 @@ impl RequestedFlags {
             || self.gabriel_property
             || self.node_resolution
             || self.s_rng
-            || self.s_gg;
+            || self.s_gg
+            || self.layout_degeneracy;
         #[cfg(feature = "eval-baselines")]
         {
             base || self.sepme_knng

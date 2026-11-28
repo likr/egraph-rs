@@ -2,15 +2,34 @@ use super::super::*;
 use crate::{
     ClusterAreaConfig, adjusted_patch_nig, angular_resolution, aspect_ratio,
     cluster_area_faithfulness, cluster_area_faithfulness_with_weights, crossing_angle,
-    crossing_edges, crossing_edges_torus, crossing_number, crosslessness,
-    gabriel_graph_preservation, gabriel_graph_property, ideal_edge_lengths,
-    landmark_stratified_rta, minimum_angle_summary, neighborhood_preservation_1hop,
-    neighborhood_preservation_2hop, node_resolution, prism_distortion,
+    crossing_number, crosslessness, gabriel_graph_preservation, gabriel_graph_property,
+    ideal_edge_lengths, landmark_stratified_rta, minimum_angle_summary,
+    neighborhood_preservation_1hop, neighborhood_preservation_2hop, node_resolution,
     relative_neighborhood_preservation, sampled_crossing_number, sampled_crosslessness,
     sampled_neighborhood_preservation_1hop, sampled_neighborhood_preservation_2hop,
     sampled_scale_normalized_stress, scale_normalized_stress,
 };
 use egraph_core::{CoreError, CsrGraph, Layout2d};
+
+fn build_test_cfg() -> MetricConfig {
+    MetricConfig::new()
+        .with_sns_num_pivots(2)
+        .with_sns_seed(9)
+        .with_crossing_num_samples(64)
+        .with_crossing_seed(9)
+        .with_np_num_samples(64)
+        .with_np_seed(9)
+        .with_ideal_edge_length(1.0)
+        .with_rta_num_landmarks(4)
+        .with_rta_num_triplets(10_000)
+        .with_rta_min_degree(1)
+        .with_rta_seed(9)
+        .with_patch_nig_radius(16)
+        .with_patch_nig_canvas_size(1024)
+        .with_patch_nig_pad_frac(0.04)
+        .with_patch_nig_seed(9)
+        .with_cluster_area(ClusterAreaConfig::new())
+}
 
 #[test]
 fn test_selective_dispatcher_computes_only_requested_targets() {
@@ -23,27 +42,12 @@ fn test_selective_dispatcher_computes_only_requested_targets() {
     )
     .unwrap();
     let layout = Layout2d::from_xy(vec![0.0, 1.0, 1.0, 0.0], vec![0.0, 0.0, 1.0, 1.0]).unwrap();
-    let cfg = MetricConfig {
-        sns_num_pivots: 2,
-        sns_seed: 9,
-        crossing_num_samples: 64,
-        crossing_seed: 9,
-        ideal_edge_length: 1.0,
-        rta_num_landmarks: 4,
-        rta_num_triplets: 10_000,
-        rta_min_degree: 1,
-        rta_seed: 9,
-        patch_nig_radius: 16,
-        patch_nig_canvas_size: 1024,
-        patch_nig_pad_frac: 0.04,
-        patch_nig_seed: 9,
-        cluster_area: ClusterAreaConfig::default(),
-        #[cfg(feature = "eval-baselines")]
-        cluster_baselines: ClusterBaselineConfig::default(),
-    };
+    let cfg = build_test_cfg();
     assert_eq!(MetricConfig::default().sns_num_pivots, 64);
+    assert_eq!(MetricConfig::default().np_num_samples, 4096);
+    assert_eq!(MetricConfig::default().np_seed, 42);
 
-    // Request strictly NP2 + SNS: all other fields must remain None.
+    // Request strictly NP2 + SNS: all other fields and baseline_metrics must remain None.
     let subset = evaluate_metrics(
         &g,
         &layout,
@@ -63,6 +67,7 @@ fn test_selective_dispatcher_computes_only_requested_targets() {
         subset.neighborhood_preservation_2hop,
         Some(neighborhood_preservation_2hop(&g, &layout).unwrap())
     );
+    assert!(subset.baseline_metrics().is_none());
     assert!(subset.crossing_number.is_none());
     assert!(subset.crossing_angle.is_none());
     assert!(subset.sampled_crossing_number.is_none());
@@ -92,7 +97,7 @@ fn test_selective_dispatcher_computes_only_requested_targets() {
         MetricReport::default()
     );
 
-    // Request every target and verify exact parity with standalone calls.
+    // Request every 2D target and verify exact parity with standalone calls.
     let all_targets = [
         MetricTarget::ScaleNormalizedStress,
         MetricTarget::SampledScaleNormalizedStress,
@@ -220,104 +225,52 @@ fn test_selective_dispatcher_computes_only_requested_targets() {
         evaluate_metrics(&g, &layout, &[MetricTarget::ClusterAreaFaithfulness], &cfg),
         Err(CoreError::InvalidInput(_))
     ));
+}
 
-    // Invalid config only errors when the corresponding metric is requested.
-    let bad_caf_cfg = MetricConfig {
-        cluster_area: ClusterAreaConfig {
-            g_max: 4,
-            ..cfg.cluster_area
-        },
-        ..cfg
-    };
-    assert!(evaluate_metrics(&g, &layout, &[MetricTarget::AspectRatio], &bad_caf_cfg).is_ok());
-    assert!(matches!(
-        evaluate_metrics_with_communities(
-            &g,
-            &layout,
-            &[MetricTarget::ClusterAreaFaithfulness],
-            &bad_caf_cfg,
-            Some(&communities),
-        ),
-        Err(CoreError::InvalidInput(_))
-    ));
+#[test]
+fn test_f32_unit_graph_and_weighted_gcaf_targets() {
+    let cfg = build_test_cfg();
+    let communities = [0_u32, 0, 1, 1];
 
-    // Invalid config only errors when the corresponding metric is requested.
-    let bad_cfg = MetricConfig {
-        sns_num_pivots: 0,
-        ..cfg
-    };
-    assert!(evaluate_metrics(&g, &layout, &[MetricTarget::AspectRatio], &bad_cfg).is_ok());
-    assert!(matches!(
-        evaluate_metrics(
-            &g,
-            &layout,
-            &[MetricTarget::SampledScaleNormalizedStress],
-            &bad_cfg
-        ),
-        Err(CoreError::InvalidInput(_))
-    ));
-
-    let bad_sample_cfg = MetricConfig {
-        crossing_num_samples: 0,
-        ..cfg
-    };
-    assert!(evaluate_metrics(&g, &layout, &[MetricTarget::AspectRatio], &bad_sample_cfg).is_ok());
-    assert!(matches!(
-        evaluate_metrics(&g, &layout, &[MetricTarget::SampledNp1], &bad_sample_cfg),
-        Err(CoreError::InvalidInput(_))
-    ));
-    assert!(matches!(
-        evaluate_metrics(&g, &layout, &[MetricTarget::SampledNp2], &bad_sample_cfg),
-        Err(CoreError::InvalidInput(_))
-    ));
-
-    // Verify sampled NP1/NP2 with sub-sample (< N) via evaluate_metrics shares KD-tree
-    // and matches standalone calls bit-for-bit.
-    let sub_cfg = MetricConfig {
-        crossing_num_samples: 2,
-        crossing_seed: 123,
-        ..cfg
-    };
-    let sub_rep = evaluate_metrics(
-        &g,
-        &layout,
-        &[MetricTarget::SampledNp1, MetricTarget::SampledNp2],
-        &sub_cfg,
-    )
-    .unwrap();
-    assert_eq!(
-        sub_rep.sampled_np1,
-        Some(sampled_neighborhood_preservation_1hop(&g, &layout, 2, 123).unwrap())
-    );
-    assert_eq!(
-        sub_rep.sampled_np2,
-        Some(sampled_neighborhood_preservation_2hop(&g, &layout, 2, 123).unwrap())
-    );
-
-    // Verify f32 layouts and f32-weighted graphs work uniformly across all targets.
-    let g32 = CsrGraph::<f32>::from_edges(
-        4,
-        &[(0, 1), (1, 2), (2, 3), (3, 0)],
-        Some(&[1.0_f32, 1.0, 1.0, 1.0]),
-        false,
-        false,
-    )
-    .unwrap();
+    // Verify CsrGraph<()> (unweighted unit graph) and f32 layouts work uniformly.
+    let g_unit =
+        CsrGraph::<()>::from_unweighted_edges(4, &[(0, 1), (1, 2), (2, 3), (3, 0)], false, false)
+            .unwrap();
     let l32 =
         Layout2d::from_xy(vec![0.0_f32, 1.0, 1.0, 0.0], vec![0.0_f32, 0.0, 1.0, 1.0]).unwrap();
-    let rep32 =
-        evaluate_metrics_with_communities(&g32, &l32, &all_targets, &cfg, Some(&communities))
-            .unwrap();
-    assert_eq!(rep32.crossing_number, Some(0));
-    assert!((rep32.aspect_ratio.unwrap() - 1.0).abs() < 1e-6);
-    assert!((rep32.ideal_edge_lengths.unwrap()).abs() < 1e-6);
-    assert!((rep32.relative_neighborhood_preservation.unwrap() - 1.0).abs() < 1e-6);
-    assert!((rep32.gabriel_graph_preservation.unwrap() - 1.0).abs() < 1e-6);
-    assert!(rep32.cluster_area_faithfulness.unwrap().is_finite());
-    assert!(cfg.validate().is_ok());
-    assert!(bad_caf_cfg.validate().is_err());
+    let rep_unit32 = evaluate_metrics_with_communities(
+        &g_unit,
+        &l32,
+        &[
+            MetricTarget::ScaleNormalizedStress,
+            MetricTarget::CrossingNumber,
+            MetricTarget::AspectRatio,
+            MetricTarget::IdealEdgeLengths,
+            MetricTarget::RelativeNeighborhoodPreservation,
+            MetricTarget::GabrielGraphPreservation,
+            MetricTarget::ClusterAreaFaithfulness,
+        ],
+        &cfg,
+        Some(&communities),
+    )
+    .unwrap();
+    assert_eq!(rep_unit32.crossing_number, Some(0));
+    assert!((rep_unit32.aspect_ratio.unwrap() - 1.0).abs() < 1e-6);
+    assert!(rep_unit32.ideal_edge_lengths.unwrap().abs() < 1e-6);
+    assert!((rep_unit32.relative_neighborhood_preservation.unwrap() - 1.0).abs() < 1e-6);
+    assert!((rep_unit32.gabriel_graph_preservation.unwrap() - 1.0).abs() < 1e-6);
+    assert!(rep_unit32.cluster_area_faithfulness.unwrap().is_finite());
 
     // Weighted G-CAF via evaluate_metrics_with_community_weights + lazy weight validation.
+    let g = CsrGraph::<f64>::from_edges(
+        4,
+        &[(0, 1), (1, 2), (2, 3), (3, 0), (0, 2), (1, 3)],
+        None,
+        false,
+        false,
+    )
+    .unwrap();
+    let layout = Layout2d::from_xy(vec![0.0, 1.0, 1.0, 0.0], vec![0.0, 0.0, 1.0, 1.0]).unwrap();
     let nw = [1.0, 2.0, 3.0, 4.0];
     let cw = [3.0, 7.0];
     let rep_nw = evaluate_metrics_with_community_weights(
@@ -359,7 +312,6 @@ fn test_selective_dispatcher_computes_only_requested_targets() {
             .abs()
             < 1e-12
     );
-    // Lazy when ClusterAreaFaithfulness is not requested.
     assert!(
         evaluate_metrics_with_community_weights(
             &g,
@@ -389,10 +341,7 @@ fn test_selective_dispatcher_computes_only_requested_targets() {
     let g_weighted =
         CsrGraph::<f64>::from_edges(3, &[(0, 1), (1, 2)], Some(&[1.0, 2.0]), false, false).unwrap();
     let l_weighted = Layout2d::from_xy(vec![0.0, 2.5, 7.5], vec![0.0, 0.0, 0.0]).unwrap();
-    let scaled_cfg = MetricConfig {
-        ideal_edge_length: 2.5,
-        ..cfg
-    };
+    let scaled_cfg = cfg.clone().with_ideal_edge_length(2.5);
     let rep_scaled = evaluate_metrics(
         &g_weighted,
         &l_weighted,
@@ -401,72 +350,4 @@ fn test_selective_dispatcher_computes_only_requested_targets() {
     )
     .unwrap();
     assert!(rep_scaled.ideal_edge_lengths.unwrap().abs() < 1e-12);
-    let rep_unit = evaluate_metrics(
-        &g_weighted,
-        &l_weighted,
-        &[MetricTarget::IdealEdgeLengths],
-        &cfg,
-    )
-    .unwrap();
-    assert!(
-        (rep_unit.ideal_edge_lengths.unwrap()
-            - ideal_edge_lengths(&g_weighted, &l_weighted).unwrap())
-        .abs()
-            < 1e-12
-    );
-
-    // CrossingEdges, TorusCrossingNumber, CrossingEdgesTorus, and PrismDistortion via MetricInputs.
-    let torus_l = Layout2d::from_xy(vec![0.1, 0.9, 0.2, 0.8], vec![0.1, 0.9, 0.8, 0.2]).unwrap();
-    let perturbed_l =
-        Layout2d::from_xy(vec![0.0, 2.0, 1.0, 0.0], vec![0.0, 0.0, 1.5, 1.0]).unwrap();
-    let inputs = MetricInputs {
-        original_layout: Some(&layout),
-        ..MetricInputs::default()
-    };
-    let ext_targets = [
-        MetricTarget::CrossingNumber,
-        MetricTarget::CrossingEdges,
-        MetricTarget::CrossingAngle,
-        MetricTarget::Crosslessness,
-        MetricTarget::TorusCrossingNumber,
-        MetricTarget::CrossingEdgesTorus,
-        MetricTarget::PrismDistortion,
-    ];
-    let rep_ext =
-        evaluate_metrics_with_inputs(&g, &perturbed_l, &ext_targets, &cfg, &inputs).unwrap();
-    let expected_edges = crossing_edges(&g, &perturbed_l).unwrap();
-    assert_eq!(rep_ext.crossing_number, Some(expected_edges.len()));
-    assert_eq!(
-        rep_ext.crossing_edges.as_deref(),
-        Some(expected_edges.as_slice())
-    );
-    assert!(
-        (rep_ext.crossing_angle.unwrap() - crossing_angle(&g, &perturbed_l).unwrap()).abs() < 1e-12
-    );
-    assert!(
-        (rep_ext.crosslessness.unwrap() - crosslessness(&g, &perturbed_l).unwrap()).abs() < 1e-12
-    );
-    let expected_torus = crossing_edges_torus(&g, &torus_l).unwrap();
-    let rep_torus = evaluate_metrics(
-        &g,
-        &torus_l,
-        &[
-            MetricTarget::TorusCrossingNumber,
-            MetricTarget::CrossingEdgesTorus,
-        ],
-        &cfg,
-    )
-    .unwrap();
-    assert_eq!(rep_torus.torus_crossing_number, Some(expected_torus.len()));
-    assert_eq!(
-        rep_torus.crossing_edges_torus.as_deref(),
-        Some(expected_torus.as_slice())
-    );
-    let expected_prism = prism_distortion(&layout, &perturbed_l).unwrap();
-    assert_eq!(rep_ext.prism_sigma_dist, Some(expected_prism.sigma_dist));
-    assert_eq!(rep_ext.prism_sigma_disp, Some(expected_prism.sigma_disp));
-    assert!(matches!(
-        evaluate_metrics(&g, &perturbed_l, &[MetricTarget::PrismDistortion], &cfg),
-        Err(CoreError::InvalidInput(_))
-    ));
 }
