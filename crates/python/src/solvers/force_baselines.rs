@@ -1,6 +1,7 @@
 //! Cooperative GEM and Structural Entropy Layout (`SEL`) solver bindings (`Layout2d`).
 
 use egraph::layout::force::BarnesHut as ForceBarnesHut;
+use egraph::layout::neighbor::BarnesHut as NeighborBarnesHut;
 use egraph::layout::{
     FrBackend, FruchtermanReingoldConfig, GemConfig, GemSolver, RhoSchedule, SelConfig,
     SelLayoutBackend, SelLayoutSolver, SelWeightMapping, TFdpBackend2d, TFdpConfig,
@@ -198,7 +199,7 @@ fn parse_sel_fr_config(
 ) -> PyResult<(FruchtermanReingoldConfig, FrBackend)> {
     let mut cfg = FruchtermanReingoldConfig::default();
     let mut backend_str = "exact".to_string();
-    let mut theta = 1.2_f64;
+    let mut theta = ForceBarnesHut::default().theta();
     for (k_any, v_any) in dict.iter() {
         let key: String = k_any.extract()?;
         match key.as_str() {
@@ -239,7 +240,7 @@ fn parse_sel_t_fdp_config(dict: &Bound<'_, PyDict>) -> PyResult<(TFdpConfig, TFd
     let mut iterations = def.iterations;
     let mut learning_rate = def.learning_rate;
     let mut momentum = def.momentum;
-    let mut theta = 1.2_f64;
+    let mut theta = NeighborBarnesHut::default().theta;
     let mut alpha = def.alpha;
     let mut gamma = def.gamma;
     let mut rho_start = def.rho.start_weight;

@@ -245,6 +245,45 @@ class TestGripGemSelPfsSfc(unittest.TestCase):
                 graph, layout_backend="fr", fr_config={"theta": -1.0}
             ),
         )
+        # Nested t_fdp_config Barnes-Hut must default theta to NeighborBarnesHut::default().theta (0.5)
+        for dtype_str in ("float64", "float32"):
+            l_bh_def = eg.Layout2d.from_coords(_to_float_array(base, dtype_str))
+            l_bh_05 = eg.Layout2d.from_coords(_to_float_array(base, dtype_str))
+            l_bh_12 = eg.Layout2d.from_coords(_to_float_array(base, dtype_str))
+            eg.SelLayoutSolver(
+                graph,
+                layout_backend="t_fdp",
+                t_fdp_config={"backend": "barnes_hut", "iterations": 12, "seed": 42},
+                dtype=dtype_str,
+            ).run(l_bh_def)
+            eg.SelLayoutSolver(
+                graph,
+                layout_backend="t_fdp",
+                t_fdp_config={
+                    "backend": "barnes_hut",
+                    "theta": 0.5,
+                    "iterations": 12,
+                    "seed": 42,
+                },
+                dtype=dtype_str,
+            ).run(l_bh_05)
+            eg.SelLayoutSolver(
+                graph,
+                layout_backend="t_fdp",
+                t_fdp_config={
+                    "backend": "barnes_hut",
+                    "theta": 1.2,
+                    "iterations": 12,
+                    "seed": 42,
+                },
+                dtype=dtype_str,
+            ).run(l_bh_12)
+            np.testing.assert_array_equal(
+                l_bh_def.coords(copy=True), l_bh_05.coords(copy=True)
+            )
+            self.assertFalse(
+                np.allclose(l_bh_def.coords(copy=True), l_bh_12.coords(copy=True))
+            )
 
         # 4. PfsPrimeOverlapRemoval (new + from_radii, zero overlap, strict oo_nni == 0.0)
         hw = np.full(n, 0.8, dtype=np.float64)
