@@ -7,13 +7,16 @@
 //! with $a > r$ (where exponent $-1$ yields $\ln \|p_u - p_v\|$), supporting both
 //! [`LinLogRepulsion::EdgeRepulsion`] ($m_u = \deg_w(u)$) and
 //! [`LinLogRepulsion::NodeRepulsion`] ($m_u = 1$), mass-barycenter gravity, and
-//! $O(N \log N)$ Barnes-Hut acceleration via [`ArenaQuadtree2d`].
+//! $O(N \log N)$ Barnes-Hut acceleration via [`ArenaQuadtree2d`] (`Layout2d`) and
+//! [`ArenaOctree3d`](egraph_spatial_trees::ArenaOctree3d) (`Layout3d`).
 
 mod config;
+mod dim3;
+mod energy;
 mod nd;
 mod quadtree;
 mod solver;
-mod step;
+mod step2d;
 
 #[cfg(test)]
 mod tests;

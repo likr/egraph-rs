@@ -1,54 +1,163 @@
-use egraph_core::{
-    CoreError, CoreResult, CsrGraph, DeterministicRng, IterativeSolver, Layout2d, Scalar,
-    SolverStatus,
-};
-use egraph_spatial_trees::ArenaQuadtree2d;
+use std::any::{Any, TypeId};
+use std::marker::PhantomData;
 
-use crate::manifold_utils::ActiveLayoutKind;
+use egraph_core::{
+    CoreError, CoreResult, CsrGraph, DeterministicRng, IterativeSolver, Layout2d, Layout3d,
+    LayoutNd, ManifoldKind, ManifoldLayout2d, RiemannianLayout, Scalar, SolverStatus,
+};
+use egraph_spatial_trees::{ArenaOctree3d, ArenaQuadtree2d};
+
+use crate::graph_edges::{
+    extract_canonical_undirected_edges, extract_canonical_undirected_unweighted_edges,
+};
 
 use super::config::{FrBackend, FruchtermanReingoldConfig};
-use super::helpers::{GridCell, GridEntry, clamp_cell_coord, extract_canonical_undirected_edges};
-use super::nd::FrNdScratch;
+use super::dim3::step_3d;
+use super::helpers::{Grid3Cell, Grid3Entry, GridCell, GridEntry};
+use super::manifold::step_manifold;
+use super::nd::{FrNdScratch, step_nd};
+use super::riemannian::{FrRiemannianScratch, step_riemannian};
+use super::step2d::step_2d;
 
 pub(super) const COINCIDENT_DIST_SQ: f64 = 1e-24;
 pub(super) const COINCIDENT_PERTURB_DIST: f64 = 1e-6;
 pub(super) const BH_EPS_SQ: f64 = 1e-12;
 
-/// Cooperative Fruchterman–Reingold (1991) layout solver implementing [`IterativeSolver`].
+pub(super) type FrValidateFn<L> = fn(&FrState, &L) -> CoreResult<()>;
+pub(super) type FrStepFn<L> = fn(&mut FrState, &mut L) -> CoreResult<()>;
+
 #[derive(Debug, Clone)]
-pub struct FruchtermanReingoldSolver<S: Scalar = f64> {
+pub(super) struct FrState {
     pub(super) config: FruchtermanReingoldConfig,
     pub(super) num_nodes: usize,
     pub(super) edges_u: Vec<u32>,
     pub(super) edges_v: Vec<u32>,
     pub(super) edges_w: Vec<f64>,
     pub(super) k: f64,
-    initial_temperature: f64,
+    pub(super) initial_temperature: f64,
     pub(super) x_buf: Vec<f64>,
     pub(super) y_buf: Vec<f64>,
+    pub(super) z_buf: Vec<f64>,
     pub(super) disp_x: Vec<f64>,
     pub(super) disp_y: Vec<f64>,
+    pub(super) disp_z: Vec<f64>,
     pub(super) rep_x: Vec<f64>,
     pub(super) rep_y: Vec<f64>,
+    pub(super) rep_z: Vec<f64>,
     pub(super) quadtree: ArenaQuadtree2d<f64>,
-    grid_entries: Vec<GridEntry>,
-    grid_cells: Vec<GridCell>,
-    pub(super) active_layout: ActiveLayoutKind,
+    pub(super) octree: ArenaOctree3d<f64>,
+    pub(super) grid_entries: Vec<GridEntry>,
+    pub(super) grid_cells: Vec<GridCell>,
+    pub(super) grid3_entries: Vec<Grid3Entry>,
+    pub(super) grid3_cells: Vec<Grid3Cell>,
     pub(super) nd_scratch: Option<FrNdScratch>,
+    pub(super) riemannian_scratch: Option<FrRiemannianScratch>,
+    pub(super) locked_nd_dims: Option<usize>,
+    pub(super) locked_manifold: Option<ManifoldKind>,
     pub(super) rng: DeterministicRng,
     pub(super) iter: usize,
     pub(super) status: SolverStatus,
-    _marker: std::marker::PhantomData<S>,
 }
 
-impl<S: Scalar> FruchtermanReingoldSolver<S> {
+impl FrState {
+    #[inline]
+    pub(super) fn current_temperature(&self) -> f64 {
+        if self.config.iterations == 0 || self.iter >= self.config.iterations {
+            return 0.0;
+        }
+        let rem = (self.config.iterations - self.iter) as f64;
+        self.initial_temperature * (rem / (self.config.iterations as f64))
+    }
+
+    #[inline]
+    pub(super) fn next_unit_vector(&mut self) -> (f64, f64) {
+        let angle = self.rng.next_f64() * std::f64::consts::TAU;
+        (angle.cos(), angle.sin())
+    }
+}
+
+/// Cooperative Fruchterman–Reingold (1991) layout solver implementing [`IterativeSolver`].
+///
+/// Supports:
+/// - [`Layout2d`]: `Exact`, `BarnesHut` (`ArenaQuadtree2d`), and `Grid`.
+/// - [`Layout3d`]: `Exact`, `BarnesHut` (`ArenaOctree3d`), and `Grid`.
+/// - [`LayoutNd`], [`ManifoldLayout2d`], and any [`RiemannianLayout`]: `Exact` only
+///   (`BarnesHut` and `Grid` fail fast at construction).
+#[derive(Debug, Clone)]
+pub struct FruchtermanReingoldSolver<L: RiemannianLayout = Layout2d<f64>> {
+    state: FrState,
+    validate_fn: FrValidateFn<L>,
+    step_fn: FrStepFn<L>,
+    _layout: PhantomData<fn() -> L>,
+}
+
+impl<L: RiemannianLayout + 'static> FruchtermanReingoldSolver<L> {
     /// Constructs a [`FruchtermanReingoldSolver`] from a [`CsrGraph`] and [`FruchtermanReingoldConfig`].
     pub fn new<W: Scalar>(
         graph: &CsrGraph<W>,
         config: FruchtermanReingoldConfig,
     ) -> CoreResult<Self> {
         config.validate()?;
-        let (n, edges_u, edges_v, edges_w) = extract_canonical_undirected_edges(graph)?;
+        let (n, edges_u, edges_v, edges_w, _) =
+            extract_canonical_undirected_edges(graph, "FruchtermanReingoldSolver::graph_weights")?;
+        Self::from_canonical_edges(n, edges_u, edges_v, edges_w, config)
+    }
+
+    /// Constructs a [`FruchtermanReingoldSolver`] from an unweighted [`CsrGraph<W>`] (or ignoring
+    /// stored edge weights) without requiring `W: Scalar`.
+    pub fn new_unweighted<W>(
+        graph: &CsrGraph<W>,
+        config: FruchtermanReingoldConfig,
+    ) -> CoreResult<Self> {
+        config.validate()?;
+        let (n, edges_u, edges_v, edges_w, _) =
+            extract_canonical_undirected_unweighted_edges(graph)?;
+        Self::from_canonical_edges(n, edges_u, edges_v, edges_w, config)
+    }
+
+    fn from_canonical_edges(
+        n: usize,
+        edges_u: Vec<u32>,
+        edges_v: Vec<u32>,
+        edges_w: Vec<f64>,
+        config: FruchtermanReingoldConfig,
+    ) -> CoreResult<Self> {
+        let tid = TypeId::of::<L>();
+        let is_2d = tid == TypeId::of::<Layout2d<L::Scalar>>();
+        let is_3d = tid == TypeId::of::<Layout3d<L::Scalar>>();
+        let is_nd = tid == TypeId::of::<LayoutNd<L::Scalar>>();
+        let is_manifold = tid == TypeId::of::<ManifoldLayout2d<L::Scalar>>();
+
+        if is_nd && config.backend != FrBackend::Exact {
+            return Err(CoreError::unsupported(format!(
+                "Fruchterman-Reingold {:?} backend is not supported on LayoutNd; use Layout3d for 3D Barnes-Hut/Grid, Layout2d for 2D, or FrBackend::Exact for arbitrary N-D",
+                config.backend
+            )));
+        }
+        if is_manifold && config.backend != FrBackend::Exact {
+            return Err(CoreError::unsupported(format!(
+                "Fruchterman-Reingold {:?} backend is only supported on Euclidean layouts; use FrBackend::Exact on ManifoldLayout2d",
+                config.backend
+            )));
+        }
+        if !is_2d && !is_3d && !is_nd && !is_manifold && config.backend != FrBackend::Exact {
+            return Err(CoreError::unsupported(format!(
+                "Fruchterman-Reingold {:?} backend is only supported on Layout2d and Layout3d; use FrBackend::Exact on general RiemannianLayout targets",
+                config.backend
+            )));
+        }
+
+        let (validate_fn, step_fn): (FrValidateFn<L>, FrStepFn<L>) = if is_2d {
+            (validate_basic::<L>, step_any_2d::<L>)
+        } else if is_3d {
+            (validate_basic::<L>, step_any_3d::<L>)
+        } else if is_nd {
+            (validate_nd::<L>, step_any_nd::<L>)
+        } else if is_manifold {
+            (validate_manifold::<L>, step_any_manifold::<L>)
+        } else {
+            (validate_riemannian::<L>, step_riemannian::<L>)
+        };
 
         let n_eff = n.max(1) as f64;
         let effective_area = config.area.unwrap_or(if let Some(kv) = config.k {
@@ -61,7 +170,15 @@ impl<S: Scalar> FruchtermanReingoldSolver<S> {
             .initial_temperature
             .unwrap_or_else(|| 0.1 * effective_area.sqrt());
 
-        let rep_len = if config.backend == FrBackend::BarnesHut {
+        let len_2d3d = if is_2d || is_3d || is_manifold { n } else { 0 };
+        let len_2d3d_pos = if is_2d || is_3d { n } else { 0 };
+        let len_3d = if is_3d { n } else { 0 };
+        let rep_2d3d = if (is_2d || is_3d) && config.backend == FrBackend::BarnesHut {
+            n
+        } else {
+            0
+        };
+        let rep_3d = if is_3d && config.backend == FrBackend::BarnesHut {
             n
         } else {
             0
@@ -71,8 +188,9 @@ impl<S: Scalar> FruchtermanReingoldSolver<S> {
         } else {
             SolverStatus::Initialized
         };
+        let seed = config.seed;
 
-        Ok(Self {
+        let state = FrState {
             config,
             num_nodes: n,
             edges_u,
@@ -80,324 +198,258 @@ impl<S: Scalar> FruchtermanReingoldSolver<S> {
             edges_w,
             k,
             initial_temperature,
-            x_buf: vec![0.0; n],
-            y_buf: vec![0.0; n],
-            disp_x: vec![0.0; n],
-            disp_y: vec![0.0; n],
-            rep_x: vec![0.0; rep_len],
-            rep_y: vec![0.0; rep_len],
+            x_buf: vec![0.0; len_2d3d_pos],
+            y_buf: vec![0.0; len_2d3d_pos],
+            z_buf: vec![0.0; len_3d],
+            disp_x: vec![0.0; len_2d3d],
+            disp_y: vec![0.0; len_2d3d],
+            disp_z: vec![0.0; len_3d],
+            rep_x: vec![0.0; rep_2d3d],
+            rep_y: vec![0.0; rep_2d3d],
+            rep_z: vec![0.0; rep_3d],
             quadtree: ArenaQuadtree2d::new(),
+            octree: ArenaOctree3d::new(),
             grid_entries: Vec::new(),
             grid_cells: Vec::new(),
-            active_layout: ActiveLayoutKind::Unset,
+            grid3_entries: Vec::new(),
+            grid3_cells: Vec::new(),
             nd_scratch: None,
-            rng: DeterministicRng::from_seed_u64(config.seed),
+            riemannian_scratch: None,
+            locked_nd_dims: None,
+            locked_manifold: None,
+            rng: DeterministicRng::from_seed_u64(seed),
             iter: 0,
             status,
-            _marker: std::marker::PhantomData,
+        };
+
+        Ok(Self {
+            state,
+            validate_fn,
+            step_fn,
+            _layout: PhantomData,
         })
     }
+}
 
+impl<L: RiemannianLayout> FruchtermanReingoldSolver<L> {
     /// Returns the solver configuration.
     #[inline]
     pub fn config(&self) -> &FruchtermanReingoldConfig {
-        &self.config
+        &self.state.config
     }
 
-    /// Returns the expected number of vertices in [`Layout2d`] or [`egraph_core::LayoutNd`].
+    /// Returns the expected number of vertices in the target layout.
     #[inline]
     pub fn num_nodes(&self) -> usize {
-        self.num_nodes
+        self.state.num_nodes
     }
 
     /// Returns the current lifecycle status.
     #[inline]
     pub fn status(&self) -> SolverStatus {
-        self.status
+        self.state.status
     }
 
     /// Returns the number of iterations executed so far.
     #[inline]
     pub fn iteration(&self) -> usize {
-        self.iter
+        self.state.iter
     }
 
     /// Returns the scheduled maximum number of iterations.
     #[inline]
-    pub fn total_iterations(&self) -> usize {
-        self.config.iterations
+    pub fn total_iterations(&self) -> Option<usize> {
+        Some(self.state.config.iterations)
     }
 
     /// Returns the effective optimal pairwise distance $k$.
     #[inline]
     pub fn optimal_distance(&self) -> f64 {
-        self.k
+        self.state.k
     }
 
     /// Returns the temperature used for the upcoming (or final) iteration.
     #[inline]
     pub fn current_temperature(&self) -> f64 {
-        if self.config.iterations == 0 || self.iter >= self.config.iterations {
-            return 0.0;
-        }
-        let rem = (self.config.iterations - self.iter) as f64;
-        self.initial_temperature * (rem / (self.config.iterations as f64))
-    }
-
-    pub(super) fn next_unit_vector(&mut self) -> (f64, f64) {
-        let angle = self.rng.next_f64() * std::f64::consts::TAU;
-        (angle.cos(), angle.sin())
-    }
-
-    fn apply_repulsion_pair(&mut self, i: usize, j: usize, k_sq: f64, cutoff_sq: Option<f64>) {
-        let dx = self.x_buf[i] - self.x_buf[j];
-        let dy = self.y_buf[i] - self.y_buf[j];
-        let d_sq = dx * dx + dy * dy;
-        if let Some(limit_sq) = cutoff_sq
-            && d_sq >= limit_sq
-        {
-            return;
-        }
-        let (fx, fy) = if d_sq > COINCIDENT_DIST_SQ {
-            let mult = k_sq / d_sq;
-            (mult * dx, mult * dy)
-        } else {
-            let (ux, uy) = self.next_unit_vector();
-            let mag = k_sq / COINCIDENT_PERTURB_DIST;
-            (mag * ux, mag * uy)
-        };
-        self.disp_x[i] += fx;
-        self.disp_y[i] += fy;
-        self.disp_x[j] -= fx;
-        self.disp_y[j] -= fy;
-    }
-
-    pub(super) fn compute_grid_repulsion(&mut self, min_x: f64, min_y: f64, k_sq: f64) {
-        let n = self.num_nodes;
-        let cell_size = 2.0 * self.k;
-        let inv_cell = 1.0 / cell_size;
-        let cutoff_sq = cell_size * cell_size;
-
-        self.grid_entries.clear();
-        self.grid_entries.reserve(n);
-        for i in 0..n {
-            let gx = ((self.x_buf[i] - min_x) * inv_cell).floor();
-            let gy = ((self.y_buf[i] - min_y) * inv_cell).floor();
-            let cx = clamp_cell_coord(gx);
-            let cy = clamp_cell_coord(gy);
-            self.grid_entries.push(GridEntry { cy, cx, node: i });
-        }
-        self.grid_entries
-            .sort_unstable_by_key(|e| (e.cy, e.cx, e.node));
-
-        self.grid_cells.clear();
-        let mut idx = 0usize;
-        while idx < n {
-            let cy = self.grid_entries[idx].cy;
-            let cx = self.grid_entries[idx].cx;
-            let start = idx;
-            idx += 1;
-            while idx < n && self.grid_entries[idx].cy == cy && self.grid_entries[idx].cx == cx {
-                idx += 1;
-            }
-            self.grid_cells.push(GridCell {
-                cy,
-                cx,
-                start,
-                end: idx,
-            });
-        }
-
-        const HALF_NEIGHBOR_OFFSETS: [(i64, i64); 4] = [(0, 1), (1, -1), (1, 0), (1, 1)];
-        let num_cells = self.grid_cells.len();
-        for c_idx in 0..num_cells {
-            let cell = self.grid_cells[c_idx];
-            // Pairs within the same cell.
-            for p in cell.start..cell.end {
-                let u = self.grid_entries[p].node;
-                for q in (p + 1)..cell.end {
-                    let v = self.grid_entries[q].node;
-                    self.apply_repulsion_pair(u, v, k_sq, Some(cutoff_sq));
-                }
-            }
-
-            // Pairs with forward neighboring cells (each pair visited once).
-            for &(dy, dx) in &HALF_NEIGHBOR_OFFSETS {
-                let target_key = (cell.cy + dy, cell.cx + dx);
-                if let Ok(nb_idx) = self
-                    .grid_cells
-                    .binary_search_by_key(&target_key, |c| (c.cy, c.cx))
-                {
-                    let nb = self.grid_cells[nb_idx];
-                    for p in cell.start..cell.end {
-                        let u = self.grid_entries[p].node;
-                        for q in nb.start..nb.end {
-                            let v = self.grid_entries[q].node;
-                            self.apply_repulsion_pair(u, v, k_sq, Some(cutoff_sq));
-                        }
-                    }
-                }
-            }
-        }
+        self.state.current_temperature()
     }
 }
 
-impl<S: Scalar> IterativeSolver<S> for FruchtermanReingoldSolver<S> {
-    fn step(&mut self, layout: &mut Layout2d<S>) -> CoreResult<SolverStatus> {
-        if layout.len() != self.num_nodes {
-            return Err(CoreError::dimension_mismatch(
-                self.num_nodes,
-                layout.len(),
-                "FruchtermanReingoldSolver::step",
-            ));
-        }
-        layout.validate_finite()?;
-        self.active_layout.lock_2d("FruchtermanReingoldSolver")?;
+impl<L: RiemannianLayout> IterativeSolver for FruchtermanReingoldSolver<L> {
+    type Target = L;
 
-        if self.status.is_finished() {
-            return Ok(self.status);
+    fn validate_target(&self, target: &Self::Target) -> CoreResult<()> {
+        (self.validate_fn)(&self.state, target)
+    }
+
+    fn step(&mut self, target: &mut Self::Target) -> CoreResult<SolverStatus> {
+        self.validate_target(target)?;
+
+        if self.state.status.is_finished() {
+            return Ok(self.state.status);
         }
 
-        let n = self.num_nodes;
-        if n <= 1 {
-            self.status = SolverStatus::Converged;
-            return Ok(self.status);
+        if self.state.num_nodes <= 1 {
+            self.state.status = SolverStatus::Converged;
+            return Ok(self.state.status);
         }
 
-        let (min_x, min_y) = {
-            let xs = layout.x();
-            let ys = layout.y();
-            let mut min_x = f64::INFINITY;
-            let mut max_x = f64::NEG_INFINITY;
-            let mut min_y = f64::INFINITY;
-            let mut max_y = f64::NEG_INFINITY;
-            for i in 0..n {
-                let x = xs[i].to_f64();
-                let y = ys[i].to_f64();
-                self.x_buf[i] = x;
-                self.y_buf[i] = y;
-                min_x = min_x.min(x);
-                max_x = max_x.max(x);
-                min_y = min_y.min(y);
-                max_y = max_y.max(y);
+        if let Err(err) = (self.step_fn)(&mut self.state, target) {
+            if matches!(
+                err,
+                CoreError::NumericalBreakdown(_) | CoreError::NonFiniteValue { .. }
+            ) {
+                self.state.status = SolverStatus::Failed;
             }
-
-            if self.iter == 0 && (max_x - min_x) < 1e-12 && (max_y - min_y) < 1e-12 {
-                let spread = 0.5 * self.k;
-                min_x = f64::INFINITY;
-                min_y = f64::INFINITY;
-                for i in 0..n {
-                    self.x_buf[i] += spread * (self.rng.next_f64() - 0.5);
-                    self.y_buf[i] += spread * (self.rng.next_f64() - 0.5);
-                    min_x = min_x.min(self.x_buf[i]);
-                    min_y = min_y.min(self.y_buf[i]);
-                }
-            }
-            (min_x, min_y)
-        };
-
-        self.disp_x.fill(0.0);
-        self.disp_y.fill(0.0);
-        let k_sq = self.k * self.k;
-
-        // 1. Repulsion: f_r(d) = k^2 / d.
-        match self.config.backend {
-            FrBackend::Exact => {
-                for i in 0..n {
-                    for j in (i + 1)..n {
-                        self.apply_repulsion_pair(i, j, k_sq, None);
-                    }
-                }
-            }
-            FrBackend::BarnesHut => {
-                self.quadtree.build_xy(&self.x_buf, &self.y_buf)?;
-                self.quadtree.compute_coulomb_repulsion(
-                    self.config.theta,
-                    BH_EPS_SQ,
-                    &mut self.rep_x,
-                    &mut self.rep_y,
-                )?;
-                for i in 0..n {
-                    self.disp_x[i] = k_sq * self.rep_x[i];
-                    self.disp_y[i] = k_sq * self.rep_y[i];
-                }
-            }
-            FrBackend::Grid => {
-                self.compute_grid_repulsion(min_x, min_y, k_sq);
-            }
+            return Err(err);
         }
 
-        // 2. Attraction: f_a(d) = d^2 / k along edges (scaled by edge weight).
-        let inv_k = 1.0 / self.k;
-        for idx in 0..self.edges_u.len() {
-            let u = self.edges_u[idx] as usize;
-            let v = self.edges_v[idx] as usize;
-            let w = self.edges_w[idx];
-            if w == 0.0 {
-                continue;
-            }
-            let dx = self.x_buf[v] - self.x_buf[u];
-            let dy = self.y_buf[v] - self.y_buf[u];
-            let d = dx.hypot(dy);
-            let factor = w * d * inv_k;
-            let ax = factor * dx;
-            let ay = factor * dy;
-            self.disp_x[u] += ax;
-            self.disp_y[u] += ay;
-            self.disp_x[v] -= ax;
-            self.disp_y[v] -= ay;
-        }
-
-        // 3. Optional central gravity toward (0, 0).
-        if self.config.gravity > 0.0 {
-            let g = self.config.gravity;
-            for i in 0..n {
-                self.disp_x[i] -= g * self.x_buf[i];
-                self.disp_y[i] -= g * self.y_buf[i];
-            }
-        }
-
-        // 4. Temperature clamping and linear cooling update.
-        let temp = self.current_temperature();
-        let (xs_mut, ys_mut) = layout.xy_mut();
-        for i in 0..n {
-            let dx = self.disp_x[i];
-            let dy = self.disp_y[i];
-            let len = dx.hypot(dy);
-            if len > 1e-24 && temp > 0.0 {
-                let scale = len.min(temp) / len;
-                let nx = S::from_f64(self.x_buf[i] + dx * scale);
-                let ny = S::from_f64(self.y_buf[i] + dy * scale);
-                if nx.is_finite() {
-                    xs_mut[i] = nx;
-                }
-                if ny.is_finite() {
-                    ys_mut[i] = ny;
-                }
-            }
-        }
-
-        self.iter += 1;
-        self.status = if self.iter >= self.config.iterations {
+        self.state.iter += 1;
+        self.state.status = if self.state.iter >= self.state.config.iterations {
             SolverStatus::Completed
         } else {
             SolverStatus::Running
         };
-        Ok(self.status)
+        Ok(self.state.status)
     }
 
     #[inline]
     fn status(&self) -> SolverStatus {
-        self.status
+        self.state.status
     }
 
     #[inline]
     fn iteration(&self) -> usize {
-        self.iter
+        self.state.iter
     }
 
     #[inline]
-    fn total_iterations(&self) -> usize {
-        self.config.iterations
+    fn total_iterations(&self) -> Option<usize> {
+        Some(self.state.config.iterations)
     }
+}
+
+fn validate_basic<L: RiemannianLayout>(state: &FrState, target: &L) -> CoreResult<()> {
+    if target.len() != state.num_nodes {
+        return Err(CoreError::dimension_mismatch(
+            state.num_nodes,
+            target.len(),
+            "FruchtermanReingoldSolver::validate_target",
+        ));
+    }
+    target.validate_finite()
+}
+
+fn validate_nd<L: RiemannianLayout + 'static>(state: &FrState, target: &L) -> CoreResult<()> {
+    if target.len() != state.num_nodes {
+        return Err(CoreError::dimension_mismatch(
+            state.num_nodes,
+            target.len(),
+            "FruchtermanReingoldSolver::validate_target",
+        ));
+    }
+    let layout = (target as &dyn Any)
+        .downcast_ref::<LayoutNd<L::Scalar>>()
+        .ok_or_else(|| {
+            CoreError::numerical_breakdown("FruchtermanReingoldSolver target type mismatch")
+        })?;
+    let dims = layout.dims();
+    if dims == 0 {
+        return Err(CoreError::invalid_input("LayoutNd dims must be >= 1"));
+    }
+    if let Some(prev) = state.locked_nd_dims
+        && prev != dims
+    {
+        return Err(CoreError::dimension_mismatch(
+            prev,
+            dims,
+            "FruchtermanReingoldSolver::validate_target::dims",
+        ));
+    }
+    layout.validate_finite()
+}
+
+fn validate_manifold<L: RiemannianLayout + 'static>(state: &FrState, target: &L) -> CoreResult<()> {
+    if target.len() != state.num_nodes {
+        return Err(CoreError::dimension_mismatch(
+            state.num_nodes,
+            target.len(),
+            "FruchtermanReingoldSolver::validate_target",
+        ));
+    }
+    let layout = (target as &dyn Any)
+        .downcast_ref::<ManifoldLayout2d<L::Scalar>>()
+        .ok_or_else(|| {
+            CoreError::numerical_breakdown("FruchtermanReingoldSolver target type mismatch")
+        })?;
+    if let Some(prev) = state.locked_manifold
+        && prev != layout.kind()
+    {
+        return Err(CoreError::invalid_input(
+            "FruchtermanReingoldSolver::validate_target: cannot switch ManifoldKind on stateful solver",
+        ));
+    }
+    layout.validate_finite()
+}
+
+fn validate_riemannian<L: RiemannianLayout>(state: &FrState, target: &L) -> CoreResult<()> {
+    if target.len() != state.num_nodes {
+        return Err(CoreError::dimension_mismatch(
+            state.num_nodes,
+            target.len(),
+            "FruchtermanReingoldSolver::validate_target",
+        ));
+    }
+    if target.tangent_dim() == 0 && state.num_nodes > 0 {
+        return Err(CoreError::invalid_input("tangent_dim must be >= 1"));
+    }
+    target.validate_finite()
+}
+
+fn step_any_2d<L: RiemannianLayout + 'static>(
+    state: &mut FrState,
+    target: &mut L,
+) -> CoreResult<()> {
+    let layout = (target as &mut dyn Any)
+        .downcast_mut::<Layout2d<L::Scalar>>()
+        .ok_or_else(|| {
+            CoreError::numerical_breakdown("FruchtermanReingoldSolver target type mismatch")
+        })?;
+    step_2d(state, layout)
+}
+
+fn step_any_3d<L: RiemannianLayout + 'static>(
+    state: &mut FrState,
+    target: &mut L,
+) -> CoreResult<()> {
+    let layout = (target as &mut dyn Any)
+        .downcast_mut::<Layout3d<L::Scalar>>()
+        .ok_or_else(|| {
+            CoreError::numerical_breakdown("FruchtermanReingoldSolver target type mismatch")
+        })?;
+    step_3d(state, layout)
+}
+
+fn step_any_nd<L: RiemannianLayout + 'static>(
+    state: &mut FrState,
+    target: &mut L,
+) -> CoreResult<()> {
+    let layout = (target as &mut dyn Any)
+        .downcast_mut::<LayoutNd<L::Scalar>>()
+        .ok_or_else(|| {
+            CoreError::numerical_breakdown("FruchtermanReingoldSolver target type mismatch")
+        })?;
+    step_nd(state, layout)
+}
+
+fn step_any_manifold<L: RiemannianLayout + 'static>(
+    state: &mut FrState,
+    target: &mut L,
+) -> CoreResult<()> {
+    let layout = (target as &mut dyn Any)
+        .downcast_mut::<ManifoldLayout2d<L::Scalar>>()
+        .ok_or_else(|| {
+            CoreError::numerical_breakdown("FruchtermanReingoldSolver target type mismatch")
+        })?;
+    step_manifold(state, layout)
 }

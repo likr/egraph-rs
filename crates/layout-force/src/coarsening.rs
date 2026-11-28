@@ -1,14 +1,14 @@
 use std::cmp::Reverse;
 
-use egraph_core::{CoreError, CoreResult, CsrGraph, Scalar, VisitStamp};
+use egraph_core::{CoreError, CoreResult, CsrGraph, VisitStamp};
 
-pub(super) struct CoarsenMapping {
-    pub(super) coarse_n: usize,
-    pub(super) coarse_of: Vec<u32>,
-    pub(super) cluster_counts: Vec<u32>,
+pub(crate) struct CoarsenMapping {
+    pub(crate) coarse_n: usize,
+    pub(crate) coarse_of: Vec<u32>,
+    pub(crate) cluster_counts: Vec<u32>,
 }
 
-pub(super) fn ec_coarsen(graph: &CsrGraph<f64>) -> CoarsenMapping {
+pub(crate) fn ec_coarsen(graph: &CsrGraph<f64>) -> CoarsenMapping {
     let n = graph.num_nodes();
     let mut order: Vec<u32> = (0..n as u32).collect();
     order.sort_unstable_by_key(|&u| (graph.degree(u as usize), u));
@@ -58,7 +58,7 @@ pub(super) fn ec_coarsen(graph: &CsrGraph<f64>) -> CoarsenMapping {
     }
 }
 
-pub(super) fn mivs_coarsen(graph: &CsrGraph<f64>) -> CoarsenMapping {
+pub(crate) fn mivs_coarsen(graph: &CsrGraph<f64>) -> CoarsenMapping {
     let n = graph.num_nodes();
     let mut order: Vec<u32> = (0..n as u32).collect();
     order.sort_unstable_by_key(|&u| (graph.degree(u as usize), u));
@@ -110,7 +110,6 @@ pub(super) fn mivs_coarsen(graph: &CsrGraph<f64>) -> CoarsenMapping {
             coarse_of[u] = cid;
             cluster_counts[cid as usize] += 1;
         } else {
-            // Defensive singleton assignment (unreachable for valid symmetric graphs).
             let cid = cluster_counts.len() as u32;
             coarse_of[u] = cid;
             cluster_counts.push(1);
@@ -124,7 +123,7 @@ pub(super) fn mivs_coarsen(graph: &CsrGraph<f64>) -> CoarsenMapping {
     }
 }
 
-pub(super) fn build_coarse_csr(
+pub(crate) fn build_coarse_csr(
     fine: &CsrGraph<f64>,
     coarse_n: usize,
     coarse_of: &[u32],
@@ -223,89 +222,4 @@ pub(super) fn build_coarse_csr(
     }
 
     CsrGraph::from_csr(&out_indptr, &out_indices, Some(&out_weights), false, false)
-}
-
-#[allow(clippy::type_complexity)]
-pub(super) fn extract_canonical_undirected_edges<W: Scalar>(
-    graph: &CsrGraph<W>,
-) -> CoreResult<(usize, Vec<u32>, Vec<u32>, Vec<f64>, Vec<usize>)> {
-    let n = graph.num_nodes();
-    if u32::try_from(n).is_err() {
-        return Err(CoreError::invalid_csr("num_nodes exceeds u32::MAX"));
-    }
-    if let Some(ws) = graph.weights() {
-        for &w in ws {
-            let wf = w.to_f64();
-            if !wf.is_finite() {
-                return Err(CoreError::non_finite("continuous_fdp::graph_weights"));
-            }
-            if wf < 0.0 {
-                return Err(CoreError::invalid_input(
-                    "graph edge weights must be non-negative",
-                ));
-            }
-        }
-    }
-
-    let mut edges_u = Vec::new();
-    let mut edges_v = Vec::new();
-    let mut edges_w = Vec::new();
-    let mut deg = vec![0usize; n];
-
-    if !graph.is_directed() {
-        for (u, deg_u) in deg.iter_mut().enumerate() {
-            let u32_u = u as u32;
-            let nbrs = graph.neighbors(u);
-            let ws = graph.neighbor_weights(u);
-            *deg_u = nbrs.len();
-            for (pos, &v_u32) in nbrs.iter().enumerate() {
-                if u32_u < v_u32 {
-                    edges_u.push(u32_u);
-                    edges_v.push(v_u32);
-                    edges_w.push(ws.map_or(1.0, |w| w[pos].to_f64()));
-                }
-            }
-        }
-    } else {
-        let mut raw: Vec<(u32, u32, f64)> = Vec::with_capacity(graph.nnz());
-        for u in 0..n {
-            let u32_u = u as u32;
-            let nbrs = graph.neighbors(u);
-            let ws = graph.neighbor_weights(u);
-            for (pos, &v_u32) in nbrs.iter().enumerate() {
-                if u32_u == v_u32 {
-                    continue;
-                }
-                let (a, b) = if u32_u < v_u32 {
-                    (u32_u, v_u32)
-                } else {
-                    (v_u32, u32_u)
-                };
-                raw.push((a, b, ws.map_or(1.0, |w| w[pos].to_f64())));
-            }
-        }
-        raw.sort_unstable_by_key(|x| (x.0, x.1));
-
-        let weighted = graph.is_weighted();
-        let mut idx = 0usize;
-        while idx < raw.len() {
-            let (a, b, first_w) = raw[idx];
-            let mut sum_w = first_w;
-            let mut cnt = 1usize;
-            idx += 1;
-            while idx < raw.len() && raw[idx].0 == a && raw[idx].1 == b {
-                sum_w += raw[idx].2;
-                cnt += 1;
-                idx += 1;
-            }
-            let merged_w = if weighted { sum_w / (cnt as f64) } else { 1.0 };
-            edges_u.push(a);
-            edges_v.push(b);
-            edges_w.push(merged_w);
-            deg[a as usize] += 1;
-            deg[b as usize] += 1;
-        }
-    }
-
-    Ok((n, edges_u, edges_v, edges_w, deg))
 }

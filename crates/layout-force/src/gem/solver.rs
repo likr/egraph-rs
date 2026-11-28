@@ -3,6 +3,11 @@ use egraph_core::{
     SolverStatus,
 };
 
+use crate::graph_edges::{
+    build_undirected_adj_from_edges, extract_canonical_undirected_edges,
+    extract_canonical_undirected_unweighted_edges,
+};
+
 use super::config::GemConfig;
 
 const MIN_DIST_SQ: f64 = 1e-12;
@@ -38,8 +43,31 @@ impl<S: Scalar> GemSolver<S> {
     /// Constructs a [`GemSolver`] from a [`CsrGraph`] and [`GemConfig`].
     pub fn new<W: Scalar>(graph: &CsrGraph<W>, config: GemConfig) -> CoreResult<Self> {
         config.validate()?;
-        let (n, adj_indptr, adj_indices, adj_weights) = extract_undirected_adj(graph)?;
+        let (n, edges_u, edges_v, edges_w, _) =
+            extract_canonical_undirected_edges(graph, "GemSolver::graph_weights")?;
+        let (_, adj_indptr, adj_indices, adj_weights) =
+            build_undirected_adj_from_edges(n, &edges_u, &edges_v, &edges_w);
+        Self::from_undirected_adj(n, adj_indptr, adj_indices, adj_weights, config)
+    }
 
+    /// Constructs a [`GemSolver`] from an unweighted [`CsrGraph<W>`] (or ignoring stored edge
+    /// weights) without requiring `W: Scalar`.
+    pub fn new_unweighted<W>(graph: &CsrGraph<W>, config: GemConfig) -> CoreResult<Self> {
+        config.validate()?;
+        let (n, edges_u, edges_v, edges_w, _) =
+            extract_canonical_undirected_unweighted_edges(graph)?;
+        let (_, adj_indptr, adj_indices, adj_weights) =
+            build_undirected_adj_from_edges(n, &edges_u, &edges_v, &edges_w);
+        Self::from_undirected_adj(n, adj_indptr, adj_indices, adj_weights, config)
+    }
+
+    fn from_undirected_adj(
+        n: usize,
+        adj_indptr: Vec<usize>,
+        adj_indices: Vec<usize>,
+        adj_weights: Vec<f64>,
+        config: GemConfig,
+    ) -> CoreResult<Self> {
         let max_iterations = config
             .max_iterations
             .unwrap_or_else(|| n.saturating_mul(4).clamp(1, 400));
@@ -61,6 +89,7 @@ impl<S: Scalar> GemSolver<S> {
         } else {
             SolverStatus::Initialized
         };
+        let seed = config.seed;
 
         Ok(Self {
             config,
@@ -80,7 +109,7 @@ impl<S: Scalar> GemSolver<S> {
             dir: vec![0.0; n],
             temp: vec![t0; n],
             order: (0..n as u32).collect(),
-            rng: DeterministicRng::from_seed_u64(config.seed),
+            rng: DeterministicRng::from_seed_u64(seed),
             iter: 0,
             status,
             _marker: std::marker::PhantomData,
@@ -98,29 +127,27 @@ impl<S: Scalar> GemSolver<S> {
     pub fn num_nodes(&self) -> usize {
         self.num_nodes
     }
-}
 
-impl<S: Scalar> IterativeSolver<S> for GemSolver<S> {
-    fn step(&mut self, layout: &mut Layout2d<S>) -> CoreResult<SolverStatus> {
-        if layout.len() != self.num_nodes {
-            return Err(CoreError::dimension_mismatch(
-                self.num_nodes,
-                layout.len(),
-                "GemSolver::step",
-            ));
-        }
-        layout.validate_finite()?;
+    /// Returns the current lifecycle status.
+    #[inline]
+    pub fn status(&self) -> SolverStatus {
+        self.status
+    }
 
-        if self.status.is_finished() {
-            return Ok(self.status);
-        }
+    /// Returns the number of iterations executed so far.
+    #[inline]
+    pub fn iteration(&self) -> usize {
+        self.iter
+    }
 
+    /// Returns the scheduled maximum number of iterations.
+    #[inline]
+    pub fn total_iterations(&self) -> Option<usize> {
+        Some(self.max_iterations)
+    }
+
+    fn step_inner(&mut self, layout: &mut Layout2d<S>) -> CoreResult<SolverStatus> {
         let n = self.num_nodes;
-        if n <= 1 {
-            self.status = SolverStatus::Converged;
-            return Ok(self.status);
-        }
-
         if self.iter == 0 {
             let xs = layout.x();
             let ys = layout.y();
@@ -171,17 +198,14 @@ impl<S: Scalar> IterativeSolver<S> for GemSolver<S> {
             let vy = self.y_buf[v];
             let phi_v = self.phi[v];
 
-            // 1. Gravity toward barycenter.
             let mut px = (sum_x / n_f - vx) * gravity * phi_v;
             let mut py = (sum_y / n_f - vy) * gravity * phi_v;
 
-            // 2. Random symmetry-breaking perturbation.
             if perturbation > 0.0 {
                 px += (self.rng.next_f64() * 2.0 - 1.0) * perturbation;
                 py += (self.rng.next_f64() * 2.0 - 1.0) * perturbation;
             }
 
-            // 3. All-pairs repulsion.
             for u in 0..n {
                 if u == v {
                     continue;
@@ -196,7 +220,6 @@ impl<S: Scalar> IterativeSolver<S> for GemSolver<S> {
                 }
             }
 
-            // 4. Incident edge attraction.
             let adj_start = self.adj_indptr[v];
             let adj_end = self.adj_indptr[v + 1];
             let inv_denom = inv_e_sq / phi_v;
@@ -214,7 +237,6 @@ impl<S: Scalar> IterativeSolver<S> for GemSolver<S> {
                 py -= dy * scale;
             }
 
-            // 5. Position step and local temperature / rotation / oscillation update.
             let p_norm = px.hypot(py);
             let tv = self.temp[v];
             if p_norm > MIN_NORM && tv > 0.0 {
@@ -256,12 +278,13 @@ impl<S: Scalar> IterativeSolver<S> for GemSolver<S> {
         for i in 0..n {
             let nx = S::from_f64(self.x_buf[i]);
             let ny = S::from_f64(self.y_buf[i]);
-            if nx.is_finite() {
-                xs_mut[i] = nx;
+            if !nx.is_finite() || !ny.is_finite() {
+                return Err(CoreError::numerical_breakdown(
+                    "GemSolver coordinates became non-finite",
+                ));
             }
-            if ny.is_finite() {
-                ys_mut[i] = ny;
-            }
+            xs_mut[i] = nx;
+            ys_mut[i] = ny;
         }
 
         let mean_temp = self.temp.iter().sum::<f64>() / n_f;
@@ -275,6 +298,47 @@ impl<S: Scalar> IterativeSolver<S> for GemSolver<S> {
         };
         Ok(self.status)
     }
+}
+
+impl<S: Scalar> IterativeSolver for GemSolver<S> {
+    type Target = Layout2d<S>;
+
+    fn validate_target(&self, target: &Self::Target) -> CoreResult<()> {
+        if target.len() != self.num_nodes {
+            return Err(CoreError::dimension_mismatch(
+                self.num_nodes,
+                target.len(),
+                "GemSolver::validate_target",
+            ));
+        }
+        target.validate_finite()
+    }
+
+    fn step(&mut self, target: &mut Self::Target) -> CoreResult<SolverStatus> {
+        self.validate_target(target)?;
+
+        if self.status.is_finished() {
+            return Ok(self.status);
+        }
+
+        if self.num_nodes <= 1 {
+            self.status = SolverStatus::Converged;
+            return Ok(self.status);
+        }
+
+        match self.step_inner(target) {
+            Ok(status) => Ok(status),
+            Err(err) => {
+                if matches!(
+                    err,
+                    CoreError::NumericalBreakdown(_) | CoreError::NonFiniteValue { .. }
+                ) {
+                    self.status = SolverStatus::Failed;
+                }
+                Err(err)
+            }
+        }
+    }
 
     #[inline]
     fn status(&self) -> SolverStatus {
@@ -287,86 +351,7 @@ impl<S: Scalar> IterativeSolver<S> for GemSolver<S> {
     }
 
     #[inline]
-    fn total_iterations(&self) -> usize {
-        self.max_iterations
+    fn total_iterations(&self) -> Option<usize> {
+        Some(self.max_iterations)
     }
-}
-
-#[allow(clippy::type_complexity)]
-fn extract_undirected_adj<W: Scalar>(
-    graph: &CsrGraph<W>,
-) -> CoreResult<(usize, Vec<usize>, Vec<usize>, Vec<f64>)> {
-    let n = graph.num_nodes();
-    if u32::try_from(n).is_err() {
-        return Err(CoreError::invalid_csr("num_nodes exceeds u32::MAX"));
-    }
-    if let Some(ws) = graph.weights() {
-        for &w in ws {
-            let wf = w.to_f64();
-            if !wf.is_finite() {
-                return Err(CoreError::non_finite("GemSolver::graph_weights"));
-            }
-            if wf < 0.0 {
-                return Err(CoreError::invalid_input(
-                    "graph edge weights must be non-negative",
-                ));
-            }
-        }
-    }
-
-    let mut raw: Vec<(u32, u32, f64)> = Vec::with_capacity(graph.nnz());
-    for u in 0..n {
-        let u32_u = u as u32;
-        let nbrs = graph.neighbors(u);
-        let ws = graph.neighbor_weights(u);
-        for (pos, &v_u32) in nbrs.iter().enumerate() {
-            if u32_u == v_u32 {
-                continue;
-            }
-            let (a, b) = if u32_u < v_u32 {
-                (u32_u, v_u32)
-            } else {
-                (v_u32, u32_u)
-            };
-            raw.push((a, b, ws.map_or(1.0, |w| w[pos].to_f64())));
-        }
-    }
-    raw.sort_unstable_by_key(|x| (x.0, x.1));
-
-    let weighted = graph.is_weighted();
-    let mut directed_pairs: Vec<(usize, usize, f64)> = Vec::new();
-    let mut idx = 0usize;
-    while idx < raw.len() {
-        let (a, b, first_w) = raw[idx];
-        let mut sum_w = first_w;
-        let mut cnt = 1usize;
-        idx += 1;
-        while idx < raw.len() && raw[idx].0 == a && raw[idx].1 == b {
-            sum_w += raw[idx].2;
-            cnt += 1;
-            idx += 1;
-        }
-        let merged_w = if weighted { sum_w / (cnt as f64) } else { 1.0 };
-        let ua = a as usize;
-        let ub = b as usize;
-        directed_pairs.push((ua, ub, merged_w));
-        directed_pairs.push((ub, ua, merged_w));
-    }
-    directed_pairs.sort_unstable_by_key(|x| (x.0, x.1));
-
-    let mut indptr = vec![0usize; n + 1];
-    for &(u, _, _) in &directed_pairs {
-        indptr[u + 1] += 1;
-    }
-    for i in 0..n {
-        indptr[i + 1] += indptr[i];
-    }
-    let mut indices = Vec::with_capacity(directed_pairs.len());
-    let mut weights = Vec::with_capacity(directed_pairs.len());
-    for &(_, v, w) in &directed_pairs {
-        indices.push(v);
-        weights.push(w);
-    }
-
-    Ok((n, indptr, indices, weights))
 }

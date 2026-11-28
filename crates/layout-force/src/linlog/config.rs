@@ -1,6 +1,7 @@
 use egraph_core::{CoreError, CoreResult};
 
 /// Repulsion vertex-mass weighting model for [`LinLogSolver`](super::LinLogSolver).
+#[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum LinLogRepulsion {
     /// Edge-repulsion LinLog ($m_u = \deg_w(u)$, Noack 2007/2009 modularity connection).
@@ -11,19 +12,23 @@ pub enum LinLogRepulsion {
 }
 
 /// Hyperparameters for [`LinLogSolver`](super::LinLogSolver).
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq)]
 pub struct LinLogConfig {
     /// Total number of optimization iterations (`default: 200`).
     pub iterations: usize,
     /// Repulsion mass weighting model (`default: LinLogRepulsion::EdgeRepulsion`).
     pub repulsion_model: LinLogRepulsion,
-    /// Attraction force exponent $a$ in $\|d\|^a$ (Noack 2009 `a`; `a = 0.0` is unit pull, `r_polylog = a + 1`, `default: 0.0`).
+    /// Attraction force exponent $a$ in $\|d\|^a$ (`default: 0.0`).
     pub attraction_exponent: f64,
-    /// Repulsion force exponent $r$ in $\|d\|^r$ (Noack 2009 `r`; `r = -1.0` is $1/d$ Coulomb, `default: -1.0`).
+    /// Repulsion force exponent $r$ in $\|d\|^r$ (`default: -1.0`).
     pub repulsion_exponent: f64,
-    /// Barnes-Hut quadtree opening angle threshold $\theta \ge 0$ (`default: 1.2`).
+    /// Barnes-Hut spatial tree opening angle threshold $\theta \ge 0$ (`default: 1.2`).
     pub theta: f64,
-    /// Whether to use $O(N \log N)$ Barnes-Hut quadtree repulsion (`default: true`).
+    /// Whether to use $O(N \log N)$ Barnes-Hut spatial tree repulsion (`default: true`).
+    ///
+    /// Supported on [`Layout2d`](egraph_core::Layout2d) and [`Layout3d`](egraph_core::Layout3d);
+    /// must be `false` on [`LayoutNd`](egraph_core::LayoutNd).
     pub use_barnes_hut: bool,
     /// Gravitational pull coefficient toward mass barycenter $b(p)$ (`default: 0.01`).
     pub gravity: f64,
@@ -53,6 +58,71 @@ impl Default for LinLogConfig {
 }
 
 impl LinLogConfig {
+    /// Creates a new [`LinLogConfig`] initialized with [`Self::default`].
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets the total number of optimization iterations.
+    pub fn with_iterations(mut self, iterations: usize) -> Self {
+        self.iterations = iterations;
+        self
+    }
+
+    /// Sets the repulsion mass weighting model.
+    pub fn with_repulsion_model(mut self, repulsion_model: LinLogRepulsion) -> Self {
+        self.repulsion_model = repulsion_model;
+        self
+    }
+
+    /// Sets the attraction force exponent `a`.
+    pub fn with_attraction_exponent(mut self, attraction_exponent: f64) -> Self {
+        self.attraction_exponent = attraction_exponent;
+        self
+    }
+
+    /// Sets the repulsion force exponent `r`.
+    pub fn with_repulsion_exponent(mut self, repulsion_exponent: f64) -> Self {
+        self.repulsion_exponent = repulsion_exponent;
+        self
+    }
+
+    /// Sets the Barnes-Hut spatial tree opening angle threshold `theta`.
+    pub fn with_theta(mut self, theta: f64) -> Self {
+        self.theta = theta;
+        self
+    }
+
+    /// Enables or disables Barnes-Hut spatial tree repulsion.
+    pub fn with_use_barnes_hut(mut self, use_barnes_hut: bool) -> Self {
+        self.use_barnes_hut = use_barnes_hut;
+        self
+    }
+
+    /// Sets the gravitational pull coefficient toward the mass barycenter.
+    pub fn with_gravity(mut self, gravity: f64) -> Self {
+        self.gravity = gravity;
+        self
+    }
+
+    /// Sets the exponent applied to edge weights.
+    pub fn with_edge_weight_influence(mut self, edge_weight_influence: f64) -> Self {
+        self.edge_weight_influence = edge_weight_influence;
+        self
+    }
+
+    /// Sets an optional per-step vertex displacement cap.
+    pub fn with_max_displacement(mut self, max_displacement: Option<f64>) -> Self {
+        self.max_displacement = max_displacement;
+        self
+    }
+
+    /// Sets the deterministic explicit RNG seed.
+    pub fn with_seed(mut self, seed: u64) -> Self {
+        self.seed = seed;
+        self
+    }
+
     /// Validates all LinLog hyperparameters.
     pub fn validate(&self) -> CoreResult<()> {
         if !self.attraction_exponent.is_finite() {

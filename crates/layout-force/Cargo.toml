@@ -2,8 +2,10 @@
 name = "egraph-layout-force"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+description = "Single-threaded force-directed graph layout solvers (ForceAtlas2, Yifan Hu, Fruchterman-Reingold, LinLog, GEM) for egraph-rs"
 
 [features]
 default = []

@@ -1,38 +1,25 @@
-//! Force-directed placement and edge bundling solvers for `egraph-rs`.
+//! Force-directed graph layout solvers for `egraph-rs`.
 
-pub mod continuous_fdp;
-pub mod fdeb;
+mod coarsening;
+mod force_atlas2;
 #[cfg(feature = "baselines")]
-pub mod fr;
+mod fr;
 #[cfg(feature = "baselines")]
-pub mod gem;
+mod gem;
+mod graph_edges;
 #[cfg(feature = "baselines")]
-pub mod linlog;
+mod linlog;
 #[cfg(feature = "baselines")]
 mod manifold_utils;
+mod repulsion;
+mod yifan_hu;
 
-pub use continuous_fdp::{
-    ContinuousFdp, ForceAtlas2Config, ForceAtlas2Solver, YifanHuConfig, YifanHuSolver,
-};
-pub use fdeb::{FdebConfig, FdebSolver};
+pub use force_atlas2::{ForceAtlas2Config, ForceAtlas2Solver};
 #[cfg(feature = "baselines")]
 pub use fr::{FrBackend, FruchtermanReingoldConfig, FruchtermanReingoldSolver};
 #[cfg(feature = "baselines")]
 pub use gem::{GemConfig, GemSolver};
 #[cfg(feature = "baselines")]
 pub use linlog::{LinLogConfig, LinLogRepulsion, LinLogSolver};
-
-/// Returns the crate version.
-pub fn crate_version() -> &'static str {
-    env!("CARGO_PKG_VERSION")
-}
-
-#[cfg(test)]
-mod tests {
-    use super::crate_version;
-
-    #[test]
-    fn layout_force_crate_version_non_empty() {
-        assert!(!crate_version().is_empty());
-    }
-}
+pub use repulsion::CoulombRepulsionBackend;
+pub use yifan_hu::{YifanHuConfig, YifanHuSolver};

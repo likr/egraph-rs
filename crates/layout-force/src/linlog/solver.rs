@@ -1,18 +1,34 @@
-#[cfg(doc)]
-use egraph_core::IterativeSolver;
-use egraph_core::{CoreError, CoreResult, CsrGraph, Layout2d, LayoutNd, Scalar, SolverStatus};
-use egraph_spatial_trees::ArenaQuadtree2d;
+use std::any::{Any, TypeId};
+use std::marker::PhantomData;
+
+use egraph_core::{
+    CoreError, CoreResult, CsrGraph, EuclideanLayout, IterativeSolver, Layout2d, Layout3d,
+    LayoutNd, Scalar, SolverStatus,
+};
+use egraph_spatial_trees::{ArenaOctree3d, ArenaQuadtree2d};
+
+use crate::graph_edges::{
+    extract_canonical_undirected_edges, extract_canonical_undirected_unweighted_edges,
+};
 
 use super::ISOLATED_NODE_MASS;
 use super::config::{LinLogConfig, LinLogRepulsion};
-use super::nd::LinLogNdScratch;
+use super::dim3::step_3d;
+use super::energy::compute_energy;
+use super::nd::{LinLogNdScratch, step_nd};
 use super::quadtree::GenRepulsionQuadtree;
+use super::step2d::step_2d;
 
 const MAX_LINLOG_DISPLACEMENT: f64 = 50.0;
+pub(super) const COULOMB_EPS_SQ: f64 = 1e-6;
+pub(super) const MIN_LINLOG_SPEED: f64 = 1e-4;
+pub(super) const MAX_LINLOG_SPEED: f64 = 10.0;
 
-/// Cooperative true Noack (2007/2009) LinLog / $(a, r)$-PolyLog solver implementing [`IterativeSolver`].
+pub(super) type LinLogValidateFn<L> = fn(&LinLogState, &L) -> CoreResult<()>;
+pub(super) type LinLogStepFn<L> = fn(&mut LinLogState, &mut L) -> CoreResult<()>;
+
 #[derive(Debug, Clone)]
-pub struct LinLogSolver<S: Scalar = f64> {
+pub(super) struct LinLogState {
     pub(super) config: LinLogConfig,
     pub(super) num_nodes: usize,
     pub(super) edges_u: Vec<u32>,
@@ -22,30 +38,93 @@ pub struct LinLogSolver<S: Scalar = f64> {
     pub(super) total_mass: f64,
     pub(super) x_buf: Vec<f64>,
     pub(super) y_buf: Vec<f64>,
+    pub(super) z_buf: Vec<f64>,
     pub(super) fx: Vec<f64>,
     pub(super) fy: Vec<f64>,
+    pub(super) fz: Vec<f64>,
     pub(super) prev_fx: Vec<f64>,
     pub(super) prev_fy: Vec<f64>,
+    pub(super) prev_fz: Vec<f64>,
     pub(super) swing_buf: Vec<f64>,
     pub(super) att_hess: Vec<f64>,
     pub(super) rep_x: Vec<f64>,
     pub(super) rep_y: Vec<f64>,
+    pub(super) rep_3d_flat: Vec<f64>,
     pub(super) quadtree: ArenaQuadtree2d<f64>,
     pub(super) gen_quadtree: GenRepulsionQuadtree,
+    pub(super) octree: ArenaOctree3d<f64>,
     pub(super) global_speed: f64,
     pub(super) max_displacement: f64,
-    pub(super) active_dims: usize,
+    pub(super) locked_nd_dims: Option<usize>,
     pub(super) nd_scratch: Option<LinLogNdScratch>,
     pub(super) iter: usize,
     pub(super) status: SolverStatus,
-    _marker: std::marker::PhantomData<S>,
 }
 
-impl<S: Scalar> LinLogSolver<S> {
+/// Cooperative true Noack (2007/2009) LinLog / $(a, r)$-PolyLog solver implementing
+/// [`IterativeSolver`].
+///
+/// Supports:
+/// - [`Layout2d`]: `use_barnes_hut` (`ArenaQuadtree2d` / `GenRepulsionQuadtree`) and exact.
+/// - [`Layout3d`]: `use_barnes_hut` (`ArenaOctree3d`) and exact.
+/// - [`LayoutNd`]: exact only (`use_barnes_hut` must be `false`).
+#[derive(Debug, Clone)]
+pub struct LinLogSolver<L: EuclideanLayout = Layout2d<f64>> {
+    state: LinLogState,
+    validate_fn: LinLogValidateFn<L>,
+    step_fn: LinLogStepFn<L>,
+    _layout: PhantomData<fn() -> L>,
+}
+
+impl<L: EuclideanLayout + 'static> LinLogSolver<L> {
     /// Constructs a [`LinLogSolver`] from a [`CsrGraph`] and [`LinLogConfig`].
     pub fn new<W: Scalar>(graph: &CsrGraph<W>, config: LinLogConfig) -> CoreResult<Self> {
         config.validate()?;
-        let (n, edges_u, edges_v, raw_weights) = extract_canonical_undirected_edges(graph)?;
+        let (n, edges_u, edges_v, raw_weights, _) =
+            extract_canonical_undirected_edges(graph, "LinLogSolver::graph_weights")?;
+        Self::from_canonical_edges(n, edges_u, edges_v, raw_weights, config)
+    }
+
+    /// Constructs a [`LinLogSolver`] from an unweighted [`CsrGraph<W>`] (or ignoring stored edge
+    /// weights) without requiring `W: Scalar`.
+    pub fn new_unweighted<W>(graph: &CsrGraph<W>, config: LinLogConfig) -> CoreResult<Self> {
+        config.validate()?;
+        let (n, edges_u, edges_v, raw_weights, _) =
+            extract_canonical_undirected_unweighted_edges(graph)?;
+        Self::from_canonical_edges(n, edges_u, edges_v, raw_weights, config)
+    }
+
+    fn from_canonical_edges(
+        n: usize,
+        edges_u: Vec<u32>,
+        edges_v: Vec<u32>,
+        raw_weights: Vec<f64>,
+        config: LinLogConfig,
+    ) -> CoreResult<Self> {
+        let tid = TypeId::of::<L>();
+        let is_2d = tid == TypeId::of::<Layout2d<L::Scalar>>();
+        let is_3d = tid == TypeId::of::<Layout3d<L::Scalar>>();
+        let is_nd = tid == TypeId::of::<LayoutNd<L::Scalar>>();
+
+        if is_nd && config.use_barnes_hut {
+            return Err(CoreError::unsupported(
+                "LinLog Barnes-Hut repulsion is not supported on LayoutNd; use Layout3d for 3D Barnes-Hut, Layout2d for 2D, or set use_barnes_hut = false (Exact) for arbitrary N-D",
+            ));
+        }
+        if !is_2d && !is_3d && !is_nd {
+            return Err(CoreError::unsupported(
+                "LinLogSolver supports Layout2d, Layout3d, and LayoutNd",
+            ));
+        }
+
+        let (validate_fn, step_fn): (LinLogValidateFn<L>, LinLogStepFn<L>) = if is_2d {
+            (validate_basic::<L>, step_any_2d::<L>)
+        } else if is_3d {
+            (validate_basic::<L>, step_any_3d::<L>)
+        } else {
+            (validate_nd::<L>, step_any_nd::<L>)
+        };
+
         let max_displacement = config
             .max_displacement
             .unwrap_or_else(|| MAX_LINLOG_DISPLACEMENT * ((n as f64) / 1000.0).sqrt().max(1.0));
@@ -68,8 +147,6 @@ impl<S: Scalar> LinLogSolver<S> {
             weighted_deg[edges_v[idx] as usize] += w_eff;
         }
 
-        // Per Noack (2007) §3.6, assign a small positive fallback weight to degree-0 nodes
-        // so barycenter and repulsion remain well-defined without NaNs or inert overlaps.
         let mut masses = Vec::with_capacity(n);
         let mut total_mass = 0.0_f64;
         for &d in &weighted_deg {
@@ -87,14 +164,21 @@ impl<S: Scalar> LinLogSolver<S> {
             total_mass += m;
         }
 
-        let rep_len = if config.use_barnes_hut { n } else { 0 };
+        let len_2d3d = if is_2d || is_3d { n } else { 0 };
+        let len_3d = if is_3d { n } else { 0 };
+        let rep_2d_len = if is_2d && config.use_barnes_hut { n } else { 0 };
+        let rep_3d_len = if is_3d && config.use_barnes_hut {
+            n * 3
+        } else {
+            0
+        };
         let status = if config.iterations == 0 {
             SolverStatus::Completed
         } else {
             SolverStatus::Initialized
         };
 
-        Ok(Self {
+        let state = LinLogState {
             config,
             num_nodes: n,
             edges_u,
@@ -102,331 +186,205 @@ impl<S: Scalar> LinLogSolver<S> {
             edges_w,
             masses,
             total_mass,
-            x_buf: vec![0.0; n],
-            y_buf: vec![0.0; n],
-            fx: vec![0.0; n],
-            fy: vec![0.0; n],
-            prev_fx: vec![0.0; n],
-            prev_fy: vec![0.0; n],
+            x_buf: vec![0.0; len_2d3d],
+            y_buf: vec![0.0; len_2d3d],
+            z_buf: vec![0.0; len_3d],
+            fx: vec![0.0; len_2d3d],
+            fy: vec![0.0; len_2d3d],
+            fz: vec![0.0; len_3d],
+            prev_fx: vec![0.0; len_2d3d],
+            prev_fy: vec![0.0; len_2d3d],
+            prev_fz: vec![0.0; len_3d],
             swing_buf: vec![0.0; n],
-            att_hess: vec![0.0; n],
-            rep_x: vec![0.0; rep_len],
-            rep_y: vec![0.0; rep_len],
+            att_hess: vec![0.0; len_2d3d],
+            rep_x: vec![0.0; rep_2d_len],
+            rep_y: vec![0.0; rep_2d_len],
+            rep_3d_flat: vec![0.0; rep_3d_len],
             quadtree: ArenaQuadtree2d::new(),
             gen_quadtree: GenRepulsionQuadtree::default(),
+            octree: ArenaOctree3d::new(),
             global_speed: 1.0,
             max_displacement,
-            active_dims: 0,
+            locked_nd_dims: None,
             nd_scratch: None,
             iter: 0,
             status,
-            _marker: std::marker::PhantomData,
+        };
+
+        Ok(Self {
+            state,
+            validate_fn,
+            step_fn,
+            _layout: PhantomData,
         })
     }
+}
 
+impl<L: EuclideanLayout> LinLogSolver<L> {
     /// Returns the solver configuration.
     #[inline]
     pub fn config(&self) -> &LinLogConfig {
-        &self.config
+        &self.state.config
     }
 
-    /// Returns the expected number of vertices in [`Layout2d`] or [`egraph_core::LayoutNd`].
+    /// Returns the expected number of vertices in the target layout.
     #[inline]
     pub fn num_nodes(&self) -> usize {
-        self.num_nodes
+        self.state.num_nodes
     }
 
     /// Returns the current lifecycle status.
     #[inline]
     pub fn status(&self) -> SolverStatus {
-        self.status
+        self.state.status
     }
 
     /// Returns the number of iterations executed so far.
     #[inline]
     pub fn iteration(&self) -> usize {
-        self.iter
+        self.state.iter
     }
 
     /// Returns the scheduled maximum number of iterations.
     #[inline]
-    pub fn total_iterations(&self) -> usize {
-        self.config.iterations
+    pub fn total_iterations(&self) -> Option<usize> {
+        Some(self.state.config.iterations)
     }
 
     /// Returns the per-node repulsion masses ($1$ for node-repulsion, $\deg_w(u)$ for edge-repulsion).
     #[inline]
     pub fn masses(&self) -> &[f64] {
-        &self.masses
+        &self.state.masses
     }
 
     /// Returns the effective per-step vertex displacement cap.
     #[inline]
     pub fn max_displacement(&self) -> f64 {
-        self.max_displacement
+        self.state.max_displacement
     }
 
     /// Evaluates the exact Noack (2009) $(a, r)$-LinLog energy $U_{(a,r)}(p)$ of `layout`.
-    pub fn energy<T: Scalar>(&self, layout: &Layout2d<T>) -> CoreResult<f64> {
-        if layout.len() != self.num_nodes {
-            return Err(CoreError::dimension_mismatch(
-                self.num_nodes,
-                layout.len(),
-                "LinLogSolver::energy",
-            ));
-        }
-        layout.validate_finite()?;
-        let n = self.num_nodes;
-        if n <= 1 {
-            return Ok(0.0);
-        }
-
-        let xs = layout.x();
-        let ys = layout.y();
-        let a = self.config.attraction_exponent;
-        let r = self.config.repulsion_exponent;
-        let a_plus_1 = a + 1.0;
-        let r_plus_1 = r + 1.0;
-
-        let mut u_att = 0.0_f64;
-        for idx in 0..self.edges_u.len() {
-            let u = self.edges_u[idx] as usize;
-            let v = self.edges_v[idx] as usize;
-            let w = self.edges_w[idx];
-            if w == 0.0 {
-                continue;
-            }
-            let d = (xs[u].to_f64() - xs[v].to_f64()).hypot(ys[u].to_f64() - ys[v].to_f64());
-            let d_safe = d.max(1e-12);
-            let term = if a_plus_1.abs() <= 1e-12 {
-                d_safe.ln()
-            } else {
-                d_safe.powf(a_plus_1) / a_plus_1
-            };
-            u_att += w * term;
-        }
-
-        let mut u_rep = 0.0_f64;
-        for i in 0..n {
-            let xi = xs[i].to_f64();
-            let yi = ys[i].to_f64();
-            let mi = self.masses[i];
-            for j in (i + 1)..n {
-                let d_safe = (xi - xs[j].to_f64()).hypot(yi - ys[j].to_f64()).max(1e-12);
-                let term = if r_plus_1.abs() <= 1e-12 {
-                    d_safe.ln()
-                } else {
-                    d_safe.powf(r_plus_1) / r_plus_1
-                };
-                u_rep -= mi * self.masses[j] * term;
-            }
-        }
-
-        let mut u_grav = 0.0_f64;
-        if self.config.gravity > 0.0 && self.total_mass > 0.0 {
-            let mut bx = 0.0_f64;
-            let mut by = 0.0_f64;
-            for i in 0..n {
-                bx += self.masses[i] * xs[i].to_f64();
-                by += self.masses[i] * ys[i].to_f64();
-            }
-            bx /= self.total_mass;
-            by /= self.total_mass;
-            for i in 0..n {
-                let d = (xs[i].to_f64() - bx).hypot(ys[i].to_f64() - by);
-                let d_safe = d.max(1e-12);
-                let term = if a_plus_1.abs() <= 1e-12 {
-                    d_safe.ln()
-                } else {
-                    d_safe.powf(a_plus_1) / a_plus_1
-                };
-                u_grav += self.config.gravity * self.masses[i] * term;
-            }
-        }
-
-        Ok(u_att + u_rep + u_grav)
-    }
-
-    /// Evaluates the exact Noack (2009) $(a, r)$-LinLog energy $U_{(a,r)}(p)$ of an N-D `layout`.
-    pub fn energy_nd<T: Scalar>(&self, layout: &LayoutNd<T>) -> CoreResult<f64> {
-        if layout.len() != self.num_nodes {
-            return Err(CoreError::dimension_mismatch(
-                self.num_nodes,
-                layout.len(),
-                "LinLogSolver::energy_nd",
-            ));
-        }
-        let dims = layout.dims();
-        if dims == 0 {
-            return Err(CoreError::invalid_input("LayoutNd dims must be >= 1"));
-        }
-        layout.validate_finite()?;
-        let n = self.num_nodes;
-        if n <= 1 {
-            return Ok(0.0);
-        }
-
-        let coords = layout.coords();
-        let a = self.config.attraction_exponent;
-        let r = self.config.repulsion_exponent;
-        let a_plus_1 = a + 1.0;
-        let r_plus_1 = r + 1.0;
-
-        let mut u_att = 0.0_f64;
-        for idx in 0..self.edges_u.len() {
-            let u = self.edges_u[idx] as usize;
-            let v = self.edges_v[idx] as usize;
-            let w = self.edges_w[idx];
-            if w == 0.0 {
-                continue;
-            }
-            let base_u = u * dims;
-            let base_v = v * dims;
-            let mut d_sq = 0.0_f64;
-            for axis in 0..dims {
-                let delta = coords[base_u + axis].to_f64() - coords[base_v + axis].to_f64();
-                d_sq += delta * delta;
-            }
-            let d_safe = d_sq.sqrt().max(1e-12);
-            let term = if a_plus_1.abs() <= 1e-12 {
-                d_safe.ln()
-            } else {
-                d_safe.powf(a_plus_1) / a_plus_1
-            };
-            u_att += w * term;
-        }
-
-        let mut u_rep = 0.0_f64;
-        for i in 0..n {
-            let base_i = i * dims;
-            let mi = self.masses[i];
-            for (j, &mj) in self.masses.iter().enumerate().take(n).skip(i + 1) {
-                let base_j = j * dims;
-                let mut d_sq = 0.0_f64;
-                for axis in 0..dims {
-                    let delta = coords[base_i + axis].to_f64() - coords[base_j + axis].to_f64();
-                    d_sq += delta * delta;
-                }
-                let d_safe = d_sq.sqrt().max(1e-12);
-                let term = if r_plus_1.abs() <= 1e-12 {
-                    d_safe.ln()
-                } else {
-                    d_safe.powf(r_plus_1) / r_plus_1
-                };
-                u_rep -= mi * mj * term;
-            }
-        }
-
-        let mut u_grav = 0.0_f64;
-        if self.config.gravity > 0.0 && self.total_mass > 0.0 {
-            let mut barycenter = vec![0.0_f64; dims];
-            for (i, &m) in self.masses.iter().enumerate().take(n) {
-                let base = i * dims;
-                for axis in 0..dims {
-                    barycenter[axis] += m * coords[base + axis].to_f64();
-                }
-            }
-            for b in &mut barycenter {
-                *b /= self.total_mass;
-            }
-            for i in 0..n {
-                let base = i * dims;
-                let mut d_sq = 0.0_f64;
-                for axis in 0..dims {
-                    let delta = coords[base + axis].to_f64() - barycenter[axis];
-                    d_sq += delta * delta;
-                }
-                let d_safe = d_sq.sqrt().max(1e-12);
-                let term = if a_plus_1.abs() <= 1e-12 {
-                    d_safe.ln()
-                } else {
-                    d_safe.powf(a_plus_1) / a_plus_1
-                };
-                u_grav += self.config.gravity * self.masses[i] * term;
-            }
-        }
-
-        Ok(u_att + u_rep + u_grav)
+    pub fn energy(&self, layout: &L) -> CoreResult<f64> {
+        self.validate_target(layout)?;
+        compute_energy(&self.state, layout)
     }
 }
 
-#[allow(clippy::type_complexity)]
-fn extract_canonical_undirected_edges<W: Scalar>(
-    graph: &CsrGraph<W>,
-) -> CoreResult<(usize, Vec<u32>, Vec<u32>, Vec<f64>)> {
-    let n = graph.num_nodes();
-    if u32::try_from(n).is_err() {
-        return Err(CoreError::invalid_csr("num_nodes exceeds u32::MAX"));
-    }
-    if let Some(ws) = graph.weights() {
-        for &w in ws {
-            let wf = w.to_f64();
-            if !wf.is_finite() {
-                return Err(CoreError::non_finite("linlog::graph_weights"));
-            }
-            if wf < 0.0 {
-                return Err(CoreError::invalid_input(
-                    "graph edge weights must be non-negative",
-                ));
-            }
-        }
+impl<L: EuclideanLayout> IterativeSolver for LinLogSolver<L> {
+    type Target = L;
+
+    fn validate_target(&self, target: &Self::Target) -> CoreResult<()> {
+        (self.validate_fn)(&self.state, target)
     }
 
-    let mut edges_u = Vec::new();
-    let mut edges_v = Vec::new();
-    let mut edges_w = Vec::new();
+    fn step(&mut self, target: &mut Self::Target) -> CoreResult<SolverStatus> {
+        self.validate_target(target)?;
 
-    if !graph.is_directed() {
-        for u in 0..n {
-            let u32_u = u as u32;
-            let nbrs = graph.neighbors(u);
-            let ws = graph.neighbor_weights(u);
-            for (pos, &v_u32) in nbrs.iter().enumerate() {
-                if u32_u < v_u32 {
-                    edges_u.push(u32_u);
-                    edges_v.push(v_u32);
-                    edges_w.push(ws.map_or(1.0, |w| w[pos].to_f64()));
-                }
-            }
+        if self.state.status.is_finished() {
+            return Ok(self.state.status);
         }
-    } else {
-        let mut raw: Vec<(u32, u32, f64)> = Vec::with_capacity(graph.nnz());
-        for u in 0..n {
-            let u32_u = u as u32;
-            let nbrs = graph.neighbors(u);
-            let ws = graph.neighbor_weights(u);
-            for (pos, &v_u32) in nbrs.iter().enumerate() {
-                if u32_u == v_u32 {
-                    continue;
-                }
-                let (a, b) = if u32_u < v_u32 {
-                    (u32_u, v_u32)
-                } else {
-                    (v_u32, u32_u)
-                };
-                raw.push((a, b, ws.map_or(1.0, |w| w[pos].to_f64())));
-            }
-        }
-        raw.sort_unstable_by_key(|x| (x.0, x.1));
 
-        let weighted = graph.is_weighted();
-        let mut idx = 0usize;
-        while idx < raw.len() {
-            let (a, b, first_w) = raw[idx];
-            let mut sum_w = first_w;
-            let mut cnt = 1usize;
-            idx += 1;
-            while idx < raw.len() && raw[idx].0 == a && raw[idx].1 == b {
-                sum_w += raw[idx].2;
-                cnt += 1;
-                idx += 1;
-            }
-            let merged_w = if weighted { sum_w / (cnt as f64) } else { 1.0 };
-            edges_u.push(a);
-            edges_v.push(b);
-            edges_w.push(merged_w);
+        if self.state.num_nodes <= 1 {
+            self.state.status = SolverStatus::Converged;
+            return Ok(self.state.status);
         }
+
+        if let Err(err) = (self.step_fn)(&mut self.state, target) {
+            if matches!(
+                err,
+                CoreError::NumericalBreakdown(_) | CoreError::NonFiniteValue { .. }
+            ) {
+                self.state.status = SolverStatus::Failed;
+            }
+            return Err(err);
+        }
+
+        self.state.iter += 1;
+        self.state.status = if self.state.iter >= self.state.config.iterations {
+            SolverStatus::Completed
+        } else {
+            SolverStatus::Running
+        };
+        Ok(self.state.status)
     }
 
-    Ok((n, edges_u, edges_v, edges_w))
+    #[inline]
+    fn status(&self) -> SolverStatus {
+        self.state.status
+    }
+
+    #[inline]
+    fn iteration(&self) -> usize {
+        self.state.iter
+    }
+
+    #[inline]
+    fn total_iterations(&self) -> Option<usize> {
+        Some(self.state.config.iterations)
+    }
+}
+
+fn validate_basic<L: EuclideanLayout>(state: &LinLogState, target: &L) -> CoreResult<()> {
+    if target.len() != state.num_nodes {
+        return Err(CoreError::dimension_mismatch(
+            state.num_nodes,
+            target.len(),
+            "LinLogSolver::validate_target",
+        ));
+    }
+    target.validate_finite()
+}
+
+fn validate_nd<L: EuclideanLayout>(state: &LinLogState, target: &L) -> CoreResult<()> {
+    if target.len() != state.num_nodes {
+        return Err(CoreError::dimension_mismatch(
+            state.num_nodes,
+            target.len(),
+            "LinLogSolver::validate_target",
+        ));
+    }
+    let dims = target.dims();
+    if dims == 0 {
+        return Err(CoreError::invalid_input("LayoutNd dims must be >= 1"));
+    }
+    if let Some(prev) = state.locked_nd_dims
+        && prev != dims
+    {
+        return Err(CoreError::dimension_mismatch(
+            prev,
+            dims,
+            "LinLogSolver::validate_target::dims",
+        ));
+    }
+    target.validate_finite()
+}
+
+fn step_any_2d<L: EuclideanLayout + 'static>(
+    state: &mut LinLogState,
+    target: &mut L,
+) -> CoreResult<()> {
+    let layout = (target as &mut dyn Any)
+        .downcast_mut::<Layout2d<L::Scalar>>()
+        .ok_or_else(|| CoreError::numerical_breakdown("LinLogSolver target type mismatch"))?;
+    step_2d(state, layout)
+}
+
+fn step_any_3d<L: EuclideanLayout + 'static>(
+    state: &mut LinLogState,
+    target: &mut L,
+) -> CoreResult<()> {
+    let layout = (target as &mut dyn Any)
+        .downcast_mut::<Layout3d<L::Scalar>>()
+        .ok_or_else(|| CoreError::numerical_breakdown("LinLogSolver target type mismatch"))?;
+    step_3d(state, layout)
+}
+
+fn step_any_nd<L: EuclideanLayout + 'static>(
+    state: &mut LinLogState,
+    target: &mut L,
+) -> CoreResult<()> {
+    let layout = (target as &mut dyn Any)
+        .downcast_mut::<LayoutNd<L::Scalar>>()
+        .ok_or_else(|| CoreError::numerical_breakdown("LinLogSolver target type mismatch"))?;
+    step_nd(state, layout)
 }

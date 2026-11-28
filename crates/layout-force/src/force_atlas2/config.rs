@@ -1,13 +1,17 @@
 use egraph_core::{CoreError, CoreResult};
 
 /// Hyperparameters for [`ForceAtlas2Solver`](super::ForceAtlas2Solver).
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ForceAtlas2Config {
     /// Total number of ForceAtlas2 iterations (`default: 200`).
     pub iterations: usize,
-    /// Barnes-Hut quadtree opening angle threshold $\theta \ge 0$ (`default: 1.2`).
+    /// Barnes-Hut spatial tree opening angle threshold $\theta \ge 0$ (`default: 1.2`).
     pub theta: f64,
-    /// Whether to use $O(N \log N)$ Barnes-Hut quadtree repulsion (`default: true`).
+    /// Whether to use $O(N \log N)$ Barnes-Hut spatial tree repulsion (`default: true`).
+    ///
+    /// Supported on [`Layout2d`](egraph_core::Layout2d) and [`Layout3d`](egraph_core::Layout3d);
+    /// must be `false` on [`LayoutNd`](egraph_core::LayoutNd).
     pub use_barnes_hut: bool,
     /// Whether to use Jacomy et al. (2014) ForceAtlas2 logarithmic attraction
     /// $F_{\mathrm{att}}(d) = w \frac{\ln(1 + d)}{d} (p_v - p_u)$ (`default: false`).
@@ -60,6 +64,98 @@ impl Default for ForceAtlas2Config {
 }
 
 impl ForceAtlas2Config {
+    /// Creates a new [`ForceAtlas2Config`] initialized with [`Self::default`].
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets the total number of iterations.
+    pub fn with_iterations(mut self, iterations: usize) -> Self {
+        self.iterations = iterations;
+        self
+    }
+
+    /// Sets the Barnes-Hut opening angle threshold `theta`.
+    pub fn with_theta(mut self, theta: f64) -> Self {
+        self.theta = theta;
+        self
+    }
+
+    /// Enables or disables Barnes-Hut spatial tree repulsion.
+    pub fn with_use_barnes_hut(mut self, use_barnes_hut: bool) -> Self {
+        self.use_barnes_hut = use_barnes_hut;
+        self
+    }
+
+    /// Enables or disables ForceAtlas2 logarithmic attraction mode.
+    pub fn with_linlog_mode(mut self, linlog_mode: bool) -> Self {
+        self.linlog_mode = linlog_mode;
+        self
+    }
+
+    /// Enables or disables strong gravity mode.
+    pub fn with_strong_gravity(mut self, strong_gravity: bool) -> Self {
+        self.strong_gravity = strong_gravity;
+        self
+    }
+
+    /// Sets the gravitational pull coefficient toward the origin.
+    pub fn with_gravity(mut self, gravity: f64) -> Self {
+        self.gravity = gravity;
+        self
+    }
+
+    /// Sets the repulsion scaling ratio `scaling_ratio`.
+    pub fn with_scaling_ratio(mut self, scaling_ratio: f64) -> Self {
+        self.scaling_ratio = scaling_ratio;
+        self
+    }
+
+    /// Sets the exponent applied to edge weights.
+    pub fn with_edge_weight_influence(mut self, edge_weight_influence: f64) -> Self {
+        self.edge_weight_influence = edge_weight_influence;
+        self
+    }
+
+    /// Enables or disables outbound attraction distribution (hub dissuasion).
+    pub fn with_outbound_attraction_distribution(
+        mut self,
+        outbound_attraction_distribution: bool,
+    ) -> Self {
+        self.outbound_attraction_distribution = outbound_attraction_distribution;
+        self
+    }
+
+    /// Sets the adaptive swing jitter tolerance.
+    pub fn with_jitter_tolerance(mut self, jitter_tolerance: f64) -> Self {
+        self.jitter_tolerance = jitter_tolerance;
+        self
+    }
+
+    /// Sets an optional per-step vertex displacement cap.
+    pub fn with_max_displacement(mut self, max_displacement: Option<f64>) -> Self {
+        self.max_displacement = max_displacement;
+        self
+    }
+
+    /// Enables or disables border-to-border node overlap prevention.
+    pub fn with_prevent_overlap(mut self, prevent_overlap: bool) -> Self {
+        self.prevent_overlap = prevent_overlap;
+        self
+    }
+
+    /// Sets the default node radius used when constructed without explicit `node_radii`.
+    pub fn with_default_node_radius(mut self, default_node_radius: f64) -> Self {
+        self.default_node_radius = default_node_radius;
+        self
+    }
+
+    /// Sets the deterministic explicit RNG seed.
+    pub fn with_seed(mut self, seed: u64) -> Self {
+        self.seed = seed;
+        self
+    }
+
     /// Validates all ForceAtlas2 hyperparameters.
     pub fn validate(&self) -> CoreResult<()> {
         if !self.theta.is_finite() || self.theta < 0.0 {
@@ -103,104 +199,6 @@ impl ForceAtlas2Config {
             return Err(CoreError::invalid_input(format!(
                 "default_node_radius must be finite and >= 0.0, got {}",
                 self.default_node_radius
-            )));
-        }
-        Ok(())
-    }
-}
-
-/// Hyperparameters for [`YifanHuSolver`](super::YifanHuSolver).
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct YifanHuConfig {
-    /// Maximum iterations executed at each multilevel scale (`default: 200`).
-    pub max_iterations_per_level: usize,
-    /// Initial step size multiplier relative to level optimal distance (`default: 1.0`).
-    pub step_size: f64,
-    /// Adaptive step cooling/expansion ratio in `(0.0, 1.0)` (`default: 0.9`).
-    pub step_ratio: f64,
-    /// Repulsion strength coefficient $C$ in $C K^2 / d$ (`default: 0.2`).
-    pub relative_strength: f64,
-    /// Optional explicit finest-level optimal edge length $K_0$ (`None` defaults to `1.0`).
-    pub optimal_distance: Option<f64>,
-    /// Barnes-Hut quadtree opening angle threshold $\theta \ge 0$ (`default: 1.2`).
-    pub theta: f64,
-    /// Stop coarsening once vertex count drops to or below this size (`default: 30`).
-    pub min_coarsen_size: usize,
-    /// Stop coarsening if `coarse_nodes / fine_nodes >= min_coarsen_ratio` (`default: 0.75`).
-    pub min_coarsen_ratio: f64,
-    /// Convergence displacement tolerance relative to $K_{\text{level}}$ (`default: 1e-4`).
-    pub convergence_tolerance: f64,
-    /// Deterministic explicit RNG seed for prolongation jitter (`default: 42`).
-    pub seed: u64,
-}
-
-impl Default for YifanHuConfig {
-    fn default() -> Self {
-        Self {
-            max_iterations_per_level: 200,
-            step_size: 1.0,
-            step_ratio: 0.9,
-            relative_strength: 0.2,
-            optimal_distance: None,
-            theta: 1.2,
-            min_coarsen_size: 30,
-            min_coarsen_ratio: 0.75,
-            convergence_tolerance: 1e-4,
-            seed: 42,
-        }
-    }
-}
-
-impl YifanHuConfig {
-    /// Validates all Yifan Hu hyperparameters.
-    pub fn validate(&self) -> CoreResult<()> {
-        if !self.step_size.is_finite() || self.step_size <= 0.0 {
-            return Err(CoreError::invalid_input(format!(
-                "step_size must be finite and > 0.0, got {}",
-                self.step_size
-            )));
-        }
-        if !self.step_ratio.is_finite() || self.step_ratio <= 0.0 || self.step_ratio >= 1.0 {
-            return Err(CoreError::invalid_input(format!(
-                "step_ratio must be finite and in (0.0, 1.0), got {}",
-                self.step_ratio
-            )));
-        }
-        if !self.relative_strength.is_finite() || self.relative_strength < 0.0 {
-            return Err(CoreError::invalid_input(format!(
-                "relative_strength must be finite and >= 0.0, got {}",
-                self.relative_strength
-            )));
-        }
-        if let Some(k) = self.optimal_distance
-            && (!k.is_finite() || k <= 0.0)
-        {
-            return Err(CoreError::invalid_input(format!(
-                "optimal_distance must be finite and > 0.0, got {k}"
-            )));
-        }
-        if !self.theta.is_finite() || self.theta < 0.0 {
-            return Err(CoreError::invalid_input(format!(
-                "theta must be finite and >= 0.0, got {}",
-                self.theta
-            )));
-        }
-        if self.min_coarsen_size == 0 {
-            return Err(CoreError::invalid_input("min_coarsen_size must be >= 1"));
-        }
-        if !self.min_coarsen_ratio.is_finite()
-            || self.min_coarsen_ratio <= 0.0
-            || self.min_coarsen_ratio > 1.0
-        {
-            return Err(CoreError::invalid_input(format!(
-                "min_coarsen_ratio must be finite and in (0.0, 1.0], got {}",
-                self.min_coarsen_ratio
-            )));
-        }
-        if !self.convergence_tolerance.is_finite() || self.convergence_tolerance < 0.0 {
-            return Err(CoreError::invalid_input(format!(
-                "convergence_tolerance must be finite and >= 0.0, got {}",
-                self.convergence_tolerance
             )));
         }
         Ok(())

@@ -1,21 +1,24 @@
 use egraph_core::{CoreError, CoreResult};
 #[cfg(doc)]
-use egraph_spatial_trees::ArenaQuadtree2d;
+use egraph_spatial_trees::{ArenaOctree3d, ArenaQuadtree2d};
 
 /// Spatial repulsion backend for [`FruchtermanReingoldSolver`](super::FruchtermanReingoldSolver).
+#[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum FrBackend {
-    /// Exact $O(N^2)$ all-pairs repulsion.
+    /// Exact $O(N^2)$ all-pairs repulsion (supported on all [`RiemannianLayout`](egraph_core::RiemannianLayout) targets).
     #[default]
     Exact,
-    /// $O(N \log N)$ Barnes-Hut quadtree approximation via [`ArenaQuadtree2d`].
+    /// $O(N \log N)$ Barnes-Hut spatial tree approximation via [`ArenaQuadtree2d`] (`Layout2d`)
+    /// or [`ArenaOctree3d`] (`Layout3d`).
     BarnesHut,
-    /// Fruchterman–Reingold (1991) Fig. 2 $2k \times 2k$ grid with strict $d < 2k$ cutoff.
+    /// Fruchterman–Reingold (1991) Fig. 2 $2k$ grid with strict $d < 2k$ cutoff (`Layout2d` and `Layout3d`).
     Grid,
 }
 
 /// Hyperparameters for [`FruchtermanReingoldSolver`](super::FruchtermanReingoldSolver).
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq)]
 pub struct FruchtermanReingoldConfig {
     /// Total number of iterations (`default: 200`).
     pub iterations: usize,
@@ -27,7 +30,7 @@ pub struct FruchtermanReingoldConfig {
     pub area: Option<f64>,
     /// Optional initial temperature (`None` uses $0.1 \sqrt{\text{area}}$, `default: None`).
     pub initial_temperature: Option<f64>,
-    /// Optional central gravity coefficient pulling vertices toward `(0, 0)` (`default: 0.0`).
+    /// Optional central gravity coefficient pulling vertices toward origin (`default: 0.0`).
     pub gravity: f64,
     /// Barnes-Hut opening angle threshold $\theta \ge 0$ (`default: 1.2`).
     pub theta: f64,
@@ -51,6 +54,59 @@ impl Default for FruchtermanReingoldConfig {
 }
 
 impl FruchtermanReingoldConfig {
+    /// Creates a new [`FruchtermanReingoldConfig`] initialized with [`Self::default`].
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets the total number of iterations.
+    pub fn with_iterations(mut self, iterations: usize) -> Self {
+        self.iterations = iterations;
+        self
+    }
+
+    /// Sets the spatial repulsion backend.
+    pub fn with_backend(mut self, backend: FrBackend) -> Self {
+        self.backend = backend;
+        self
+    }
+
+    /// Sets the optional optimal pairwise distance `k`.
+    pub fn with_k(mut self, k: Option<f64>) -> Self {
+        self.k = k;
+        self
+    }
+
+    /// Sets the optional canvas area.
+    pub fn with_area(mut self, area: Option<f64>) -> Self {
+        self.area = area;
+        self
+    }
+
+    /// Sets the optional initial cooling temperature.
+    pub fn with_initial_temperature(mut self, initial_temperature: Option<f64>) -> Self {
+        self.initial_temperature = initial_temperature;
+        self
+    }
+
+    /// Sets the central gravity coefficient.
+    pub fn with_gravity(mut self, gravity: f64) -> Self {
+        self.gravity = gravity;
+        self
+    }
+
+    /// Sets the Barnes-Hut opening angle threshold `theta`.
+    pub fn with_theta(mut self, theta: f64) -> Self {
+        self.theta = theta;
+        self
+    }
+
+    /// Sets the deterministic explicit RNG seed.
+    pub fn with_seed(mut self, seed: u64) -> Self {
+        self.seed = seed;
+        self
+    }
+
     /// Validates all Fruchterman–Reingold hyperparameters.
     pub fn validate(&self) -> CoreResult<()> {
         if let Some(k) = self.k

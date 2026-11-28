@@ -1,7 +1,8 @@
 use egraph_core::{CoreError, CoreResult};
 
 /// Hyperparameters for [`GemSolver`](super::GemSolver).
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq)]
 pub struct GemConfig {
     /// Desired ideal edge length $E_{\mathrm{des}}$ (`default: 128.0`).
     pub edge_length: f64,
@@ -49,6 +50,83 @@ impl Default for GemConfig {
 }
 
 impl GemConfig {
+    /// Creates a new [`GemConfig`] initialized with [`Self::default`].
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets the desired ideal edge length.
+    pub fn with_edge_length(mut self, edge_length: f64) -> Self {
+        self.edge_length = edge_length;
+        self
+    }
+
+    /// Sets the gravitational attraction coefficient toward the barycenter.
+    pub fn with_gravity(mut self, gravity: f64) -> Self {
+        self.gravity = gravity;
+        self
+    }
+
+    /// Sets the initial per-vertex local temperature `t_init`.
+    pub fn with_t_init(mut self, t_init: f64) -> Self {
+        self.t_init = t_init;
+        self
+    }
+
+    /// Sets the maximum per-vertex local temperature `t_max`.
+    pub fn with_t_max(mut self, t_max: f64) -> Self {
+        self.t_max = t_max;
+        self
+    }
+
+    /// Sets the global mean-temperature convergence threshold `t_min`.
+    pub fn with_t_min(mut self, t_min: f64) -> Self {
+        self.t_min = t_min;
+        self
+    }
+
+    /// Sets an optional maximum iteration cap.
+    pub fn with_max_iterations(mut self, max_iterations: Option<usize>) -> Self {
+        self.max_iterations = max_iterations;
+        self
+    }
+
+    /// Sets the oscillation detection opening angle in `(0, PI]`.
+    pub fn with_oscillation_angle(mut self, oscillation_angle: f64) -> Self {
+        self.oscillation_angle = oscillation_angle;
+        self
+    }
+
+    /// Sets the rotation detection opening angle in `(0, PI]`.
+    pub fn with_rotation_angle(mut self, rotation_angle: f64) -> Self {
+        self.rotation_angle = rotation_angle;
+        self
+    }
+
+    /// Sets the oscillation sensitivity `sigma_o >= 0`.
+    pub fn with_oscillation_sensitivity(mut self, oscillation_sensitivity: f64) -> Self {
+        self.oscillation_sensitivity = oscillation_sensitivity;
+        self
+    }
+
+    /// Sets the optional rotation sensitivity `sigma_r >= 0`.
+    pub fn with_rotation_sensitivity(mut self, rotation_sensitivity: Option<f64>) -> Self {
+        self.rotation_sensitivity = rotation_sensitivity;
+        self
+    }
+
+    /// Sets the random impulse perturbation magnitude.
+    pub fn with_perturbation(mut self, perturbation: f64) -> Self {
+        self.perturbation = perturbation;
+        self
+    }
+
+    /// Sets the explicit deterministic RNG seed.
+    pub fn with_seed(mut self, seed: u64) -> Self {
+        self.seed = seed;
+        self
+    }
+
     /// Validates all GEM hyperparameters.
     pub fn validate(&self) -> CoreResult<()> {
         if !self.edge_length.is_finite() {
