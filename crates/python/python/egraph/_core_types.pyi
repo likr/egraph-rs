@@ -21,7 +21,19 @@ _DtypeLike = str | np.dtype[Any] | type[np.floating[Any]]
 TargetKind = Literal["layout2d", "layout3d", "layout_nd", "manifold2d"]
 EuclideanTargetKind = Literal["layout2d", "layout3d", "layout_nd"]
 ManifoldKindLiteral = Literal["hyperbolic", "hyperbolic_lorentz", "spherical", "torus"]
-BackendKind = Literal["auto", "exact", "barnes_hut", "grid", "ib_fft", "linear_fft", "fit_fft"]
+BackendKind = Literal[
+    "auto",
+    "auto2d",
+    "auto3d",
+    "exact",
+    "barnes_hut",
+    "fit_fft",
+    "linear_fft",
+    "ib_fft",
+    "grid",
+    "euclidean_pcg",
+    "geodesic_gradient",
+]
 SolverStatus = Literal["initialized", "running", "converged", "completed", "failed"]
 
 _L_contra = TypeVar("_L_contra", contravariant=True)

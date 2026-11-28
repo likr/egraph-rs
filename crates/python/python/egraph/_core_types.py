@@ -9,12 +9,16 @@ EuclideanTargetKind = Literal["layout2d"] | Literal["layout3d"] | Literal["layou
 ManifoldKindLiteral = Literal["hyperbolic"] | Literal["hyperbolic_lorentz"] | Literal["spherical"] | Literal["torus"]
 BackendKind = (
     Literal["auto"]
+    | Literal["auto2d"]
+    | Literal["auto3d"]
     | Literal["exact"]
     | Literal["barnes_hut"]
-    | Literal["grid"]
-    | Literal["ib_fft"]
-    | Literal["linear_fft"]
     | Literal["fit_fft"]
+    | Literal["linear_fft"]
+    | Literal["ib_fft"]
+    | Literal["grid"]
+    | Literal["euclidean_pcg"]
+    | Literal["geodesic_gradient"]
 )
 SolverStatus = Literal["initialized"] | Literal["running"] | Literal["converged"] | Literal["completed"] | Literal["failed"]
 

@@ -23,6 +23,8 @@ use super::tsnet_builders::parse_stage_iterations;
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(super) enum TsNetBackendChoice {
     Auto,
+    Auto2d,
+    Auto3d,
     Exact,
     BarnesHut,
     FitFft,
@@ -33,12 +35,14 @@ impl TsNetBackendChoice {
     pub(super) fn parse_str(raw: &str) -> Result<Self, String> {
         match normalize_enum_key(raw).as_str() {
             "auto" => Ok(Self::Auto),
+            "auto2d" => Ok(Self::Auto2d),
+            "auto3d" => Ok(Self::Auto3d),
             "exact" => Ok(Self::Exact),
             "barneshut" | "bh" => Ok(Self::BarnesHut),
             "fitfft" | "fft" | "fftinterpolation" | "fit" => Ok(Self::FitFft),
             "linearfft" | "l" => Ok(Self::LinearFft),
             _ => Err(format!(
-                "unknown tsNET backend {raw:?}; expected 'auto', 'exact', 'barnes_hut', 'fit_fft', or 'linear_fft'"
+                "unknown tsNET backend {raw:?}; expected 'auto', 'auto2d', 'auto3d', 'exact', 'barnes_hut', 'fit_fft', or 'linear_fft'"
             )),
         }
     }
@@ -68,7 +72,14 @@ pub(super) fn validate_and_resolve_tsnet_backend(
     match target {
         SolverTargetKind::Layout2d => {
             let b = match choice {
-                TsNetBackendChoice::Auto => TsNetBackend2d::Auto(Auto2d::new().with_ibfft(ibfft)),
+                TsNetBackendChoice::Auto | TsNetBackendChoice::Auto2d => {
+                    TsNetBackend2d::Auto(Auto2d::new().with_ibfft(ibfft))
+                }
+                TsNetBackendChoice::Auto3d => {
+                    return Err(unsupported_operation_err(
+                        "tsNET backend='auto3d' only supports target='layout3d'; use 'auto' or 'auto2d' for target='layout2d'",
+                    ));
+                }
                 TsNetBackendChoice::Exact => TsNetBackend2d::Exact(NeighborExact::new()),
                 TsNetBackendChoice::BarnesHut => {
                     TsNetBackend2d::BarnesHut(NeighborBarnesHut::new(theta))
@@ -84,14 +95,21 @@ pub(super) fn validate_and_resolve_tsnet_backend(
         }
         SolverTargetKind::Layout3d => {
             let b = match choice {
-                TsNetBackendChoice::Auto => TsNetBackend3d::Auto(Auto3d::new().with_theta(theta)),
+                TsNetBackendChoice::Auto | TsNetBackendChoice::Auto3d => {
+                    TsNetBackend3d::Auto(Auto3d::new().with_theta(theta))
+                }
+                TsNetBackendChoice::Auto2d => {
+                    return Err(unsupported_operation_err(
+                        "tsNET backend='auto2d' only supports target='layout2d'; use 'auto' or 'auto3d' for target='layout3d'",
+                    ));
+                }
                 TsNetBackendChoice::Exact => TsNetBackend3d::Exact(NeighborExact::new()),
                 TsNetBackendChoice::BarnesHut => {
                     TsNetBackend3d::BarnesHut(NeighborBarnesHut::new(theta))
                 }
                 TsNetBackendChoice::FitFft | TsNetBackendChoice::LinearFft => {
                     return Err(unsupported_operation_err(
-                        "FFT tsNET backends ('fit_fft'/'linear_fft') only support target='layout2d'; use 'auto', 'barnes_hut', or 'exact' for target='layout3d'",
+                        "FFT tsNET backends ('fit_fft'/'linear_fft') only support target='layout2d'; use 'auto', 'auto3d', 'barnes_hut', or 'exact' for target='layout3d'",
                     ));
                 }
             };
@@ -101,7 +119,9 @@ pub(super) fn validate_and_resolve_tsnet_backend(
             TsNetBackendChoice::Auto | TsNetBackendChoice::Exact => {
                 Ok(ResolvedTsNetBackend::Nd(NeighborExact::new()))
             }
-            TsNetBackendChoice::BarnesHut
+            TsNetBackendChoice::Auto2d
+            | TsNetBackendChoice::Auto3d
+            | TsNetBackendChoice::BarnesHut
             | TsNetBackendChoice::FitFft
             | TsNetBackendChoice::LinearFft => Err(unsupported_operation_err(
                 "tsNET with target='layout_nd' only supports 'exact' (or 'auto') repulsion; use target='layout2d' or target='layout3d' for spatial/FFT approximations",
@@ -111,7 +131,9 @@ pub(super) fn validate_and_resolve_tsnet_backend(
             TsNetBackendChoice::Auto | TsNetBackendChoice::Exact => {
                 Ok(ResolvedTsNetBackend::M2(NeighborExact::new()))
             }
-            TsNetBackendChoice::BarnesHut
+            TsNetBackendChoice::Auto2d
+            | TsNetBackendChoice::Auto3d
+            | TsNetBackendChoice::BarnesHut
             | TsNetBackendChoice::FitFft
             | TsNetBackendChoice::LinearFft => Err(unsupported_operation_err(
                 "tsNET with target='manifold2d' only supports 'exact' (or 'auto') geodesic repulsion; use target='layout2d' or target='layout3d' for spatial/FFT approximations",

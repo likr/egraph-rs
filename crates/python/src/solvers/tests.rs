@@ -29,6 +29,18 @@ use super::tsnet_config::TsNetBackendChoice;
 #[test]
 fn test_tsnet_and_sgd_enum_parsers_and_weights() {
     assert_eq!(
+        TsNetBackendChoice::parse_str("auto").unwrap(),
+        TsNetBackendChoice::Auto
+    );
+    assert_eq!(
+        TsNetBackendChoice::parse_str("auto2d").unwrap(),
+        TsNetBackendChoice::Auto2d
+    );
+    assert_eq!(
+        TsNetBackendChoice::parse_str("auto3d").unwrap(),
+        TsNetBackendChoice::Auto3d
+    );
+    assert_eq!(
         TsNetBackendChoice::parse_str("EXACT").unwrap(),
         TsNetBackendChoice::Exact
     );

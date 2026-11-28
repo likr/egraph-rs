@@ -264,6 +264,38 @@ class TestLayout3dPolylinesAndErrors(unittest.TestCase):
         pfs = eg.PfsPrimeOverlapRemoval.from_radii([0.2] * 9)
         self.assertIsInstance(pfs, LayoutTransform)
 
+    def test_tsnet_auto2d_and_auto3d_target_guards(self) -> None:
+        g = _make_grid(3, 3)
+        n = g.num_nodes
+
+        s2 = eg.TsNetSolver.pure_2hop(
+            g, target="layout2d", backend="auto2d", stage_iterations=(2, 2, 2), seed=42
+        )
+        l2 = eg.Layout2d.init(n, seed=7)
+        self.assertEqual(s2.run(l2), "completed")
+        self.assertEqual(s2.resolved_backend, "exact")
+        self.assertTrue(l2.is_all_finite())
+
+        s3 = eg.TsNetSolver.pure_2hop(
+            g, target="layout3d", backend="auto3d", stage_iterations=(2, 2, 2), seed=42
+        )
+        l3 = eg.Layout3d.init(n, seed=7)
+        self.assertEqual(s3.run(l3), "completed")
+        self.assertEqual(s3.resolved_backend, "exact")
+        self.assertTrue(l3.is_all_finite())
+
+        illegal_auto_pairs: list[tuple[str, object]] = [
+            ("auto2d on layout3d", lambda: eg.TsNetSolver.pure_2hop(g, target="layout3d", backend="auto2d")),
+            ("auto2d on layout_nd", lambda: eg.TsNetSolver.pure_2hop(g, target="layout_nd", backend="auto2d")),
+            ("auto2d on manifold2d", lambda: eg.TsNetSolver.pure_2hop(g, target="manifold2d", backend="auto2d")),
+            ("auto3d on layout2d", lambda: eg.TsNetSolver.pure_2hop(g, target="layout2d", backend="auto3d")),
+            ("auto3d on layout_nd", lambda: eg.TsNetSolver.pure_2hop(g, target="layout_nd", backend="auto3d")),
+            ("auto3d on manifold2d", lambda: eg.TsNetSolver.pure_2hop(g, target="manifold2d", backend="auto3d")),
+        ]
+        for label, fn in illegal_auto_pairs:
+            with self.assertRaises(eg.UnsupportedOperationError, msg=label):
+                fn()  # type: ignore[operator]
+
 
 if __name__ == "__main__":
     unittest.main()
