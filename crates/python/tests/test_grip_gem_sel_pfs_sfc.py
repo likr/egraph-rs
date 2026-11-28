@@ -239,6 +239,12 @@ class TestGripGemSelPfsSfc(unittest.TestCase):
                 graph, layout_backend="t_fdp", t_fdp_config={"unknown_key": 1}
             ),
         )
+        self.assert_no_panic_raises(
+            (eg.InvalidInputError,),
+            lambda: eg.SelLayoutSolver(
+                graph, layout_backend="fr", fr_config={"theta": -1.0}
+            ),
+        )
 
         # 4. PfsPrimeOverlapRemoval (new + from_radii, zero overlap, strict oo_nni == 0.0)
         hw = np.full(n, 0.8, dtype=np.float64)

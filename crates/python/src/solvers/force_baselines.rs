@@ -1,5 +1,6 @@
 //! Cooperative GEM and Structural Entropy Layout (`SEL`) solver bindings (`Layout2d`).
 
+use egraph::layout::force::BarnesHut as ForceBarnesHut;
 use egraph::layout::{
     FrBackend, FruchtermanReingoldConfig, GemConfig, GemSolver, RhoSchedule, SelConfig,
     SelLayoutBackend, SelLayoutSolver, SelWeightMapping, TFdpBackend2d, TFdpConfig,
@@ -218,6 +219,9 @@ fn parse_sel_fr_config(
         }
     }
     cfg.validate().map_err(core_error_to_py)?;
+    ForceBarnesHut::new(theta)
+        .validate()
+        .map_err(core_error_to_py)?;
     let fr_backend =
         match parse_fr_backend_choice(&backend_str).map_err(unsupported_operation_err)? {
             FrBackendChoice::Auto | FrBackendChoice::Exact => FrBackend::exact(),
