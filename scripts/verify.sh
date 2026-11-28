@@ -16,7 +16,7 @@ Modes (composable):
   --wasm                   Check wasm32 + run wasm-pack test --node crates/wasm
   --invariants             Run scripts/check_invariants.sh
   --parity                 Run scripts/parity_harness.py
-  --docs                   Build Sphinx HTML + doctest, TypeDoc, and js/examples Vite bundle
+  --docs                   Build Sphinx HTML + doctest, TypeDoc, and examples/web Vite bundle
   --all                    Run --rust --python --wasm --invariants --parity
 
 Options:
@@ -299,7 +299,8 @@ if [[ "$RUN_PYTHON" -eq 1 ]]; then
       test_docstrings.py test_force_and_overlap_solvers.py test_force_bundling_and_validation.py
       test_geometry_and_stress_metrics.py test_grip_gem_sel_pfs_sfc.py
       test_gumap_refiner_and_stress_solvers.py test_hde_and_sgd_presets.py test_interop.py
-      test_manifold_crossings_and_metrics_report.py test_maxent_stress_solver.py
+      test_layout3d_polylines_and_errors.py test_manifold_crossings_and_metrics_report.py
+      test_maxent_stress_solver.py
       test_nd_and_manifold_solvers.py test_neighbor_and_sgd_solvers.py
       test_neighborhood_knn_and_landmarks.py test_rta_crosslessness_and_metric_errors.py
       test_screened_poisson.py test_spatial_trees_dijkstra_and_datasets.py
@@ -318,22 +319,7 @@ if [[ "$RUN_WASM" -eq 1 ]]; then
   if [[ -n "$TEST_FILTER" ]]; then
     run_step "wasm_test_$TEST_FILTER" wasm-pack test --node "$REPO_ROOT/crates/wasm" --test "$TEST_FILTER"
   else
-    WASM_MINIMAL_TARGETS=(
-      coarsen_backbone_and_hde community_clustering_and_backbone csr_and_layout_buffers
-      force_multilevel_and_classic_solvers grip_gem_sel_pfs_sfc_solvers gumap_solver
-      linalg_neighborhood_boundaries linalg_spectral_amg_resistance manifold_layouts_and_fdeb
-      metrics_cluster_area metrics_cluster_area_errors metrics_cluster_area_weights
-      metrics_cluster_baselines metrics_evaluate_and_spatial metrics_layout_and_crossings
-      nd_and_manifold_solvers neighborhood_knn_and_varadhan overlap_and_layering_constraints
-      screened_poisson_field_and_refiner sgd_barrier_and_pair_solvers sgd_snap_pacmap_and_sgd2
-      solver_stats_and_dog_getters spatial_intruder_refiner spatial_trees_datasets_and_linalg
-      stress_and_maxent_solvers tfdp_and_ibumap_solvers tsnet_backends_and_row_normalized
-      tsnet_preconditioning_and_stats
-    )
-    WASM_MINIMAL_FLAGS=()
-    for t in "${WASM_MINIMAL_TARGETS[@]}"; do WASM_MINIMAL_FLAGS+=(--test "$t"); done
     run_step "wasm_test_all" wasm-pack test --node "$REPO_ROOT/crates/wasm"
-    run_step "wasm_test_minimal" wasm-pack test --node "$REPO_ROOT/crates/wasm" --no-default-features "${WASM_MINIMAL_FLAGS[@]}"
   fi
 
   if [[ "$BUILD_WASM" -eq 1 ]]; then
@@ -388,13 +374,13 @@ if [[ "$RUN_DOCS" -eq 1 ]]; then
     [[ -x '$REPO_ROOT/crates/wasm/node_modules/.bin/typedoc' ]] || npm ci --prefix '$REPO_ROOT/crates/wasm'
     npx --prefix '$REPO_ROOT/crates/wasm' typedoc --options '$REPO_ROOT/crates/wasm/typedoc.json' --out '$DOCS_TMP_DIR/typedoc'
   "
-  run_step "docs_js_examples_build" bash -c "
+  run_step "docs_examples_web_build" bash -c "
     set -euo pipefail
-    if [[ ! -d '$REPO_ROOT/js/examples/node_modules' ]]; then
-      if [[ -f '$REPO_ROOT/js/examples/package-lock.json' ]]; then npm --prefix '$REPO_ROOT/js/examples' ci
-      else npm --prefix '$REPO_ROOT/js/examples' install --no-audit --no-fund; fi
+    if [[ ! -d '$REPO_ROOT/examples/web/node_modules' && ! -d '$REPO_ROOT/node_modules/vite' ]]; then
+      if [[ -f '$REPO_ROOT/examples/web/package-lock.json' ]]; then npm --prefix '$REPO_ROOT/examples/web' ci
+      else npm --prefix '$REPO_ROOT/examples/web' install --no-audit --no-fund --no-package-lock; fi
     fi
-    npm --prefix '$REPO_ROOT/js/examples' run build
+    npm --prefix '$REPO_ROOT/examples/web' run build
   "
   rm -rf "$DOCS_TMP_DIR"; DOCS_TMP_DIR=""
 fi

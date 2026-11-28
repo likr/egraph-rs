@@ -136,19 +136,19 @@ def _load_toml(path: pathlib.Path) -> dict[str, Any]:
 
     # Minimal regex fallback for Python < 3.11 without tomllib.
     data: dict[str, Any] = {"_raw": txt}
-    ws_sec = re.search(r"^\[workspace\][^\[]*", txt, re.MULTILINE | re.DOTALL)
+    ws_sec = re.search(r"^\[workspace\].*?(?=^\[|\Z)", txt, re.MULTILINE | re.DOTALL)
     if ws_sec:
         m_mem = re.search(r"^members\s*=\s*\[([^\]]*)\]", ws_sec.group(0), re.MULTILINE | re.DOTALL)
         if m_mem:
             data.setdefault("workspace", {})["members"] = re.findall(r'"([^"]+)"', m_mem.group(1))
-    ws_pkg_sec = re.search(r"^\[workspace\.package\][^\[]*", txt, re.MULTILINE | re.DOTALL)
+    ws_pkg_sec = re.search(r"^\[workspace\.package\].*?(?=^\[|\Z)", txt, re.MULTILINE | re.DOTALL)
     if ws_pkg_sec:
         ws_pkg = data.setdefault("workspace", {}).setdefault("package", {})
         for key in ("version", "repository", "rust-version"):
             m_val = re.search(rf'^{re.escape(key)}\s*=\s*"([^"]+)"', ws_pkg_sec.group(0), re.MULTILINE)
             if m_val:
                 ws_pkg[key] = m_val.group(1)
-    pkg_sec = re.search(r"^\[package\][^\[]*", txt, re.MULTILINE | re.DOTALL)
+    pkg_sec = re.search(r"^\[package\].*?(?=^\[|\Z)", txt, re.MULTILINE | re.DOTALL)
     if pkg_sec:
         sec, pkg = pkg_sec.group(0), data.setdefault("package", {})
         for key in ("name", "version", "repository", "rust-version", "description"):

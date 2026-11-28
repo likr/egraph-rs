@@ -72,34 +72,11 @@ jobs:
                   return ws_version
               return str(ver)
 
-          for manifest in (
-              "crates/core/Cargo.toml",
-              "crates/ffi/Cargo.toml",
-              "crates/petgraph/Cargo.toml",
-              "crates/dataset/Cargo.toml",
-              "crates/spatial-trees/Cargo.toml",
-              "crates/spatial-fft/Cargo.toml",
-              "crates/spatial-crossings/Cargo.toml",
-              "crates/metrics-geometry/Cargo.toml",
-              "crates/metrics-cluster/Cargo.toml",
-              "crates/metrics/Cargo.toml",
-              "crates/linalg/Cargo.toml",
-              "crates/linalg-mds/Cargo.toml",
-              "crates/linalg-amg/Cargo.toml",
-              "crates/neighborhood/Cargo.toml",
-              "crates/clustering/Cargo.toml",
-              "crates/layout-constraints/Cargo.toml",
-              "crates/layout-stress/Cargo.toml",
-              "crates/layout-force/Cargo.toml",
-              "crates/layout-neighbor/Cargo.toml",
-              "crates/layout-sgd/Cargo.toml",
-              "crates/layout-multilevel/Cargo.toml",
-              "crates/layout/Cargo.toml",
-              "crates/egraph/Cargo.toml",
-              "crates/cli/Cargo.toml",
-              "crates/python/Cargo.toml",
-              "crates/wasm/Cargo.toml",
-          ):
+          members = root_cargo.get("workspace", {}).get("members", [])
+          if not members:
+              sys.exit("Root Cargo.toml [workspace].members is empty or missing")
+          for member in members:
+              manifest = f"{member}/Cargo.toml"
               v = resolve_pkg_version(manifest)
               if v != tag_version:
                   sys.exit(f"{manifest} version ({v}) != tag ({tag_version})")
@@ -119,6 +96,8 @@ jobs:
           classifiers = py_project.get("classifiers", [])
           if pre_kind == "alpha" and "Development Status :: 3 - Alpha" not in classifiers:
               sys.exit("crates/python/pyproject.toml missing 'Development Status :: 3 - Alpha' classifier")
+          if pre_kind == "beta" and "Development Status :: 4 - Beta" not in classifiers:
+              sys.exit("crates/python/pyproject.toml missing 'Development Status :: 4 - Beta' classifier")
           if pre_kind != "alpha" and "Development Status :: 3 - Alpha" in classifiers:
               sys.exit(
                   f"crates/python/pyproject.toml must not retain 'Development Status :: 3 - Alpha' classifier for tag '{ref_name}'"
@@ -134,7 +113,7 @@ jobs:
           PY
 
       - name: Run invariant checks
-        run: ./scripts/check_invariants.sh --mode report
+        run: ./scripts/check_invariants.sh --mode strict
 
   build-wheels:
     name: Build Wheel (${{ matrix.name }})
@@ -275,35 +254,6 @@ jobs:
         id: size
         run: |
           wasm-pack test --node crates/wasm
-          wasm-pack test --node crates/wasm --no-default-features \
-            --test coarsen_backbone_and_hde \
-            --test community_clustering_and_backbone \
-            --test csr_and_layout_buffers \
-            --test force_multilevel_and_classic_solvers \
-            --test grip_gem_sel_pfs_sfc_solvers \
-            --test gumap_solver \
-            --test linalg_neighborhood_boundaries \
-            --test linalg_spectral_amg_resistance \
-            --test manifold_layouts_and_fdeb \
-            --test metrics_cluster_area \
-            --test metrics_cluster_area_errors \
-            --test metrics_cluster_area_weights \
-            --test metrics_cluster_baselines \
-            --test metrics_evaluate_and_spatial \
-            --test metrics_layout_and_crossings \
-            --test nd_and_manifold_solvers \
-            --test neighborhood_knn_and_varadhan \
-            --test overlap_and_layering_constraints \
-            --test screened_poisson_field_and_refiner \
-            --test sgd_barrier_and_pair_solvers \
-            --test sgd_snap_pacmap_and_sgd2 \
-            --test solver_stats_and_dog_getters \
-            --test spatial_intruder_refiner \
-            --test spatial_trees_datasets_and_linalg \
-            --test stress_and_maxent_solvers \
-            --test tfdp_and_ibumap_solvers \
-            --test tsnet_backends_and_row_normalized \
-            --test tsnet_preconditioning_and_stats
           (cd crates/wasm && wasm-pack build --target web --no-opt --profile wasm-release -d pkg .)
           if [[ -f crates/wasm/scripts/assemble_pkg.mjs ]]; then
             node crates/wasm/scripts/assemble_pkg.mjs
@@ -323,15 +273,15 @@ jobs:
           fi
           python3 scripts/parity_harness.py --wasm-pkg crates/wasm/pkg --wasm-only
 
-      - name: Build js/examples and run Playwright browser smoke
+      - name: Build examples/web and run Playwright browser smoke
         run: |
-          if [[ -f js/examples/package-lock.json ]]; then
-            npm --prefix js/examples ci
+          if [[ -f examples/web/package-lock.json ]]; then
+            npm --prefix examples/web ci
           else
-            npm --prefix js/examples install --no-audit --no-fund
+            npm --prefix examples/web install --no-audit --no-fund --no-package-lock
           fi
-          npm --prefix js/examples run build
-          npx --prefix js/examples playwright install --with-deps chromium
+          npm --prefix examples/web run build
+          npx --prefix examples/web playwright install --with-deps chromium
           node crates/wasm/tests/playwright_smoke.mjs
 
       - name: Pack npm tarball

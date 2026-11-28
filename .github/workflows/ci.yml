@@ -29,6 +29,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -37,26 +39,52 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      - uses: taiki-e/install-action@cargo-semver-checks
+
       - name: Check formatting
         run: cargo fmt --all -- --check
 
       - name: Run clippy
         run: |
           cargo clippy --workspace --all-targets -- -D warnings
-          cargo clippy --no-deps --all-targets --all-features -p egraph-core -p egraph-ffi -p egraph-petgraph -p egraph-dataset -p egraph-spatial-trees -p egraph-spatial-fft -p egraph-spatial-crossings -p egraph-spatial -p egraph-metrics-geometry -p egraph-metrics-cluster -p egraph-metrics -p egraph-linalg -p egraph-linalg-mds -p egraph-linalg-amg -p egraph-neighborhood -p egraph-clustering -p egraph-layout-constraints -p egraph-layout-stress -p egraph-layout-force -p egraph-layout-neighbor -p egraph-layout-sgd -p egraph-layout-multilevel -p egraph-layout -p egraph -p egraph-cli -- -D warnings
-          cargo clippy --no-deps --all-targets --no-default-features -p egraph-spatial-trees -p egraph-layout-constraints -p egraph-layout-stress -p egraph-layout-force -p egraph-layout-sgd -p egraph-layout-multilevel -p egraph-layout -p egraph-metrics-cluster -p egraph-metrics -p egraph -p egraph-dataset -- -D warnings
-          cargo clippy --no-deps --all-targets --no-default-features --features baselines -p egraph-layout-constraints -p egraph-layout-stress -p egraph-layout-force -p egraph-layout-multilevel -p egraph-layout -- -D warnings
+          NON_BINDING_PKGS=$(python3 scripts/verify_helpers.py list-packages --exclude egraph-python --exclude egraph-wasm --format clippy-args)
+          cargo clippy --no-deps --all-targets --all-features $NON_BINDING_PKGS -- -D warnings
+          cargo clippy --no-deps --all-targets --no-default-features -p egraph-edge-routing -p egraph-layout-constraints -p egraph-layout-stress -p egraph-layout-force -p egraph-layout-sgd -p egraph-layout-embedding -p egraph-layout-multilevel -p egraph-layout-refine -p egraph-layout-composite -p egraph-metrics-cluster -p egraph-metrics -p egraph -p egraph-dataset -- -D warnings
+          cargo clippy --no-deps --all-targets --no-default-features --features baselines -p egraph-layout-constraints -p egraph-layout-stress -p egraph-layout-force -p egraph-layout-multilevel -p egraph-layout-refine -p egraph-layout-composite -- -D warnings
+          cargo clippy --no-deps --all-targets --features embedded -p egraph-dataset -- -D warnings
 
       - name: Run release workspace tests
         run: |
           cargo test --release --workspace
-          cargo test --release --all-features -p egraph-petgraph -p egraph-dataset -p egraph-spatial-trees -p egraph-spatial-fft -p egraph-spatial-crossings -p egraph-spatial -p egraph-metrics-geometry -p egraph-metrics-cluster -p egraph-metrics -p egraph-linalg -p egraph-linalg-mds -p egraph-linalg-amg -p egraph-neighborhood -p egraph-clustering -p egraph-layout-constraints -p egraph-layout-stress -p egraph-layout-force -p egraph-layout-neighbor -p egraph-layout-sgd -p egraph-layout-multilevel -p egraph-layout -p egraph -p egraph-cli
-          cargo test --release --features delaunay -p egraph-spatial -p egraph-spatial-trees -p egraph-layout-constraints -p egraph-layout-sgd -p egraph-layout-multilevel
-          cargo test --release --no-default-features -p egraph-layout -p egraph-layout-constraints -p egraph-layout-sgd -p egraph-layout-multilevel -p egraph-layout-stress -p egraph-layout-force
-          cargo test --release --no-default-features --features baselines -p egraph-layout -p egraph-layout-constraints -p egraph-layout-stress -p egraph-layout-force -p egraph-layout-multilevel
-          cargo test --release --no-default-features -p egraph-metrics -p egraph-metrics-cluster
-          cargo test --release --no-default-features -p egraph
-          cargo test --release --no-default-features -p egraph-dataset
+          NON_BINDING_PKGS=$(python3 scripts/verify_helpers.py list-packages --exclude egraph-python --exclude egraph-wasm --format clippy-args)
+          cargo test --release --all-features $NON_BINDING_PKGS
+          cargo test --release --no-default-features -p egraph-edge-routing -p egraph-layout-constraints -p egraph-layout-stress -p egraph-layout-force -p egraph-layout-sgd -p egraph-layout-embedding -p egraph-layout-multilevel -p egraph-layout-refine -p egraph-layout-composite -p egraph-metrics-cluster -p egraph-metrics -p egraph -p egraph-dataset
+          cargo test --release --no-default-features --features baselines -p egraph-layout-constraints -p egraph-layout-stress -p egraph-layout-force -p egraph-layout-multilevel -p egraph-layout-refine -p egraph-layout-composite
+          cargo test --release --features embedded -p egraph-dataset
+
+      - name: Check SemVer compatibility (cargo-semver-checks)
+        run: |
+          BASE_REV="${{ github.event.pull_request.base.sha || 'HEAD~1' }}"
+          if ! git rev-parse --verify "${BASE_REV}^{commit}" >/dev/null 2>&1; then
+            BASE_REV="HEAD"
+          fi
+          BASE_VER="$(git show "${BASE_REV}:Cargo.toml" 2>/dev/null | python3 -c 'import sys, tomllib; print(tomllib.loads(sys.stdin.read()).get("workspace", {}).get("package", {}).get("version", ""))' || true)"
+          CUR_VER="$(python3 -c 'import pathlib, tomllib; print(tomllib.loads(pathlib.Path("Cargo.toml").read_text()).get("workspace", {}).get("package", {}).get("version", ""))')"
+          EXTRA_FLAGS=()
+          if [[ "$BASE_VER" == "$CUR_VER" && "$BASE_VER" != *alpha* ]]; then
+            EXTRA_FLAGS+=(--release-type minor)
+          fi
+          EXISTING_PKGS=()
+          for pkg in $(python3 scripts/verify_helpers.py list-packages --exclude egraph-ffi --exclude egraph-python --exclude egraph-wasm --exclude egraph-cli); do
+            crate_dir="crates/${pkg#egraph-}"
+            if [[ "$pkg" == "egraph" ]]; then crate_dir="crates/egraph"; fi
+            if git cat-file -e "${BASE_REV}:${crate_dir}/Cargo.toml" 2>/dev/null; then
+              EXISTING_PKGS+=(-p "$pkg")
+            fi
+          done
+          if [[ "${#EXISTING_PKGS[@]}" -gt 0 ]]; then
+            cargo semver-checks check-release "${EXISTING_PKGS[@]}" --baseline-rev "$BASE_REV" ${EXTRA_FLAGS[@]+"${EXTRA_FLAGS[@]}"}
+          fi
 
       - name: Check single-thread invariants and dependency hygiene
         run: |
@@ -66,7 +94,7 @@ jobs:
             echo "::error::workspace dependency tree pulls rayon/linfa/wgpu"
             exit 1
           fi
-          for crate in egraph-core egraph-ffi egraph-petgraph egraph-dataset egraph-spatial-trees egraph-spatial-fft egraph-spatial-crossings egraph-spatial egraph-metrics-geometry egraph-metrics-cluster egraph-metrics egraph-linalg egraph-linalg-mds egraph-linalg-amg egraph-neighborhood egraph-clustering egraph-layout-constraints egraph-layout-stress egraph-layout-force egraph-layout-neighbor egraph-layout-sgd egraph-layout-multilevel egraph-layout egraph egraph-cli egraph-python egraph-wasm; do
+          for crate in $(python3 scripts/verify_helpers.py list-packages); do
             if cargo tree -p "$crate" --edges normal -e features | grep -E '(^|[^[:alnum:]_-])(rayon|linfa|linfa-nn|linfa-clustering|getrandom|wgpu)([^[:alnum:]_-]|$)'; then
               echo "::error::$crate dependency tree pulls forbidden crate"
               exit 1
@@ -74,34 +102,61 @@ jobs:
           done
           for spec in \
             "egraph --no-default-features" \
+            "egraph --no-default-features --features dataset" \
+            "egraph --no-default-features --features edge-routing" \
             "egraph --all-features" \
             "egraph-dataset --no-default-features" \
+            "egraph-dataset --features embedded" \
             "egraph-dataset --all-features" \
-            "egraph-spatial --features delaunay" \
-            "egraph-spatial --all-features" \
-            "egraph-spatial-trees --features delaunay" \
+            "egraph-metrics --no-default-features" \
             "egraph-metrics --all-features" \
+            "egraph-metrics-cluster --no-default-features" \
             "egraph-metrics-cluster --all-features" \
-            "egraph-layout --no-default-features" \
-            "egraph-layout --no-default-features --features baselines" \
-            "egraph-layout --all-features" \
+            "egraph-edge-routing --no-default-features" \
+            "egraph-edge-routing --all-features" \
             "egraph-layout-constraints --no-default-features" \
             "egraph-layout-constraints --no-default-features --features baselines" \
             "egraph-layout-constraints --all-features" \
+            "egraph-layout-stress --no-default-features" \
+            "egraph-layout-stress --no-default-features --features baselines" \
             "egraph-layout-stress --all-features" \
+            "egraph-layout-force --no-default-features" \
+            "egraph-layout-force --no-default-features --features baselines" \
             "egraph-layout-force --all-features" \
             "egraph-layout-sgd --no-default-features" \
-            "egraph-layout-sgd --features delaunay" \
+            "egraph-layout-sgd --all-features" \
+            "egraph-layout-embedding --no-default-features" \
+            "egraph-layout-embedding --all-features" \
             "egraph-layout-multilevel --no-default-features" \
             "egraph-layout-multilevel --no-default-features --features baselines" \
             "egraph-layout-multilevel --all-features" \
-            "egraph-wasm --no-default-features"; do
+            "egraph-layout-refine --no-default-features" \
+            "egraph-layout-refine --no-default-features --features baselines" \
+            "egraph-layout-refine --all-features" \
+            "egraph-layout-composite --no-default-features" \
+            "egraph-layout-composite --no-default-features --features baselines" \
+            "egraph-layout-composite --all-features"; do
             if cargo tree -p $spec --edges normal -e features | grep -E '(^|[^[:alnum:]_-])(rayon|linfa|linfa-nn|linfa-clustering|getrandom|wgpu)([^[:alnum:]_-]|$)'; then
               echo "::error::$spec dependency tree pulls forbidden crate"
               exit 1
             fi
           done
-          ./scripts/check_invariants.sh --mode report
+          ./scripts/check_invariants.sh --mode strict
+
+  msrv:
+    name: Rust MSRV (1.88.0)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@1.88.0
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check workspace with MSRV 1.88.0
+        run: cargo check --workspace --all-targets
 
   python-matrix:
     name: Python (${{ matrix.os }})
@@ -169,6 +224,7 @@ jobs:
               crates/python/tests/test_gumap_refiner_and_stress_solvers.py
               crates/python/tests/test_hde_and_sgd_presets.py
               crates/python/tests/test_interop.py
+              crates/python/tests/test_layout3d_polylines_and_errors.py
               crates/python/tests/test_manifold_crossings_and_metrics_report.py
               crates/python/tests/test_maxent_stress_solver.py
               crates/python/tests/test_nd_and_manifold_solvers.py
@@ -221,48 +277,10 @@ jobs:
             | sudo tar -xz --strip-components=1 -C /usr/local/bin wasm-pack-v0.15.1-x86_64-unknown-linux-musl/wasm-pack
           wasm-pack --version
 
-      - name: Check egraph-wasm --no-default-features
-        run: |
-          cargo check -p egraph-wasm --target wasm32-unknown-unknown --no-default-features
-          cargo clippy --no-deps -p egraph-wasm --no-default-features -- -D warnings
-          if cargo tree -p egraph-wasm --no-default-features --edges normal -e features | grep -E '(^|[^[:alnum:]_-])(rayon|linfa|linfa-nn|linfa-clustering|getrandom|wgpu)([^[:alnum:]_-]|$)'; then
-            echo "::error::egraph-wasm --no-default-features pulls forbidden crate"
-            exit 1
-          fi
-
       - name: Run wasm32 check and wasm-pack test --node
         run: |
           cargo check -p egraph-wasm --target wasm32-unknown-unknown
           wasm-pack test --node crates/wasm
-          wasm-pack test --node crates/wasm --no-default-features \
-            --test coarsen_backbone_and_hde \
-            --test community_clustering_and_backbone \
-            --test csr_and_layout_buffers \
-            --test force_multilevel_and_classic_solvers \
-            --test grip_gem_sel_pfs_sfc_solvers \
-            --test gumap_solver \
-            --test linalg_neighborhood_boundaries \
-            --test linalg_spectral_amg_resistance \
-            --test manifold_layouts_and_fdeb \
-            --test metrics_cluster_area \
-            --test metrics_cluster_area_errors \
-            --test metrics_cluster_area_weights \
-            --test metrics_cluster_baselines \
-            --test metrics_evaluate_and_spatial \
-            --test metrics_layout_and_crossings \
-            --test nd_and_manifold_solvers \
-            --test neighborhood_knn_and_varadhan \
-            --test overlap_and_layering_constraints \
-            --test screened_poisson_field_and_refiner \
-            --test sgd_barrier_and_pair_solvers \
-            --test sgd_snap_pacmap_and_sgd2 \
-            --test solver_stats_and_dog_getters \
-            --test spatial_intruder_refiner \
-            --test spatial_trees_datasets_and_linalg \
-            --test stress_and_maxent_solvers \
-            --test tfdp_and_ibumap_solvers \
-            --test tsnet_backends_and_row_normalized \
-            --test tsnet_preconditioning_and_stats
 
       - name: Build optimized web bundle and assemble pkg
         run: |
@@ -283,15 +301,15 @@ jobs:
           python3 scripts/parity_harness.py --wasm-pkg crates/wasm/pkg --wasm-only
           (cd crates/wasm && npm pack --dry-run)
 
-      - name: Build js/examples and run Playwright browser smoke
+      - name: Build examples/web and run Playwright browser smoke
         run: |
-          if [[ -f js/examples/package-lock.json ]]; then
-            npm --prefix js/examples ci
+          if [[ -f examples/web/package-lock.json ]]; then
+            npm --prefix examples/web ci
           else
-            npm --prefix js/examples install --no-audit --no-fund
+            npm --prefix examples/web install --no-audit --no-fund --no-package-lock
           fi
-          npm --prefix js/examples run build
-          npx --prefix js/examples playwright install --with-deps chromium
+          npm --prefix examples/web run build
+          npx --prefix examples/web playwright install --with-deps chromium
           node crates/wasm/tests/playwright_smoke.mjs
 
       - name: Upload built WASM pkg for docs-check
@@ -345,25 +363,10 @@ jobs:
           docs_dir = pathlib.Path("docs")
           broken = []
           link_re = re.compile(r'\[[^\]]*\]\(([^)#\s]+)')
-          # Historical planning snapshot entries in V6_RELEASE_PLAN.md that point outside this repo
-          # or reference legacy files intentionally removed during v6 migration.
-          plan_ignored = {
-              "../../diffusion-kernel-experiments",
-              "../.github/workflows/maturin.yml",
-              "../crates/python/.github/workflows/CI.yml",
-              "../crates/python/docs/netlify.toml",
-              "../crates/algorithm/shortest-path/src/bfs.rs",
-              "../crates/quality-metrics/src/stress.rs",
-              "../crates/wasm/src/quality_metrics.rs",
-              "../crates/python/src/graph/mod.rs",
-              "../crates/wasm/src/edge_bundling.rs",
-          }
           for md in sorted(docs_dir.glob("*.md")):
               text = md.read_text(encoding="utf-8")
               for target in link_re.findall(text):
                   if target.startswith(("http://", "https://", "mailto:")):
-                      continue
-                  if md.name == "V6_RELEASE_PLAN.md" and target in plan_ignored:
                       continue
                   resolved = (md.parent / target).resolve()
                   if not resolved.exists():

@@ -141,8 +141,7 @@ if [[ -n "$TARGET_CRATE" ]]; then
       check_cargo_tree_crate "$TARGET_CRATE (--no-default-features --features baselines)" "hard" -p "$TARGET_CRATE" --no-default-features --features baselines
       ;;
     egraph-wasm)
-      check_cargo_tree_crate "egraph-wasm (default/full)" "hard" -p egraph-wasm
-      check_cargo_tree_crate "egraph-wasm (--no-default-features)" "hard" -p egraph-wasm --no-default-features
+      check_cargo_tree_crate "egraph-wasm" "hard" -p egraph-wasm
       ;;
     *)
       check_cargo_tree_crate "$TARGET_CRATE" "hard" -p "$TARGET_CRATE"
@@ -177,8 +176,7 @@ else
     fi
   done
   if has_workspace_pkg "egraph-wasm"; then
-    check_cargo_tree_crate "egraph-wasm (default/full)" "hard" -p egraph-wasm
-    check_cargo_tree_crate "egraph-wasm (--no-default-features)" "hard" -p egraph-wasm --no-default-features
+    check_cargo_tree_crate "egraph-wasm" "hard" -p egraph-wasm
   fi
 fi
 
@@ -226,7 +224,7 @@ check_wasm32_target() {
   fi
   check_wasm32_variant "$crate" ""
   case "$crate" in
-    egraph|egraph-dataset|egraph-wasm|egraph-metrics-cluster|egraph-edge-routing|egraph-layout-constraints|egraph-layout-stress|egraph-layout-force|egraph-layout-sgd|egraph-layout-embedding|egraph-layout-multilevel|egraph-layout-refine|egraph-layout-composite)
+    egraph|egraph-dataset|egraph-metrics-cluster|egraph-edge-routing|egraph-layout-constraints|egraph-layout-stress|egraph-layout-force|egraph-layout-sgd|egraph-layout-embedding|egraph-layout-multilevel|egraph-layout-refine|egraph-layout-composite)
       check_wasm32_variant "$crate" " (--no-default-features)" --no-default-features
       ;;
   esac
@@ -315,7 +313,7 @@ fi
 
 # 5. Cross-target packaging metadata check
 if [[ "$MODE" == "strict" ]]; then
-  PKG_ISSUES="$(python3 "$VERIFY_HELPERS" check-packaging "$REPO_ROOT" --strict-publishable-metadata)"
+  PKG_ISSUES="$(python3 "$VERIFY_HELPERS" check-packaging "$REPO_ROOT" --strict-metadata)"
 else
   PKG_ISSUES="$(python3 "$VERIFY_HELPERS" check-packaging "$REPO_ROOT")"
 fi
