@@ -2,7 +2,7 @@ use std::fmt;
 use std::marker::PhantomData;
 
 use egraph_core::{
-    CoreError, CoreResult, CsrGraph, DeterministicRng, IterativeSolver, Layout2d, Scalar,
+    CoreError, CoreResult, CsrGraph, DeterministicRng, EdgeWeight, IterativeSolver, Layout2d,
     SolverStatus,
 };
 use egraph_neighborhood::{
@@ -175,7 +175,7 @@ impl<L: GuMapTarget> GuMapSolver<L> {
     /// Constructs a [`GuMapSolver`] directly from a [`CsrGraph`] using default regularized DoG
     /// Varadhan landmark ALT distances and `DEFAULT_MAX_2HOP_PER_NODE`.
     #[inline]
-    pub fn new<W: Scalar>(graph: &CsrGraph<W>, config: GuMapConfig) -> CoreResult<Self> {
+    pub fn new<W: EdgeWeight>(graph: &CsrGraph<W>, config: GuMapConfig) -> CoreResult<Self> {
         Self::from_graph_dog(
             graph,
             DEFAULT_MAX_2HOP_PER_NODE,
@@ -286,7 +286,7 @@ impl<L: GuMapTarget> GuMapSolver<L> {
     /// Constructs a [`GuMapSolver`] from a [`CsrGraph`] using $O(|E|)$ hub-safe 1+2-hop pairs,
     /// regularized Chebyshev DoG Varadhan landmark ALT distances, `eps_dist` distance flooring,
     /// 1+2-hop priority CSR construction, and fuzzy simplicial set computation.
-    pub fn from_graph_dog<W: Scalar>(
+    pub fn from_graph_dog<W: EdgeWeight>(
         graph: &CsrGraph<W>,
         max_2hop_per_node: usize,
         dog_config: &DogVaradhanConfig,

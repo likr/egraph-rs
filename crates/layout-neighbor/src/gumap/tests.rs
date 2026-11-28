@@ -451,3 +451,48 @@ fn test_gumap_symmetric_negative_updates_both_endpoints_and_step_parity() {
     assert_eq!(s_empty.edges(), (&[][..], &[][..], &[][..]));
     assert!(s_empty.ab_params().0 > 0.0 && s_empty.ab_params().1 > 0.0);
 }
+
+#[test]
+fn test_gumap_unweighted_csr_unit_parity_with_f64() {
+    let grid_f64 = grid_graph(4, 4);
+    let n = grid_f64.num_nodes();
+    let edges: Vec<(u32, u32)> = (0..n as u32)
+        .flat_map(|u| {
+            (u % 4 < 3)
+                .then_some((u, u + 1))
+                .into_iter()
+                .chain((u / 4 < 3).then_some((u, u + 4)))
+        })
+        .collect();
+    let grid_unit = CsrGraph::<()>::from_unweighted_edges(n, &edges, false, false).unwrap();
+    let cfg = GuMapConfig::new().with_iterations(25).with_seed(42);
+    let dog_cfg = DogVaradhanConfig::default();
+
+    let mut s_f64 = GuMapSolver::<Layout2d<f64>>::new(&grid_f64, cfg.clone()).unwrap();
+    let mut s_unit = GuMapSolver::<Layout2d<f64>>::new(&grid_unit, cfg.clone()).unwrap();
+    assert_eq!(s_f64.edges(), s_unit.edges());
+
+    let mut l_f64 = seeded_layout::<f64>(n, 1.0, 17);
+    let mut l_unit = l_f64.clone();
+    s_f64.run(&mut l_f64).unwrap();
+    s_unit.run(&mut l_unit).unwrap();
+    for i in 0..n {
+        assert_eq!(l_f64.x()[i].to_bits(), l_unit.x()[i].to_bits());
+        assert_eq!(l_f64.y()[i].to_bits(), l_unit.y()[i].to_bits());
+    }
+
+    let mut sd_f64 =
+        GuMapSolver::<Layout2d<f64>>::from_graph_dog(&grid_f64, 32, &dog_cfg, cfg.clone()).unwrap();
+    let mut sd_unit =
+        GuMapSolver::<Layout2d<f64>>::from_graph_dog(&grid_unit, 32, &dog_cfg, cfg).unwrap();
+    assert_eq!(sd_f64.edges(), sd_unit.edges());
+
+    let mut ld_f64 = seeded_layout::<f64>(n, 1.0, 17);
+    let mut ld_unit = ld_f64.clone();
+    sd_f64.run(&mut ld_f64).unwrap();
+    sd_unit.run(&mut ld_unit).unwrap();
+    for i in 0..n {
+        assert_eq!(ld_f64.x()[i].to_bits(), ld_unit.x()[i].to_bits());
+        assert_eq!(ld_f64.y()[i].to_bits(), ld_unit.y()[i].to_bits());
+    }
+}

@@ -367,3 +367,77 @@ fn workflow_multi_dimension_permutation_layout_equivalence() {
     let lnd_unp = lnd_p.unpermute(&perm).unwrap();
     assert!(scale_normalized_stress(&g, &lnd_unp).unwrap().is_finite());
 }
+
+#[cfg(all(feature = "linalg", feature = "layout"))]
+#[test]
+fn workflow_facade_shift_invert_eigenpairs_and_ib_umap_repulsive_eps() {
+    use egraph::layout::{DEFAULT_IB_UMAP_REPULSIVE_EPS, IbUmapConfig, IbUmapSolver};
+    use egraph::linalg::{
+        AmgPcgConfig, AmgPcgSolver, FnOperator, LanczosEigen, LaplacianKind,
+        smallest_eigenpairs_from_inverse_operator, smallest_sym_laplacian_eigenpairs_with_config,
+        symmetric_normalized_laplacian,
+    };
+
+    // Build an 8x8 unweighted grid (64 nodes > dense Jacobi threshold of 48)
+    // to exercise the Lanczos path for smallest_sym_laplacian_eigenpairs_with_config.
+    let g_weighted = make_grid_csr(8, 8);
+    let n = g_weighted.num_nodes();
+    let mut edges = Vec::new();
+    for r in 0..8_u32 {
+        for c in 0..8_u32 {
+            let u = r * 8 + c;
+            if c + 1 < 8 {
+                edges.push((u, u + 1));
+            }
+            if r + 1 < 8 {
+                edges.push((u, u + 8));
+            }
+        }
+    }
+    let g_unweighted = CsrGraph::<()>::from_unweighted_edges(n, &edges, false, false).unwrap();
+
+    let lanczos = LanczosEigen::new(1e-10, 400, 42).with_subspace_dim(Some(24));
+    let eig_u = smallest_sym_laplacian_eigenpairs_with_config(&g_unweighted, 4, &lanczos).unwrap();
+    let eig_w = smallest_sym_laplacian_eigenpairs_with_config(&g_weighted, 4, &lanczos).unwrap();
+    assert_eq!(eig_u.num_modes, 4);
+    assert_eq!(eig_u.lambdas, eig_w.lambdas);
+    assert!(!eig_u.used_dense_fallback);
+
+    let shift = 0.05;
+    let (_l_sym, inv_sqrt_deg) = symmetric_normalized_laplacian(&g_unweighted);
+    let amg_cfg = AmgPcgConfig::new()
+        .with_rel_tol(1e-12)
+        .with_max_iterations(200);
+    let amg = AmgPcgSolver::from_laplacian(
+        &g_unweighted,
+        LaplacianKind::SymmetricNormalized,
+        shift,
+        amg_cfg,
+    )
+    .unwrap();
+    let mut ws = amg.new_workspace();
+    let mut inv_op = FnOperator::new(n, |x: &[f64], y: &mut [f64]| {
+        y.fill(0.0);
+        amg.solve(x, y, &mut ws).map(|_| ())
+    });
+    let eig_inv =
+        smallest_eigenpairs_from_inverse_operator(&mut inv_op, inv_sqrt_deg, 4, shift, &lanczos)
+            .unwrap();
+    assert_eq!(eig_inv.num_modes, 4);
+    for (&lam_direct, &lam_inv) in eig_u.lambdas.iter().zip(eig_inv.lambdas.iter()) {
+        assert!(
+            (lam_direct - lam_inv).abs() < 1e-6,
+            "direct={lam_direct}, shift-invert={lam_inv}"
+        );
+    }
+
+    let cfg = IbUmapConfig::new()
+        .with_iterations(10)
+        .with_repulsive_eps(DEFAULT_IB_UMAP_REPULSIVE_EPS)
+        .with_seed(42);
+    assert_eq!(cfg.repulsive_eps, DEFAULT_IB_UMAP_REPULSIVE_EPS);
+    let mut solver = IbUmapSolver::<Layout2d<f64>>::new(&g_unweighted, cfg).unwrap();
+    let mut layout = Layout2d::<f64>::init(n, 7, 1.0).unwrap();
+    assert_eq!(solver.run(&mut layout).unwrap(), SolverStatus::Completed);
+    assert!(layout.is_all_finite());
+}

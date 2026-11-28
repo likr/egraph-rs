@@ -118,11 +118,12 @@ pub use egraph_layout_multilevel::{
 #[cfg_attr(docsrs, doc(cfg(feature = "baselines")))]
 pub use egraph_layout_multilevel::{GripConfig, GripSolver, SfcConfig, SfcCurveKind, SfcLayout};
 pub use egraph_layout_neighbor::{
-    Auto2d, Auto3d, DEFAULT_AUTO_EXACT_THRESHOLD, DEFAULT_MAX_2HOP_PER_NODE, DefaultIbUmapBackend,
-    DefaultTFdpBackend, DefaultTsNetBackend, FieldFftStats, FitFft, GuMapConfig, GuMapSolver,
-    GuMapTarget, IbFft, IbUmapBackend2d, IbUmapConfig, IbUmapRepulsion, IbUmapSolver, LinearFft,
-    RhoSchedule, TFdpBackend2d, TFdpBackend3d, TFdpConfig, TFdpRepulsion, TFdpSolver,
-    TsNetBackend2d, TsNetBackend3d, TsNetConfig, TsNetRepulsion, TsNetSolver, TsNetStage,
+    Auto2d, Auto3d, DEFAULT_AUTO_EXACT_THRESHOLD, DEFAULT_IB_UMAP_REPULSIVE_EPS,
+    DEFAULT_MAX_2HOP_PER_NODE, DefaultIbUmapBackend, DefaultTFdpBackend, DefaultTsNetBackend,
+    FieldFftStats, FitFft, GuMapConfig, GuMapSolver, GuMapTarget, IbFft, IbUmapBackend2d,
+    IbUmapConfig, IbUmapRepulsion, IbUmapSolver, LinearFft, RhoSchedule, TFdpBackend2d,
+    TFdpBackend3d, TFdpConfig, TFdpRepulsion, TFdpSolver, TsNetBackend2d, TsNetBackend3d,
+    TsNetConfig, TsNetRepulsion, TsNetSolver, TsNetStage,
 };
 #[cfg(feature = "baselines")]
 #[cfg_attr(docsrs, doc(cfg(feature = "baselines")))]

@@ -12,7 +12,8 @@ pub use egraph_linalg::{
     dijkstra_single_source, effective_chebyshev_len, estimate_lambda_max_operator,
     exp_scaled_bessel_i, exp_scaled_bessel_i_all, laplacian, project_psd_spectral_filter,
     random_walk_laplacian, select_maxmin_sp_pivots, shifted_normalized_laplacian,
-    smallest_sym_laplacian_eigenpairs, spectral_moment_stats, symmetric_eigen_jacobi,
+    smallest_eigenpairs_from_inverse_operator, smallest_sym_laplacian_eigenpairs,
+    smallest_sym_laplacian_eigenpairs_with_config, spectral_moment_stats, symmetric_eigen_jacobi,
     symmetric_normalized_laplacian,
 };
 pub use egraph_linalg_amg::{
