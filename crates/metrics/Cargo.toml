@@ -2,8 +2,10 @@
 name = "egraph-metrics"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+description = "Unified single-threaded graph layout evaluation metrics dispatcher for egraph-rs"
 
 [features]
 default = []

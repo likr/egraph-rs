@@ -2,11 +2,24 @@
 name = "egraph-dataset"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
+repository.workspace = true
+description = "Embedded benchmark datasets and synthetic graph generators for egraph-rs"
 
 [features]
-default = ["petgraph"]
-petgraph = ["dep:petgraph"]
+default = []
+embedded = [
+    "1138_bus",
+    "3elt",
+    "dwt_1005",
+    "dwt_2680",
+    "poli",
+    "qh882",
+    "USpowerGrid",
+    "karate",
+    "lesmis",
+]
 1138_bus = []
 poli = []
 USpowerGrid = []
@@ -19,4 +32,3 @@ lesmis = []
 
 [dependencies]
 egraph-core.workspace = true
-petgraph = { workspace = true, optional = true }

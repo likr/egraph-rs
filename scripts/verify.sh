@@ -259,6 +259,7 @@ if [[ "$RUN_RUST" -eq 1 ]]; then
   run_batched_matrix clippy "no_default_metrics" "--no-default-features" "${NO_DEF_METRICS_CRATES[@]}"
   run_batched_matrix clippy "no_default_egraph" "--no-default-features" egraph
   run_batched_matrix clippy "no_default_dataset" "--no-default-features" egraph-dataset
+  run_batched_matrix clippy "embedded_dataset" "--features embedded" egraph-dataset
   run_batched_matrix clippy "no_default_baselines" "--no-default-features --features baselines" "${BASELINES_CRATES[@]}"
 
   RUST_REL_FLAG=""
@@ -269,6 +270,7 @@ if [[ "$RUN_RUST" -eq 1 ]]; then
   run_batched_matrix test "no_default_metrics" "${RUST_REL_FLAG:+$RUST_REL_FLAG }--no-default-features" "${NO_DEF_METRICS_CRATES[@]}"
   run_batched_matrix test "no_default_egraph" "${RUST_REL_FLAG:+$RUST_REL_FLAG }--no-default-features" egraph
   run_batched_matrix test "no_default_dataset" "${RUST_REL_FLAG:+$RUST_REL_FLAG }--no-default-features" egraph-dataset
+  run_batched_matrix test "embedded_dataset" "${RUST_REL_FLAG:+$RUST_REL_FLAG }--features embedded" egraph-dataset
   run_batched_matrix test "no_default_baselines" "${RUST_REL_FLAG:+$RUST_REL_FLAG }--no-default-features --features baselines" "${BASELINES_CRATES[@]}"
 fi
 

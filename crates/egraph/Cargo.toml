@@ -2,6 +2,7 @@
 name = "egraph"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Unified single-threaded pure-Rust graph drawing and layout facade crate."
@@ -16,6 +17,7 @@ default = [
     "clustering",
     "metrics",
     "dataset",
+    "dataset-embedded",
 ]
 spatial = ["dep:egraph-spatial-trees", "dep:egraph-spatial-fft", "dep:egraph-spatial-crossings"]
 edge-routing = ["dep:egraph-edge-routing"]
@@ -49,7 +51,8 @@ baselines = [
 ]
 eval-baselines = ["metrics", "clustering", "egraph-metrics?/eval-baselines"]
 dataset = ["dep:egraph-dataset"]
-petgraph = ["dep:egraph-petgraph", "egraph-dataset?/petgraph"]
+dataset-embedded = ["dataset", "egraph-dataset/embedded"]
+serde = ["egraph-core/serde"]
 full = [
     "spatial",
     "edge-routing",
@@ -61,7 +64,7 @@ full = [
     "baselines",
     "eval-baselines",
     "dataset",
-    "petgraph",
+    "dataset-embedded",
 ]
 
 [dependencies]
@@ -74,26 +77,15 @@ egraph-linalg = { workspace = true, optional = true }
 egraph-linalg-amg = { workspace = true, optional = true }
 egraph-linalg-mds = { workspace = true, optional = true }
 egraph-neighborhood = { workspace = true, optional = true }
-egraph-layout-constraints = { workspace = true, optional = true, default-features = false }
-egraph-layout-stress = { workspace = true, optional = true, default-features = false }
-egraph-layout-force = { workspace = true, optional = true, default-features = false }
+egraph-layout-constraints = { workspace = true, optional = true }
+egraph-layout-stress = { workspace = true, optional = true }
+egraph-layout-force = { workspace = true, optional = true }
 egraph-layout-neighbor = { workspace = true, optional = true }
-egraph-layout-sgd = { workspace = true, optional = true, default-features = false }
+egraph-layout-sgd = { workspace = true, optional = true }
 egraph-layout-embedding = { workspace = true, optional = true }
-egraph-layout-multilevel = { workspace = true, optional = true, default-features = false }
-egraph-layout-refine = { workspace = true, optional = true, default-features = false }
-egraph-layout-composite = { workspace = true, optional = true, default-features = false }
+egraph-layout-multilevel = { workspace = true, optional = true }
+egraph-layout-refine = { workspace = true, optional = true }
+egraph-layout-composite = { workspace = true, optional = true }
 egraph-clustering = { workspace = true, optional = true }
-egraph-metrics = { workspace = true, optional = true, default-features = false }
-egraph-dataset = { workspace = true, optional = true, default-features = false, features = [
-    "1138_bus",
-    "3elt",
-    "dwt_1005",
-    "dwt_2680",
-    "poli",
-    "qh882",
-    "USpowerGrid",
-    "karate",
-    "lesmis",
-] }
-egraph-petgraph = { workspace = true, optional = true }
+egraph-metrics = { workspace = true, optional = true }
+egraph-dataset = { workspace = true, optional = true }

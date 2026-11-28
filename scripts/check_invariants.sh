@@ -113,7 +113,7 @@ check_cargo_tree_crate() {
 # ALWAYS fail_hard on rayon/linfa/getrandom/wgpu.
 if [[ -n "$TARGET_CRATE" ]]; then
   case "$TARGET_CRATE" in
-    egraph-core|egraph-ffi|egraph-petgraph|egraph-linalg|egraph-linalg-mds|egraph-linalg-amg|egraph-neighborhood|egraph-clustering|egraph-cli|egraph-spatial-trees|egraph-spatial-fft|egraph-spatial-crossings|egraph-metrics-geometry|egraph-edge-routing|egraph-layout-embedding|egraph-layout-neighbor|egraph-layout-sgd|egraph-python)
+    egraph-core|egraph-ffi|egraph-linalg|egraph-linalg-mds|egraph-linalg-amg|egraph-neighborhood|egraph-clustering|egraph-cli|egraph-spatial-trees|egraph-spatial-fft|egraph-spatial-crossings|egraph-metrics-geometry|egraph-edge-routing|egraph-layout-embedding|egraph-layout-neighbor|egraph-layout-sgd|egraph-python)
       check_cargo_tree_crate "$TARGET_CRATE" "hard" -p "$TARGET_CRATE"
       ;;
     egraph-metrics|egraph-metrics-cluster)
@@ -125,11 +125,14 @@ if [[ -n "$TARGET_CRATE" ]]; then
       check_cargo_tree_crate "egraph-dataset (default)" "hard" -p egraph-dataset
       check_cargo_tree_crate "egraph-dataset (--all-features)" "hard" -p egraph-dataset --all-features
       check_cargo_tree_crate "egraph-dataset (--no-default-features)" "hard" -p egraph-dataset --no-default-features
+      check_cargo_tree_crate "egraph-dataset (--features embedded)" "hard" -p egraph-dataset --features embedded
       ;;
     egraph)
       check_cargo_tree_crate "egraph (default)" "hard" -p egraph
       check_cargo_tree_crate "egraph (--all-features)" "hard" -p egraph --all-features
       check_cargo_tree_crate "egraph (--no-default-features)" "hard" -p egraph --no-default-features
+      check_cargo_tree_crate "egraph (--no-default-features --features dataset)" "hard" -p egraph --no-default-features --features dataset
+      check_cargo_tree_crate "egraph (--no-default-features --features edge-routing)" "hard" -p egraph --no-default-features --features edge-routing
       ;;
     egraph-layout-constraints|egraph-layout-multilevel|egraph-layout-stress|egraph-layout-force|egraph-layout-refine|egraph-layout-composite)
       check_cargo_tree_crate "$TARGET_CRATE (default)" "hard" -p "$TARGET_CRATE"
@@ -146,7 +149,7 @@ if [[ -n "$TARGET_CRATE" ]]; then
       ;;
   esac
 else
-  for strict_crate in egraph-core egraph-ffi egraph-petgraph egraph-dataset egraph-spatial-trees egraph-spatial-fft egraph-spatial-crossings egraph-edge-routing egraph-metrics egraph-metrics-geometry egraph-metrics-cluster egraph-linalg egraph-linalg-mds egraph-linalg-amg egraph-neighborhood egraph-clustering egraph-layout-constraints egraph-layout-stress egraph-layout-force egraph-layout-neighbor egraph-layout-sgd egraph-layout-embedding egraph-layout-multilevel egraph-layout-refine egraph-layout-composite egraph egraph-cli egraph-python; do
+  for strict_crate in egraph-core egraph-ffi egraph-dataset egraph-spatial-trees egraph-spatial-fft egraph-spatial-crossings egraph-edge-routing egraph-metrics egraph-metrics-geometry egraph-metrics-cluster egraph-linalg egraph-linalg-mds egraph-linalg-amg egraph-neighborhood egraph-clustering egraph-layout-constraints egraph-layout-stress egraph-layout-force egraph-layout-neighbor egraph-layout-sgd egraph-layout-embedding egraph-layout-multilevel egraph-layout-refine egraph-layout-composite egraph egraph-cli egraph-python; do
     if has_workspace_pkg "$strict_crate"; then
       check_cargo_tree_crate "$strict_crate" "hard" -p "$strict_crate"
     fi
@@ -161,6 +164,13 @@ else
       check_cargo_tree_crate "$crate (--no-default-features)" "hard" -p "$crate" --no-default-features
     fi
   done
+  if has_workspace_pkg "egraph-dataset"; then
+    check_cargo_tree_crate "egraph-dataset (--features embedded)" "hard" -p egraph-dataset --features embedded
+  fi
+  if has_workspace_pkg "egraph"; then
+    check_cargo_tree_crate "egraph (--no-default-features --features dataset)" "hard" -p egraph --no-default-features --features dataset
+    check_cargo_tree_crate "egraph (--no-default-features --features edge-routing)" "hard" -p egraph --no-default-features --features edge-routing
+  fi
   for crate in egraph-layout-constraints egraph-layout-stress egraph-layout-force egraph-layout-multilevel egraph-layout-refine egraph-layout-composite; do
     if has_workspace_pkg "$crate"; then
       check_cargo_tree_crate "$crate (--no-default-features --features baselines)" "hard" -p "$crate" --no-default-features --features baselines
@@ -221,10 +231,17 @@ check_wasm32_target() {
       ;;
   esac
   case "$crate" in
-    egraph|egraph-metrics|egraph-metrics-cluster|egraph-edge-routing|egraph-layout-constraints|egraph-layout-stress|egraph-layout-force|egraph-layout-sgd|egraph-layout-embedding|egraph-layout-multilevel|egraph-layout-refine|egraph-layout-composite)
+    egraph|egraph-dataset|egraph-metrics|egraph-metrics-cluster|egraph-edge-routing|egraph-layout-constraints|egraph-layout-stress|egraph-layout-force|egraph-layout-sgd|egraph-layout-embedding|egraph-layout-multilevel|egraph-layout-refine|egraph-layout-composite)
       check_wasm32_variant "$crate" " (--all-features)" --all-features
       ;;
   esac
+  if [[ "$crate" == "egraph-dataset" ]]; then
+    check_wasm32_variant "$crate" " (--features embedded)" --features embedded
+  fi
+  if [[ "$crate" == "egraph" ]]; then
+    check_wasm32_variant "$crate" " (--no-default-features --features dataset)" --no-default-features --features dataset
+    check_wasm32_variant "$crate" " (--no-default-features --features edge-routing)" --no-default-features --features edge-routing
+  fi
   case "$crate" in
     egraph-layout-constraints|egraph-layout-stress|egraph-layout-force|egraph-layout-multilevel|egraph-layout-refine|egraph-layout-composite)
       check_wasm32_variant "$crate" " (--no-default-features --features baselines)" --no-default-features --features baselines
@@ -245,7 +262,6 @@ else
   for wasm_crate in \
     egraph-core \
     egraph-ffi \
-    egraph-petgraph \
     egraph-dataset \
     egraph-spatial-trees \
     egraph-spatial-fft \
@@ -298,7 +314,11 @@ else
 fi
 
 # 5. Cross-target packaging metadata check
-PKG_ISSUES="$(python3 "$VERIFY_HELPERS" check-packaging "$REPO_ROOT")"
+if [[ "$MODE" == "strict" ]]; then
+  PKG_ISSUES="$(python3 "$VERIFY_HELPERS" check-packaging "$REPO_ROOT" --strict-publishable-metadata)"
+else
+  PKG_ISSUES="$(python3 "$VERIFY_HELPERS" check-packaging "$REPO_ROOT")"
+fi
 
 if [[ -n "$PKG_ISSUES" ]]; then
   while IFS= read -r line; do
