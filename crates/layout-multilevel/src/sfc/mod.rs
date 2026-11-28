@@ -1,13 +1,9 @@
 //! Canonical community-ordered Space-Filling Curve (`SFC`) graph layout baseline.
 //!
-//! # Literature Note (`muelder2008_space_filling` `MISSING_PDF`)
-//!
-//! Muelder & Ma (*"Rapid Graph Layout Using Space Filling Curves"*, IEEE TVCG 2008) is currently
-//! marked `MISSING_PDF` in the project literature archive, so exact clustering, ordering, and
-//! post-refinement parameters from that paper cannot be verified or claimed. This module
-//! implements a canonical **community-ordered Hilbert/Morton space-filling curve baseline**
-//! powered by [`egraph_clustering::louvain_coarsen`] and strictly injective 2D curve mapping,
-//! guaranteeing zero vertex co-location in both `f64` and `f32`.
+//! Inspired by Muelder & Ma (*"Rapid Graph Layout Using Space Filling Curves"*, *IEEE TVCG* 2008),
+//! this module implements a community-ordered Hilbert/Morton proxy baseline powered by
+//! [`egraph_clustering::louvain_coarsen`] and strictly injective 2D curve mapping, guaranteeing
+//! zero vertex co-location in both `f64` and `f32`.
 
 mod config;
 mod ordering;

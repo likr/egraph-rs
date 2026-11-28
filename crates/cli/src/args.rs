@@ -115,7 +115,7 @@ pub enum LayoutMethod {
     /// Structural Entropy Layout with adaptive edge-weight modulation (`SelLayoutSolver`, Xue et al. 2025).
     #[value(name = "sel")]
     Sel,
-    /// Canonical community-ordered Hilbert/Morton space-filling curve baseline (`SfcLayout`; `muelder2008_space_filling` PDF pending/`MISSING_PDF`, guarantees zero co-location).
+    /// Canonical community-ordered Hilbert/Morton space-filling curve baseline (`SfcLayout`, Muelder & Ma (2008) proxy; guarantees zero co-location).
     #[value(name = "sfc")]
     Sfc,
 }

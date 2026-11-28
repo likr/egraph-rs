@@ -1,6 +1,6 @@
 //! Pure-Rust $O(N \log N)$ `StaticKdTree` active-set spatial intruder refiner.
 //!
-//! Native port of the Track A / Track B 2D spatial intruder refiner:
+//! Pure-Rust 2D $O(N \log N)$ `StaticKdTree` active-set spatial intruder refiner:
 //! detects strictly $>2$-hop spatial false positives inside each vertex's $k_u$-NN ball
 //! (plus optional 2-hop false negatives), protects 1-hop anchors, conditions pair weights,
 //! and executes bounded-scale `SgdSolver` passes via [`SgdPairBuffer`] without distorting

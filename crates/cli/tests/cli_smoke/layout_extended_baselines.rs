@@ -324,8 +324,8 @@ fn cli_help_includes_extended_methods_and_clarified_docstrings() {
         "layout --help missing linlog_mode distinction"
     );
     assert!(
-        layout_help.contains("muelder2008_space_filling") && layout_help.contains("Hilbert"),
-        "layout --help missing SFC canonical Hilbert/Morton & MISSING_PDF note"
+        layout_help.contains("Muelder & Ma (2008)") && layout_help.contains("Hilbert"),
+        "layout --help missing SFC canonical Hilbert/Morton & Muelder & Ma (2008) note"
     );
     assert!(
         layout_help.contains("sgd2"),
