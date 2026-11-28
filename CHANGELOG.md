@@ -5,6 +5,20 @@ All notable changes to `egraph-rs` (`egraph` on PyPI and npm) will be documented
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [6.0.0-beta.3] - 2026-11-28
+
+### Changed
+
+- **Monorepo crates.io Publishing Hardening & Prerelease Pinning (all 24 publishable crates)**:
+  - Pinned all 24 `[workspace.dependencies]` internal `egraph*` references in root `Cargo.toml` to exact `version = "=6.0.0-beta.3"` (enforced by `scripts/packaging_checks.py` whenever a workspace version contains `-`).
+  - Removed `"dataset-embedded"` from `egraph-rs` `default` features (keeping opt-in `dataset-embedded` and adding `"serde"` to `full`).
+  - Added dedicated per-crate `README.md` files (with `egraph-rs` facade recommendations and absolute-only URLs) across all 23 publishable subcrates (`readme = "README.md"`), and converted `crates/egraph/README.md` links to absolute URLs.
+  - Added explicit `include` globs across all 24 publishable `Cargo.toml` manifests and replaced `crates/clustering`'s cross-crate test CSV `include_str!` paths with `[dev-dependencies] egraph-dataset`.
+- **`docs.rs` Feature Badges (`doc_cfg`)**:
+  - Enabled `#![cfg_attr(docsrs, feature(doc_cfg))]` and `#[cfg_attr(docsrs, doc(cfg(...)))]` across all 11 feature-bearing publishable crates (`egraph-core`, `egraph-dataset`, `egraph-rs`, `egraph-layout-{composite,constraints,force,multilevel,refine,stress}`, `egraph-metrics`, `egraph-metrics-cluster`).
+- **crates.io Sparse Index & Rate-Limit Hardening (`scripts/bootstrap_crates_io.py`, `.github/workflows/release.yml`)**:
+  - Migrated `query_crates_io_state` to query `https://index.crates.io/` exclusively, added a `>= 1.0s` (`1 req/s`) `RateLimiter` + non-empty `User-Agent` guard for `crates.io/api/` requests, fixed existing-crate `429` retry fallback to use `existing_sleep_seconds` (`65s`), set `timeout-minutes: 30` on `publish-crates`, and added unit tests (`scripts/test_bootstrap_crates_io.py`, `scripts/test_packaging_checks.py`).
+
 ## [6.0.0-beta.2] - 2026-11-28
 
 ### Added

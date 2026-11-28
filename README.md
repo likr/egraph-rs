@@ -1,6 +1,6 @@
 # egraph
 
-A fast, strictly single-threaded pure-CPU graph drawing and layout library for **Native Rust** (`egraph-rs`), **Python** (`abi3-py310`), **WebAssembly/TypeScript** (pure ESM), and the **`egraph` CLI** (`6.0.0-beta.2`).
+A fast, strictly single-threaded pure-CPU graph drawing and layout library for **Native Rust** (`egraph-rs`), **Python** (`abi3-py310`), **WebAssembly/TypeScript** (pure ESM), and the **`egraph` CLI** (`6.0.0-beta.3`).
 
 ## Highlights (v6)
 
@@ -17,10 +17,10 @@ A fast, strictly single-threaded pure-CPU graph drawing and layout library for *
 
 ## Quick Start (Rust / crates.io)
 
-**Package: `egraph-rs` (`6.0.0-beta.2`, library crate `egraph`)**
+**Package: `egraph-rs` (`6.0.0-beta.3`, library crate `egraph`)**
 
 ```bash
-cargo add egraph-rs@6.0.0-beta.2
+cargo add egraph-rs@6.0.0-beta.3
 ```
 
 ```rust
@@ -62,10 +62,10 @@ See [crates/egraph/README.md](crates/egraph/README.md) for Rust feature flags an
 
 ## Quick Start (Python)
 
-**Version: `6.0.0-beta.2` (`6.0.0b2`)**
+**Version: `6.0.0-beta.3` (`6.0.0b3`)**
 
 ```bash
-pip install --pre "egraph[interop,viz]==6.0.0b2"
+pip install --pre "egraph[interop,viz]==6.0.0b3"
 ```
 
 ```python

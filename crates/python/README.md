@@ -4,7 +4,7 @@
 [![Python Version](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**Version: 6.0.0-beta.2**
+**Version: 6.0.0-beta.3**
 
 **egraph** is a fast, strictly single-threaded graph drawing and layout library for Python powered by pure CPU Rust (`abi3-py310`). It provides zero-copy Compressed Sparse Row (`CsrGraph`) and Structure-of-Arrays (`Layout2d`, `Layout3d`, `LayoutNd`, `ManifoldLayout2d`, `EdgePolylines`) bindings, deterministic seeded execution (`seed=42` default), structured `EgraphError` exceptions, and SOTA neighborhood-preserving, force-directed, 3D/$N$-dimensional, and non-Euclidean layouts.
 
@@ -38,9 +38,9 @@
 ### Installing from PyPI (Pre-release)
 
 ```bash
-pip install --pre "egraph==6.0.0b2"
+pip install --pre "egraph==6.0.0b3"
 # With SciPy/NetworkX/igraph/matplotlib support:
-pip install --pre "egraph[interop,viz]==6.0.0b2"
+pip install --pre "egraph[interop,viz]==6.0.0b3"
 ```
 
 ### Building from Source

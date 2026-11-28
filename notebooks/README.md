@@ -17,7 +17,7 @@
 ### 標準インストール（NB02〜NB09）
 
 ```bash
-pip install -q --pre "egraph==6.0.0b2" matplotlib-fontja
+pip install -q --pre "egraph==6.0.0b3" matplotlib-fontja
 ```
 
 ### 相互運用・可視化拡張付きインストール（NB01 推奨）
@@ -25,7 +25,7 @@ pip install -q --pre "egraph==6.0.0b2" matplotlib-fontja
 `NetworkX` / `SciPy` / `igraph` / `matplotlib` との相互運用をすべて試す場合は `[interop,viz]` extra を指定します。
 
 ```bash
-pip install -q --pre "egraph[interop,viz]==6.0.0b2" matplotlib-fontja
+pip install -q --pre "egraph[interop,viz]==6.0.0b3" matplotlib-fontja
 ```
 
 - `matplotlib-fontja` は Google Colab 上の Matplotlib で日本語ラベルを文字化けなく表示するためのパッケージです（`import matplotlib_fontja` で自動適用されます）。ローカル環境等で未インストールの場合は `try: import matplotlib_fontja; except ImportError: pass` によりフォールバックできます。

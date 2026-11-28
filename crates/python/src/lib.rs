@@ -109,6 +109,7 @@ mod tests {
         assert_eq!(pep440_version("6.0.0-alpha.6"), "6.0.0a6");
         assert_eq!(pep440_version("6.0.0-alpha.7"), "6.0.0a7");
         assert_eq!(pep440_version("6.0.0-beta.2"), "6.0.0b2");
+        assert_eq!(pep440_version("6.0.0-beta.3"), "6.0.0b3");
         assert_eq!(pep440_version("6.0.0-rc.1"), "6.0.0rc1");
         assert_eq!(pep440_version("6.0.0-dev.3"), "6.0.0.dev3");
         assert_eq!(pep440_version("6.0.0"), "6.0.0");
