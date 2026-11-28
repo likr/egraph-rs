@@ -3,7 +3,7 @@ mod util;
 use egraph_wasm::csr_graph::JsCsrGraph;
 use egraph_wasm::force_baselines::{JsGemSolver, JsSelLayoutSolver};
 use egraph_wasm::layout_buffers::JsLayout2d;
-use egraph_wasm::overlap_pfs_sfc::{JsPfsPrimeOverlapRemoval, JsSfcLayoutSolver};
+use egraph_wasm::overlap_pfs_sfc::{JsPfsPrimeOverlapRemoval, JsSfcLayout};
 use egraph_wasm::stress_multilevel_baselines::JsGripSolver;
 use util::fixtures::{
     assert_layouts_bit_exact, count_rect_overlaps, make_circle_layout, make_disconnected_graph,
@@ -32,7 +32,7 @@ fn grip_gem_sel_pfs_prime_sfc_step_eq_run() {
     let mut grip_step = JsGripSolver::new(&graph, &grip_opts).unwrap();
     let mut grip_run = JsGripSolver::new(&graph, &grip_opts).unwrap();
     assert!(grip_step.num_levels() >= 1);
-    assert!(grip_step.total_iterations() >= 1);
+    assert!(grip_step.total_iterations().is_some_and(|v| v >= 1));
     let mut l_grip_step = init.clone();
     let mut l_grip_run = init.clone();
     while !grip_step.is_finished() {
@@ -66,7 +66,7 @@ fn grip_gem_sel_pfs_prime_sfc_step_eq_run() {
     ]);
     let mut gem_step = JsGemSolver::new(&graph, &gem_opts).unwrap();
     let mut gem_run = JsGemSolver::new(&graph, &gem_opts).unwrap();
-    assert_eq!(gem_step.total_iterations(), 10);
+    assert_eq!(gem_step.total_iterations(), Some(10));
     let mut l_gem_step = init.clone();
     let mut l_gem_run = init.clone();
     while !gem_step.is_finished() {
@@ -77,8 +77,8 @@ fn grip_gem_sel_pfs_prime_sfc_step_eq_run() {
     assert!(l_gem_run.is_all_finite());
 
     // SEL (all 5 mappings + both backends)
-    for mapping in ["sigmoid", "linear", "tanh", "custom_logistic", "binary"] {
-        for backend in ["fr", "t_fdp"] {
+    for mapping in ["sigmoid", "linear", "tanh", "customLogistic", "binary"] {
+        for backend in ["fr", "tFdp"] {
             let sel_opts = make_opts(&[
                 ("treeDepth", JsValue::from_f64(4.0)),
                 ("pqMaxPops", JsValue::from_f64(8.0)),
@@ -106,7 +106,7 @@ fn grip_gem_sel_pfs_prime_sfc_step_eq_run() {
             .is_err()
     );
 
-    // PFS'
+    // PFS' (LayoutTransform.apply)
     let overlap_init = make_overlapping_layout();
     let hw = vec![0.4_f32; 8];
     let hh = vec![0.3_f32; 8];
@@ -114,26 +114,19 @@ fn grip_gem_sel_pfs_prime_sfc_step_eq_run() {
         ("padding", JsValue::from_f64(0.05)),
         ("seed", JsValue::from_f64(42.0)),
     ]);
-    let mut pfs_step = JsPfsPrimeOverlapRemoval::new(&hw, &hh, &pfs_opts).unwrap();
-    let mut pfs_run = JsPfsPrimeOverlapRemoval::new(&hw, &hh, &pfs_opts).unwrap();
-    assert_eq!(pfs_step.total_iterations(), 1);
-    let mut l_pfs_step = overlap_init.clone();
-    let mut l_pfs_run = overlap_init.clone();
-    while !pfs_step.is_finished() {
-        pfs_step.step(&mut l_pfs_step).unwrap();
-    }
-    pfs_run.run(&mut l_pfs_run).unwrap();
-    assert_layouts_bit_exact(&l_pfs_step, &l_pfs_run);
-    assert_eq!(pfs_run.last_overlap_count(), 0);
-    assert_eq!(count_rect_overlaps(&l_pfs_run, &hw, &hh), 0);
+    let mut pfs = JsPfsPrimeOverlapRemoval::new(&hw, &hh, &pfs_opts).unwrap();
+    let mut l_pfs = overlap_init.clone();
+    pfs.apply(&mut l_pfs).unwrap();
+    assert_eq!(pfs.last_overlap_count(), 0);
+    assert_eq!(count_rect_overlaps(&l_pfs, &hw, &hh), 0);
 
     let mut pfs_radii = JsPfsPrimeOverlapRemoval::from_radii(&hw, &pfs_opts).unwrap();
     let mut l_pfs_rad = overlap_init;
-    pfs_radii.run(&mut l_pfs_rad).unwrap();
+    pfs_radii.apply(&mut l_pfs_rad).unwrap();
     assert_eq!(pfs_radii.last_overlap_count(), 0);
     assert_eq!(count_rect_overlaps(&l_pfs_rad, &hw, &hw), 0);
 
-    // SFC (Hilbert & Morton)
+    // SFC (Hilbert & Morton LayoutGenerator)
     for curve in ["hilbert", "morton"] {
         let sfc_opts = make_opts(&[
             ("curve", JsValue::from_str(curve)),
@@ -141,28 +134,23 @@ fn grip_gem_sel_pfs_prime_sfc_step_eq_run() {
             ("resolutionOrder", JsValue::from_f64(3.0)),
             ("seed", JsValue::from_f64(42.0)),
         ]);
-        let mut sfc_step = JsSfcLayoutSolver::new(&graph, &sfc_opts).unwrap();
-        let mut sfc_run = JsSfcLayoutSolver::new(&graph, &sfc_opts).unwrap();
-        assert_eq!(sfc_step.total_iterations(), 1);
-        let order = sfc_step.vertex_order();
+        let mut sfc_a = JsSfcLayout::new(&graph, &sfc_opts).unwrap();
+        let mut sfc_b = JsSfcLayout::new(&graph, &sfc_opts).unwrap();
+        let l_sfc_a = sfc_a.generate().unwrap();
+        let l_sfc_b = sfc_b.generate().unwrap();
+        assert_layouts_bit_exact(&l_sfc_a, &l_sfc_b);
+
+        let order = sfc_a.vertex_order();
         assert_eq!(order.len(), 8);
         let mut sorted = order.clone();
         sorted.sort_unstable();
         assert_eq!(sorted, vec![0, 1, 2, 3, 4, 5, 6, 7]);
 
-        let mut l_sfc_step = init.clone();
-        let mut l_sfc_run = init.clone();
-        while !sfc_step.is_finished() {
-            sfc_step.step(&mut l_sfc_step).unwrap();
-        }
-        sfc_run.run(&mut l_sfc_run).unwrap();
-        assert_layouts_bit_exact(&l_sfc_step, &l_sfc_run);
-
         // Zero vertex co-location check
         for i in 0..8 {
             for j in (i + 1)..8 {
-                let dx = l_sfc_run.x(i as f64).unwrap() - l_sfc_run.x(j as f64).unwrap();
-                let dy = l_sfc_run.y(i as f64).unwrap() - l_sfc_run.y(j as f64).unwrap();
+                let dx = l_sfc_a.x(i as f64).unwrap() - l_sfc_a.x(j as f64).unwrap();
+                let dy = l_sfc_a.y(i as f64).unwrap() - l_sfc_a.y(j as f64).unwrap();
                 assert!(dx != 0.0 || dy != 0.0, "SFC co-located nodes {i} and {j}");
             }
         }
@@ -185,11 +173,11 @@ fn grip_gem_sel_pfs_prime_sfc_step_eq_run() {
         .unwrap();
     JsPfsPrimeOverlapRemoval::new(&[], &[], &JsValue::UNDEFINED)
         .unwrap()
-        .run(&mut l0)
+        .apply(&mut l0)
         .unwrap();
-    JsSfcLayoutSolver::new(&g0, &JsValue::UNDEFINED)
+    JsSfcLayout::new(&g0, &JsValue::UNDEFINED)
         .unwrap()
-        .run(&mut l0)
+        .generate()
         .unwrap();
 
     let g1 = JsCsrGraph::from_edge_list(1.0, &[], None, &JsValue::UNDEFINED, None).unwrap();
@@ -206,8 +194,8 @@ fn grip_gem_sel_pfs_prime_sfc_step_eq_run() {
         .unwrap()
         .run(&mut l1)
         .unwrap();
-    JsSfcLayoutSolver::new(&g1, &JsValue::UNDEFINED)
+    JsSfcLayout::new(&g1, &JsValue::UNDEFINED)
         .unwrap()
-        .run(&mut l1)
+        .generate()
         .unwrap();
 }

@@ -9,9 +9,10 @@ use wasm_bindgen::prelude::*;
 
 use crate::csr_graph::JsCsrGraph;
 use crate::js_convert::{
-    core_err_to_js, csr_f64_to_f32, parse_non_negative_usize, parse_optional_usize, parse_seed_u64,
+    DEFAULT_SEED, core_err_to_js, csr_f64_to_f32, invalid_input_err, parse_non_negative_usize,
     set_f64_prop, set_js_prop,
 };
+use crate::js_options::{check_options_arg, opt_f64_prop, opt_seed_prop, opt_usize_prop};
 use crate::layout_buffers::JsLayout2d;
 
 const DEFAULT_KMEANS_K: usize = 2;
@@ -102,7 +103,7 @@ impl JsKMeansResult {
 
     /// Converts this result into a plain JavaScript object without requiring `serde`.
     #[wasm_bindgen(js_name = toRecord)]
-    pub fn to_record(&self) -> Result<js_sys::Object, JsError> {
+    pub fn to_record(&self) -> Result<js_sys::Object, JsValue> {
         let obj = js_sys::Object::new();
         set_js_prop(
             &obj,
@@ -169,7 +170,7 @@ impl JsLouvainResult {
 
     /// Converts this result into a plain JavaScript object without requiring `serde`.
     #[wasm_bindgen(js_name = toRecord)]
-    pub fn to_record(&self) -> Result<js_sys::Object, JsError> {
+    pub fn to_record(&self) -> Result<js_sys::Object, JsValue> {
         let obj = js_sys::Object::new();
         set_js_prop(
             &obj,
@@ -220,32 +221,29 @@ impl JsCoarsenedGraphResult {
 }
 
 /// Clusters flat row-major `(numNodes, dims)` points with deterministic K-Means++.
-#[allow(clippy::too_many_arguments)]
 #[wasm_bindgen(js_name = kmeansPlusPlus)]
 pub fn js_kmeans_plus_plus(
     points: &[f64],
     num_nodes: f64,
     dims: f64,
-    k: Option<f64>,
-    max_iterations: Option<f64>,
-    tol: Option<f64>,
-    n_init: Option<f64>,
-    seed: Option<f64>,
-) -> Result<JsKMeansResult, JsError> {
+    options: &JsValue,
+) -> Result<JsKMeansResult, JsValue> {
     let n = parse_non_negative_usize(num_nodes, "numNodes")?;
     let d = parse_non_negative_usize(dims, "dims")?;
-    let k_val = parse_optional_usize(k, DEFAULT_KMEANS_K, "k")?;
-    let max_iters_val =
-        parse_optional_usize(max_iterations, DEFAULT_KMEANS_MAX_ITERS, "maxIterations")?;
-    let n_init_val = parse_optional_usize(n_init, DEFAULT_KMEANS_N_INIT, "nInit")?;
-    let seed_u64 = parse_seed_u64(seed)?;
-    let cfg = KMeansConfig {
-        k: k_val,
-        max_iterations: max_iters_val,
-        tol: tol.unwrap_or(DEFAULT_KMEANS_TOL),
-        n_init: n_init_val,
-        seed: seed_u64,
-    };
+    let mut cfg = KMeansConfig::default();
+    cfg.k = DEFAULT_KMEANS_K;
+    cfg.max_iterations = DEFAULT_KMEANS_MAX_ITERS;
+    cfg.tol = DEFAULT_KMEANS_TOL;
+    cfg.n_init = DEFAULT_KMEANS_N_INIT;
+    cfg.seed = DEFAULT_SEED;
+    if check_options_arg(options, "kmeansPlusPlus")? {
+        cfg.k = opt_usize_prop(options, "k", cfg.k)?;
+        cfg.max_iterations = opt_usize_prop(options, "maxIterations", cfg.max_iterations)?;
+        cfg.tol = opt_f64_prop(options, "tol", cfg.tol)?;
+        cfg.n_init = opt_usize_prop(options, "nInit", cfg.n_init)?;
+        cfg.seed = opt_seed_prop(options)?;
+    }
+    let k_val = cfg.k;
     let inner = kmeans_plus_plus(points, n, d, &cfg).map_err(core_err_to_js)?;
     Ok(JsKMeansResult {
         inner,
@@ -258,17 +256,20 @@ pub fn js_kmeans_plus_plus(
 #[wasm_bindgen(js_name = louvainCommunities)]
 pub fn js_louvain_communities(
     graph: &JsCsrGraph,
-    max_passes: Option<f64>,
-    resolution: Option<f64>,
-    min_modularity_gain: Option<f64>,
-    seed: Option<f64>,
-) -> Result<JsLouvainResult, JsError> {
-    let cfg = LouvainConfig {
-        max_passes: parse_optional_usize(max_passes, DEFAULT_LOUVAIN_MAX_PASSES, "maxPasses")?,
-        resolution: resolution.unwrap_or(DEFAULT_LOUVAIN_RESOLUTION),
-        min_modularity_gain: min_modularity_gain.unwrap_or(DEFAULT_LOUVAIN_MIN_GAIN),
-        seed: parse_seed_u64(seed)?,
-    };
+    options: &JsValue,
+) -> Result<JsLouvainResult, JsValue> {
+    let mut cfg = LouvainConfig::default();
+    cfg.max_passes = DEFAULT_LOUVAIN_MAX_PASSES;
+    cfg.resolution = DEFAULT_LOUVAIN_RESOLUTION;
+    cfg.min_modularity_gain = DEFAULT_LOUVAIN_MIN_GAIN;
+    cfg.seed = DEFAULT_SEED;
+    if check_options_arg(options, "louvainCommunities")? {
+        cfg.max_passes = opt_usize_prop(options, "maxPasses", cfg.max_passes)?;
+        cfg.resolution = opt_f64_prop(options, "resolution", cfg.resolution)?;
+        cfg.min_modularity_gain =
+            opt_f64_prop(options, "minModularityGain", cfg.min_modularity_gain)?;
+        cfg.seed = opt_seed_prop(options)?;
+    }
     let inner = louvain(graph.inner(), &cfg).map_err(core_err_to_js)?;
     Ok(JsLouvainResult { inner })
 }
@@ -278,7 +279,7 @@ pub fn js_louvain_communities(
 pub fn js_coarsen_graph(
     graph: &JsCsrGraph,
     labels: &[u32],
-) -> Result<JsCoarsenedGraphResult, JsError> {
+) -> Result<JsCoarsenedGraphResult, JsValue> {
     let coarse = coarsen_graph(graph.inner(), labels).map_err(core_err_to_js)?;
     let graph_f32 = csr_f64_to_f32(&coarse.graph)?;
     Ok(JsCoarsenedGraphResult {
@@ -294,19 +295,21 @@ pub fn js_coarsen_graph(
 pub fn js_project_clustered_layout(
     coarse_layout: &JsLayout2d,
     node_to_coarse: &[u32],
-    spread_radius: Option<f64>,
-    seed: Option<f64>,
-) -> Result<JsLayout2d, JsError> {
-    let radius = spread_radius.unwrap_or(DEFAULT_SPREAD_RADIUS);
+    options: &JsValue,
+) -> Result<JsLayout2d, JsValue> {
+    let mut radius = DEFAULT_SPREAD_RADIUS;
+    let mut seed_u64 = DEFAULT_SEED;
+    if check_options_arg(options, "projectClusteredLayout")? {
+        radius = opt_f64_prop(options, "spreadRadius", radius)?;
+        seed_u64 = opt_seed_prop(options)?;
+    }
     if !radius.is_finite() {
         return Err(core_err_to_js(CoreError::non_finite(
             "projectClusteredLayout::spreadRadius",
         )));
     }
     if radius < 0.0 {
-        return Err(core_err_to_js(CoreError::invalid_input(
-            "spreadRadius must be non-negative",
-        )));
+        return Err(invalid_input_err("spreadRadius must be non-negative"));
     }
     let radius_f32 = radius as f32;
     if !radius_f32.is_finite() {
@@ -314,7 +317,6 @@ pub fn js_project_clustered_layout(
             "projectClusteredLayout::spreadRadius",
         )));
     }
-    let seed_u64 = parse_seed_u64(seed)?;
     let coarse_soa = coarse_layout.inner().to_layout2d();
     let fine = project_clustered_layout(&coarse_soa, node_to_coarse, radius_f32, seed_u64)
         .map_err(core_err_to_js)?;

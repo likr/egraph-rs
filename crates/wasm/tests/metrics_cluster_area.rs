@@ -4,8 +4,8 @@ use egraph_wasm::layout_buffers::JsLayout2d;
 use egraph_wasm::metrics_cluster_rta::{
     JsClusterAreaReport, js_cluster_area_faithfulness, js_cluster_area_faithfulness_detail,
 };
-use egraph_wasm::metrics_eval_dispatch::js_evaluate_metrics_with_options;
-use util::fixtures::{make_imbalanced_cluster_fixture, u32_typed_js};
+use egraph_wasm::metrics_eval_dispatch::js_evaluate_metrics_2d;
+use util::fixtures::{make_imbalanced_cluster_fixture, make_opts, u32_typed_js};
 use wasm_bindgen::JsValue;
 use wasm_bindgen_test::*;
 
@@ -33,32 +33,10 @@ fn cluster_area_faithfulness_detail_and_isometry() {
     let sep_layout = JsLayout2d::from_coords(&coords).unwrap();
     let labels_js = u32_typed_js(&labels);
     let mixed_labels_js = u32_typed_js(&mixed_labels);
-    let caf_sep = js_cluster_area_faithfulness(
-        &sep_layout,
-        &labels_js,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        &JsValue::UNDEFINED,
-        &JsValue::UNDEFINED,
-    )
-    .unwrap();
-    let det: JsClusterAreaReport = js_cluster_area_faithfulness_detail(
-        &sep_layout,
-        &labels_js,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        &JsValue::UNDEFINED,
-        &JsValue::UNDEFINED,
-    )
-    .unwrap();
+    let caf_sep =
+        js_cluster_area_faithfulness(&sep_layout, &labels_js, &JsValue::UNDEFINED).unwrap();
+    let det: JsClusterAreaReport =
+        js_cluster_area_faithfulness_detail(&sep_layout, &labels_js, &JsValue::UNDEFINED).unwrap();
     assert!((caf_sep - det.caf()).abs() < 1e-12);
     assert!(
         caf_sep > 0.5,
@@ -140,19 +118,8 @@ fn cluster_area_faithfulness_detail_and_isometry() {
         );
     }
 
-    let caf_mixed = js_cluster_area_faithfulness(
-        &sep_layout,
-        &mixed_labels_js,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        &JsValue::UNDEFINED,
-        &JsValue::UNDEFINED,
-    )
-    .unwrap();
+    let caf_mixed =
+        js_cluster_area_faithfulness(&sep_layout, &mixed_labels_js, &JsValue::UNDEFINED).unwrap();
     assert!(caf_mixed < caf_sep);
 
     // Exact grid-isometry invariance: scale + shift, 90-degree rotation, reflection.
@@ -165,19 +132,7 @@ fn cluster_area_faithfulness_detail_and_isometry() {
     let refl: Vec<f32> = coord_pairs.iter().flat_map(|p| [p[0], -p[1]]).collect();
     for variant in [scaled_shifted, rot90, refl] {
         let lv = JsLayout2d::from_coords(&variant).unwrap();
-        let caf_v = js_cluster_area_faithfulness(
-            &lv,
-            &labels_js,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            &JsValue::UNDEFINED,
-            &JsValue::UNDEFINED,
-        )
-        .unwrap();
+        let caf_v = js_cluster_area_faithfulness(&lv, &labels_js, &JsValue::UNDEFINED).unwrap();
         assert!((caf_v - caf_sep).abs() < 1e-12);
     }
 }
@@ -190,27 +145,13 @@ fn cluster_area_faithfulness_stevens_gamma_and_eval_integration() {
     let det_g05 = js_cluster_area_faithfulness_detail(
         &imb_layout,
         &imb_labels_js,
-        None,
-        None,
-        None,
-        None,
-        None,
-        Some(0.5),
-        &JsValue::UNDEFINED,
-        &JsValue::UNDEFINED,
+        &make_opts(&[("stevensGamma", JsValue::from_f64(0.5))]),
     )
     .unwrap();
     let det_g20 = js_cluster_area_faithfulness_detail(
         &imb_layout,
         &imb_labels_js,
-        None,
-        None,
-        None,
-        None,
-        None,
-        Some(2.0),
-        &JsValue::UNDEFINED,
-        &JsValue::UNDEFINED,
+        &make_opts(&[("stevensGamma", JsValue::from_f64(2.0))]),
     )
     .unwrap();
     assert!((det_g05.p().iter().sum::<f64>() - 1.0).abs() < 1e-12);
@@ -220,14 +161,7 @@ fn cluster_area_faithfulness_stevens_gamma_and_eval_integration() {
     let det_inf = js_cluster_area_faithfulness_detail(
         &imb_layout,
         &imb_labels_js,
-        None,
-        None,
-        None,
-        None,
-        Some(f64::INFINITY),
-        None,
-        &JsValue::UNDEFINED,
-        &JsValue::UNDEFINED,
+        &make_opts(&[("boundaryR95", JsValue::from_f64(f64::INFINITY))]),
     )
     .unwrap();
     assert!((det_inf.in_frac() - 1.0).abs() < 1e-12);
@@ -242,79 +176,25 @@ fn cluster_area_faithfulness_stevens_gamma_and_eval_integration() {
         l5_arr.push(&JsValue::from_f64(v as f64));
     }
     assert_eq!(
-        js_cluster_area_faithfulness(
-            &l5,
-            &l5_u32_js,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            &JsValue::UNDEFINED,
-            &JsValue::UNDEFINED
-        )
-        .unwrap(),
-        js_cluster_area_faithfulness(
-            &l5,
-            &l5_arr,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            &JsValue::UNDEFINED,
-            &JsValue::UNDEFINED
-        )
-        .unwrap()
+        js_cluster_area_faithfulness(&l5, &l5_u32_js, &JsValue::UNDEFINED).unwrap(),
+        js_cluster_area_faithfulness(&l5, &l5_arr, &JsValue::UNDEFINED).unwrap()
     );
 
     // evaluateMetrics integration + lazy validation.
-    let expected_custom = js_cluster_area_faithfulness(
-        &imb_layout,
-        &imb_labels_js,
-        Some(64.0),
-        Some(0.9),
-        Some(8.0),
-        Some(0.2),
-        Some(2.5),
-        Some(0.7),
-        &JsValue::UNDEFINED,
-        &JsValue::UNDEFINED,
-    )
-    .unwrap();
-    for alias in [
-        "clusterAreaFaithfulness",
-        "cluster_area_faithfulness",
-        "gcaf",
-    ] {
+    let custom_opts = make_opts(&[
+        ("labels", imb_labels_js.clone()),
+        ("gMax", JsValue::from_f64(64.0)),
+        ("sigmaCells", JsValue::from_f64(0.9)),
+        ("kappa", JsValue::from_f64(8.0)),
+        ("tauFrac", JsValue::from_f64(0.2)),
+        ("boundaryR95", JsValue::from_f64(2.5)),
+        ("stevensGamma", JsValue::from_f64(0.7)),
+    ]);
+    let expected_custom =
+        js_cluster_area_faithfulness(&imb_layout, &imb_labels_js, &custom_opts).unwrap();
+    for alias in ["clusterAreaFaithfulness", "clusterArea", "gcaf"] {
         let t_arr = js_sys::Array::of1(&alias.into());
-        let rep = js_evaluate_metrics_with_options(
-            &imb_graph,
-            &imb_layout,
-            &t_arr,
-            None,
-            None,
-            None,
-            None,
-            &imb_labels_js,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            Some(64.0),
-            Some(0.9),
-            Some(8.0),
-            Some(0.2),
-            Some(2.5),
-            Some(0.7),
-            &JsValue::UNDEFINED,
-            &JsValue::UNDEFINED,
-        )
-        .unwrap();
+        let rep = js_evaluate_metrics_2d(&imb_graph, &imb_layout, &t_arr, &custom_opts).unwrap();
         let val = rep.cluster_area_faithfulness().unwrap();
         assert!((val - expected_custom).abs() < 1e-12);
         let rep_rec = rep.to_record().unwrap();

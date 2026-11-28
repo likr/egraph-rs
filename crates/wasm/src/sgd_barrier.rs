@@ -1,292 +1,220 @@
 //! 3-tier Sparse Barrier SGD constructors.
 
+use egraph::core::{Layout2d, Layout3d, LayoutNd, ManifoldLayout2d};
 use egraph::layout::{BarrierSymmetry, SgdSolver, SparseBarrierConfig};
-use wasm_bindgen::prelude::*;
+use wasm_bindgen::{JsCast, prelude::*};
 
 use crate::csr_graph::JsCsrGraph;
 use crate::dog_varadhan::JsDogVaradhanLandmarks;
-use crate::js_convert::{
-    core_err_to_js, parse_non_negative_usize, parse_opt_usize_param, parse_optional_usize,
-    parse_seed_u64,
-};
+use crate::js_convert::{core_err_to_js, invalid_input_err, parse_non_negative_usize};
 use crate::js_options::{
-    is_plain_js_object, normalize_enum_token, opt_bool_prop, opt_f64_prop, opt_maybe_f64_prop,
-    opt_maybe_usize_prop, opt_seed_prop, opt_string_prop, opt_usize_prop,
-    parse_dog_config_from_options_or_args, reject_extra_args_with_options,
+    JsTargetKind, check_options_arg, get_prop, normalize_enum_token, opt_bool_prop, opt_f64_prop,
+    opt_maybe_f64_prop, opt_maybe_usize_prop, opt_seed_prop, opt_string_prop, opt_target_prop,
+    opt_usize_prop, parse_dog_config_from_options,
 };
-use crate::sgd::{JsSgdSolver, parse_sgd_schedule_kind};
+use crate::sgd::{JsSgdSolver, SgdInner, parse_sgd_schedule_kind};
 use crate::sgd_stats::{JsDogStats, JsSparseBarrierStats};
 
-fn parse_barrier_symmetry(raw: &str) -> Result<BarrierSymmetry, JsError> {
-    match normalize_enum_token(raw).as_str() {
+fn parse_barrier_symmetry(raw: &str) -> Result<BarrierSymmetry, JsValue> {
+    match normalize_enum_token(raw)?.as_str() {
         "symmax" => Ok(BarrierSymmetry::SymMax),
         "symavg" => Ok(BarrierSymmetry::SymAvg),
-        _ => Err(JsError::new(&format!(
-            "unknown BarrierSymmetry {raw:?}; expected 'sym_max' or 'sym_avg'"
+        _ => Err(invalid_input_err(format!(
+            "unknown BarrierSymmetry {raw:?}; expected 'symMax' or 'symAvg'"
         ))),
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn parse_sparse_barrier_config(
-    max_2hop_or_options: &JsValue,
-    hinge_repulsion: Option<bool>,
-    delta_rel: Option<f64>,
-    barrier_sym: Option<String>,
-    omega_1: Option<f64>,
-    omega_2: Option<f64>,
-    gamma_non2: Option<f64>,
-    ht_repulsion: Option<bool>,
-    min_ratio: Option<f64>,
-    eps_dist: Option<f64>,
-    neg_per_node: Option<f64>,
-    num_pivots: Option<f64>,
-    core_pivots: Option<bool>,
-    t_max: Option<f64>,
-    eps: Option<f64>,
-    kind: Option<String>,
-    step_scale: Option<f64>,
-    seed: Option<f64>,
-    has_dog_extra: bool,
-) -> Result<SparseBarrierConfig, JsError> {
-    let mut cfg = SparseBarrierConfig::default();
-    if is_plain_js_object(max_2hop_or_options) {
-        let has_extra = has_dog_extra
-            || hinge_repulsion.is_some()
-            || delta_rel.is_some()
-            || barrier_sym.is_some()
-            || omega_1.is_some()
-            || omega_2.is_some()
-            || gamma_non2.is_some()
-            || ht_repulsion.is_some()
-            || min_ratio.is_some()
-            || eps_dist.is_some()
-            || neg_per_node.is_some()
-            || num_pivots.is_some()
-            || core_pivots.is_some()
-            || t_max.is_some()
-            || eps.is_some()
-            || kind.is_some()
-            || step_scale.is_some()
-            || seed.is_some();
-        reject_extra_args_with_options(has_extra)?;
+fn opt_u32_array_prop(obj: &JsValue, key: &str) -> Result<Option<Vec<u32>>, JsValue> {
+    let val = get_prop(obj, key)?;
+    if val.is_undefined() || val.is_null() {
+        return Ok(None);
+    }
+    if let Some(arr) = val.dyn_ref::<js_sys::Uint32Array>() {
+        return Ok(Some(arr.to_vec()));
+    }
+    if !val.is_string() && val.is_object() {
+        let iter = js_sys::try_iter(&val)
+            .map_err(|err| invalid_input_err(format!("failed to iterate options.{key}: {err:?}")))?
+            .ok_or_else(|| {
+                invalid_input_err(format!(
+                    "options.{key} must be a Uint32Array or number array"
+                ))
+            })?;
+        let mut out = Vec::new();
+        for item_res in iter {
+            let item = item_res.map_err(|err| {
+                invalid_input_err(format!("failed to read options.{key} entry: {err:?}"))
+            })?;
+            let num = item.as_f64().ok_or_else(|| {
+                invalid_input_err(format!(
+                    "options.{key} entries must be non-negative integers"
+                ))
+            })?;
+            let idx = parse_non_negative_usize(num, key)?;
+            let idx_u32 = u32::try_from(idx).map_err(|_| {
+                invalid_input_err(format!("options.{key} entry {idx} exceeds u32::MAX"))
+            })?;
+            out.push(idx_u32);
+        }
+        return Ok(Some(out));
+    }
+    Err(invalid_input_err(format!(
+        "options.{key} must be a Uint32Array or number array"
+    )))
+}
 
-        cfg.max_2hop_per_node =
-            opt_usize_prop(max_2hop_or_options, "max2hopPerNode", cfg.max_2hop_per_node)?;
-        cfg.hinge_repulsion =
-            opt_bool_prop(max_2hop_or_options, "hingeRepulsion", cfg.hinge_repulsion)?;
-        cfg.delta_rel = opt_f64_prop(max_2hop_or_options, "deltaRel", cfg.delta_rel)?;
-        if let Some(sym_str) = opt_string_prop(max_2hop_or_options, "barrierSym")? {
+fn parse_sparse_barrier_options(
+    options: &JsValue,
+    ctx: &str,
+) -> Result<(SparseBarrierConfig, JsTargetKind, Option<Vec<u32>>), JsValue> {
+    let mut cfg = SparseBarrierConfig::default();
+    let mut target = JsTargetKind::Layout2d;
+    let mut pivots = None;
+    if check_options_arg(options, ctx)? {
+        cfg.max_2hop_per_node = opt_usize_prop(options, "max2hopPerNode", cfg.max_2hop_per_node)?;
+        cfg.hinge_repulsion = opt_bool_prop(options, "hingeRepulsion", cfg.hinge_repulsion)?;
+        cfg.delta_rel = opt_f64_prop(options, "deltaRel", cfg.delta_rel)?;
+        if let Some(sym_str) = opt_string_prop(options, "barrierSym")? {
             cfg.barrier_sym = parse_barrier_symmetry(&sym_str)?;
         }
-        cfg.omega_1 = opt_f64_prop(max_2hop_or_options, "omega1", cfg.omega_1)?;
-        cfg.omega_2 = opt_f64_prop(max_2hop_or_options, "omega2", cfg.omega_2)?;
-        cfg.gamma_non2 = opt_f64_prop(max_2hop_or_options, "gammaNon2", cfg.gamma_non2)?;
-        cfg.ht_repulsion = opt_bool_prop(max_2hop_or_options, "htRepulsion", cfg.ht_repulsion)?;
-        cfg.min_ratio = opt_f64_prop(max_2hop_or_options, "minRatio", cfg.min_ratio)?;
-        cfg.eps_dist = opt_f64_prop(max_2hop_or_options, "epsDist", cfg.eps_dist)?;
-        cfg.neg_per_node = opt_maybe_usize_prop(max_2hop_or_options, "negPerNode")?;
-        cfg.num_pivots = opt_usize_prop(max_2hop_or_options, "numPivots", cfg.num_pivots)?;
-        cfg.core_pivots = opt_bool_prop(max_2hop_or_options, "corePivots", cfg.core_pivots)?;
-        cfg.degree_weight_beta = opt_f64_prop(
-            max_2hop_or_options,
-            "degreeWeightBeta",
-            cfg.degree_weight_beta,
-        )?;
-        cfg.schedule.iterations =
-            opt_usize_prop(max_2hop_or_options, "iterations", cfg.schedule.iterations)?;
-        cfg.schedule.eps = opt_f64_prop(max_2hop_or_options, "eps", cfg.schedule.eps)?;
-        if let Some(k_str) = opt_string_prop(max_2hop_or_options, "kind")? {
+        cfg.omega_1 = opt_f64_prop(options, "omega1", cfg.omega_1)?;
+        cfg.omega_2 = opt_f64_prop(options, "omega2", cfg.omega_2)?;
+        cfg.gamma_non2 = opt_f64_prop(options, "gammaNon2", cfg.gamma_non2)?;
+        cfg.ht_repulsion = opt_bool_prop(options, "htRepulsion", cfg.ht_repulsion)?;
+        cfg.min_ratio = opt_f64_prop(options, "minRatio", cfg.min_ratio)?;
+        cfg.eps_dist = opt_f64_prop(options, "epsDist", cfg.eps_dist)?;
+        cfg.neg_per_node = opt_maybe_usize_prop(options, "negPerNode")?;
+        cfg.num_pivots = opt_usize_prop(options, "numPivots", cfg.num_pivots)?;
+        cfg.core_pivots = opt_bool_prop(options, "corePivots", cfg.core_pivots)?;
+        cfg.degree_weight_beta = opt_f64_prop(options, "degreeWeightBeta", cfg.degree_weight_beta)?;
+        cfg.schedule.iterations = opt_usize_prop(options, "iterations", cfg.schedule.iterations)?;
+        cfg.schedule.eps = opt_f64_prop(options, "eps", cfg.schedule.eps)?;
+        if let Some(k_str) = opt_string_prop(options, "kind")? {
             cfg.schedule.kind = parse_sgd_schedule_kind(&k_str)?;
         }
-        cfg.schedule.step_scale =
-            opt_f64_prop(max_2hop_or_options, "stepScale", cfg.schedule.step_scale)?;
-        cfg.schedule.max_mu = opt_maybe_f64_prop(max_2hop_or_options, "maxMu")?;
-        cfg.seed = opt_seed_prop(max_2hop_or_options)?;
-        return Ok(cfg);
+        cfg.schedule.step_scale = opt_f64_prop(options, "stepScale", cfg.schedule.step_scale)?;
+        cfg.schedule.max_mu = opt_maybe_f64_prop(options, "maxMu")?;
+        cfg.seed = opt_seed_prop(options)?;
+        target = opt_target_prop(options)?;
+        pivots = opt_u32_array_prop(options, "pivots")?;
     }
-
-    if !max_2hop_or_options.is_undefined() && !max_2hop_or_options.is_null() {
-        let v = max_2hop_or_options.as_f64().ok_or_else(|| {
-            JsError::new("max2hopOrOptions must be a non-negative integer, options object, null, or undefined")
-        })?;
-        cfg.max_2hop_per_node = parse_non_negative_usize(v, "max2hopPerNode")?;
-    }
-    cfg.hinge_repulsion = hinge_repulsion.unwrap_or(cfg.hinge_repulsion);
-    cfg.delta_rel = delta_rel.unwrap_or(cfg.delta_rel);
-    if let Some(sym_str) = barrier_sym {
-        cfg.barrier_sym = parse_barrier_symmetry(&sym_str)?;
-    }
-    cfg.omega_1 = omega_1.unwrap_or(cfg.omega_1);
-    cfg.omega_2 = omega_2.unwrap_or(cfg.omega_2);
-    cfg.gamma_non2 = gamma_non2.unwrap_or(cfg.gamma_non2);
-    cfg.ht_repulsion = ht_repulsion.unwrap_or(cfg.ht_repulsion);
-    cfg.min_ratio = min_ratio.unwrap_or(cfg.min_ratio);
-    cfg.eps_dist = eps_dist.unwrap_or(cfg.eps_dist);
-    cfg.neg_per_node = parse_opt_usize_param(neg_per_node, "negPerNode")?;
-    cfg.num_pivots = parse_optional_usize(num_pivots, cfg.num_pivots, "numPivots")?;
-    cfg.core_pivots = core_pivots.unwrap_or(cfg.core_pivots);
-    cfg.schedule.iterations = parse_optional_usize(t_max, cfg.schedule.iterations, "iterations")?;
-    cfg.schedule.eps = eps.unwrap_or(cfg.schedule.eps);
-    if let Some(k_str) = kind {
-        cfg.schedule.kind = parse_sgd_schedule_kind(&k_str)?;
-    }
-    cfg.schedule.step_scale = step_scale.unwrap_or(cfg.schedule.step_scale);
-    cfg.seed = parse_seed_u64(seed)?;
-    Ok(cfg)
+    Ok((cfg, target, pivots))
 }
 
 #[wasm_bindgen(js_class = SgdSolver)]
 impl JsSgdSolver {
     /// Constructs a 3-tier Sparse Barrier SGD solver from precomputed `DogVaradhanLandmarks`.
-    #[allow(clippy::too_many_arguments)]
     #[wasm_bindgen(js_name = sparseBarrierFromLandmarks)]
     pub fn sparse_barrier_from_landmarks(
         graph: &JsCsrGraph,
         landmarks: &JsDogVaradhanLandmarks,
-        pivots: Option<Vec<u32>>,
-        max_2hop_or_options: &JsValue,
-        hinge_repulsion: Option<bool>,
-        delta_rel: Option<f64>,
-        barrier_sym: Option<String>,
-        omega_1: Option<f64>,
-        omega_2: Option<f64>,
-        gamma_non2: Option<f64>,
-        ht_repulsion: Option<bool>,
-        min_ratio: Option<f64>,
-        eps_dist: Option<f64>,
-        neg_per_node: Option<f64>,
-        num_pivots: Option<f64>,
-        core_pivots: Option<bool>,
-        t_max: Option<f64>,
-        eps: Option<f64>,
-        kind: Option<String>,
-        step_scale: Option<f64>,
-        seed: Option<f64>,
-    ) -> Result<JsSgdSolver, JsError> {
-        let cfg = parse_sparse_barrier_config(
-            max_2hop_or_options,
-            hinge_repulsion,
-            delta_rel,
-            barrier_sym,
-            omega_1,
-            omega_2,
-            gamma_non2,
-            ht_repulsion,
-            min_ratio,
-            eps_dist,
-            neg_per_node,
-            num_pivots,
-            core_pivots,
-            t_max,
-            eps,
-            kind,
-            step_scale,
-            seed,
-            false,
-        )?;
-        let (inner, stats) = SgdSolver::<f32>::sparse_barrier_from_landmarks(
-            graph.inner(),
-            landmarks.inner(),
-            pivots.as_deref(),
-            &cfg,
-        )
-        .map_err(core_err_to_js)?;
-        Ok(Self::from_barrier_parts(inner, Some(stats), None))
+        options: &JsValue,
+    ) -> Result<JsSgdSolver, JsValue> {
+        let (cfg, target, pivots) =
+            parse_sparse_barrier_options(options, "SgdSolver.sparseBarrierFromLandmarks")?;
+        let (inner, stats) = match target {
+            JsTargetKind::Layout2d => {
+                let (s, st) = SgdSolver::<Layout2d<f32>>::sparse_barrier_from_landmarks(
+                    graph.inner(),
+                    landmarks.inner(),
+                    pivots.as_deref(),
+                    &cfg,
+                )
+                .map_err(core_err_to_js)?;
+                (SgdInner::Dim2(s), st)
+            }
+            JsTargetKind::Layout3d => {
+                let (s, st) = SgdSolver::<Layout3d<f32>>::sparse_barrier_from_landmarks(
+                    graph.inner(),
+                    landmarks.inner(),
+                    pivots.as_deref(),
+                    &cfg,
+                )
+                .map_err(core_err_to_js)?;
+                (SgdInner::Dim3(s), st)
+            }
+            JsTargetKind::LayoutNd => {
+                let (s, st) = SgdSolver::<LayoutNd<f32>>::sparse_barrier_from_landmarks(
+                    graph.inner(),
+                    landmarks.inner(),
+                    pivots.as_deref(),
+                    &cfg,
+                )
+                .map_err(core_err_to_js)?;
+                (SgdInner::DimN(s), st)
+            }
+            JsTargetKind::Manifold2d => {
+                let (s, st) = SgdSolver::<ManifoldLayout2d<f32>>::sparse_barrier_from_landmarks(
+                    graph.inner(),
+                    landmarks.inner(),
+                    pivots.as_deref(),
+                    &cfg,
+                )
+                .map_err(core_err_to_js)?;
+                (SgdInner::Manifold(s), st)
+            }
+        };
+        Ok(Self::from_barrier_parts(
+            inner,
+            Some(stats),
+            None,
+            cfg.schedule.max_mu,
+        ))
     }
 
     /// Computes regularized Chebyshev DoG Varadhan landmarks and constructs a 3-tier Sparse Barrier SGD solver.
-    #[allow(clippy::too_many_arguments)]
     #[wasm_bindgen(js_name = sparseBarrierDog)]
     pub fn sparse_barrier_dog(
         graph: &JsCsrGraph,
-        max_2hop_or_options: &JsValue,
-        hinge_repulsion: Option<bool>,
-        delta_rel: Option<f64>,
-        barrier_sym: Option<String>,
-        omega_1: Option<f64>,
-        omega_2: Option<f64>,
-        gamma_non2: Option<f64>,
-        ht_repulsion: Option<bool>,
-        min_ratio: Option<f64>,
-        eps_dist: Option<f64>,
-        neg_per_node: Option<f64>,
-        num_pivots: Option<f64>,
-        core_pivots: Option<bool>,
-        t_max: Option<f64>,
-        eps: Option<f64>,
-        kind: Option<String>,
-        step_scale: Option<f64>,
-        seed: Option<f64>,
-        degree: Option<f64>,
-        num_landmarks: Option<f64>,
-        degree_normalize: Option<bool>,
-        p_exp: Option<f64>,
-        eps_psd: Option<f64>,
-        t_coarse: Option<f64>,
-        t1: Option<f64>,
-        t2: Option<f64>,
-        alpha: Option<f64>,
-        beta_floor: Option<f64>,
-        min_degree: Option<f64>,
-        jl_dim: Option<f64>,
-    ) -> Result<JsSgdSolver, JsError> {
-        let has_dog_extra = degree.is_some()
-            || num_landmarks.is_some()
-            || degree_normalize.is_some()
-            || p_exp.is_some()
-            || eps_psd.is_some()
-            || t_coarse.is_some()
-            || t1.is_some()
-            || t2.is_some()
-            || alpha.is_some()
-            || beta_floor.is_some()
-            || min_degree.is_some()
-            || jl_dim.is_some();
-        let barrier_cfg = parse_sparse_barrier_config(
-            max_2hop_or_options,
-            hinge_repulsion,
-            delta_rel,
-            barrier_sym,
-            omega_1,
-            omega_2,
-            gamma_non2,
-            ht_repulsion,
-            min_ratio,
-            eps_dist,
-            neg_per_node,
-            num_pivots,
-            core_pivots,
-            t_max,
-            eps,
-            kind,
-            step_scale,
-            seed,
-            has_dog_extra,
-        )?;
-        let dog_cfg = parse_dog_config_from_options_or_args(
-            max_2hop_or_options,
-            barrier_cfg.seed,
-            degree,
-            num_landmarks,
-            degree_normalize,
-            p_exp,
-            eps_psd,
-            t_coarse,
-            t1,
-            t2,
-            alpha,
-            beta_floor,
-            min_degree,
-            jl_dim,
-        )?;
-        let (inner, stats, dog_stats) =
-            SgdSolver::<f32>::sparse_barrier_dog(graph.inner(), &dog_cfg, &barrier_cfg)
+        options: &JsValue,
+    ) -> Result<JsSgdSolver, JsValue> {
+        let (barrier_cfg, target, _) =
+            parse_sparse_barrier_options(options, "SgdSolver.sparseBarrierDog")?;
+        let dog_cfg = parse_dog_config_from_options(options, "SgdSolver.sparseBarrierDog")?;
+        let (inner, stats, dog_stats) = match target {
+            JsTargetKind::Layout2d => {
+                let (s, st, ds) = SgdSolver::<Layout2d<f32>>::sparse_barrier_dog(
+                    graph.inner(),
+                    &dog_cfg,
+                    &barrier_cfg,
+                )
                 .map_err(core_err_to_js)?;
+                (SgdInner::Dim2(s), st, ds)
+            }
+            JsTargetKind::Layout3d => {
+                let (s, st, ds) = SgdSolver::<Layout3d<f32>>::sparse_barrier_dog(
+                    graph.inner(),
+                    &dog_cfg,
+                    &barrier_cfg,
+                )
+                .map_err(core_err_to_js)?;
+                (SgdInner::Dim3(s), st, ds)
+            }
+            JsTargetKind::LayoutNd => {
+                let (s, st, ds) = SgdSolver::<LayoutNd<f32>>::sparse_barrier_dog(
+                    graph.inner(),
+                    &dog_cfg,
+                    &barrier_cfg,
+                )
+                .map_err(core_err_to_js)?;
+                (SgdInner::DimN(s), st, ds)
+            }
+            JsTargetKind::Manifold2d => {
+                let (s, st, ds) = SgdSolver::<ManifoldLayout2d<f32>>::sparse_barrier_dog(
+                    graph.inner(),
+                    &dog_cfg,
+                    &barrier_cfg,
+                )
+                .map_err(core_err_to_js)?;
+                (SgdInner::Manifold(s), st, ds)
+            }
+        };
         Ok(Self::from_barrier_parts(
             inner,
             Some(stats),
             Some(dog_stats),
+            barrier_cfg.schedule.max_mu,
         ))
     }
 

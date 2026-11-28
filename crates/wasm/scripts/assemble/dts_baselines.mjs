@@ -9,7 +9,7 @@ export const clusterBaselinesDtsReplacements = [
   ],
   [
     /(export class LinLogSolver \{[\s\S]*?)_step2d\(layout: Layout2d\): string;/,
-    "$1step(layout: Layout2d | LayoutNd): string;\n    runSteps(layout: Layout2d | LayoutNd, steps: number): string;\n    run(layout: Layout2d | LayoutNd): string;\n    energy(layout: Layout2d | LayoutNd): number;\n    _step2d(layout: Layout2d): string;",
+    "$1step(layout: Layout2d | Layout3d | LayoutNd): string;\n    runSteps(layout: Layout2d | Layout3d | LayoutNd, steps: number): string;\n    run(layout: Layout2d | Layout3d | LayoutNd): string;\n    energy(layout: Layout2d | Layout3d | LayoutNd): number;\n    _step2d(layout: Layout2d): string;",
   ],
   [
     /(export class LinLogSolver \{[\s\S]*?)constructor\(graph: CsrGraph, options: any\);/,
@@ -49,7 +49,7 @@ export const clusterBaselinesDtsReplacements = [
   ],
   [
     /export function squarifiedTreemap\([^;]+\): Float64Array;/,
-    "export function squarifiedTreemap(weights: Float64Array | Float32Array | number[], width?: number | null, height?: number | null, x?: number | null, y?: number | null): Float64Array;",
+    "export function squarifiedTreemap(weights: Float64Array | Float32Array | number[], options?: TreemapOptions | null): Float64Array;",
   ],
   [
     /(export class GroupInABoxSolver \{[\s\S]*?)boxes\(\): Array<any>;/,
@@ -93,7 +93,7 @@ export const clusterBaselinesDtsReplacements = [
   ],
   [
     /export function classDensityMeasure\([^;]+\): ClassDensityResult;/,
-    "export function classDensityMeasure(layout: Layout2d, labels: Uint32Array | number[], gridSize?: number | null, bandwidth?: number | null): ClassDensityResult;",
+    "export function classDensityMeasure(layout: Layout2d, labels: Uint32Array | number[], options?: ClassDensityOptions | null): ClassDensityResult;",
   ],
   [
     /export function sprawlterNn\([^;]+\): number;/,
@@ -111,6 +111,14 @@ export const clusterBaselinesDtsReplacements = [
 
 export const multilevelStressBaselinesDtsReplacements = [
   [
+    /(export class Hde \{[\s\S]*?)generate\(graph: CsrGraph\): any;/,
+    "$1generate(graph: CsrGraph): Layout2d | Layout3d | LayoutNd;",
+  ],
+  [
+    /(export class Hde \{[\s\S]*?)constructor\(options: any\);/,
+    "$1constructor(options?: HdeOptions | null);",
+  ],
+  [
     /export function hde\([^;]+\): Layout2d;/,
     "export function hde(graph: CsrGraph, options?: HdeOptions | null): Layout2d;",
   ],
@@ -123,20 +131,32 @@ export const multilevelStressBaselinesDtsReplacements = [
     "static ortmannSparseStress(graph: CsrGraph, options?: OrtmannSparseStressOptions | null): SgdSolver;",
   ],
   [
-    /static largevis\(graph: CsrGraph, options: any\): SgdSolver;/,
-    "static largevis(graph: CsrGraph, options?: LargeVisOptions | null): SgdSolver;",
+    /(export class LargeVisSolver \{[\s\S]*?)_step2d\(layout: Layout2d\): string;/,
+    "$1step(layout: AnyLayout): string;\n    runSteps(layout: AnyLayout, steps: number): string;\n    run(layout: AnyLayout): string;\n    _step2d(layout: Layout2d): string;",
   ],
   [
-    /static drgraph\(graph: CsrGraph, options: any\): SgdSolver;/,
-    "static drgraph(graph: CsrGraph, options?: DrGraphOptions | null): SgdSolver;",
+    /(export class LargeVisSolver \{[\s\S]*?)constructor\(graph: CsrGraph, options: any\);/,
+    "$1constructor(graph: CsrGraph, options?: LargeVisOptions | null);",
   ],
   [
-    /static graphCne\(graph: CsrGraph, options: any\): SgdSolver;/,
-    "static graphCne(graph: CsrGraph, options?: GraphCneOptions | null): SgdSolver;",
+    /(export class DrGraphSolver \{[\s\S]*?)_step2d\(layout: Layout2d\): string;/,
+    "$1step(layout: AnyLayout): string;\n    runSteps(layout: AnyLayout, steps: number): string;\n    run(layout: AnyLayout): string;\n    _step2d(layout: Layout2d): string;",
+  ],
+  [
+    /(export class DrGraphSolver \{[\s\S]*?)constructor\(graph: CsrGraph, options: any\);/,
+    "$1constructor(graph: CsrGraph, options?: DrGraphOptions | null);",
+  ],
+  [
+    /(export class GraphCneSolver \{[\s\S]*?)_step2d\(layout: Layout2d\): string;/,
+    "$1step(layout: AnyLayout): string;\n    runSteps(layout: AnyLayout, steps: number): string;\n    run(layout: AnyLayout): string;\n    _step2d(layout: Layout2d): string;",
+  ],
+  [
+    /(export class GraphCneSolver \{[\s\S]*?)constructor\(graph: CsrGraph, options: any\);/,
+    "$1constructor(graph: CsrGraph, options?: GraphCneOptions | null);",
   ],
   [
     /(export class MaxentStressSolver \{[\s\S]*?)_step2d\(layout: Layout2d\): string;/,
-    "$1step(layout: Layout2d | LayoutNd): string;\n    runSteps(layout: Layout2d | LayoutNd, steps: number): string;\n    run(layout: Layout2d | LayoutNd): string;\n    _step2d(layout: Layout2d): string;",
+    "$1step(layout: Layout2d | Layout3d | LayoutNd): string;\n    runSteps(layout: Layout2d | Layout3d | LayoutNd, steps: number): string;\n    run(layout: Layout2d | Layout3d | LayoutNd): string;\n    _step2d(layout: Layout2d): string;",
   ],
   [
     /(export class MaxentStressSolver \{[\s\S]*?)constructor\(graph: CsrGraph, options: any\);/,
@@ -163,7 +183,7 @@ export const multilevelStressBaselinesDtsReplacements = [
     "$1constructor(halfWidths: Float32Array | number[], halfHeights: Float32Array | number[], options?: PfsPrimeOptions | null);",
   ],
   [
-    /(export class SfcLayoutSolver \{[\s\S]*?)constructor\(graph: CsrGraph, options: any\);/,
+    /(export class SfcLayout \{[\s\S]*?)constructor\(graph: CsrGraph, options: any\);/,
     "$1constructor(graph: CsrGraph, options?: SfcOptions | null);",
   ],
 ];

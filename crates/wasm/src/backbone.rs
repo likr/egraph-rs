@@ -1,6 +1,6 @@
 //! WebAssembly bindings for Quadrilateral Simmelian Backbone extraction and layout (`f32`).
 
-use egraph::core::{CsrGraph, IterativeSolver};
+use egraph::core::CsrGraph;
 use egraph::layout::{
     BackboneConfig, BackboneLayoutMode, BackboneResult, BackboneSolver,
     extract_quadrilateral_backbone,
@@ -8,7 +8,7 @@ use egraph::layout::{
 use wasm_bindgen::prelude::*;
 
 use crate::csr_graph::JsCsrGraph;
-use crate::js_convert::{core_err_to_js, csr_f64_to_f32, set_js_prop};
+use crate::js_convert::{core_err_to_js, csr_f64_to_f32, invalid_input_err, set_js_prop};
 use crate::js_options::{
     check_options_arg, normalize_enum_token, opt_bool_prop, opt_f64_prop, opt_seed_prop,
     opt_string_prop, opt_usize_prop, solver_status_str,
@@ -25,17 +25,17 @@ fn flatten_edge_pairs(edges: &[(u32, u32)]) -> Vec<u32> {
     flat
 }
 
-fn parse_backbone_layout_mode(raw: &str) -> Result<BackboneLayoutMode, JsError> {
-    match normalize_enum_token(raw).as_str() {
+fn parse_backbone_layout_mode(raw: &str) -> Result<BackboneLayoutMode, JsValue> {
+    match normalize_enum_token(raw)?.as_str() {
         "stress" | "stressmajorization" => Ok(BackboneLayoutMode::StressMajorization),
         "sgd" => Ok(BackboneLayoutMode::Sgd),
-        _ => Err(JsError::new(&format!(
+        _ => Err(invalid_input_err(format!(
             "unknown BackboneLayoutMode {raw:?}; expected 'stress' or 'sgd'"
         ))),
     }
 }
 
-fn parse_backbone_config(options: &JsValue, ctx: &str) -> Result<BackboneConfig, JsError> {
+fn parse_backbone_config(options: &JsValue, ctx: &str) -> Result<BackboneConfig, JsValue> {
     let mut cfg = BackboneConfig::default();
     if check_options_arg(options, ctx)? {
         cfg.retain_ratio = opt_f64_prop(options, "retainRatio", cfg.retain_ratio)?;
@@ -67,7 +67,7 @@ pub struct JsBackboneResult {
 }
 
 impl JsBackboneResult {
-    fn from_inner(inner: &BackboneResult) -> Result<Self, JsError> {
+    fn from_inner(inner: &BackboneResult) -> Result<Self, JsValue> {
         let backbone_csr = csr_f64_to_f32(&inner.backbone_csr)?;
         Ok(Self {
             umst_edges: flatten_edge_pairs(&inner.umst_edges),
@@ -113,7 +113,7 @@ impl JsBackboneResult {
 
     /// Converts edge and weight arrays into a plain JavaScript object without requiring `serde`.
     #[wasm_bindgen(js_name = toRecord)]
-    pub fn to_record(&self) -> Result<js_sys::Object, JsError> {
+    pub fn to_record(&self) -> Result<js_sys::Object, JsValue> {
         let obj = js_sys::Object::new();
         set_js_prop(
             &obj,
@@ -144,7 +144,7 @@ impl JsBackboneResult {
 pub fn js_extract_quadrilateral_backbone(
     graph: &JsCsrGraph,
     options: &JsValue,
-) -> Result<JsBackboneResult, JsError> {
+) -> Result<JsBackboneResult, JsValue> {
     let cfg = parse_backbone_config(options, "extractQuadrilateralBackbone")?;
     let res = extract_quadrilateral_backbone(graph.inner(), &cfg).map_err(core_err_to_js)?;
     JsBackboneResult::from_inner(&res)
@@ -161,7 +161,7 @@ pub struct JsBackboneSolver {
 impl JsBackboneSolver {
     /// Constructs a `BackboneSolver` from `graph` and optional `BackboneOptions`.
     #[wasm_bindgen(constructor)]
-    pub fn new(graph: &JsCsrGraph, options: &JsValue) -> Result<JsBackboneSolver, JsError> {
+    pub fn new(graph: &JsCsrGraph, options: &JsValue) -> Result<JsBackboneSolver, JsValue> {
         let cfg = parse_backbone_config(options, "BackboneSolver")?;
         let inner = BackboneSolver::<f32>::new(graph.inner(), cfg).map_err(core_err_to_js)?;
         Ok(Self { inner })
@@ -169,18 +169,18 @@ impl JsBackboneSolver {
 
     /// Returns the extracted `BackboneResult`.
     #[wasm_bindgen(js_name = backboneResult)]
-    pub fn backbone_result(&self) -> Result<JsBackboneResult, JsError> {
+    pub fn backbone_result(&self) -> Result<JsBackboneResult, JsValue> {
         JsBackboneResult::from_inner(self.inner.backbone_result())
     }
 
     /// Executes one backbone layout iteration on `layout` in place.
-    pub fn step(&mut self, layout: &mut JsLayout2d) -> Result<String, JsError> {
+    pub fn step(&mut self, layout: &mut JsLayout2d) -> Result<String, JsValue> {
         step_layout_in_place(&mut self.inner, layout)
     }
 
     /// Executes up to `steps` backbone layout iterations on `layout` in place.
     #[wasm_bindgen(js_name = runSteps)]
-    pub fn run_steps(&mut self, layout: &mut JsLayout2d, steps: f64) -> Result<String, JsError> {
+    pub fn run_steps(&mut self, layout: &mut JsLayout2d, steps: f64) -> Result<String, JsValue> {
         run_steps_layout_in_place(
             self.inner.num_nodes(),
             &mut self.inner,
@@ -191,7 +191,7 @@ impl JsBackboneSolver {
     }
 
     /// Runs backbone layout optimization to completion on `layout` in place.
-    pub fn run(&mut self, layout: &mut JsLayout2d) -> Result<String, JsError> {
+    pub fn run(&mut self, layout: &mut JsLayout2d) -> Result<String, JsValue> {
         run_layout_in_place(
             self.inner.num_nodes(),
             &mut self.inner,
@@ -214,7 +214,7 @@ impl JsBackboneSolver {
 
     /// Returns the scheduled iteration count.
     #[wasm_bindgen(getter, js_name = totalIterations)]
-    pub fn total_iterations(&self) -> usize {
+    pub fn total_iterations(&self) -> Option<usize> {
         self.inner.total_iterations()
     }
 

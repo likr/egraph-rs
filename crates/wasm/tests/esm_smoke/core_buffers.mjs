@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
 
 export function runCoreBuffersSmoke({ eg, webPkg }) {
-  const { CsrGraph, Layout2d, wasmMemory } = eg;
+  const { CsrGraph, EdgePolylines, Layout2d, Layout3d, wasmMemory } = eg;
 
   assert.equal(typeof webPkg.Layout2d.prototype.coordsView, "function");
   assert.equal(typeof Layout2d.prototype.coordsView, "function");
+  assert.equal(typeof Layout3d.prototype.coordsView, "function");
+  assert.equal(typeof EdgePolylines.prototype.edgeOffsetsView, "function");
+  assert.equal(typeof EdgePolylines.prototype.pointsView, "function");
 
   // 1. CsrGraph.fromCsr: strict valid undirected weighted graph
   {
@@ -135,6 +138,60 @@ export function runCoreBuffersSmoke({ eg, webPkg }) {
     assert.equal(layout.isAllFinite(), false);
 
     layout.free();
+  }
+
+  // 4b. Layout3d & EdgePolylines zero-copy views across memory.grow + BigInt 64-bit seed
+  {
+    const l3 = Layout3d.init(3, { seed: (1n << 63n) + 7n, scale: 1.0 });
+    assert.equal(l3.len(), 3);
+    assert.equal(l3.coordsLen(), 9);
+    const v3a = l3.coordsView();
+    assert(v3a instanceof Float32Array && v3a.length === 9);
+    l3.set(1, 2.0, -3.5, 4.25);
+    assert.equal(v3a[3], 2.0);
+    assert.equal(v3a[5], 4.25);
+
+    const g = CsrGraph.fromEdgeList(3, new Uint32Array([0, 1, 1, 2]));
+    const poly = EdgePolylines.straightLineFromGraph(g, l3);
+    const offA = poly.edgeOffsetsView();
+    const ptsA = poly.pointsView();
+    assert.deepEqual(Array.from(offA), [0, 2, 4]);
+    assert.equal(ptsA.length, 12);
+
+    const oldBuf = v3a.buffer;
+    wasmMemory().grow(1);
+    assert.equal(oldBuf.byteLength, 0);
+    const v3b = l3.coordsView();
+    const offB = poly.edgeOffsetsView();
+    const ptsB = poly.pointsView();
+    assert.notEqual(v3b, v3a);
+    assert.equal(v3b[3], 2.0);
+    assert.equal(v3b[5], 4.25);
+    assert.deepEqual(Array.from(offB), [0, 2, 4]);
+    assert.equal(ptsB.length, 12);
+
+    poly.free();
+    g.free();
+    l3.free();
+  }
+
+  // 4c. Strict weightDtype: "float32" rejection on "float64" + typed error .code
+  {
+    assert.throws(
+      () =>
+        CsrGraph.fromCsr(new Uint32Array([0, 1, 2]), new Uint32Array([1, 0]), undefined, {
+          weightDtype: "float64",
+        }),
+      (err) => err instanceof Error && err.code === "InvalidInput",
+    );
+    assert.throws(
+      () => Layout2d.init(4, { seed: -1n }),
+      (err) => err instanceof Error && err.code === "InvalidInput",
+    );
+    assert.throws(
+      () => Layout2d.init(4, { seed: 1n << 64n }),
+      (err) => err instanceof Error && err.code === "InvalidInput",
+    );
   }
 
   // 5. Layout2d.fromCoords round-trip

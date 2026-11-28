@@ -46,16 +46,16 @@ export function runCoarsenAndFieldSmoke({ eg, webPkg }) {
     const bbFine = bb.fineLayout();
     const bbCoarse = bb.coarseLayout();
     const bbN2c = bb.nodeToCoarse();
-    webPkg.alignClusteredCentroids(bbFine, bbCoarse, bbN2c, 0.5);
+    webPkg.alignClusteredCentroids(bbFine, bbCoarse, bbN2c, { gammaTether: 0.5 });
     assert.equal(bbFine.isAllFinite(), true);
-    const bbProj = webPkg.projectClusteredLayoutWithRadii(bbCoarse, bbN2c, bb.radii(), 0.5, 42);
+    const bbProj = webPkg.projectClusteredLayoutWithRadii(bbCoarse, bbN2c, bb.radii(), { jitterScale: 0.5, seed: 42 });
     assert.equal(bbProj.len(), 16);
     bbProj.free();
     bbCoarse.free();
     bbFine.free();
     bb.free();
 
-    const pmBb = SgdSolver.pacmapGraphWithBackbone(g16, {
+    const pmBb = webPkg.PacmapGraphSolver.withBackbone(g16, {
       nNeighbors: 6,
       phaseIterations: [5, 5, 5],
       numLandmarks: 8,
@@ -143,13 +143,13 @@ export async function runGraphBaselinesSmoke({ eg, webPkg }) {
   assert.equal(lHdeNd.isAllFinite(), true);
   lHdeNd.free();
 
-  // SgdSolver baseline constructors
+  // SgdSolver & split negative-sampling SGD baselines
   const lWork = Layout2d.init(8, 42);
   for (const sgd of [
-    SgdSolver.ortmannSparseStress(g8, { numPivots: 4, pivotStrategy: "kmeans_sp", iterations: 8, seed: 42 }),
-    SgdSolver.largevis(g8, { iterations: 8, negativeSamples: 3, seed: 42 }),
-    SgdSolver.drgraph(g8, { iterations: 8, negativeSamples: 3, seed: 42 }),
-    SgdSolver.graphCne(g8, { objective: "infonce", iterations: 8, negativeSamples: 3, seed: 42 }),
+    SgdSolver.ortmannSparseStress(g8, { numPivots: 4, pivotStrategy: "kmeansSp", iterations: 8, seed: 42 }),
+    new webPkg.LargeVisSolver(g8, { iterations: 8, negativeSamples: 3, seed: 42 }),
+    new webPkg.DrGraphSolver(g8, { iterations: 8, negativeSamples: 3, seed: 42 }),
+    new webPkg.GraphCneSolver(g8, { objective: "infoNce", iterations: 8, negativeSamples: 3, seed: 42 }),
   ]) {
     sgd.run(lWork);
     assert.equal(sgd.isFinished, true);
@@ -193,17 +193,17 @@ export async function runGraphBaselinesSmoke({ eg, webPkg }) {
     ]),
   );
   const pfs = webPkg.PfsPrimeOverlapRemoval.fromRadii(new Float32Array(8).fill(0.4), { padding: 0.02, seed: 42 });
-  pfs.run(lOverlap);
-  assert.equal(pfs.isFinished, true);
+  pfs.apply(lOverlap);
   assert.equal(pfs.lastOverlapCount, 0);
   pfs.free();
   lOverlap.free();
 
-  const sfc = new webPkg.SfcLayoutSolver(g8, { curve: "hilbert", scale: 100.0, seed: 42 });
+  const sfc = new webPkg.SfcLayout(g8, { curve: "hilbert", scale: 100.0, seed: 42 });
+  const lSfc = sfc.generate();
   assert.equal(sfc.vertexOrder().length, 8);
-  sfc.run(lWork);
-  assert.equal(sfc.isFinished, true);
-  assert.equal(lWork.isAllFinite(), true);
+  assert.equal(lSfc.len(), 8);
+  assert.equal(lSfc.isAllFinite(), true);
+  lSfc.free();
   sfc.free();
 
   lWork.free();

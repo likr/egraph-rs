@@ -1,8 +1,7 @@
 //! Shared JavaScript plain-object option parsers, enum token normalizers, and solver config builders.
 
 use crate::js_convert::{
-    core_err_to_js, parse_non_negative_usize, parse_opt_usize_param, parse_optional_usize,
-    parse_seed_u64,
+    DEFAULT_SEED, core_err_to_js, invalid_input_err, parse_non_negative_usize, parse_seed_u64,
 };
 use egraph::core::SolverStatus;
 use egraph::layout::{FieldRepulsionBackend, PacmapGraphConfig};
@@ -13,11 +12,44 @@ use egraph::neighborhood::DogVaradhanConfig;
 use egraph::spatial::InterpolationOrder;
 use wasm_bindgen::{JsCast, prelude::*};
 
-pub(crate) fn normalize_enum_token(raw: &str) -> String {
-    raw.chars()
-        .filter(|ch| !matches!(ch, '_' | '-' | ' '))
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub(crate) enum JsTargetKind {
+    Layout2d,
+    Layout3d,
+    LayoutNd,
+    Manifold2d,
+}
+
+pub(crate) fn parse_target_kind(raw: &str) -> Result<JsTargetKind, JsValue> {
+    match normalize_enum_token(raw)?.as_str() {
+        "layout2d" => Ok(JsTargetKind::Layout2d),
+        "layout3d" => Ok(JsTargetKind::Layout3d),
+        "layoutnd" => Ok(JsTargetKind::LayoutNd),
+        "manifold2d" => Ok(JsTargetKind::Manifold2d),
+        _ => Err(invalid_input_err(format!(
+            "unknown target {raw:?}; expected 'layout2d', 'layout3d', 'layoutNd', or 'manifold2d'"
+        ))),
+    }
+}
+
+pub(crate) fn opt_target_prop(obj: &JsValue) -> Result<JsTargetKind, JsValue> {
+    match opt_string_prop(obj, "target")? {
+        None => Ok(JsTargetKind::Layout2d),
+        Some(raw) => parse_target_kind(&raw),
+    }
+}
+
+pub(crate) fn normalize_enum_token(raw: &str) -> Result<String, JsValue> {
+    if raw.contains('_') {
+        return Err(invalid_input_err(format!(
+            "snake_case enum token {raw:?} is not supported; use camelCase"
+        )));
+    }
+    Ok(raw
+        .chars()
+        .filter(|ch| !matches!(ch, '-' | ' '))
         .map(|ch| ch.to_ascii_lowercase())
-        .collect()
+        .collect())
 }
 
 pub(crate) fn solver_status_str(status: SolverStatus) -> &'static str {
@@ -26,24 +58,26 @@ pub(crate) fn solver_status_str(status: SolverStatus) -> &'static str {
         SolverStatus::Running => "running",
         SolverStatus::Converged => "converged",
         SolverStatus::Completed => "completed",
+        SolverStatus::Failed => "failed",
+        _ => "failed",
     }
 }
 
-pub(crate) fn parse_ibfft_order(val: &JsValue) -> Result<InterpolationOrder, JsError> {
+pub(crate) fn parse_ibfft_order(val: &JsValue) -> Result<InterpolationOrder, JsValue> {
     if let Some(num) = val.as_f64() {
         let ord = parse_non_negative_usize(num, "interpolationOrder")?;
         return InterpolationOrder::from_order(ord).map_err(core_err_to_js);
     }
     if let Some(raw) = val.as_string() {
-        return match normalize_enum_token(&raw).as_str() {
+        return match normalize_enum_token(&raw)?.as_str() {
             "bilinear" | "1" => Ok(InterpolationOrder::Bilinear),
             "cubic" | "3" => Ok(InterpolationOrder::Cubic),
-            _ => Err(JsError::new(&format!(
+            _ => Err(invalid_input_err(format!(
                 "unknown interpolationOrder {raw:?}; expected 'bilinear' (1) or 'cubic' (3)"
             ))),
         };
     }
-    Err(JsError::new(
+    Err(invalid_input_err(
         "interpolationOrder must be 'bilinear', 'cubic', 1, or 3",
     ))
 }
@@ -55,190 +89,149 @@ pub(crate) fn is_plain_js_object(val: &JsValue) -> bool {
         && !val.is_function()
 }
 
-pub(crate) fn check_options_arg(options: &JsValue, ctx: &str) -> Result<bool, JsError> {
+pub(crate) fn check_options_arg(options: &JsValue, ctx: &str) -> Result<bool, JsValue> {
     if options.is_undefined() || options.is_null() {
         return Ok(false);
     }
     if is_plain_js_object(options) {
         return Ok(true);
     }
-    Err(JsError::new(&format!(
+    Err(invalid_input_err(format!(
         "{ctx}: options must be a plain object, null, or undefined"
     )))
 }
 
-pub(crate) fn get_prop(obj: &JsValue, key: &str) -> Result<JsValue, JsError> {
+pub(crate) fn get_prop(obj: &JsValue, key: &str) -> Result<JsValue, JsValue> {
     js_sys::Reflect::get(obj, &JsValue::from_str(key))
-        .map_err(|err| JsError::new(&format!("failed to read options.{key}: {err:?}")))
+        .map_err(|err| invalid_input_err(format!("failed to read options.{key}: {err:?}")))
 }
 
-pub(crate) fn opt_usize_prop(obj: &JsValue, key: &str, default: usize) -> Result<usize, JsError> {
+pub(crate) fn opt_usize_prop(obj: &JsValue, key: &str, default: usize) -> Result<usize, JsValue> {
     let val = get_prop(obj, key)?;
     if val.is_undefined() || val.is_null() {
         return Ok(default);
     }
     let num = val
         .as_f64()
-        .ok_or_else(|| JsError::new(&format!("options.{key} must be an integer number")))?;
+        .ok_or_else(|| invalid_input_err(format!("options.{key} must be an integer number")))?;
     parse_non_negative_usize(num, key)
 }
 
-pub(crate) fn opt_maybe_usize_prop(obj: &JsValue, key: &str) -> Result<Option<usize>, JsError> {
+pub(crate) fn opt_maybe_usize_prop(obj: &JsValue, key: &str) -> Result<Option<usize>, JsValue> {
     let val = get_prop(obj, key)?;
     if val.is_undefined() || val.is_null() {
         return Ok(None);
     }
     let num = val
         .as_f64()
-        .ok_or_else(|| JsError::new(&format!("options.{key} must be an integer number")))?;
+        .ok_or_else(|| invalid_input_err(format!("options.{key} must be an integer number")))?;
     parse_non_negative_usize(num, key).map(Some)
 }
 
-pub(crate) fn opt_f64_prop(obj: &JsValue, key: &str, default: f64) -> Result<f64, JsError> {
+pub(crate) fn opt_f64_prop(obj: &JsValue, key: &str, default: f64) -> Result<f64, JsValue> {
     let val = get_prop(obj, key)?;
     if val.is_undefined() || val.is_null() {
         return Ok(default);
     }
     val.as_f64()
-        .ok_or_else(|| JsError::new(&format!("options.{key} must be a number")))
+        .ok_or_else(|| invalid_input_err(format!("options.{key} must be a number")))
 }
 
-pub(crate) fn opt_maybe_f64_prop(obj: &JsValue, key: &str) -> Result<Option<f64>, JsError> {
+pub(crate) fn opt_maybe_f64_prop(obj: &JsValue, key: &str) -> Result<Option<f64>, JsValue> {
     let val = get_prop(obj, key)?;
     if val.is_undefined() || val.is_null() {
         return Ok(None);
     }
     val.as_f64()
         .map(Some)
-        .ok_or_else(|| JsError::new(&format!("options.{key} must be a number")))
+        .ok_or_else(|| invalid_input_err(format!("options.{key} must be a number")))
 }
 
-pub(crate) fn opt_bool_prop(obj: &JsValue, key: &str, default: bool) -> Result<bool, JsError> {
+pub(crate) fn opt_bool_prop(obj: &JsValue, key: &str, default: bool) -> Result<bool, JsValue> {
     let val = get_prop(obj, key)?;
     if val.is_undefined() || val.is_null() {
         return Ok(default);
     }
     val.as_bool()
-        .ok_or_else(|| JsError::new(&format!("options.{key} must be a boolean")))
+        .ok_or_else(|| invalid_input_err(format!("options.{key} must be a boolean")))
 }
 
-pub(crate) fn opt_string_prop(obj: &JsValue, key: &str) -> Result<Option<String>, JsError> {
+pub(crate) fn opt_string_prop(obj: &JsValue, key: &str) -> Result<Option<String>, JsValue> {
     let val = get_prop(obj, key)?;
     if val.is_undefined() || val.is_null() {
         return Ok(None);
     }
     val.as_string()
         .map(Some)
-        .ok_or_else(|| JsError::new(&format!("options.{key} must be a string")))
+        .ok_or_else(|| invalid_input_err(format!("options.{key} must be a string")))
 }
 
-pub(crate) fn opt_seed_prop(obj: &JsValue) -> Result<u64, JsError> {
+pub(crate) fn opt_seed_prop(obj: &JsValue) -> Result<u64, JsValue> {
     let val = get_prop(obj, "seed")?;
+    parse_seed_u64(&val)
+}
+
+pub(crate) fn opt_maybe_bool_prop(obj: &JsValue, key: &str) -> Result<Option<bool>, JsValue> {
+    let val = get_prop(obj, key)?;
     if val.is_undefined() || val.is_null() {
-        return parse_seed_u64(None);
+        return Ok(None);
     }
-    let num = val
-        .as_f64()
-        .ok_or_else(|| JsError::new("options.seed must be a non-negative safe integer"))?;
-    parse_seed_u64(Some(num))
+    val.as_bool()
+        .map(Some)
+        .ok_or_else(|| invalid_input_err(format!("options.{key} must be a boolean")))
 }
 
-pub(crate) fn reject_extra_args_with_options(has_extra: bool) -> Result<(), JsError> {
-    if has_extra {
-        return Err(JsError::new(
-            "unexpected trailing positional argument when passing an options object",
-        ));
-    }
-    Ok(())
-}
+pub(crate) fn parse_dog_config_from_options(
+    options: &JsValue,
+    ctx: &str,
+) -> Result<DogVaradhanConfig, JsValue> {
+    let mut cfg = DogVaradhanConfig::default().with_seed(DEFAULT_SEED);
+    if check_options_arg(options, ctx)? {
+        cfg.seed = opt_seed_prop(options)?;
 
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn parse_dog_config_from_options_or_args(
-    maybe_options: &JsValue,
-    seed: u64,
-    degree: Option<f64>,
-    num_landmarks: Option<f64>,
-    degree_normalize: Option<bool>,
-    p_exp: Option<f64>,
-    eps_psd: Option<f64>,
-    t_coarse: Option<f64>,
-    t1: Option<f64>,
-    t2: Option<f64>,
-    alpha: Option<f64>,
-    beta_floor: Option<f64>,
-    min_degree: Option<f64>,
-    jl_dim: Option<f64>,
-) -> Result<DogVaradhanConfig, JsError> {
-    let mut cfg = DogVaradhanConfig {
-        seed,
-        ..DogVaradhanConfig::default()
-    };
-    if is_plain_js_object(maybe_options) {
-        let deg_primary = opt_maybe_usize_prop(maybe_options, "degree")?;
-        let deg_alt = opt_maybe_usize_prop(maybe_options, "dogDegree")?;
+        let deg_primary = opt_maybe_usize_prop(options, "degree")?;
+        let deg_alt = opt_maybe_usize_prop(options, "dogDegree")?;
         cfg.degree = deg_primary.or(deg_alt);
 
-        let lm_primary = opt_maybe_usize_prop(maybe_options, "numLandmarks")?;
-        let lm_alt = opt_maybe_usize_prop(maybe_options, "dogNumLandmarks")?;
+        let lm_primary = opt_maybe_usize_prop(options, "numLandmarks")?;
+        let lm_alt = opt_maybe_usize_prop(options, "dogNumLandmarks")?;
         cfg.n_landmarks = lm_primary.or(lm_alt).unwrap_or(cfg.n_landmarks);
 
-        cfg.min_degree = opt_usize_prop(maybe_options, "minDegree", cfg.min_degree)?;
-        cfg.jl_dim = opt_usize_prop(maybe_options, "jlDim", cfg.jl_dim)?;
+        cfg.min_degree = opt_usize_prop(options, "minDegree", cfg.min_degree)?;
+        cfg.jl_dim = opt_usize_prop(options, "jlDim", cfg.jl_dim)?;
 
-        let dn_val = get_prop(maybe_options, "degreeNormalize")?;
-        let dn_alt = get_prop(maybe_options, "dogDegreeNormalize")?;
-        if !dn_val.is_undefined() && !dn_val.is_null() {
-            cfg.degree_normalize = dn_val
-                .as_bool()
-                .ok_or_else(|| JsError::new("options.degreeNormalize must be a boolean"))?;
-        } else if !dn_alt.is_undefined() && !dn_alt.is_null() {
-            cfg.degree_normalize = dn_alt
-                .as_bool()
-                .ok_or_else(|| JsError::new("options.dogDegreeNormalize must be a boolean"))?;
+        let dn_val = opt_maybe_bool_prop(options, "degreeNormalize")?;
+        let dn_alt = opt_maybe_bool_prop(options, "dogDegreeNormalize")?;
+        if let Some(dn) = dn_val.or(dn_alt) {
+            cfg.degree_normalize = dn;
         }
 
-        let p_primary = opt_maybe_f64_prop(maybe_options, "pExp")?;
-        let p_alt = opt_maybe_f64_prop(maybe_options, "dogPExp")?;
+        let p_primary = opt_maybe_f64_prop(options, "pExp")?;
+        let p_alt = opt_maybe_f64_prop(options, "dogPExp")?;
         cfg.p_exp = p_primary.or(p_alt).unwrap_or(cfg.p_exp);
 
-        let psd_primary = opt_maybe_f64_prop(maybe_options, "epsPsd")?;
-        let psd_alt = opt_maybe_f64_prop(maybe_options, "dogEpsPsd")?;
+        let psd_primary = opt_maybe_f64_prop(options, "epsPsd")?;
+        let psd_alt = opt_maybe_f64_prop(options, "dogEpsPsd")?;
         cfg.eps_psd = psd_primary.or(psd_alt).unwrap_or(cfg.eps_psd);
 
-        let tc_primary = opt_maybe_f64_prop(maybe_options, "tCoarse")?;
-        let tc_alt = opt_maybe_f64_prop(maybe_options, "dogTCoarse")?;
+        let tc_primary = opt_maybe_f64_prop(options, "tCoarse")?;
+        let tc_alt = opt_maybe_f64_prop(options, "dogTCoarse")?;
         cfg.t_coarse = tc_primary.or(tc_alt).unwrap_or(cfg.t_coarse);
 
-        cfg.t1 = opt_maybe_f64_prop(maybe_options, "t1")?
-            .or(opt_maybe_f64_prop(maybe_options, "dogT1")?);
-        cfg.t2 = opt_maybe_f64_prop(maybe_options, "t2")?
-            .or(opt_maybe_f64_prop(maybe_options, "dogT2")?);
-        cfg.alpha = opt_maybe_f64_prop(maybe_options, "alpha")?
-            .or(opt_maybe_f64_prop(maybe_options, "dogAlpha")?);
-        cfg.beta_floor = opt_maybe_f64_prop(maybe_options, "betaFloor")?
-            .or(opt_maybe_f64_prop(maybe_options, "dogBetaFloor")?);
-        return Ok(cfg);
+        cfg.t1 = opt_maybe_f64_prop(options, "t1")?.or(opt_maybe_f64_prop(options, "dogT1")?);
+        cfg.t2 = opt_maybe_f64_prop(options, "t2")?.or(opt_maybe_f64_prop(options, "dogT2")?);
+        cfg.alpha =
+            opt_maybe_f64_prop(options, "alpha")?.or(opt_maybe_f64_prop(options, "dogAlpha")?);
+        cfg.beta_floor = opt_maybe_f64_prop(options, "betaFloor")?
+            .or(opt_maybe_f64_prop(options, "dogBetaFloor")?);
     }
-
-    cfg.degree = parse_opt_usize_param(degree, "degree")?;
-    cfg.n_landmarks = parse_optional_usize(num_landmarks, cfg.n_landmarks, "numLandmarks")?;
-    cfg.min_degree = parse_optional_usize(min_degree, cfg.min_degree, "minDegree")?;
-    cfg.jl_dim = parse_optional_usize(jl_dim, cfg.jl_dim, "jlDim")?;
-    cfg.degree_normalize = degree_normalize.unwrap_or(cfg.degree_normalize);
-    cfg.p_exp = p_exp.unwrap_or(cfg.p_exp);
-    cfg.eps_psd = eps_psd.unwrap_or(cfg.eps_psd);
-    cfg.t_coarse = t_coarse.unwrap_or(cfg.t_coarse);
-    cfg.t1 = t1;
-    cfg.t2 = t2;
-    cfg.alpha = alpha;
-    cfg.beta_floor = beta_floor;
     Ok(cfg)
 }
 
 pub(crate) fn parse_pacmap_graph_config(
     options: &JsValue,
     ctx: &str,
-) -> Result<PacmapGraphConfig, JsError> {
+) -> Result<PacmapGraphConfig, JsValue> {
     let mut cfg = PacmapGraphConfig::default();
     if check_options_arg(options, ctx)? {
         cfg.n_neighbors = opt_usize_prop(options, "nNeighbors", cfg.n_neighbors)?;
@@ -254,29 +247,33 @@ pub(crate) fn parse_pacmap_graph_config(
             } else if !pi_val.is_string() && pi_val.is_object() {
                 let iter = js_sys::try_iter(&pi_val)
                     .map_err(|err| {
-                        JsError::new(&format!(
+                        invalid_input_err(format!(
                             "failed to iterate options.phaseIterations: {err:?}"
                         ))
                     })?
                     .ok_or_else(|| {
-                        JsError::new("options.phaseIterations must be a 3-element integer array")
+                        invalid_input_err(
+                            "options.phaseIterations must be a 3-element integer array",
+                        )
                     })?;
                 for item_res in iter {
                     let item = item_res.map_err(|err| {
-                        JsError::new(&format!("failed to read options.phaseIterations: {err:?}"))
+                        invalid_input_err(format!(
+                            "failed to read options.phaseIterations: {err:?}"
+                        ))
                     })?;
                     let num = item.as_f64().ok_or_else(|| {
-                        JsError::new("options.phaseIterations entries must be integers")
+                        invalid_input_err("options.phaseIterations entries must be integers")
                     })?;
                     vals.push(parse_non_negative_usize(num, "phaseIterations")?);
                 }
             } else {
-                return Err(JsError::new(
+                return Err(invalid_input_err(
                     "options.phaseIterations must be a 3-element integer array",
                 ));
             }
             if vals.len() != 3 {
-                return Err(JsError::new(&format!(
+                return Err(invalid_input_err(format!(
                     "options.phaseIterations must have length 3, got {}",
                     vals.len()
                 )));
@@ -295,15 +292,10 @@ pub(crate) fn parse_pacmap_graph_config(
 
 pub(crate) fn parse_amg_pcg_config(
     options: &JsValue,
-) -> Result<(AmgPcgConfig, Option<Vec<f64>>), JsError> {
+) -> Result<(AmgPcgConfig, Option<Vec<f64>>), JsValue> {
     let mut cfg = AmgPcgConfig::default();
     let mut near_nullspace: Option<Vec<f64>> = None;
-    if !options.is_undefined() && !options.is_null() {
-        if !is_plain_js_object(options) {
-            return Err(JsError::new(
-                "AmgPcgSolver: options must be a plain object, null, or undefined",
-            ));
-        }
+    if check_options_arg(options, "AmgPcgSolver")? {
         cfg.rel_tol = opt_f64_prop(options, "relTol", cfg.rel_tol)?;
         cfg.abs_tol = opt_f64_prop(options, "absTol", cfg.abs_tol)?;
         cfg.max_iterations = opt_usize_prop(options, "maxIterations", cfg.max_iterations)?;
@@ -328,24 +320,26 @@ pub(crate) fn parse_amg_pcg_config(
             } else if !ns_val.is_string() && ns_val.is_object() {
                 let iter = js_sys::try_iter(&ns_val)
                     .map_err(|err| {
-                        JsError::new(&format!("failed to iterate nearNullspace: {err:?}"))
+                        invalid_input_err(format!("failed to iterate nearNullspace: {err:?}"))
                     })?
                     .ok_or_else(|| {
-                        JsError::new("options.nearNullspace must be a Float64Array or number array")
+                        invalid_input_err(
+                            "options.nearNullspace must be a Float64Array or number array",
+                        )
                     })?;
                 let mut vec = Vec::new();
                 for item_res in iter {
                     let item = item_res.map_err(|err| {
-                        JsError::new(&format!("failed to read nearNullspace: {err:?}"))
+                        invalid_input_err(format!("failed to read nearNullspace: {err:?}"))
                     })?;
                     let num = item.as_f64().ok_or_else(|| {
-                        JsError::new("options.nearNullspace entries must be numbers")
+                        invalid_input_err("options.nearNullspace entries must be numbers")
                     })?;
                     vec.push(num);
                 }
                 near_nullspace = Some(vec);
             } else {
-                return Err(JsError::new(
+                return Err(invalid_input_err(
                     "options.nearNullspace must be a Float64Array or number array",
                 ));
             }
@@ -355,38 +349,23 @@ pub(crate) fn parse_amg_pcg_config(
     Ok((cfg, near_nullspace))
 }
 
-pub(crate) fn parse_amg_laplacian_kind(raw: &str) -> Result<LaplacianKind, JsError> {
-    match normalize_enum_token(raw).as_str() {
+pub(crate) fn parse_amg_laplacian_kind(raw: &str) -> Result<LaplacianKind, JsValue> {
+    match normalize_enum_token(raw)?.as_str() {
         "combinatorial" | "unnormalized" | "standard" => Ok(LaplacianKind::Combinatorial),
         "symmetricnormalized" | "symnorm" | "normalized" | "sym" => {
             Ok(LaplacianKind::SymmetricNormalized)
         }
-        _ => Err(JsError::new(&format!(
-            "unknown Laplacian kind {raw:?}; expected 'combinatorial' or 'symmetric_normalized'"
+        _ => Err(invalid_input_err(format!(
+            "unknown Laplacian kind {raw:?}; expected 'combinatorial' or 'symmetricNormalized'"
         ))),
     }
 }
 
-fn opt_maybe_bool_prop(obj: &JsValue, key: &str) -> Result<Option<bool>, JsError> {
-    let val = get_prop(obj, key)?;
-    if val.is_undefined() || val.is_null() {
-        return Ok(None);
-    }
-    val.as_bool()
-        .map(Some)
-        .ok_or_else(|| JsError::new(&format!("options.{key} must be a boolean")))
-}
-
 pub(crate) fn parse_effective_resistance_options(
     options: &JsValue,
-) -> Result<EffectiveResistanceConfig, JsError> {
+) -> Result<EffectiveResistanceConfig, JsValue> {
     let mut cfg = EffectiveResistanceConfig::default();
-    if !options.is_undefined() && !options.is_null() {
-        if !is_plain_js_object(options) {
-            return Err(JsError::new(
-                "computeEffectiveResistances: options must be a plain object, null, or undefined",
-            ));
-        }
+    if check_options_arg(options, "computeEffectiveResistances")? {
         cfg.jl_dim = opt_usize_prop(options, "jlDim", cfg.jl_dim)?;
         cfg.seed = opt_seed_prop(options)?;
         cfg.weights_are_lengths =
@@ -406,14 +385,9 @@ pub(crate) fn parse_effective_resistance_options(
 
 pub(crate) fn parse_resistance_curvature_options(
     options: &JsValue,
-) -> Result<ResistanceCurvatureConfig, JsError> {
+) -> Result<ResistanceCurvatureConfig, JsValue> {
     let mut cfg = ResistanceCurvatureConfig::default();
-    if !options.is_undefined() && !options.is_null() {
-        if !is_plain_js_object(options) {
-            return Err(JsError::new(
-                "resistanceCurvatureFlow: options must be a plain object, null, or undefined",
-            ));
-        }
+    if check_options_arg(options, "resistanceCurvatureFlow")? {
         cfg.steps = opt_usize_prop(options, "steps", cfg.steps)?;
         cfg.eta = opt_f64_prop(options, "eta", cfg.eta)?;
         cfg.kappa_max = opt_f64_prop(options, "kappaMax", cfg.kappa_max)?;
@@ -430,13 +404,13 @@ pub(crate) fn parse_resistance_curvature_options(
     Ok(cfg)
 }
 
-pub(crate) fn parse_field_repulsion_backend(raw: &str) -> Result<FieldRepulsionBackend, JsError> {
-    match normalize_enum_token(raw).as_str() {
+pub(crate) fn parse_field_repulsion_backend(raw: &str) -> Result<FieldRepulsionBackend, JsValue> {
+    match normalize_enum_token(raw)?.as_str() {
         "ibfft" | "fft" => Ok(FieldRepulsionBackend::IbFft),
         "barneshut" | "bh" => Ok(FieldRepulsionBackend::BarnesHut),
         "exact" => Ok(FieldRepulsionBackend::Exact),
-        _ => Err(JsError::new(&format!(
-            "unknown FieldRepulsionBackend {raw:?}; expected 'ibfft', 'barnes_hut', or 'exact'"
+        _ => Err(invalid_input_err(format!(
+            "unknown FieldRepulsionBackend {raw:?}; expected 'ibFft', 'barnesHut', or 'exact'"
         ))),
     }
 }

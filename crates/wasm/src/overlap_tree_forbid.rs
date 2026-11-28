@@ -1,12 +1,12 @@
 //! WebAssembly bindings for GTree and FORBID node overlap removal solvers (`f32`).
 
-use egraph::core::IterativeSolver;
+use egraph::core::{IterativeSolver, NodeExtents2d};
 use egraph::layout::{
     ForbidConfig, ForbidOverlapRemoval, ForbidVariant, GTreeConfig, GTreeOverlapRemoval,
 };
 use wasm_bindgen::prelude::*;
 
-use crate::js_convert::core_err_to_js;
+use crate::js_convert::{core_err_to_js, invalid_input_err};
 use crate::js_options::{
     check_options_arg, normalize_enum_token, opt_f64_prop, opt_maybe_f64_prop, opt_seed_prop,
     opt_string_prop, opt_usize_prop, solver_status_str,
@@ -14,7 +14,7 @@ use crate::js_options::{
 use crate::layout_buffers::JsLayout2d;
 use crate::solver_runner::{run_layout_in_place, run_steps_layout_in_place, step_layout_in_place};
 
-fn parse_gtree_config(options: &JsValue, ctx: &str) -> Result<GTreeConfig, JsError> {
+fn parse_gtree_config(options: &JsValue, ctx: &str) -> Result<GTreeConfig, JsValue> {
     let mut cfg = GTreeConfig::default();
     if check_options_arg(options, ctx)? {
         cfg.max_iterations = opt_usize_prop(options, "maxIterations", cfg.max_iterations)?;
@@ -26,9 +26,6 @@ fn parse_gtree_config(options: &JsValue, ctx: &str) -> Result<GTreeConfig, JsErr
 }
 
 /// Cooperative Nachmanson et al. (2016) GTree overlap removal solver (`f32`).
-///
-/// Uses `Delaunay2d` when compiled with `delaunay` and falls back automatically to
-/// `StaticKdTree` proximity under `--no-default-features`.
 #[wasm_bindgen(js_name = GTreeOverlapRemoval)]
 #[derive(Debug, Clone)]
 pub struct JsGTreeOverlapRemoval {
@@ -46,11 +43,10 @@ impl JsGTreeOverlapRemoval {
         half_widths: &[f32],
         half_heights: &[f32],
         options: &JsValue,
-    ) -> Result<JsGTreeOverlapRemoval, JsError> {
+    ) -> Result<JsGTreeOverlapRemoval, JsValue> {
         let cfg = parse_gtree_config(options, "GTreeOverlapRemoval")?;
-        let inner =
-            GTreeOverlapRemoval::<f32>::new(half_widths.to_vec(), half_heights.to_vec(), cfg)
-                .map_err(core_err_to_js)?;
+        let extents = NodeExtents2d::new(half_widths, half_heights).map_err(core_err_to_js)?;
+        let inner = GTreeOverlapRemoval::<f32>::new(extents, cfg).map_err(core_err_to_js)?;
         Ok(Self { inner })
     }
 
@@ -59,21 +55,20 @@ impl JsGTreeOverlapRemoval {
     /// When `options.compactTMax` is set, it must satisfy `compactTMax > 1.0` (`null`/`undefined`
     /// disables compact expansion capping; values `<= 1.0` throw `Error`).
     #[wasm_bindgen(js_name = fromRadii)]
-    pub fn from_radii(radii: &[f32], options: &JsValue) -> Result<JsGTreeOverlapRemoval, JsError> {
+    pub fn from_radii(radii: &[f32], options: &JsValue) -> Result<JsGTreeOverlapRemoval, JsValue> {
         let cfg = parse_gtree_config(options, "GTreeOverlapRemoval.fromRadii")?;
-        let inner =
-            GTreeOverlapRemoval::<f32>::from_radii(radii.to_vec(), cfg).map_err(core_err_to_js)?;
+        let inner = GTreeOverlapRemoval::<f32>::from_radii(radii, cfg).map_err(core_err_to_js)?;
         Ok(Self { inner })
     }
 
     /// Executes one GTree overlap removal pass on `layout` in place.
-    pub fn step(&mut self, layout: &mut JsLayout2d) -> Result<String, JsError> {
+    pub fn step(&mut self, layout: &mut JsLayout2d) -> Result<String, JsValue> {
         step_layout_in_place(&mut self.inner, layout)
     }
 
     /// Executes up to `steps` GTree overlap removal passes on `layout` in place.
     #[wasm_bindgen(js_name = runSteps)]
-    pub fn run_steps(&mut self, layout: &mut JsLayout2d, steps: f64) -> Result<String, JsError> {
+    pub fn run_steps(&mut self, layout: &mut JsLayout2d, steps: f64) -> Result<String, JsValue> {
         run_steps_layout_in_place(
             self.inner.num_nodes(),
             &mut self.inner,
@@ -84,7 +79,7 @@ impl JsGTreeOverlapRemoval {
     }
 
     /// Runs GTree overlap removal until `0` overlaps remain or `maxIterations` is reached.
-    pub fn run(&mut self, layout: &mut JsLayout2d) -> Result<String, JsError> {
+    pub fn run(&mut self, layout: &mut JsLayout2d) -> Result<String, JsValue> {
         run_layout_in_place(
             self.inner.num_nodes(),
             &mut self.inner,
@@ -113,7 +108,7 @@ impl JsGTreeOverlapRemoval {
 
     /// Returns the maximum scheduled passes (`maxIterations`).
     #[wasm_bindgen(getter, js_name = totalIterations)]
-    pub fn total_iterations(&self) -> usize {
+    pub fn total_iterations(&self) -> Option<usize> {
         self.inner.total_iterations()
     }
 
@@ -130,18 +125,18 @@ impl JsGTreeOverlapRemoval {
     }
 }
 
-fn parse_forbid_variant(raw: &str) -> Result<ForbidVariant, JsError> {
-    match normalize_enum_token(raw).as_str() {
+fn parse_forbid_variant(raw: &str) -> Result<ForbidVariant, JsValue> {
+    match normalize_enum_token(raw)?.as_str() {
         "forbid" => Ok(ForbidVariant::Forbid),
         "forbidprime" => Ok(ForbidVariant::ForbidPrime),
         "sparseforbid" => Ok(ForbidVariant::SparseForbid),
-        _ => Err(JsError::new(&format!(
-            "unknown ForbidVariant {raw:?}; expected 'forbid', 'forbid_prime', or 'sparse_forbid'"
+        _ => Err(invalid_input_err(format!(
+            "unknown ForbidVariant {raw:?}; expected 'forbid', 'forbidPrime', or 'sparseForbid'"
         ))),
     }
 }
 
-fn parse_forbid_config(options: &JsValue, ctx: &str) -> Result<ForbidConfig, JsError> {
+fn parse_forbid_config(options: &JsValue, ctx: &str) -> Result<ForbidConfig, JsValue> {
     let mut cfg = ForbidConfig::default();
     if check_options_arg(options, ctx)? {
         if let Some(v_str) = opt_string_prop(options, "variant")? {
@@ -173,31 +168,29 @@ impl JsForbidOverlapRemoval {
         half_widths: &[f32],
         half_heights: &[f32],
         options: &JsValue,
-    ) -> Result<JsForbidOverlapRemoval, JsError> {
+    ) -> Result<JsForbidOverlapRemoval, JsValue> {
         let cfg = parse_forbid_config(options, "ForbidOverlapRemoval")?;
-        let inner =
-            ForbidOverlapRemoval::<f32>::new(half_widths.to_vec(), half_heights.to_vec(), cfg)
-                .map_err(core_err_to_js)?;
+        let extents = NodeExtents2d::new(half_widths, half_heights).map_err(core_err_to_js)?;
+        let inner = ForbidOverlapRemoval::<f32>::new(extents, cfg).map_err(core_err_to_js)?;
         Ok(Self { inner })
     }
 
     /// Constructs a `ForbidOverlapRemoval` solver with uniform square `radii`.
     #[wasm_bindgen(js_name = fromRadii)]
-    pub fn from_radii(radii: &[f32], options: &JsValue) -> Result<JsForbidOverlapRemoval, JsError> {
+    pub fn from_radii(radii: &[f32], options: &JsValue) -> Result<JsForbidOverlapRemoval, JsValue> {
         let cfg = parse_forbid_config(options, "ForbidOverlapRemoval.fromRadii")?;
-        let inner =
-            ForbidOverlapRemoval::<f32>::from_radii(radii.to_vec(), cfg).map_err(core_err_to_js)?;
+        let inner = ForbidOverlapRemoval::<f32>::from_radii(radii, cfg).map_err(core_err_to_js)?;
         Ok(Self { inner })
     }
 
     /// Executes one FORBID scaling + SGD round on `layout` in place.
-    pub fn step(&mut self, layout: &mut JsLayout2d) -> Result<String, JsError> {
+    pub fn step(&mut self, layout: &mut JsLayout2d) -> Result<String, JsValue> {
         step_layout_in_place(&mut self.inner, layout)
     }
 
     /// Executes up to `steps` FORBID rounds on `layout` in place.
     #[wasm_bindgen(js_name = runSteps)]
-    pub fn run_steps(&mut self, layout: &mut JsLayout2d, steps: f64) -> Result<String, JsError> {
+    pub fn run_steps(&mut self, layout: &mut JsLayout2d, steps: f64) -> Result<String, JsValue> {
         run_steps_layout_in_place(
             self.inner.num_nodes(),
             &mut self.inner,
@@ -208,7 +201,7 @@ impl JsForbidOverlapRemoval {
     }
 
     /// Runs FORBID overlap removal until `0` overlaps remain or `maxScaleIters` is reached.
-    pub fn run(&mut self, layout: &mut JsLayout2d) -> Result<String, JsError> {
+    pub fn run(&mut self, layout: &mut JsLayout2d) -> Result<String, JsValue> {
         run_layout_in_place(
             self.inner.num_nodes(),
             &mut self.inner,
@@ -237,7 +230,7 @@ impl JsForbidOverlapRemoval {
 
     /// Returns the maximum scheduled scaling rounds (`maxScaleIters`).
     #[wasm_bindgen(getter, js_name = totalIterations)]
-    pub fn total_iterations(&self) -> usize {
+    pub fn total_iterations(&self) -> Option<usize> {
         self.inner.total_iterations()
     }
 

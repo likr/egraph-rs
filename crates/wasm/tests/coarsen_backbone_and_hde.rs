@@ -9,6 +9,7 @@ use egraph_wasm::hde::{js_hde, js_hde_nd};
 use egraph_wasm::layout_buffers::JsLayout2d;
 use egraph_wasm::rhgh_landmarks::js_compute_pivoted_rhgh_landmarks;
 use egraph_wasm::sgd::JsSgdSolver;
+use egraph_wasm::sgd_pacmap::JsPacmapGraphSolver;
 use util::fixtures::{
     assert_layouts_bit_exact, make_grid, make_opts, make_path_graph, make_two_cluster_graph,
     u32_array_js,
@@ -114,14 +115,27 @@ fn coarsen_rhgh_and_coarse_backbone() {
     ])
     .unwrap();
     let n2c = [0u32, 0, 0, 0, 0, 1];
-    js_align_clustered_centroids(&mut fine, &coarse, &n2c, Some(1.0)).unwrap();
+    js_align_clustered_centroids(
+        &mut fine,
+        &coarse,
+        &n2c,
+        &make_opts(&[("gammaTether", JsValue::from_f64(1.0))]),
+    )
+    .unwrap();
     assert!(fine.is_all_finite());
-    let proj =
-        js_project_clustered_layout_with_radii(&coarse, &n2c, &[2.0, 4.0], Some(0.5), Some(7.0))
-            .unwrap();
+    let proj = js_project_clustered_layout_with_radii(
+        &coarse,
+        &n2c,
+        &[2.0, 4.0],
+        &make_opts(&[
+            ("jitterScale", JsValue::from_f64(0.5)),
+            ("seed", JsValue::from_f64(7.0)),
+        ]),
+    )
+    .unwrap();
     assert_eq!(proj.num_nodes(), 6);
 
-    // 5. SparseBarrierDog with degreeWeightBeta + pacmapGraphWithBackbone
+    // 5. SparseBarrierDog with degreeWeightBeta + PacmapGraphSolver.withBackbone
     let grid = make_grid(6, 6);
     let mut sgd_beta = JsSgdSolver::sparse_barrier_dog(
         &grid,
@@ -132,38 +146,10 @@ fn coarsen_rhgh_and_coarse_backbone() {
             ("iterations", JsValue::from_f64(5.0)),
             ("seed", JsValue::from_f64(42.0)),
         ]),
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
     )
     .unwrap();
-    let mut l_beta = JsLayout2d::init(36.0, Some(42.0), None).unwrap();
+    let mut l_beta =
+        JsLayout2d::init(36.0, &make_opts(&[("seed", JsValue::from_f64(42.0))]), None).unwrap();
     sgd_beta.run_2d(&mut l_beta).unwrap();
     assert!(l_beta.is_all_finite());
 
@@ -172,7 +158,7 @@ fn coarsen_rhgh_and_coarse_backbone() {
         &JsValue::from_f64(10.0),
         &JsValue::from_f64(10.0),
     );
-    let pm_bb = JsSgdSolver::pacmap_graph_with_backbone(
+    let pm_bb = JsPacmapGraphSolver::with_backbone(
         &grid,
         &make_opts(&[
             ("nNeighbors", JsValue::from_f64(8.0)),

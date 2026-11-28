@@ -8,15 +8,15 @@ use egraph_wasm::metrics_crossings::{
     js_minimum_angle, js_minimum_angle_summary, js_node_resolution, js_sampled_crossing_number,
     js_sampled_crosslessness, js_sweep_crossing_angle, js_sweep_crossing_number,
 };
-use egraph_wasm::metrics_eval_dispatch::js_evaluate_metrics_with_options;
+use egraph_wasm::metrics_eval_dispatch::js_evaluate_metrics_2d;
 use egraph_wasm::metrics_functions::{
+    js_adjusted_patch_nig, js_adjusted_patch_nig_multiscale, js_ideal_edge_lengths,
+    js_prism_distortion,
+};
+use egraph_wasm::metrics_geometry::{
     js_dgg_preservation, js_drng_preservation, js_gabriel_graph_property,
     js_neighborhood_preservation_1hop, js_neighborhood_preservation_2hop, js_sampled_np1,
     js_sampled_np2, js_sampled_scale_normalized_stress, js_scale_normalized_stress,
-};
-use egraph_wasm::metrics_geometry::{
-    js_adjusted_patch_nig, js_adjusted_patch_nig_multiscale, js_ideal_edge_lengths,
-    js_prism_distortion,
 };
 use egraph_wasm::metrics_nd_manifold::{
     js_gabriel_graph_edges_manifold, js_relative_neighborhood_edges_manifold,
@@ -26,7 +26,7 @@ use egraph_wasm::metrics_rta::{
     js_rta_2d as js_landmark_stratified_rta, js_rta_detail_2d as js_landmark_stratified_rta_detail,
     js_rta_from_landmarks_2d as js_landmark_stratified_rta_from_landmarks,
 };
-use util::fixtures::{make_grid_4x4_with_layout, u32_typed_js};
+use util::fixtures::{make_grid_4x4_with_layout, make_opts, u32_typed_js};
 use wasm_bindgen::JsValue;
 use wasm_bindgen_test::*;
 
@@ -49,8 +49,15 @@ fn stress_and_crossings_and_torus() {
     let sns_50 = js_scale_normalized_stress(&k4, &sq_scaled).expect("sns 50x");
     assert!((sns_1 - sns_50).abs() < 1e-6);
 
-    let sampled_sns =
-        js_sampled_scale_normalized_stress(&k4, &sq, Some(4.0), Some(42.0)).expect("sampled sns");
+    let sampled_sns = js_sampled_scale_normalized_stress(
+        &k4,
+        &sq,
+        &make_opts(&[
+            ("numPivots", JsValue::from_f64(4.0)),
+            ("seed", JsValue::from_f64(42.0)),
+        ]),
+    )
+    .expect("sampled sns");
     assert!((sampled_sns - sns_1).abs() < 1e-6);
 
     assert_eq!(js_sweep_crossing_number(&k4, &sq).expect("crossings"), 1);
@@ -61,7 +68,15 @@ fn stress_and_crossings_and_torus() {
             < 1e-6
     );
     assert_eq!(
-        js_sampled_crossing_number(&k4, &sq, Some(100.0), Some(42.0)).expect("sampled crossing"),
+        js_sampled_crossing_number(
+            &k4,
+            &sq,
+            &make_opts(&[
+                ("numSamples", JsValue::from_f64(100.0)),
+                ("seed", JsValue::from_f64(42.0)),
+            ]),
+        )
+        .expect("sampled crossing"),
         1.0
     );
 
@@ -77,16 +92,24 @@ fn neighborhood_proximity_geometry_and_prism() {
     let (grid, layout) = make_grid_4x4_with_layout();
     assert!((js_neighborhood_preservation_1hop(&grid, &layout).unwrap() - 1.0).abs() < 1e-6);
     assert!((js_neighborhood_preservation_2hop(&grid, &layout).unwrap() - 1.0).abs() < 1e-6);
+    let full_opts = make_opts(&[
+        ("numSamples", JsValue::from_f64(16.0)),
+        ("seed", JsValue::from_f64(42.0)),
+    ]);
     assert_eq!(
-        js_sampled_np1(&grid, &layout, Some(16.0), Some(42.0)).unwrap(),
+        js_sampled_np1(&grid, &layout, &full_opts).unwrap(),
         js_neighborhood_preservation_1hop(&grid, &layout).unwrap()
     );
     assert_eq!(
-        js_sampled_np2(&grid, &layout, Some(16.0), Some(42.0)).unwrap(),
+        js_sampled_np2(&grid, &layout, &full_opts).unwrap(),
         js_neighborhood_preservation_2hop(&grid, &layout).unwrap()
     );
-    let snp1_a = js_sampled_np1(&grid, &layout, Some(6.0), Some(7.0)).unwrap();
-    let snp1_b = js_sampled_np1(&grid, &layout, Some(6.0), Some(7.0)).unwrap();
+    let sub_opts = make_opts(&[
+        ("numSamples", JsValue::from_f64(6.0)),
+        ("seed", JsValue::from_f64(7.0)),
+    ]);
+    let snp1_a = js_sampled_np1(&grid, &layout, &sub_opts).unwrap();
+    let snp1_b = js_sampled_np1(&grid, &layout, &sub_opts).unwrap();
     assert_eq!(snp1_a, snp1_b);
     assert!((0.0..=1.0).contains(&snp1_a));
     assert!((js_drng_preservation(&grid, &layout).unwrap() - 1.0).abs() < 1e-6);
@@ -131,7 +154,17 @@ fn crosslessness_minimum_angle_degeneracy_nig_and_rta() {
     let expected_cl = 1.0 - (1.0_f64 / 3.0).sqrt();
     assert!((js_crosslessness(&k4, &sq).unwrap() - expected_cl).abs() < 1e-12);
     assert!(
-        (js_sampled_crosslessness(&k4, &sq, Some(100.0), Some(42.0)).unwrap() - expected_cl).abs()
+        (js_sampled_crosslessness(
+            &k4,
+            &sq,
+            &make_opts(&[
+                ("numSamples", JsValue::from_f64(100.0)),
+                ("seed", JsValue::from_f64(42.0)),
+            ]),
+        )
+        .unwrap()
+            - expected_cl)
+            .abs()
             < 1e-12
     );
 
@@ -162,42 +195,34 @@ fn crosslessness_minimum_angle_degeneracy_nig_and_rta() {
     let nig = js_adjusted_patch_nig(
         &sq,
         &u32_typed_js(&[0, 0, 1, 1]),
-        Some(16.0),
-        Some(2048.0),
-        None,
-        Some(42.0),
+        &make_opts(&[
+            ("patchRadius", JsValue::from_f64(16.0)),
+            ("canvasSize", JsValue::from_f64(2048.0)),
+            ("seed", JsValue::from_f64(42.0)),
+        ]),
     )
     .unwrap();
     let nig_ms = js_adjusted_patch_nig_multiscale(
         &sq,
         &u32_typed_js(&[0, 0, 1, 1]),
-        Some(vec![16, 32]),
-        Some(2048.0),
-        None,
-        Some(42.0),
+        &make_opts(&[
+            ("radii", js_sys::Uint32Array::from(&[16u32, 32][..]).into()),
+            ("canvasSize", JsValue::from_f64(2048.0)),
+            ("seed", JsValue::from_f64(42.0)),
+        ]),
     )
     .unwrap();
     assert!((nig_ms[0] - nig).abs() < 1e-12);
 
     let (grid, grid_layout) = make_grid_4x4_with_layout();
-    let rta = js_landmark_stratified_rta(
-        &grid,
-        &grid_layout,
-        Some(4.0),
-        Some(10000.0),
-        Some(2.0),
-        Some(42.0),
-    )
-    .unwrap();
-    let rta_det = js_landmark_stratified_rta_detail(
-        &grid,
-        &grid_layout,
-        Some(4.0),
-        Some(10000.0),
-        Some(2.0),
-        Some(42.0),
-    )
-    .unwrap();
+    let rta_opts = make_opts(&[
+        ("numLandmarks", JsValue::from_f64(4.0)),
+        ("numTriplets", JsValue::from_f64(10000.0)),
+        ("minDegree", JsValue::from_f64(2.0)),
+        ("seed", JsValue::from_f64(42.0)),
+    ]);
+    let rta = js_landmark_stratified_rta(&grid, &grid_layout, &rta_opts).unwrap();
+    let rta_det = js_landmark_stratified_rta_detail(&grid, &grid_layout, &rta_opts).unwrap();
     assert!((rta_det.rta() - rta).abs() < 1e-12);
     assert!(rta_det.is_exact());
     let rta_rec = rta_det.to_record().unwrap();
@@ -211,8 +236,10 @@ fn crosslessness_minimum_angle_degeneracy_nig_and_rta() {
         &sq,
         &u32_typed_js(&[0, 2]),
         &u32_typed_js(&[0, 1, 2, 1, 2, 1, 0, 1]),
-        Some(1000.0),
-        Some(42.0),
+        &make_opts(&[
+            ("numTriplets", JsValue::from_f64(1000.0)),
+            ("seed", JsValue::from_f64(42.0)),
+        ]),
     )
     .unwrap();
     assert!(rta_tbl.is_exact());
@@ -230,29 +257,20 @@ fn crosslessness_minimum_angle_degeneracy_nig_and_rta() {
         targets.push(&t.into());
     }
     let k4_labels_js = u32_typed_js(&[0, 0, 1, 1]);
-    let rep = js_evaluate_metrics_with_options(
+    let rep = js_evaluate_metrics_2d(
         &k4,
         &sq,
         &targets,
-        None,
-        Some(100.0),
-        Some(42.0),
-        None,
-        &k4_labels_js,
-        Some(4.0),
-        Some(1000.0),
-        Some(1.0),
-        Some(16.0),
-        Some(2048.0),
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        &JsValue::UNDEFINED,
-        &JsValue::UNDEFINED,
+        &make_opts(&[
+            ("numSamples", JsValue::from_f64(100.0)),
+            ("seed", JsValue::from_f64(42.0)),
+            ("labels", k4_labels_js),
+            ("numLandmarks", JsValue::from_f64(4.0)),
+            ("numTriplets", JsValue::from_f64(1000.0)),
+            ("minDegree", JsValue::from_f64(1.0)),
+            ("patchRadius", JsValue::from_f64(16.0)),
+            ("canvasSize", JsValue::from_f64(2048.0)),
+        ]),
     )
     .unwrap();
     assert!((rep.crosslessness().unwrap() - expected_cl).abs() < 1e-12);
@@ -264,33 +282,7 @@ fn crosslessness_minimum_angle_degeneracy_nig_and_rta() {
     assert!(rep.cluster_area_faithfulness().is_none());
 
     let need_labels = js_sys::Array::of1(&"adjustedPatchNig".into());
-    assert!(
-        js_evaluate_metrics_with_options(
-            &k4,
-            &sq,
-            &need_labels,
-            None,
-            None,
-            None,
-            None,
-            &JsValue::UNDEFINED,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            &JsValue::UNDEFINED,
-            &JsValue::UNDEFINED,
-        )
-        .is_err()
-    );
+    assert!(js_evaluate_metrics_2d(&k4, &sq, &need_labels, &JsValue::UNDEFINED).is_err());
 }
 
 #[wasm_bindgen_test]
@@ -307,7 +299,15 @@ fn crosslessness_directed_reciprocal_regression() {
     let l_pair = JsLayout2d::from_coords(&[0.0, 0.0, 1.0, 0.0]).unwrap();
     assert_eq!(js_crosslessness(&g_pair, &l_pair).unwrap(), 1.0);
     assert_eq!(
-        js_sampled_crosslessness(&g_pair, &l_pair, Some(32.0), Some(42.0)).unwrap(),
+        js_sampled_crosslessness(
+            &g_pair,
+            &l_pair,
+            &make_opts(&[
+                ("numSamples", JsValue::from_f64(32.0)),
+                ("seed", JsValue::from_f64(42.0)),
+            ]),
+        )
+        .unwrap(),
         1.0
     );
 
@@ -323,7 +323,15 @@ fn crosslessness_directed_reciprocal_regression() {
     let l_star = JsLayout2d::from_coords(&[0.0, 0.0, 1.0, 0.0, 0.0, 1.0, -1.0, 0.0]).unwrap();
     assert_eq!(js_crosslessness(&g_star, &l_star).unwrap(), 1.0);
     assert_eq!(
-        js_sampled_crosslessness(&g_star, &l_star, Some(64.0), Some(42.0)).unwrap(),
+        js_sampled_crosslessness(
+            &g_star,
+            &l_star,
+            &make_opts(&[
+                ("numSamples", JsValue::from_f64(64.0)),
+                ("seed", JsValue::from_f64(42.0)),
+            ]),
+        )
+        .unwrap(),
         1.0
     );
 
@@ -340,20 +348,32 @@ fn crosslessness_directed_reciprocal_regression() {
     assert_eq!(js_sweep_crossing_number(&g_dir4, &l_dir4).unwrap(), 1);
     assert_eq!(js_crosslessness(&g_dir4, &l_dir4).unwrap(), 0.0);
     assert_eq!(
-        js_sampled_crosslessness(&g_dir4, &l_dir4, Some(100.0), Some(42.0)).unwrap(),
+        js_sampled_crosslessness(
+            &g_dir4,
+            &l_dir4,
+            &make_opts(&[
+                ("numSamples", JsValue::from_f64(100.0)),
+                ("seed", JsValue::from_f64(42.0)),
+            ]),
+        )
+        .unwrap(),
         0.0
     );
 }
 
 #[wasm_bindgen_test]
 fn gabriel_and_relative_neighborhood_edges_manifold() {
+    let init_opts = make_opts(&[
+        ("seed", JsValue::from_f64(42.0)),
+        ("scale", JsValue::from_f64(0.35)),
+    ]);
     for kind in [
-        "hyperbolic_poincare",
-        "hyperbolic_lorentz",
+        "hyperbolicPoincare",
+        "hyperbolicLorentz",
         "spherical",
-        "torus_2d",
+        "torus2d",
     ] {
-        let ml = JsManifoldLayout2d::init(kind, 8.0, Some(42.0), Some(0.35)).unwrap();
+        let ml = JsManifoldLayout2d::init(kind, 8.0, &init_opts).unwrap();
         let gg = js_gabriel_graph_edges_manifold(&ml).unwrap();
         let rng = js_relative_neighborhood_edges_manifold(&ml).unwrap();
         assert!(!gg.is_empty() && gg.len().is_multiple_of(2));

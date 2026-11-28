@@ -1,6 +1,8 @@
 export const layoutBaselineAndProgressiveTypeDecls = `export interface HdeOptions {
+  target?: "layout2d" | "layout3d" | "layoutNd" | string | null;
+  dims?: number | null;
   dimensions?: number | null;
-  seed?: number | null;
+  seed?: number | bigint | null;
   tol?: number | null;
   maxSweeps?: number | null;
   normalize?: boolean | null;
@@ -11,29 +13,32 @@ export interface HdeNdOptions extends HdeOptions {
   outputDims?: number | null;
 }
 
-export type OrtmannPivotStrategy = "kmeans_sp" | "maxmin_random_sp" | "maxmin_sp";
+export type OrtmannPivotStrategy = "kmeansSp" | "maxminRandomSp" | "maxminSp";
 
 export interface OrtmannSparseStressOptions {
+  target?: TargetKind | string | null;
   numPivots?: number | null;
   pivotStrategy?: OrtmannPivotStrategy | string | null;
   iterations?: number | null;
   etaMax?: number | null;
   etaMin?: number | null;
   eps?: number | null;
-  seed?: number | null;
+  seed?: number | bigint | null;
 }
 
 export interface LargeVisOptions {
+  target?: TargetKind | string | null;
   iterations?: number | null;
   negativeSamples?: number | null;
   gamma?: number | null;
   initialLr?: number | null;
   minLr?: number | null;
   degreeExponent?: number | null;
-  seed?: number | null;
+  seed?: number | bigint | null;
 }
 
 export interface DrGraphOptions {
+  target?: TargetKind | string | null;
   kOrder?: number | null;
   negativeSamples?: number | null;
   b?: number | null;
@@ -43,12 +48,13 @@ export interface DrGraphOptions {
   iterations?: number | null;
   initialLr?: number | null;
   minLr?: number | null;
-  seed?: number | null;
+  seed?: number | bigint | null;
 }
 
-export type GraphCneObjective = "infonce" | "neg_tsne";
+export type GraphCneObjective = "infoNce" | "negTSne";
 
 export interface GraphCneOptions {
+  target?: TargetKind | string | null;
   objective?: GraphCneObjective | string | null;
   negativeSamples?: number | null;
   iterations?: number | null;
@@ -56,10 +62,12 @@ export interface GraphCneOptions {
   minLr?: number | null;
   repulsionWeight?: number | null;
   rowNormalize?: boolean | null;
-  seed?: number | null;
+  seed?: number | bigint | null;
 }
 
 export interface MaxentStressOptions {
+  target?: "layout2d" | "layout3d" | "layoutNd" | string | null;
+  backend?: "exact" | "barnesHut" | string | null;
   q?: number | null;
   alphaInit?: number | null;
   alphaDecay?: number | null;
@@ -72,7 +80,7 @@ export interface MaxentStressOptions {
   theta?: number | null;
   useBarnesHut?: boolean | null;
   epsSq?: number | null;
-  seed?: number | null;
+  seed?: number | bigint | null;
 }
 
 export interface GripOptions {
@@ -83,7 +91,7 @@ export interface GripOptions {
   edgeLength?: number | null;
   tempR?: number | null;
   tempS?: number | null;
-  seed?: number | null;
+  seed?: number | bigint | null;
 }
 
 export interface GemOptions {
@@ -98,11 +106,11 @@ export interface GemOptions {
   oscillationSensitivity?: number | null;
   rotationSensitivity?: number | null;
   perturbation?: number | null;
-  seed?: number | null;
+  seed?: number | bigint | null;
 }
 
-export type SelWeightMapping = "sigmoid" | "linear" | "tanh" | "custom_logistic" | "binary";
-export type SelLayoutBackend = "fr" | "t_fdp";
+export type SelWeightMapping = "sigmoid" | "linear" | "tanh" | "customLogistic" | "binary";
+export type SelLayoutBackend = "fr" | "tFdp";
 
 export interface SelOptions {
   treeDepth?: number | null;
@@ -110,14 +118,14 @@ export interface SelOptions {
   mapping?: SelWeightMapping | string | null;
   layoutBackend?: SelLayoutBackend | string | null;
   iterations?: number | null;
-  seed?: number | null;
+  seed?: number | bigint | null;
   frConfig?: FruchtermanReingoldOptions | null;
   tFdpConfig?: TFdpOptions | null;
 }
 
 export interface PfsPrimeOptions {
   padding?: number | null;
-  seed?: number | null;
+  seed?: number | bigint | null;
 }
 
 export type SfcCurveKind = "hilbert" | "morton";
@@ -126,10 +134,12 @@ export interface SfcOptions {
   curve?: SfcCurveKind | string | null;
   scale?: number | null;
   resolutionOrder?: number | null;
-  seed?: number | null;
+  seed?: number | bigint | null;
 }
 
 export interface YifanHuOptions {
+  target?: "layout2d" | "layout3d" | "layoutNd" | string | null;
+  backend?: "exact" | "barnesHut" | string | null;
   maxIterationsPerLevel?: number | null;
   stepSize?: number | null;
   stepRatio?: number | null;
@@ -139,7 +149,7 @@ export interface YifanHuOptions {
   minCoarsenSize?: number | null;
   minCoarsenRatio?: number | null;
   convergenceTolerance?: number | null;
-  seed?: number | null;
+  seed?: number | bigint | null;
 }
 
 export interface PrismOptions {
@@ -148,7 +158,7 @@ export interface PrismOptions {
   cgMaxIters?: number | null;
   cgTolerance?: number | null;
   padding?: number | null;
-  seed?: number | null;
+  seed?: number | bigint | null;
 }
 
 export interface TwinDeclutterOptions {
@@ -158,7 +168,7 @@ export interface TwinDeclutterOptions {
   stiffness?: number | null;
   anchorWeight?: number | null;
   stepScale?: number | null;
-  seed?: number | null;
+  seed?: number | bigint | null;
 }
 
 export interface SeparationConstraintLike {
@@ -177,18 +187,18 @@ export interface FdebOptions {
   minimumEdgeCompatibility?: number | null;
 }
 
-export interface ProgressiveSolverLike<TLayout = AnyLayout> {
+export interface ProgressiveSolverLike<TLayout = AnyLayout | EdgePolylines> {
   readonly isFinished: boolean;
   readonly iteration: number;
-  readonly totalIterations: number;
+  readonly totalIterations: number | undefined;
   readonly status: SolverStatus | string;
   step(layout: TLayout): SolverStatus | string;
   runSteps?(layout: TLayout, steps: number): SolverStatus | string;
 }
 
-export interface ProgressiveFrameContext<TLayout = AnyLayout> {
+export interface ProgressiveFrameContext<TLayout = AnyLayout | EdgePolylines> {
   iteration: number;
-  totalIterations: number;
+  totalIterations: number | undefined;
   status: SolverStatus | string;
   layout: TLayout;
 }
@@ -205,7 +215,7 @@ export interface RunProgressiveOptions {
  * yielding back to the browser event loop via \`requestAnimationFrame\` (or \`setTimeout\`
  * in Node.js) between batches.
  */
-export function runProgressive<TLayout = AnyLayout>(
+export function runProgressive<TLayout = AnyLayout | EdgePolylines>(
   solver: ProgressiveSolverLike<TLayout>,
   layout: TLayout,
   onFrame?: ((ctx: ProgressiveFrameContext<TLayout>) => void) | null,

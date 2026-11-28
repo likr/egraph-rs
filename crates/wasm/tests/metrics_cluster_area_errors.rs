@@ -4,8 +4,8 @@ use egraph_wasm::layout_buffers::JsLayout2d;
 use egraph_wasm::metrics_cluster_rta::{
     js_cluster_area_faithfulness, js_cluster_area_faithfulness_detail,
 };
-use egraph_wasm::metrics_eval_dispatch::js_evaluate_metrics_with_options;
-use util::fixtures::{make_imbalanced_cluster_fixture, u32_typed_js};
+use egraph_wasm::metrics_eval_dispatch::js_evaluate_metrics_2d;
+use util::fixtures::{make_imbalanced_cluster_fixture, make_opts, u32_typed_js};
 use wasm_bindgen::JsValue;
 use wasm_bindgen_test::*;
 
@@ -20,13 +20,6 @@ fn cluster_area_faithfulness_adversarial_label_and_param_errors() {
         js_cluster_area_faithfulness(
             &imb_layout,
             &u32_typed_js(&imb_labels[..23]),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            &JsValue::UNDEFINED,
             &JsValue::UNDEFINED,
         )
         .is_err()
@@ -55,119 +48,32 @@ fn cluster_area_faithfulness_adversarial_label_and_param_errors() {
         JsValue::from_str("000000000000000000001111"),
     ];
     for bad in &bad_label_inputs {
+        assert!(js_cluster_area_faithfulness(&imb_layout, bad, &JsValue::UNDEFINED).is_err());
         assert!(
-            js_cluster_area_faithfulness(
-                &imb_layout,
-                bad,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                &JsValue::UNDEFINED,
-                &JsValue::UNDEFINED,
-            )
-            .is_err()
+            js_cluster_area_faithfulness_detail(&imb_layout, bad, &JsValue::UNDEFINED).is_err()
         );
         assert!(
-            js_cluster_area_faithfulness_detail(
-                &imb_layout,
-                bad,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                &JsValue::UNDEFINED,
-                &JsValue::UNDEFINED,
-            )
-            .is_err()
-        );
-        assert!(
-            js_evaluate_metrics_with_options(
+            js_evaluate_metrics_2d(
                 &imb_graph,
                 &imb_layout,
                 &gcaf_only,
-                None,
-                None,
-                None,
-                None,
-                bad,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                &JsValue::UNDEFINED,
-                &JsValue::UNDEFINED,
+                &make_opts(&[("labels", bad.clone())]),
             )
             .is_err()
         );
     }
     for nullish in [JsValue::NULL, JsValue::UNDEFINED] {
+        assert!(js_cluster_area_faithfulness(&imb_layout, &nullish, &JsValue::UNDEFINED).is_err());
         assert!(
-            js_cluster_area_faithfulness(
-                &imb_layout,
-                &nullish,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                &JsValue::UNDEFINED,
-                &JsValue::UNDEFINED,
-            )
-            .is_err()
+            js_cluster_area_faithfulness_detail(&imb_layout, &nullish, &JsValue::UNDEFINED)
+                .is_err()
         );
         assert!(
-            js_cluster_area_faithfulness_detail(
-                &imb_layout,
-                &nullish,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                &JsValue::UNDEFINED,
-                &JsValue::UNDEFINED,
-            )
-            .is_err()
-        );
-        assert!(
-            js_evaluate_metrics_with_options(
+            js_evaluate_metrics_2d(
                 &imb_graph,
                 &imb_layout,
                 &gcaf_only,
-                None,
-                None,
-                None,
-                None,
-                &nullish,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                &JsValue::UNDEFINED,
-                &JsValue::UNDEFINED,
+                &make_opts(&[("labels", nullish)]),
             )
             .is_err()
         );
@@ -177,33 +83,14 @@ fn cluster_area_faithfulness_adversarial_label_and_param_errors() {
     nan_coords[0] = f32::NAN;
     let nan_layout = JsLayout2d::from_coords(&nan_coords).unwrap();
     assert!(
-        js_cluster_area_faithfulness(
-            &nan_layout,
-            &imb_labels_js,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            &JsValue::UNDEFINED,
-            &JsValue::UNDEFINED,
-        )
-        .is_err()
+        js_cluster_area_faithfulness(&nan_layout, &imb_labels_js, &JsValue::UNDEFINED).is_err()
     );
     for bad_g in [11.0, 1.5, -1.0] {
         assert!(
             js_cluster_area_faithfulness(
                 &imb_layout,
                 &imb_labels_js,
-                Some(bad_g),
-                None,
-                None,
-                None,
-                None,
-                None,
-                &JsValue::UNDEFINED,
-                &JsValue::UNDEFINED,
+                &make_opts(&[("gMax", JsValue::from_f64(bad_g))]),
             )
             .is_err()
         );
@@ -213,14 +100,7 @@ fn cluster_area_faithfulness_adversarial_label_and_param_errors() {
             js_cluster_area_faithfulness(
                 &imb_layout,
                 &imb_labels_js,
-                None,
-                Some(bad_sigma),
-                None,
-                None,
-                None,
-                None,
-                &JsValue::UNDEFINED,
-                &JsValue::UNDEFINED,
+                &make_opts(&[("sigmaCells", JsValue::from_f64(bad_sigma))]),
             )
             .is_err()
         );
@@ -229,14 +109,7 @@ fn cluster_area_faithfulness_adversarial_label_and_param_errors() {
         js_cluster_area_faithfulness(
             &imb_layout,
             &imb_labels_js,
-            None,
-            None,
-            Some(0.0),
-            None,
-            None,
-            None,
-            &JsValue::UNDEFINED,
-            &JsValue::UNDEFINED,
+            &make_opts(&[("kappa", JsValue::from_f64(0.0))]),
         )
         .is_err()
     );
@@ -244,14 +117,7 @@ fn cluster_area_faithfulness_adversarial_label_and_param_errors() {
         js_cluster_area_faithfulness(
             &imb_layout,
             &imb_labels_js,
-            None,
-            None,
-            None,
-            Some(-1.0),
-            None,
-            None,
-            &JsValue::UNDEFINED,
-            &JsValue::UNDEFINED,
+            &make_opts(&[("tauFrac", JsValue::from_f64(-1.0))]),
         )
         .is_err()
     );
@@ -260,14 +126,7 @@ fn cluster_area_faithfulness_adversarial_label_and_param_errors() {
             js_cluster_area_faithfulness(
                 &imb_layout,
                 &imb_labels_js,
-                None,
-                None,
-                None,
-                None,
-                Some(bad_r95),
-                None,
-                &JsValue::UNDEFINED,
-                &JsValue::UNDEFINED,
+                &make_opts(&[("boundaryR95", JsValue::from_f64(bad_r95))]),
             )
             .is_err()
         );
@@ -277,14 +136,7 @@ fn cluster_area_faithfulness_adversarial_label_and_param_errors() {
             js_cluster_area_faithfulness(
                 &imb_layout,
                 &imb_labels_js,
-                None,
-                None,
-                None,
-                None,
-                None,
-                Some(bad_gamma),
-                &JsValue::UNDEFINED,
-                &JsValue::UNDEFINED,
+                &make_opts(&[("stevensGamma", JsValue::from_f64(bad_gamma))]),
             )
             .is_err()
         );

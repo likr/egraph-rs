@@ -2,9 +2,8 @@
 //! node resolution, and layout degeneracy metrics.
 
 use crate::csr_graph::JsCsrGraph;
-use crate::js_convert::{
-    core_err_to_js, parse_non_negative_usize, parse_seed_u64, set_f64_prop, set_js_prop,
-};
+use crate::js_convert::{DEFAULT_SEED, core_err_to_js, set_f64_prop, set_js_prop};
+use crate::js_options::{check_options_arg, opt_seed_prop, opt_usize_prop};
 use crate::layout_buffers::JsLayout2d;
 use crate::metrics_summaries::JsMinimumAngleSummary;
 use egraph::metrics::{
@@ -17,9 +16,19 @@ use wasm_bindgen::prelude::*;
 
 const DEFAULT_NUM_SAMPLES: usize = 4096;
 
+fn parse_sampled_crossing_options(options: &JsValue, ctx: &str) -> Result<(usize, u64), JsValue> {
+    let mut num_samples = DEFAULT_NUM_SAMPLES;
+    let mut seed = DEFAULT_SEED;
+    if check_options_arg(options, ctx)? {
+        num_samples = opt_usize_prop(options, "numSamples", num_samples)?;
+        seed = opt_seed_prop(options)?;
+    }
+    Ok((num_samples, seed))
+}
+
 /// Coordinate-collapse and zero-length edge degeneracy diagnostics returned by `layoutDegeneracy`.
 #[wasm_bindgen(js_name = LayoutDegeneracy)]
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct JsLayoutDegeneracy {
     inner: LayoutDegeneracy,
 }
@@ -98,7 +107,7 @@ impl JsLayoutDegeneracy {
     }
 
     #[wasm_bindgen(js_name = toRecord)]
-    pub fn to_record(&self) -> Result<js_sys::Object, JsError> {
+    pub fn to_record(&self) -> Result<js_sys::Object, JsValue> {
         let obj = js_sys::Object::new();
         for (k, v) in [
             ("numNodes", self.inner.num_nodes as f64),
@@ -127,52 +136,47 @@ impl JsLayoutDegeneracy {
 
 /// Counts the exact number of non-adjacent edge crossings via $O((|E|+K)\log|E|)$ sweep-line.
 #[wasm_bindgen(js_name = sweepCrossingNumber)]
-pub fn js_sweep_crossing_number(graph: &JsCsrGraph, layout: &JsLayout2d) -> Result<usize, JsError> {
+pub fn js_sweep_crossing_number(graph: &JsCsrGraph, layout: &JsLayout2d) -> Result<usize, JsValue> {
     let soa = layout.inner().to_layout2d();
     crossing_number(graph.inner(), &soa).map_err(core_err_to_js)
 }
 
 /// Computes the exact sweep-line crossing-angle penalty $\sum \cos^2(\theta)$.
 #[wasm_bindgen(js_name = sweepCrossingAngle)]
-pub fn js_sweep_crossing_angle(graph: &JsCsrGraph, layout: &JsLayout2d) -> Result<f64, JsError> {
+pub fn js_sweep_crossing_angle(graph: &JsCsrGraph, layout: &JsLayout2d) -> Result<f64, JsValue> {
     let soa = layout.inner().to_layout2d();
     crossing_angle(graph.inner(), &soa).map_err(core_err_to_js)
 }
 
-/// Estimates edge crossings in $O(\text{numSamples})$ time (`numSamples` default `4096`, `seed` default `42`).
+/// Estimates edge crossings in $O(\text{numSamples})$ time (`options?: { numSamples?, seed? }`).
 #[wasm_bindgen(js_name = sampledCrossingNumber)]
 pub fn js_sampled_crossing_number(
     graph: &JsCsrGraph,
     layout: &JsLayout2d,
-    num_samples: Option<f64>,
-    seed: Option<f64>,
-) -> Result<f64, JsError> {
-    let samples = match num_samples {
-        None => DEFAULT_NUM_SAMPLES,
-        Some(v) => parse_non_negative_usize(v, "numSamples")?,
-    };
-    let seed_u64 = parse_seed_u64(seed)?;
+    options: &JsValue,
+) -> Result<f64, JsValue> {
+    let (samples, seed_u64) = parse_sampled_crossing_options(options, "sampledCrossingNumber")?;
     let soa = layout.inner().to_layout2d();
     sampled_crossing_number(graph.inner(), &soa, samples, seed_u64).map_err(core_err_to_js)
 }
 
 /// Computes the one-sided hinge node-resolution violation sum of `layout`.
 #[wasm_bindgen(js_name = _nodeResolution2d)]
-pub fn js_node_resolution(layout: &JsLayout2d) -> Result<f64, JsError> {
+pub fn js_node_resolution(layout: &JsLayout2d) -> Result<f64, JsValue> {
     let soa = layout.inner().to_layout2d();
     node_resolution(&soa).map_err(core_err_to_js)
 }
 
 /// Computes the PCA aspect ratio $\sigma_2 / \sigma_1 \in [0.0, 1.0]$ of `layout`.
 #[wasm_bindgen(js_name = aspectRatio)]
-pub fn js_aspect_ratio(layout: &JsLayout2d) -> Result<f64, JsError> {
+pub fn js_aspect_ratio(layout: &JsLayout2d) -> Result<f64, JsValue> {
     let soa = layout.inner().to_layout2d();
     aspect_ratio(&soa).map_err(core_err_to_js)
 }
 
 /// Computes the exponential angular-resolution penalty sum over incident edge pairs.
 #[wasm_bindgen(js_name = angularResolution)]
-pub fn js_angular_resolution(graph: &JsCsrGraph, layout: &JsLayout2d) -> Result<f64, JsError> {
+pub fn js_angular_resolution(graph: &JsCsrGraph, layout: &JsLayout2d) -> Result<f64, JsValue> {
     let soa = layout.inner().to_layout2d();
     angular_resolution(graph.inner(), &soa).map_err(core_err_to_js)
 }
@@ -186,32 +190,27 @@ pub fn js_edge_angle(x1: f64, y1: f64, x2: f64, y2: f64) -> Option<f64> {
 
 /// Computes exact DRGraph Eq. (17) crosslessness $1 - \sqrt{c / c_{\max}} \in [0.0, 1.0]$.
 #[wasm_bindgen(js_name = crosslessness)]
-pub fn js_crosslessness(graph: &JsCsrGraph, layout: &JsLayout2d) -> Result<f64, JsError> {
+pub fn js_crosslessness(graph: &JsCsrGraph, layout: &JsLayout2d) -> Result<f64, JsValue> {
     let soa = layout.inner().to_layout2d();
     crosslessness(graph.inner(), &soa).map_err(core_err_to_js)
 }
 
 /// Estimates DRGraph Eq. (17) crosslessness $1 - \sqrt{\hat{c} / c_{\max}} \in [0.0, 1.0]$
-/// (`numSamples` default `4096`, `seed` default `42`).
+/// (`options?: { numSamples?, seed? }`).
 #[wasm_bindgen(js_name = sampledCrosslessness)]
 pub fn js_sampled_crosslessness(
     graph: &JsCsrGraph,
     layout: &JsLayout2d,
-    num_samples: Option<f64>,
-    seed: Option<f64>,
-) -> Result<f64, JsError> {
-    let samples = match num_samples {
-        None => DEFAULT_NUM_SAMPLES,
-        Some(v) => parse_non_negative_usize(v, "numSamples")?,
-    };
-    let seed_u64 = parse_seed_u64(seed)?;
+    options: &JsValue,
+) -> Result<f64, JsValue> {
+    let (samples, seed_u64) = parse_sampled_crossing_options(options, "sampledCrosslessness")?;
     let soa = layout.inner().to_layout2d();
     sampled_crosslessness(graph.inner(), &soa, samples, seed_u64).map_err(core_err_to_js)
 }
 
 /// Computes DRGraph Eq. (19) strict minimum-angle resolution (`A2`) in `[0.0, 1.0]`.
 #[wasm_bindgen(js_name = minimumAngle)]
-pub fn js_minimum_angle(graph: &JsCsrGraph, layout: &JsLayout2d) -> Result<f64, JsError> {
+pub fn js_minimum_angle(graph: &JsCsrGraph, layout: &JsLayout2d) -> Result<f64, JsValue> {
     let soa = layout.inner().to_layout2d();
     minimum_angle(graph.inner(), &soa).map_err(core_err_to_js)
 }
@@ -221,7 +220,7 @@ pub fn js_minimum_angle(graph: &JsCsrGraph, layout: &JsLayout2d) -> Result<f64, 
 pub fn js_minimum_angle_summary(
     graph: &JsCsrGraph,
     layout: &JsLayout2d,
-) -> Result<JsMinimumAngleSummary, JsError> {
+) -> Result<JsMinimumAngleSummary, JsValue> {
     let soa = layout.inner().to_layout2d();
     let inner = minimum_angle_summary(graph.inner(), &soa).map_err(core_err_to_js)?;
     Ok(JsMinimumAngleSummary::from_inner(inner))
@@ -232,7 +231,7 @@ pub fn js_minimum_angle_summary(
 pub fn js_layout_degeneracy(
     graph: &JsCsrGraph,
     layout: &JsLayout2d,
-) -> Result<JsLayoutDegeneracy, JsError> {
+) -> Result<JsLayoutDegeneracy, JsValue> {
     let soa = layout.inner().to_layout2d();
     let inner = layout_degeneracy(graph.inner(), &soa).map_err(core_err_to_js)?;
     Ok(JsLayoutDegeneracy { inner })
@@ -241,7 +240,7 @@ pub fn js_layout_degeneracy(
 /// Non-adjacent crossing edge pair details returned by `crossingEdges`, `crossingEdgesSpherical`,
 /// and `crossingEdgesHyperbolic`.
 #[wasm_bindgen(js_name = CrossingPair)]
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct JsCrossingPair {
     inner: CrossingPair,
 }
@@ -295,7 +294,7 @@ impl JsCrossingPair {
     }
 
     #[wasm_bindgen(js_name = toRecord)]
-    pub fn to_record(&self) -> Result<js_sys::Object, JsError> {
+    pub fn to_record(&self) -> Result<js_sys::Object, JsValue> {
         let obj = js_sys::Object::new();
         set_f64_prop(&obj, "edgeA", self.inner.edge_a as f64)?;
         set_f64_prop(&obj, "edgeB", self.inner.edge_b as f64)?;
@@ -316,7 +315,7 @@ impl JsCrossingPair {
 pub fn js_crossing_edges(
     graph: &JsCsrGraph,
     layout: &JsLayout2d,
-) -> Result<Vec<JsCrossingPair>, JsError> {
+) -> Result<Vec<JsCrossingPair>, JsValue> {
     let soa = layout.inner().to_layout2d();
     let pairs = crossing_edges(graph.inner(), &soa).map_err(core_err_to_js)?;
     Ok(pairs.into_iter().map(JsCrossingPair::from_inner).collect())
@@ -324,7 +323,7 @@ pub fn js_crossing_edges(
 
 /// Exact edge-crossing count and angle statistics returned by `crossingSummary`.
 #[wasm_bindgen(js_name = CrossingSummary)]
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct JsCrossingSummary {
     inner: CrossingSummary,
 }
@@ -352,7 +351,7 @@ impl JsCrossingSummary {
 pub fn js_crossing_summary(
     graph: &JsCsrGraph,
     layout: &JsLayout2d,
-) -> Result<JsCrossingSummary, JsError> {
+) -> Result<JsCrossingSummary, JsValue> {
     let soa = layout.inner().to_layout2d();
     let inner = crossing_summary(graph.inner(), &soa).map_err(core_err_to_js)?;
     Ok(JsCrossingSummary { inner })

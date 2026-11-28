@@ -29,11 +29,13 @@ fn clustering_kmeans_spectral_louvain_lpa_coarsen_and_project() {
         &pts,
         6.0,
         2.0,
-        Some(2.0),
-        Some(100.0),
-        Some(1e-4),
-        Some(3.0),
-        Some(42.0),
+        &make_opts(&[
+            ("k", JsValue::from_f64(2.0)),
+            ("maxIterations", JsValue::from_f64(100.0)),
+            ("tol", JsValue::from_f64(1e-4)),
+            ("nInit", JsValue::from_f64(3.0)),
+            ("seed", JsValue::from_f64(42.0)),
+        ]),
     )
     .expect("kmeans");
     assert_eq!(km.labels(), vec![0, 0, 0, 1, 1, 1]);
@@ -46,19 +48,26 @@ fn clustering_kmeans_spectral_louvain_lpa_coarsen_and_project() {
 
     // 2. spectralClustering on barbell
     let barbell = make_barbell(5);
-    let sp = js_spectral_clustering(&barbell, Some(2.0), None, None, None, None, Some(42.0))
-        .expect("spectral");
+    let sp = js_spectral_clustering(
+        &barbell,
+        &make_opts(&[
+            ("k", JsValue::from_f64(2.0)),
+            ("seed", JsValue::from_f64(42.0)),
+        ]),
+    )
+    .expect("spectral");
     assert_eq!(sp.labels(), vec![0, 0, 0, 0, 0, 1, 1, 1, 1, 1]);
 
     // 3. louvainCommunities
-    let lv = js_louvain_communities(&barbell, None, None, None, Some(42.0)).expect("louvain");
+    let lv = js_louvain_communities(&barbell, &make_opts(&[("seed", JsValue::from_f64(42.0))]))
+        .expect("louvain");
     assert_eq!(lv.num_communities(), 2);
     assert_eq!(lv.labels(), vec![0, 0, 0, 0, 0, 1, 1, 1, 1, 1]);
     assert!(lv.modularity() > 0.3);
     assert!(lv.passes() >= 1);
 
     // 4. labelPropagation
-    let lpa = js_label_propagation(&barbell, Some(100.0), Some(42.0)).expect("lpa");
+    let lpa = js_label_propagation(&barbell, Some(100.0), &JsValue::from_f64(42.0)).expect("lpa");
     assert_eq!(lpa.labels(), vec![0, 0, 0, 0, 0, 1, 1, 1, 1, 1]);
 
     // 5. coarsenGraph & projectClusteredLayout
@@ -76,20 +85,14 @@ fn clustering_kmeans_spectral_louvain_lpa_coarsen_and_project() {
     assert_eq!(cg.weights(), Some(vec![1.0, 1.0]));
 
     let coarse_layout = JsLayout2d::from_coords(&[-2.0, 0.0, 2.0, 0.0]).unwrap();
-    let fine1 = js_project_clustered_layout(
-        &coarse_layout,
-        &coarse.node_to_coarse(),
-        Some(0.2),
-        Some(42.0),
-    )
-    .expect("project 1");
-    let fine2 = js_project_clustered_layout(
-        &coarse_layout,
-        &coarse.node_to_coarse(),
-        Some(0.2),
-        Some(42.0),
-    )
-    .expect("project 2");
+    let proj_opts = make_opts(&[
+        ("spreadRadius", JsValue::from_f64(0.2)),
+        ("seed", JsValue::from_f64(42.0)),
+    ]);
+    let fine1 = js_project_clustered_layout(&coarse_layout, &coarse.node_to_coarse(), &proj_opts)
+        .expect("project 1");
+    let fine2 = js_project_clustered_layout(&coarse_layout, &coarse.node_to_coarse(), &proj_opts)
+        .expect("project 2");
     assert_eq!(fine1.len(), 10);
     assert!(fine1.is_all_finite());
     assert_layouts_bit_exact(&fine1, &fine2);
@@ -98,29 +101,49 @@ fn clustering_kmeans_spectral_louvain_lpa_coarsen_and_project() {
     let directed =
         JsCsrGraph::from_edge_list(3.0, &[0, 1, 1, 2], None, &JsValue::from_bool(true), None)
             .unwrap();
-    assert!(js_spectral_clustering(&directed, Some(2.0), None, None, None, None, None).is_err());
-    assert!(js_louvain_communities(&directed, None, None, None, None).is_err());
-    assert!(js_label_propagation(&directed, None, None).is_err());
+    assert!(
+        js_spectral_clustering(&directed, &make_opts(&[("k", JsValue::from_f64(2.0))])).is_err()
+    );
+    assert!(js_louvain_communities(&directed, &JsValue::UNDEFINED).is_err());
+    assert!(js_label_propagation(&directed, None, &JsValue::UNDEFINED).is_err());
     assert!(js_coarsen_graph(&directed, &[0, 1, 1]).is_err());
 
     // Adversarial clustering errors
-    assert!(js_kmeans_plus_plus(&[0.0, 1.0], 1.0, 2.0, Some(2.0), None, None, None, None).is_err());
+    assert!(
+        js_kmeans_plus_plus(
+            &[0.0, 1.0],
+            1.0,
+            2.0,
+            &make_opts(&[("k", JsValue::from_f64(2.0))])
+        )
+        .is_err()
+    );
     assert!(
         js_kmeans_plus_plus(
             &[0.0, f64::NAN],
             1.0,
             2.0,
-            Some(1.0),
-            None,
-            None,
-            None,
-            None
+            &make_opts(&[("k", JsValue::from_f64(1.0))]),
         )
         .is_err()
     );
     assert!(js_coarsen_graph(&barbell, &[0, 1]).is_err());
-    assert!(js_project_clustered_layout(&coarse_layout, &[0, 2], Some(0.1), None).is_err());
-    assert!(js_project_clustered_layout(&coarse_layout, &[0, 1], Some(-0.1), None).is_err());
+    assert!(
+        js_project_clustered_layout(
+            &coarse_layout,
+            &[0, 2],
+            &make_opts(&[("spreadRadius", JsValue::from_f64(0.1))]),
+        )
+        .is_err()
+    );
+    assert!(
+        js_project_clustered_layout(
+            &coarse_layout,
+            &[0, 1],
+            &make_opts(&[("spreadRadius", JsValue::from_f64(-0.1))]),
+        )
+        .is_err()
+    );
 }
 
 #[wasm_bindgen_test]
@@ -253,8 +276,16 @@ fn cluster_refine_treemap_and_group_in_a_box() {
 
     // Squarified treemap
     let weights = f64_js(&[6.0, 4.0, 2.0]);
-    let rects =
-        js_squarified_treemap(&weights, Some(100.0), Some(50.0), Some(0.0), Some(0.0)).unwrap();
+    let rects = js_squarified_treemap(
+        &weights,
+        &make_opts(&[
+            ("width", JsValue::from_f64(100.0)),
+            ("height", JsValue::from_f64(50.0)),
+            ("x", JsValue::from_f64(0.0)),
+            ("y", JsValue::from_f64(0.0)),
+        ]),
+    )
+    .unwrap();
     assert_eq!(rects.len(), 12);
     let mut area_sum = 0.0;
     for chunk in rects.as_chunks::<4>().0 {
@@ -263,10 +294,10 @@ fn cluster_refine_treemap_and_group_in_a_box() {
         area_sum += (chunk[1] - chunk[0]) * (chunk[3] - chunk[2]);
     }
     assert!((area_sum - 5000.0).abs() < 1e-9);
-    assert!(js_squarified_treemap(&f64_js(&[0.0, 1.0]), None, None, None, None).is_err());
+    assert!(js_squarified_treemap(&f64_js(&[0.0, 1.0]), &JsValue::UNDEFINED).is_err());
 
     // GroupInABoxSolver with clusterWeights
-    for box_mode in ["treemap", "force_directed"] {
+    for box_mode in ["treemap", "forceDirected"] {
         let gib_opts = make_opts(&[
             ("boxMode", JsValue::from_str(box_mode)),
             ("intraMode", JsValue::from_str("fr")),

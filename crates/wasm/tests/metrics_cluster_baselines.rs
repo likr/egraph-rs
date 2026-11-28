@@ -8,7 +8,7 @@ use egraph_wasm::metrics_cluster_baselines::{
     js_pairwise_distance_overlap_error, js_partition_agreement, js_sepme_gab, js_sepme_gong,
     js_sepme_knng, js_sepme_rng, js_silhouette_score, js_sprawlter_nn, js_sprawlter_nn_radii,
 };
-use egraph_wasm::metrics_eval_dispatch::js_evaluate_metrics_2d as js_evaluate_metrics_entry;
+use egraph_wasm::metrics_eval_dispatch::js_evaluate_metrics_2d;
 use egraph_wasm::overlap_tree_forbid::JsGTreeOverlapRemoval;
 use util::fixtures::{
     make_opts, make_overlapping_layout, make_separated_cluster_layout, make_two_cluster_graph,
@@ -37,14 +37,36 @@ fn cluster_baseline_metrics_and_evaluate_targets() {
         Some(pa.v_measure())
     );
 
-    let cqk = js_cq_kmeans(&sep, &labels_js, Some(5.0), Some(50.0), Some(42.0)).unwrap();
+    let cqk = js_cq_kmeans(
+        &sep,
+        &labels_js,
+        &make_opts(&[
+            ("nInit", JsValue::from_f64(5.0)),
+            ("maxIterations", JsValue::from_f64(50.0)),
+            ("seed", JsValue::from_f64(42.0)),
+        ]),
+    )
+    .unwrap();
     assert!((cqk.ari() - 1.0).abs() < 1e-12);
     let cqh = js_cq_hac(&sep, &labels_js).unwrap();
     assert!((cqh.homogeneity() - 1.0).abs() < 1e-12);
 
     assert!((js_distance_consistency(&sep, &labels_js).unwrap() - 1.0).abs() < 1e-12);
-    assert!(js_distribution_consistency(&sep, &labels_js, Some(16.0)).unwrap() > 0.9);
-    let cd = js_class_density_measure(&sep, &labels_js, Some(32.0), None).unwrap();
+    assert!(
+        js_distribution_consistency(
+            &sep,
+            &labels_js,
+            &make_opts(&[("gridSize", JsValue::from_f64(16.0))]),
+        )
+        .unwrap()
+            > 0.9
+    );
+    let cd = js_class_density_measure(
+        &sep,
+        &labels_js,
+        &make_opts(&[("gridSize", JsValue::from_f64(32.0))]),
+    )
+    .unwrap();
     assert!(cd.cdm() > 0.8 && cd.hdm() > 0.8);
     let cd_rec = cd.to_record().unwrap();
     assert_eq!(
@@ -54,18 +76,51 @@ fn cluster_baseline_metrics_and_evaluate_targets() {
         Some(cd.cdm())
     );
 
-    assert!((js_sepme_knng(&sep, &labels_js, Some(2.0)).unwrap() - 1.0).abs() < 1e-12);
+    assert!(
+        (js_sepme_knng(
+            &sep,
+            &labels_js,
+            &make_opts(&[("k", JsValue::from_f64(2.0))])
+        )
+        .unwrap()
+            - 1.0)
+            .abs()
+            < 1e-12
+    );
     let rng_score = js_sepme_rng(&sep, &labels_js).unwrap();
     let gab_score = js_sepme_gab(&sep, &labels_js).unwrap();
-    let gong_score = js_sepme_gong(&sep, &labels_js, Some(0.35)).unwrap();
+    let gong_score = js_sepme_gong(
+        &sep,
+        &labels_js,
+        &make_opts(&[("gamma", JsValue::from_f64(0.35))]),
+    )
+    .unwrap();
     assert!(rng_score > 0.5 && rng_score <= 1.0);
     assert!(gab_score > 0.5 && gab_score <= 1.0);
     assert!(gong_score > 0.5 && gong_score <= 1.0);
-    assert!((js_neighborhood_hit(&sep, &labels_js, Some(3.0)).unwrap() - 1.0).abs() < 1e-12);
+    assert!(
+        (js_neighborhood_hit(
+            &sep,
+            &labels_js,
+            &make_opts(&[("k", JsValue::from_f64(3.0))])
+        )
+        .unwrap()
+            - 1.0)
+            .abs()
+            < 1e-12
+    );
     assert!(js_silhouette_score(&sep, &labels_js).unwrap() > 0.8);
     assert!(js_calinski_harabasz_score(&sep, &labels_js).unwrap() > 50.0);
     assert!(js_davies_bouldin_score(&sep, &labels_js).unwrap() < 0.3);
-    assert!(js_pairwise_distance_overlap_error(&sep, &labels_js, Some(32.0)).unwrap() < 0.1);
+    assert!(
+        js_pairwise_distance_overlap_error(
+            &sep,
+            &labels_js,
+            &make_opts(&[("numBins", JsValue::from_f64(32.0))]),
+        )
+        .unwrap()
+            < 0.1
+    );
 
     let hw = vec![0.4_f32; 8];
     let hh = vec![0.4_f32; 8];
@@ -86,27 +141,27 @@ fn cluster_baseline_metrics_and_evaluate_targets() {
         Some(nor.oo_nni())
     );
 
-    // evaluateMetrics with all 18 cluster & overlap baseline targets via options object & sepme-knng2 alias
+    // evaluateMetrics with all 18 cluster & overlap baseline targets in canonical camelCase
     let targets = js_sys::Array::new();
     for t in [
         "dsc",
         "dc",
         "cdm",
         "hdm",
-        "sepme-knng2",
-        "sepme_rng",
-        "sepme_gab",
-        "sepme_gong",
-        "neighborhood_hit",
+        "sepmeKnng2",
+        "sepmeRng",
+        "sepmeGab",
+        "sepmeGong",
+        "neighborhoodHit",
         "silhouette",
-        "calinski_harabasz",
-        "davies_bouldin",
-        "cq_kmeans_ari",
-        "cq_kmeans_ami",
-        "cq_hac_hom",
-        "cq_hac_ami",
-        "pairwise_distance_overlap_error",
-        "sprawlter_nn",
+        "calinskiHarabasz",
+        "daviesBouldin",
+        "cqKmeansAri",
+        "cqKmeansAmi",
+        "cqHacHom",
+        "cqHacAmi",
+        "pairwiseDistanceOverlapError",
+        "sprawlterNn",
     ] {
         targets.push(&JsValue::from_str(t));
     }
@@ -123,32 +178,7 @@ fn cluster_baseline_metrics_and_evaluate_targets() {
         ("sprawlterNodeRadius", JsValue::from_f64(0.5)),
         ("seed", JsValue::from_f64(42.0)),
     ]);
-    let rep = js_evaluate_metrics_entry(
-        &graph,
-        &sep,
-        &targets,
-        &eval_opts,
-        None,
-        None,
-        None,
-        &JsValue::UNDEFINED,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        &JsValue::UNDEFINED,
-        &JsValue::UNDEFINED,
-        &JsValue::UNDEFINED,
-    )
-    .unwrap();
+    let rep = js_evaluate_metrics_2d(&graph, &sep, &targets, &eval_opts).unwrap();
     assert!(rep.distance_consistency().is_some());
     assert!(rep.distribution_consistency().is_some());
     assert!(rep.class_density_measure().is_some());
@@ -176,99 +206,39 @@ fn cluster_baseline_metrics_and_evaluate_targets() {
         rep.sepme_knng()
     );
 
-    // 23rd-arg positional clusterBaselineOptions compatibility check
+    // Nested clusterBaselines options support check
     let cb_opts = make_opts(&[("sepmeKnngK", JsValue::from_f64(3.0))]);
-    let knng_target = js_sys::Array::of1(&JsValue::from_str("sepme_knng2"));
-    let rep_pos = js_evaluate_metrics_entry(
+    let knng_target = js_sys::Array::of1(&JsValue::from_str("sepmeKnng2"));
+    let rep_nested = js_evaluate_metrics_2d(
         &graph,
         &sep,
         &knng_target,
-        &JsValue::UNDEFINED,
-        None,
-        Some(42.0),
-        None,
-        &labels_js,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        &JsValue::UNDEFINED,
-        &JsValue::UNDEFINED,
-        &cb_opts,
+        &make_opts(&[
+            ("labels", labels_js.clone()),
+            ("seed", JsValue::from_f64(42.0)),
+            ("clusterBaselines", cb_opts.into()),
+        ]),
     )
     .unwrap();
     assert!(
-        (rep_pos.sepme_knng().unwrap() - js_sepme_knng(&sep, &labels_js, Some(3.0)).unwrap()).abs()
+        (rep_nested.sepme_knng().unwrap()
+            - js_sepme_knng(
+                &sep,
+                &labels_js,
+                &make_opts(&[("k", JsValue::from_f64(3.0))])
+            )
+            .unwrap())
+        .abs()
             < 1e-12
     );
 
-    // Lazy validation & error path: `sns` without `communityLabels` succeeds; `dsc` without `communityLabels` fails.
+    // Lazy validation & error path: `sns` without `labels` succeeds; `dsc` without `labels` fails.
     let sns_only = js_sys::Array::of1(&JsValue::from_str("sns"));
-    let sns_rep = js_evaluate_metrics_entry(
-        &graph,
-        &sep,
-        &sns_only,
-        &JsValue::UNDEFINED,
-        None,
-        None,
-        None,
-        &JsValue::UNDEFINED,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        &JsValue::UNDEFINED,
-        &JsValue::UNDEFINED,
-        &JsValue::UNDEFINED,
-    )
-    .unwrap();
+    let sns_rep = js_evaluate_metrics_2d(&graph, &sep, &sns_only, &JsValue::UNDEFINED).unwrap();
     assert!(sns_rep.scale_normalized_stress().is_some());
 
     let dsc_only = js_sys::Array::of1(&JsValue::from_str("dsc"));
-    assert!(
-        js_evaluate_metrics_entry(
-            &graph,
-            &sep,
-            &dsc_only,
-            &JsValue::UNDEFINED,
-            None,
-            None,
-            None,
-            &JsValue::UNDEFINED,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            &JsValue::UNDEFINED,
-            &JsValue::UNDEFINED,
-            &JsValue::UNDEFINED,
-        )
-        .is_err()
-    );
+    assert!(js_evaluate_metrics_2d(&graph, &sep, &dsc_only, &JsValue::UNDEFINED).is_err());
 
     // Degenerate N=0 / N=1 non-panic checks
     let l0 = JsLayout2d::from_coords(&[]).unwrap();

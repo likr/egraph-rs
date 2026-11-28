@@ -1,14 +1,13 @@
 //! WebAssembly bindings for GEM and Structural Entropy Layout (`SEL`) baseline solvers (`f32`).
 
-use egraph::core::IterativeSolver;
 use egraph::layout::{
     GemConfig, GemSolver, SelConfig, SelLayoutBackend, SelLayoutSolver, SelWeightMapping,
 };
 use wasm_bindgen::prelude::*;
 
 use crate::csr_graph::JsCsrGraph;
-use crate::force_classic::parse_fr_config;
-use crate::js_convert::core_err_to_js;
+use crate::force_fr::parse_fr_config;
+use crate::js_convert::{core_err_to_js, invalid_input_err};
 use crate::js_options::{
     check_options_arg, get_prop, normalize_enum_token, opt_f64_prop, opt_maybe_f64_prop,
     opt_maybe_usize_prop, opt_seed_prop, opt_string_prop, opt_usize_prop, solver_status_str,
@@ -28,7 +27,7 @@ pub struct JsGemSolver {
 impl JsGemSolver {
     /// Constructs a `GemSolver` from `graph` and optional `GemOptions`.
     #[wasm_bindgen(constructor)]
-    pub fn new(graph: &JsCsrGraph, options: &JsValue) -> Result<JsGemSolver, JsError> {
+    pub fn new(graph: &JsCsrGraph, options: &JsValue) -> Result<JsGemSolver, JsValue> {
         let mut cfg = GemConfig::default();
         if check_options_arg(options, "GemSolver")? {
             cfg.edge_length = opt_f64_prop(options, "edgeLength", cfg.edge_length)?;
@@ -54,13 +53,13 @@ impl JsGemSolver {
     }
 
     /// Executes one GEM round on `layout` in place.
-    pub fn step(&mut self, layout: &mut JsLayout2d) -> Result<String, JsError> {
+    pub fn step(&mut self, layout: &mut JsLayout2d) -> Result<String, JsValue> {
         step_layout_in_place(&mut self.inner, layout)
     }
 
     /// Executes up to `steps` GEM rounds on `layout` in place.
     #[wasm_bindgen(js_name = runSteps)]
-    pub fn run_steps(&mut self, layout: &mut JsLayout2d, steps: f64) -> Result<String, JsError> {
+    pub fn run_steps(&mut self, layout: &mut JsLayout2d, steps: f64) -> Result<String, JsValue> {
         run_steps_layout_in_place(
             self.inner.num_nodes(),
             &mut self.inner,
@@ -71,7 +70,7 @@ impl JsGemSolver {
     }
 
     /// Runs GEM layout optimization to completion on `layout` in place.
-    pub fn run(&mut self, layout: &mut JsLayout2d) -> Result<String, JsError> {
+    pub fn run(&mut self, layout: &mut JsLayout2d) -> Result<String, JsValue> {
         run_layout_in_place(
             self.inner.num_nodes(),
             &mut self.inner,
@@ -94,7 +93,7 @@ impl JsGemSolver {
 
     /// Returns the maximum scheduled iterations (`maxIterations`).
     #[wasm_bindgen(getter, js_name = totalIterations)]
-    pub fn total_iterations(&self) -> usize {
+    pub fn total_iterations(&self) -> Option<usize> {
         self.inner.total_iterations()
     }
 
@@ -111,25 +110,25 @@ impl JsGemSolver {
     }
 }
 
-fn parse_sel_weight_mapping(raw: &str) -> Result<SelWeightMapping, JsError> {
-    match normalize_enum_token(raw).as_str() {
+fn parse_sel_weight_mapping(raw: &str) -> Result<SelWeightMapping, JsValue> {
+    match normalize_enum_token(raw)?.as_str() {
         "sigmoid" => Ok(SelWeightMapping::Sigmoid),
         "linear" => Ok(SelWeightMapping::Linear),
         "tanh" => Ok(SelWeightMapping::Tanh),
         "customlogistic" => Ok(SelWeightMapping::CustomLogistic),
         "binary" => Ok(SelWeightMapping::Binary),
-        _ => Err(JsError::new(&format!(
-            "unknown SelWeightMapping {raw:?}; expected 'sigmoid', 'linear', 'tanh', 'custom_logistic', or 'binary'"
+        _ => Err(invalid_input_err(format!(
+            "unknown SelWeightMapping {raw:?}; expected 'sigmoid', 'linear', 'tanh', 'customLogistic', or 'binary'"
         ))),
     }
 }
 
-fn parse_sel_layout_backend(raw: &str) -> Result<SelLayoutBackend, JsError> {
-    match normalize_enum_token(raw).as_str() {
+fn parse_sel_layout_backend(raw: &str) -> Result<SelLayoutBackend, JsValue> {
+    match normalize_enum_token(raw)?.as_str() {
         "fr" | "fruchtermanreingold" => Ok(SelLayoutBackend::Fr),
         "tfdp" => Ok(SelLayoutBackend::TFdp),
-        _ => Err(JsError::new(&format!(
-            "unknown SelLayoutBackend {raw:?}; expected 'fr' or 't_fdp'"
+        _ => Err(invalid_input_err(format!(
+            "unknown SelLayoutBackend {raw:?}; expected 'fr' or 'tFdp'"
         ))),
     }
 }
@@ -145,7 +144,7 @@ pub struct JsSelLayoutSolver {
 impl JsSelLayoutSolver {
     /// Constructs a `SelLayoutSolver` from `graph` and optional `SelOptions`.
     #[wasm_bindgen(constructor)]
-    pub fn new(graph: &JsCsrGraph, options: &JsValue) -> Result<JsSelLayoutSolver, JsError> {
+    pub fn new(graph: &JsCsrGraph, options: &JsValue) -> Result<JsSelLayoutSolver, JsValue> {
         let mut cfg = SelConfig::default();
         if check_options_arg(options, "SelLayoutSolver")? {
             cfg.tree_depth = opt_usize_prop(options, "treeDepth", cfg.tree_depth)?;
@@ -175,13 +174,13 @@ impl JsSelLayoutSolver {
     }
 
     /// Executes one SEL layout iteration on `layout` in place.
-    pub fn step(&mut self, layout: &mut JsLayout2d) -> Result<String, JsError> {
+    pub fn step(&mut self, layout: &mut JsLayout2d) -> Result<String, JsValue> {
         step_layout_in_place(&mut self.inner, layout)
     }
 
     /// Executes up to `steps` SEL layout iterations on `layout` in place.
     #[wasm_bindgen(js_name = runSteps)]
-    pub fn run_steps(&mut self, layout: &mut JsLayout2d, steps: f64) -> Result<String, JsError> {
+    pub fn run_steps(&mut self, layout: &mut JsLayout2d, steps: f64) -> Result<String, JsValue> {
         run_steps_layout_in_place(
             self.inner.num_nodes(),
             &mut self.inner,
@@ -192,7 +191,7 @@ impl JsSelLayoutSolver {
     }
 
     /// Runs SEL layout optimization to completion on `layout` in place.
-    pub fn run(&mut self, layout: &mut JsLayout2d) -> Result<String, JsError> {
+    pub fn run(&mut self, layout: &mut JsLayout2d) -> Result<String, JsValue> {
         run_layout_in_place(
             self.inner.num_nodes(),
             &mut self.inner,
@@ -227,7 +226,7 @@ impl JsSelLayoutSolver {
 
     /// Returns the scheduled iteration count.
     #[wasm_bindgen(getter, js_name = totalIterations)]
-    pub fn total_iterations(&self) -> usize {
+    pub fn total_iterations(&self) -> Option<usize> {
         self.inner.total_iterations()
     }
 

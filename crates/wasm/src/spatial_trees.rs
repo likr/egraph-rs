@@ -9,13 +9,14 @@ use crate::js_convert::{
     set_js_prop,
 };
 use crate::layout_buffers::JsLayoutNd;
+use crate::layout3d::JsLayout3d;
 
 const DEFAULT_THETA: f32 = 0.5;
 const DEFAULT_EPS_SQ: f32 = 1e-6;
 const DEFAULT_MAXENT_Q: f64 = 1.0;
 const DEFAULT_ENTROPY_EPS_R: f32 = 0.05;
 
-fn kd_hits_to_js_array(hits: &[(usize, f64)]) -> Result<js_sys::Array, JsError> {
+fn kd_hits_to_js_array(hits: &[(usize, f64)]) -> Result<js_sys::Array, JsValue> {
     let arr = js_sys::Array::new_with_length(hits.len() as u32);
     for (pos, &(idx, dist_sq)) in hits.iter().enumerate() {
         let obj = js_sys::Object::new();
@@ -69,7 +70,7 @@ impl JsArenaOctree3d {
 
     /// Builds the octree from flat `[x0, y0, z0, ...]` coordinates (unit mass `1.0` per point).
     #[wasm_bindgen(js_name = _buildFlat)]
-    pub fn build(&mut self, coords: &JsValue) -> Result<(), JsError> {
+    pub fn build(&mut self, coords: &JsValue) -> Result<(), JsValue> {
         let flat = parse_f32_sequence(coords, "coords")?;
         if !flat.len().is_multiple_of(3) {
             return Err(core_err_to_js(CoreError::dimension_mismatch(
@@ -82,15 +83,22 @@ impl JsArenaOctree3d {
         self.inner.build_flat(&flat, n).map_err(core_err_to_js)
     }
 
+    /// Builds the octree directly from a `Layout3d`.
+    #[wasm_bindgen(js_name = build3d)]
+    pub fn build_3d(&mut self, layout: &JsLayout3d) -> Result<(), JsValue> {
+        let soa = layout.inner().to_layout3d();
+        self.inner.build_3d(&soa).map_err(core_err_to_js)
+    }
+
     /// Builds the octree directly from a 3D `LayoutNd`.
     #[wasm_bindgen(js_name = buildNd)]
-    pub fn build_nd(&mut self, layout: &JsLayoutNd) -> Result<(), JsError> {
+    pub fn build_nd(&mut self, layout: &JsLayoutNd) -> Result<(), JsValue> {
         self.inner.build(layout.inner()).map_err(core_err_to_js)
     }
 
     /// Builds the weighted octree from flat `[x0, y0, z0, ...]` coordinates and per-point `masses`.
     #[wasm_bindgen(js_name = _buildWeightedFlat)]
-    pub fn build_weighted(&mut self, coords: &JsValue, masses: &JsValue) -> Result<(), JsError> {
+    pub fn build_weighted(&mut self, coords: &JsValue, masses: &JsValue) -> Result<(), JsValue> {
         let flat = parse_f32_sequence(coords, "coords")?;
         let m = parse_f64_sequence(masses, "masses")?;
         if !flat.len().is_multiple_of(3) {
@@ -106,13 +114,26 @@ impl JsArenaOctree3d {
             .map_err(core_err_to_js)
     }
 
+    /// Builds the weighted octree directly from a `Layout3d` and per-point `masses`.
+    #[wasm_bindgen(js_name = buildWeighted3d)]
+    pub fn build_weighted_3d(
+        &mut self,
+        layout: &JsLayout3d,
+        masses: &[f64],
+    ) -> Result<(), JsValue> {
+        let soa = layout.inner().to_layout3d();
+        self.inner
+            .build_weighted_3d(&soa, masses)
+            .map_err(core_err_to_js)
+    }
+
     /// Builds the weighted octree directly from a 3D `LayoutNd` and per-point `masses`.
     #[wasm_bindgen(js_name = buildWeightedNd)]
     pub fn build_weighted_nd(
         &mut self,
         layout: &JsLayoutNd,
         masses: &[f64],
-    ) -> Result<(), JsError> {
+    ) -> Result<(), JsValue> {
         self.inner
             .build_weighted(layout.inner(), masses)
             .map_err(core_err_to_js)
@@ -126,7 +147,7 @@ impl JsArenaOctree3d {
         y: &[f32],
         z: &[f32],
         masses: Option<Vec<f64>>,
-    ) -> Result<(), JsError> {
+    ) -> Result<(), JsValue> {
         match masses {
             Some(m) => self
                 .inner
@@ -142,7 +163,7 @@ impl JsArenaOctree3d {
         &self,
         theta: Option<f32>,
         eps_sq: Option<f32>,
-    ) -> Result<Vec<f32>, JsError> {
+    ) -> Result<Vec<f32>, JsValue> {
         let n = self.inner.point_count();
         let mut out = vec![0.0_f32; n.saturating_mul(3)];
         self.inner
@@ -162,7 +183,7 @@ impl JsArenaOctree3d {
         theta: Option<f32>,
         q: Option<f64>,
         eps_sq: Option<f32>,
-    ) -> Result<Vec<f32>, JsError> {
+    ) -> Result<Vec<f32>, JsValue> {
         let n = self.inner.point_count();
         let mut out = vec![0.0_f32; n.saturating_mul(3)];
         self.inner
@@ -178,7 +199,7 @@ impl JsArenaOctree3d {
 
     /// Evaluates normalized Barnes-Hut Student-$t$ KL repulsion returning flat `[fx0, fy0, fz0, ...]`.
     #[wasm_bindgen(js_name = computeKlRepulsion)]
-    pub fn compute_kl_repulsion(&self, theta: Option<f32>) -> Result<Vec<f32>, JsError> {
+    pub fn compute_kl_repulsion(&self, theta: Option<f32>) -> Result<Vec<f32>, JsValue> {
         let n = self.inner.point_count();
         let mut out = vec![0.0_f32; n.saturating_mul(3)];
         self.inner
@@ -193,7 +214,7 @@ impl JsArenaOctree3d {
         &self,
         theta: Option<f32>,
         epsilon_r: Option<f32>,
-    ) -> Result<Vec<f32>, JsError> {
+    ) -> Result<Vec<f32>, JsValue> {
         let n = self.inner.point_count();
         let mut out = vec![0.0_f32; n.saturating_mul(3)];
         self.inner
@@ -218,20 +239,20 @@ pub struct JsDynamicKdTree {
 impl JsDynamicKdTree {
     /// Constructs a `DynamicKdTree` from flat row-major coordinates of shape `(n, dims)`.
     #[wasm_bindgen(constructor)]
-    pub fn new(coords: &[f32], n: f64, dims: f64) -> Result<JsDynamicKdTree, JsError> {
+    pub fn new(coords: &[f32], n: f64, dims: f64) -> Result<JsDynamicKdTree, JsValue> {
         Self::from_flat(coords, n, dims)
     }
 
     /// Constructs a `DynamicKdTree` directly from a `LayoutNd`.
     #[wasm_bindgen(js_name = fromLayoutNd)]
-    pub fn from_layout_nd(layout: &JsLayoutNd) -> Result<JsDynamicKdTree, JsError> {
+    pub fn from_layout_nd(layout: &JsLayoutNd) -> Result<JsDynamicKdTree, JsValue> {
         let inner = DynamicKdTree::<f32>::from_layout_nd(layout.inner()).map_err(core_err_to_js)?;
         Ok(Self { inner })
     }
 
     /// Constructs a `DynamicKdTree` from flat row-major coordinates of shape `(n, dims)`.
     #[wasm_bindgen(js_name = fromFlat)]
-    pub fn from_flat(coords: &[f32], n: f64, dims: f64) -> Result<JsDynamicKdTree, JsError> {
+    pub fn from_flat(coords: &[f32], n: f64, dims: f64) -> Result<JsDynamicKdTree, JsValue> {
         let num_nodes = parse_non_negative_usize(n, "n")?;
         let d = parse_non_negative_usize(dims, "dims")?;
         let inner =
@@ -263,7 +284,7 @@ impl JsDynamicKdTree {
     }
 
     /// Returns a `Float64Array` copy of point `index`'s coordinates.
-    pub fn point(&self, index: f64) -> Result<Vec<f64>, JsError> {
+    pub fn point(&self, index: f64) -> Result<Vec<f64>, JsValue> {
         let idx = parse_non_negative_usize(index, "index")?;
         self.inner
             .point(idx)
@@ -273,7 +294,7 @@ impl JsDynamicKdTree {
 
     /// Returns up to `k` nearest points `Array<{ index, distSq }>` to `query`.
     #[wasm_bindgen(js_name = kNearest)]
-    pub fn k_nearest(&self, query: &[f32], k: f64) -> Result<js_sys::Array, JsError> {
+    pub fn k_nearest(&self, query: &[f32], k: f64) -> Result<js_sys::Array, JsValue> {
         let k_u = parse_non_negative_usize(k, "k")?;
         let hits = self.inner.k_nearest(query, k_u).map_err(core_err_to_js)?;
         kd_hits_to_js_array(&hits)
@@ -285,7 +306,7 @@ impl JsDynamicKdTree {
         &self,
         point_idx: f64,
         k: f64,
-    ) -> Result<js_sys::Array, JsError> {
+    ) -> Result<js_sys::Array, JsValue> {
         let idx = parse_non_negative_usize(point_idx, "pointIdx")?;
         let k_u = parse_non_negative_usize(k, "k")?;
         let hits = self
@@ -297,7 +318,7 @@ impl JsDynamicKdTree {
 
     /// Returns `{ index, distSq }` for the nearest neighbor of `pointIdx`, or `undefined` if `numNodes <= 1`.
     #[wasm_bindgen(js_name = nearestExcludingSelf)]
-    pub fn nearest_excluding_self(&self, point_idx: f64) -> Result<JsValue, JsError> {
+    pub fn nearest_excluding_self(&self, point_idx: f64) -> Result<JsValue, JsValue> {
         let idx = parse_non_negative_usize(point_idx, "pointIdx")?;
         let hit = self
             .inner
@@ -317,7 +338,7 @@ impl JsDynamicKdTree {
 
     /// Returns all points `Array<{ index, distSq }>` within Euclidean `radius` of `query`.
     #[wasm_bindgen(js_name = withinRadius)]
-    pub fn within_radius(&self, query: &[f32], radius: f64) -> Result<js_sys::Array, JsError> {
+    pub fn within_radius(&self, query: &[f32], radius: f64) -> Result<js_sys::Array, JsValue> {
         let hits = self
             .inner
             .within_radius(query, radius)
@@ -331,7 +352,7 @@ impl JsDynamicKdTree {
         &self,
         query: &[f32],
         radius_sq: f64,
-    ) -> Result<js_sys::Array, JsError> {
+    ) -> Result<js_sys::Array, JsValue> {
         let hits = self
             .inner
             .within_radius_sq(query, radius_sq)

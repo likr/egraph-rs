@@ -5,8 +5,12 @@ use egraph_wasm::layout_buffers::JsLayout2d;
 use egraph_wasm::linalg_chebyshev::js_chebyshev_dog_jl_embedding;
 use egraph_wasm::linalg_spectral::js_pivot_mds_init;
 use egraph_wasm::sgd::JsSgdSolver;
+use egraph_wasm::sgd_cne::JsGraphCneSolver;
+use egraph_wasm::sgd_drgraph::JsDrGraphSolver;
+use egraph_wasm::sgd_largevis::JsLargeVisSolver;
 use util::fixtures::{
-    assert_layouts_bit_exact, make_circle_layout, make_grid, make_opts, make_two_cluster_graph,
+    assert_layouts_bit_exact, f64_js, make_circle_layout, make_grid, make_opts,
+    make_two_cluster_graph, u32_array_js,
 };
 use wasm_bindgen::JsValue;
 use wasm_bindgen_test::*;
@@ -14,33 +18,24 @@ use wasm_bindgen_test::*;
 #[wasm_bindgen_test]
 fn sgd_solver_all_constructors_and_step_eq_run() {
     let grid = make_grid(4, 4);
-    let init = js_pivot_mds_init(&grid, None, None, None, &JsValue::UNDEFINED).unwrap();
+    let init = js_pivot_mds_init(&grid, &JsValue::UNDEFINED).unwrap();
 
     // 1. sparseBarrierDog + stats() + step() == run() + in-place coordsPtr stability
     let dog_opts = make_opts(&[
         ("iterations", JsValue::from_f64(25.0)),
         ("hingeRepulsion", JsValue::from_bool(true)),
-        ("barrierSym", JsValue::from_str("sym_avg")),
+        ("barrierSym", JsValue::from_str("symAvg")),
         ("kind", JsValue::from_str("exponential")),
         ("seed", JsValue::from_f64(42.0)),
     ]);
-    let mut s_run = JsSgdSolver::sparse_barrier_dog(
-        &grid, &dog_opts, None, None, None, None, None, None, None, None, None, None, None, None,
-        None, None, None, None, None, None, None, None, None, None, None, None, None, None, None,
-        None, None,
-    )
-    .expect("sparseBarrierDog");
-    let mut s_step = JsSgdSolver::sparse_barrier_dog(
-        &grid, &dog_opts, None, None, None, None, None, None, None, None, None, None, None, None,
-        None, None, None, None, None, None, None, None, None, None, None, None, None, None, None,
-        None, None,
-    )
-    .expect("sparseBarrierDog step");
+    let mut s_run = JsSgdSolver::sparse_barrier_dog(&grid, &dog_opts).expect("sparseBarrierDog");
+    let mut s_step =
+        JsSgdSolver::sparse_barrier_dog(&grid, &dog_opts).expect("sparseBarrierDog step");
     let st = s_run.stats().expect("barrier stats");
     assert!(st.n_pairs_1hop() > 0);
     assert!(st.n_pairs_2hop() > 0);
     assert!(st.n_pairs_hinge() > 0);
-    assert_eq!(st.perplexity_source(), "adaptive_2hop");
+    assert_eq!(st.perplexity_source(), "adaptive2hop");
     assert!(s_run.num_springs() > 0);
     assert!(s_run.num_hinges() > 0);
     assert!(s_run.current_eta() > 0.0);
@@ -58,32 +53,19 @@ fn sgd_solver_all_constructors_and_step_eq_run() {
     assert_layouts_bit_exact(&l_run, &l_step);
 
     // 2. sparseBarrierFromLandmarks
-    let lm = js_compute_regularized_dog_varadhan_landmarks(
-        &grid, None, None, None, None, None, None, None, None, None, None, None,
-    )
-    .unwrap();
+    let lm = js_compute_regularized_dog_varadhan_landmarks(&grid, &JsValue::UNDEFINED).unwrap();
     let s_lm = JsSgdSolver::sparse_barrier_from_landmarks(
         &grid,
         &lm,
-        Some(vec![0, 5, 10, 15]),
-        &JsValue::from_f64(16.0),
-        None,
-        None,
-        Some("symMax".to_owned()),
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        Some(4.0),
-        None,
-        None,
-        Some(10.0),
-        None,
-        Some("linear".to_owned()),
-        None,
-        Some(42.0),
+        &make_opts(&[
+            ("pivots", u32_array_js(&[0, 5, 10, 15])),
+            ("max2hopPerNode", JsValue::from_f64(16.0)),
+            ("barrierSym", JsValue::from_str("symMax")),
+            ("negPerNode", JsValue::from_f64(4.0)),
+            ("iterations", JsValue::from_f64(10.0)),
+            ("kind", JsValue::from_str("linear")),
+            ("seed", JsValue::from_f64(42.0)),
+        ]),
     )
     .unwrap();
     assert!(s_lm.stats().is_some());
@@ -92,30 +74,29 @@ fn sgd_solver_all_constructors_and_step_eq_run() {
     // 3. randomPair, omega, streamingNegatives, fromPairs, fromPairsWithHinges
     let s_rp = JsSgdSolver::random_pair(
         &grid,
-        &JsValue::from_f64(6.0),
-        &JsValue::from_f64(10.0),
-        None,
-        Some("quadratic".to_owned()),
-        None,
-        Some(42.0),
+        &make_opts(&[
+            ("pairsPerNode", JsValue::from_f64(6.0)),
+            ("iterations", JsValue::from_f64(10.0)),
+            ("kind", JsValue::from_str("quadratic")),
+            ("seed", JsValue::from_f64(42.0)),
+        ]),
     )
     .unwrap();
     assert!(s_rp.stats().is_none());
 
     let emb =
-        js_chebyshev_dog_jl_embedding(&grid, Some(8.0), None, None, None, None, None, None, None)
+        js_chebyshev_dog_jl_embedding(&grid, &make_opts(&[("jlDim", JsValue::from_f64(8.0))]))
             .unwrap();
     let mut s_om = JsSgdSolver::omega(
         &grid,
         &emb,
         8.0,
-        &JsValue::from_f64(5.0),
-        None,
-        &JsValue::from_f64(10.0),
-        None,
-        Some("reciprocal".to_owned()),
-        None,
-        Some(42.0),
+        &make_opts(&[
+            ("k", JsValue::from_f64(5.0)),
+            ("iterations", JsValue::from_f64(10.0)),
+            ("kind", JsValue::from_str("reciprocal")),
+            ("seed", JsValue::from_f64(42.0)),
+        ]),
     )
     .unwrap();
     let mut l_om = init.clone();
@@ -123,15 +104,16 @@ fn sgd_solver_all_constructors_and_step_eq_run() {
 
     let mut s_sn = JsSgdSolver::streaming_negatives(
         &grid,
-        &JsValue::from_f64(4.0),
-        Some(2.5),
-        Some(0.25),
-        Some(true),
-        Some(10.0),
-        None,
-        Some("constant".to_owned()),
-        Some(0.5),
-        Some(42.0),
+        &make_opts(&[
+            ("negativesPerNode", JsValue::from_f64(4.0)),
+            ("targetDistance", JsValue::from_f64(2.5)),
+            ("weight", JsValue::from_f64(0.25)),
+            ("hingeOnly", JsValue::from_bool(true)),
+            ("iterations", JsValue::from_f64(10.0)),
+            ("kind", JsValue::from_str("constant")),
+            ("stepScale", JsValue::from_f64(0.5)),
+            ("seed", JsValue::from_f64(42.0)),
+        ]),
     )
     .unwrap();
     let mut l_sn = init.clone();
@@ -142,14 +124,12 @@ fn sgd_solver_all_constructors_and_step_eq_run() {
         &[0],
         &[1],
         &[1.0],
-        Some(vec![1.0]),
-        Some(vec![1.0]),
-        Some(vec![1.0]),
-        &JsValue::from_f64(5.0),
-        None,
-        None,
-        None,
-        None,
+        &make_opts(&[
+            ("dji", f64_js(&[1.0])),
+            ("wij", f64_js(&[1.0])),
+            ("wji", f64_js(&[1.0])),
+            ("iterations", JsValue::from_f64(5.0)),
+        ]),
     )
     .unwrap();
     let mut l2 = JsLayout2d::from_coords(&[0.0, 0.0, 3.0, 0.0]).unwrap();
@@ -160,35 +140,31 @@ fn sgd_solver_all_constructors_and_step_eq_run() {
         &[],
         &[],
         &[],
-        None,
-        None,
-        None,
         &[0],
         &[1],
         &[2.0],
-        Some(vec![2.0]),
-        Some(vec![1.0]),
-        Some(vec![1.0]),
-        &JsValue::from_f64(5.0),
-        None,
-        Some("constant".to_owned()),
-        Some(0.5),
-        None,
+        &make_opts(&[
+            ("hingeDji", f64_js(&[2.0])),
+            ("hingeWij", f64_js(&[1.0])),
+            ("hingeWji", f64_js(&[1.0])),
+            ("iterations", JsValue::from_f64(5.0)),
+            ("kind", JsValue::from_str("constant")),
+            ("stepScale", JsValue::from_f64(0.5)),
+        ]),
     )
     .unwrap();
     let mut l_hinge = JsLayout2d::from_coords(&[0.0, 0.0, 0.5, 0.0]).unwrap();
     s_hinges.step_2d(&mut l_hinge).unwrap();
     assert!((l_hinge.x(1.0).unwrap() - l_hinge.x(0.0).unwrap()) > 0.5);
 
-    // Invalid schedule / dimensions / NaN errors
+    // Invalid schedule / snake_case / dimensions errors
     assert!(
         JsSgdSolver::full(
             &grid,
-            &JsValue::from_f64(10.0),
-            None,
-            Some("bad_kind".to_owned()),
-            None,
-            None,
+            &make_opts(&[
+                ("iterations", JsValue::from_f64(10.0)),
+                ("kind", JsValue::from_str("bad_kind")),
+            ]),
         )
         .is_err()
     );
@@ -202,7 +178,7 @@ fn ortmann_sparse_stress_step_eq_run() {
     let (graph, _) = make_two_cluster_graph();
     let init = make_circle_layout(8, 1.5);
 
-    for strategy in ["kmeans_sp", "maxmin_random_sp", "maxmin_sp"] {
+    for strategy in ["kmeansSp", "maxminRandomSp", "maxminSp"] {
         let opts = make_opts(&[
             ("numPivots", JsValue::from_f64(4.0)),
             ("pivotStrategy", JsValue::from_str(strategy)),
@@ -213,7 +189,7 @@ fn ortmann_sparse_stress_step_eq_run() {
         let mut s_step = JsSgdSolver::ortmann_sparse_stress(&graph, &opts).unwrap();
         let mut s_run = JsSgdSolver::ortmann_sparse_stress(&graph, &opts).unwrap();
         assert_eq!(s_step.num_nodes(), 8);
-        assert_eq!(s_step.total_iterations(), 12);
+        assert_eq!(s_step.total_iterations(), Some(12));
         assert!(s_step.num_springs() > 0);
 
         let mut l_step = init.clone();
@@ -253,7 +229,7 @@ fn largevis_drgraph_graph_cne_step_eq_run() {
     let (graph, _) = make_two_cluster_graph();
     let init = make_circle_layout(8, 1.5);
 
-    // LargeVis
+    // LargeVisSolver
     let lv_opts = make_opts(&[
         ("iterations", JsValue::from_f64(10.0)),
         ("negativeSamples", JsValue::from_f64(3.0)),
@@ -263,8 +239,8 @@ fn largevis_drgraph_graph_cne_step_eq_run() {
         ("degreeExponent", JsValue::from_f64(0.75)),
         ("seed", JsValue::from_f64(42.0)),
     ]);
-    let mut lv_step = JsSgdSolver::largevis(&graph, &lv_opts).unwrap();
-    let mut lv_run = JsSgdSolver::largevis(&graph, &lv_opts).unwrap();
+    let mut lv_step = JsLargeVisSolver::new(&graph, &lv_opts).unwrap();
+    let mut lv_run = JsLargeVisSolver::new(&graph, &lv_opts).unwrap();
     let mut l_lv_step = init.clone();
     let mut l_lv_run = init.clone();
     while !lv_step.is_finished() {
@@ -274,7 +250,7 @@ fn largevis_drgraph_graph_cne_step_eq_run() {
     assert_layouts_bit_exact(&l_lv_step, &l_lv_run);
     assert!(l_lv_run.is_all_finite());
 
-    // DRGraph
+    // DrGraphSolver
     let dr_opts = make_opts(&[
         ("kOrder", JsValue::from_f64(1.0)),
         ("negativeSamples", JsValue::from_f64(3.0)),
@@ -287,8 +263,8 @@ fn largevis_drgraph_graph_cne_step_eq_run() {
         ("minLr", JsValue::from_f64(1e-4)),
         ("seed", JsValue::from_f64(42.0)),
     ]);
-    let mut dr_step = JsSgdSolver::drgraph(&graph, &dr_opts).unwrap();
-    let mut dr_run = JsSgdSolver::drgraph(&graph, &dr_opts).unwrap();
+    let mut dr_step = JsDrGraphSolver::new(&graph, &dr_opts).unwrap();
+    let mut dr_run = JsDrGraphSolver::new(&graph, &dr_opts).unwrap();
     let mut l_dr_step = init.clone();
     let mut l_dr_run = init.clone();
     while !dr_step.is_finished() {
@@ -298,8 +274,8 @@ fn largevis_drgraph_graph_cne_step_eq_run() {
     assert_layouts_bit_exact(&l_dr_step, &l_dr_run);
     assert!(l_dr_run.is_all_finite());
 
-    // Graph-CNE ("infonce" and "neg_tsne")
-    for obj in ["infonce", "neg_tsne"] {
+    // GraphCneSolver ("infoNce" and "negTSne")
+    for obj in ["infoNce", "negTSne"] {
         let cne_opts = make_opts(&[
             ("objective", JsValue::from_str(obj)),
             ("negativeSamples", JsValue::from_f64(3.0)),
@@ -310,8 +286,8 @@ fn largevis_drgraph_graph_cne_step_eq_run() {
             ("rowNormalize", JsValue::from_bool(true)),
             ("seed", JsValue::from_f64(42.0)),
         ]);
-        let mut cne_step = JsSgdSolver::graph_cne(&graph, &cne_opts).unwrap();
-        let mut cne_run = JsSgdSolver::graph_cne(&graph, &cne_opts).unwrap();
+        let mut cne_step = JsGraphCneSolver::new(&graph, &cne_opts).unwrap();
+        let mut cne_run = JsGraphCneSolver::new(&graph, &cne_opts).unwrap();
         let mut l_cne_step = init.clone();
         let mut l_cne_run = init.clone();
         while !cne_step.is_finished() {
@@ -324,13 +300,13 @@ fn largevis_drgraph_graph_cne_step_eq_run() {
 
     // Invalid option errors
     assert!(
-        JsSgdSolver::largevis(&graph, &make_opts(&[("gamma", JsValue::from_f64(-1.0))])).is_err()
+        JsLargeVisSolver::new(&graph, &make_opts(&[("gamma", JsValue::from_f64(-1.0))])).is_err()
     );
     assert!(
-        JsSgdSolver::drgraph(&graph, &make_opts(&[("kOrder", JsValue::from_f64(0.0))])).is_err()
+        JsDrGraphSolver::new(&graph, &make_opts(&[("kOrder", JsValue::from_f64(0.0))])).is_err()
     );
     assert!(
-        JsSgdSolver::graph_cne(
+        JsGraphCneSolver::new(
             &graph,
             &make_opts(&[("objective", JsValue::from_str("bad"))]),
         )

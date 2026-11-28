@@ -112,18 +112,25 @@ export function runMetricsClusterAreaSmoke({ eg, webPkg }) {
   const imbEdges = [];
   for (let i = 0; i < 23; i++) imbEdges.push(i, i + 1);
   const imbGraph = CsrGraph.fromEdgeList(24, new Uint32Array(imbEdges));
-  const detG05 = clusterAreaFaithfulnessDetail(imbLayout, imbLabels, null, null, null, null, null, 0.5);
-  const detG20 = clusterAreaFaithfulnessDetail(imbLayout, imbLabels, null, null, null, null, null, 2.0);
+  const detG05 = clusterAreaFaithfulnessDetail(imbLayout, imbLabels, { stevensGamma: 0.5 });
+  const detG20 = clusterAreaFaithfulnessDetail(imbLayout, imbLabels, { stevensGamma: 2.0 });
   assert(detG05.p()[0] < detG20.p()[0]);
   detG05.free();
   detG20.free();
 
-  const detInf = clusterAreaFaithfulnessDetail(imbLayout, imbLabels, null, null, null, null, Number.POSITIVE_INFINITY, null);
+  const detInf = clusterAreaFaithfulnessDetail(imbLayout, imbLabels, { boundaryR95: Number.POSITIVE_INFINITY });
   assert(Math.abs(detInf.inFrac - 1.0) < 1e-12);
   assert(detInf.caf >= 0.0 && detInf.caf <= 1.0);
   detInf.free();
 
-  const expectedCustomCaf = clusterAreaFaithfulness(imbLayout, imbLabels, 64, 0.9, 8.0, 0.2, 2.5, 0.7);
+  const expectedCustomCaf = clusterAreaFaithfulness(imbLayout, imbLabels, {
+    gMax: 64,
+    sigmaCells: 0.9,
+    kappa: 8.0,
+    tauFrac: 0.2,
+    boundaryR95: 2.5,
+    stevensGamma: 0.7,
+  });
   // Uint32Array vs number[] parity including u32::MAX
   const l5 = Layout2d.fromCoords(new Float32Array([0, 0, 1, 0, 0, 1, 3, 3, 4, 3]));
   const l5Arr = [100, 5, 100, 4294967295, 5];
@@ -134,23 +141,18 @@ export function runMetricsClusterAreaSmoke({ eg, webPkg }) {
     imbGraph,
     imbLayout,
     ["clusterAreaFaithfulness", "sns"],
-    8,
-    64,
-    42,
-    null,
-    imbLabels,
-    null,
-    null,
-    null,
-    null,
-    null,
-    null,
-    64,
-    0.9,
-    8.0,
-    0.2,
-    2.5,
-    0.7,
+    {
+      numPivots: 8,
+      numSamples: 64,
+      seed: 42,
+      labels: imbLabels,
+      gMax: 64,
+      sigmaCells: 0.9,
+      kappa: 8.0,
+      tauFrac: 0.2,
+      boundaryR95: 2.5,
+      stevensGamma: 0.7,
+    },
   );
   assert(Math.abs(gcafEval.clusterAreaFaithfulness - expectedCustomCaf) < 1e-12);
   const gcafEvalRec = gcafEval.toRecord();
@@ -161,37 +163,22 @@ export function runMetricsClusterAreaSmoke({ eg, webPkg }) {
   const imbNw = new Float64Array(24);
   for (let i = 0; i < 24; i++) imbNw[i] = i < 20 ? 1.5 : 3.0;
   const imbCw = new Float64Array([30.0, 12.0]);
-  const cafNw = clusterAreaFaithfulness(imbLayout, imbLabels, null, null, null, null, null, null, imbNw, null);
-  const cafCw = clusterAreaFaithfulness(imbLayout, imbLabels, null, null, null, null, null, null, null, imbCw);
+  const cafNw = clusterAreaFaithfulness(imbLayout, imbLabels, { nodeWeights: imbNw });
+  const cafCw = clusterAreaFaithfulness(imbLayout, imbLabels, { clusterWeights: imbCw });
   assert(Math.abs(cafNw - cafCw) < 1e-12);
   const evalCw = evaluateMetrics(
     imbGraph,
     imbLayout,
     ["gcaf"],
-    null,
-    null,
-    null,
-    null,
-    imbLabels,
-    null,
-    null,
-    null,
-    null,
-    null,
-    null,
-    null,
-    null,
-    null,
-    null,
-    null,
-    null,
-    null,
-    imbCw,
+    {
+      labels: imbLabels,
+      clusterWeights: imbCw,
+    },
   );
   assert(Math.abs(evalCw.clusterAreaFaithfulness - cafCw) < 1e-12);
   evalCw.free();
-  assert.throws(() => clusterAreaFaithfulness(imbLayout, imbLabels, null, null, null, null, null, null, imbNw, imbCw), Error);
-  assert.throws(() => clusterAreaFaithfulness(imbLayout, imbLabels, null, null, null, null, null, null, null, [0.0, 1.0]), Error);
+  assertJsError(() => clusterAreaFaithfulness(imbLayout, imbLabels, { nodeWeights: imbNw, clusterWeights: imbCw }), "gcaf both weights", "InvalidInput");
+  assertJsError(() => clusterAreaFaithfulness(imbLayout, imbLabels, { clusterWeights: [0.0, 1.0] }), "gcaf zero clusterWeight", "InvalidInput");
 
   // Degenerate boundaries: N=0, N=1, K=1, collapsed
   const l0 = Layout2d.zeros(0);
@@ -276,16 +263,12 @@ export function runMetricsClusterAreaSmoke({ eg, webPkg }) {
   assert.throws(() => clusterAreaFaithfulness(l4_64, new Float64Array([0, 0, 1.5, 1])), Error);
   assert.throws(() => clusterAreaFaithfulness(l4_64, new BigInt64Array([0n, 0n, 1n, 1n])), Error);
 
-  for (const alias of ["g-caf", "G-CAF", "cluster-area-faithfulness", "clusterArea"]) {
+  for (const alias of ["gcaf", "clusterArea", "clusterAreaFaithfulness"]) {
     const repAlias = evaluateMetrics(
       g4,
       l4_64,
       [alias],
-      null,
-      null,
-      null,
-      null,
-      new Uint32Array([0, 0, 1, 1]),
+      { labels: new Uint32Array([0, 0, 1, 1]) },
     );
     assert(Math.abs(repAlias.clusterAreaFaithfulness - baseL4Caf) < 1e-12);
     repAlias.free();
@@ -295,23 +278,11 @@ export function runMetricsClusterAreaSmoke({ eg, webPkg }) {
     g4,
     l4_64,
     ["sns"],
-    null,
-    null,
-    null,
-    null,
-    null,
-    null,
-    null,
-    null,
-    null,
-    null,
-    null,
-    11,
-    -1.0,
-    null,
-    null,
-    null,
-    Number.NaN,
+    {
+      gMax: 11,
+      sigmaCells: -1.0,
+      stevensGamma: Number.NaN,
+    },
   );
   assert(Number.isFinite(lazyInvalidGcaf.scaleNormalizedStress));
   assert.equal(lazyInvalidGcaf.clusterAreaFaithfulness, undefined);
@@ -333,18 +304,7 @@ export function runMetricsClusterAreaSmoke({ eg, webPkg }) {
     imbGraph,
     imbLayout,
     ["aspectRatio"],
-    null,
-    null,
-    null,
-    null,
-    null,
-    null,
-    null,
-    null,
-    null,
-    null,
-    null,
-    4,
+    { gMax: 4 },
   );
   assert(Number.isFinite(lazyOk.aspectRatio));
   assert.equal(lazyOk.clusterAreaFaithfulness, undefined);
@@ -353,29 +313,19 @@ export function runMetricsClusterAreaSmoke({ eg, webPkg }) {
   sepLayout.free();
 
   // Adversarial G-CAF input checks
-  assertJsError(() => evaluateMetrics(imbGraph, imbLayout, ["gcaf"]), "gcaf missing labels");
+  assertJsError(() => evaluateMetrics(imbGraph, imbLayout, ["gcaf"]), "gcaf missing labels", "InvalidInput");
   assertJsError(
     () =>
       evaluateMetrics(
         imbGraph,
         imbLayout,
         ["clusterAreaFaithfulness"],
-        null,
-        null,
-        null,
-        null,
-        imbLabels,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        4,
+        { labels: imbLabels, gMax: 4 },
       ),
     "gcaf lazy gMax=4",
+    "InvalidInput",
   );
-  assertJsError(() => clusterAreaFaithfulness(imbLayout, [0, 1]), "gcaf label length mismatch");
+  assertJsError(() => clusterAreaFaithfulness(imbLayout, [0, 1]), "gcaf label length mismatch", "DimensionMismatch");
   const restLabels = Array.from(imbLabels.slice(1));
   const invalidCommunityLabels = [
     ["neg", [-1, ...restLabels]],
@@ -392,47 +342,52 @@ export function runMetricsClusterAreaSmoke({ eg, webPkg }) {
     ["string", "000000000000000000001111"],
   ];
   for (const [tag, badLabels] of invalidCommunityLabels) {
-    assertJsError(() => clusterAreaFaithfulness(imbLayout, badLabels), `gcaf invalid labels (${tag})`);
-    assertJsError(() => clusterAreaFaithfulnessDetail(imbLayout, badLabels), `gcafDetail invalid labels (${tag})`);
+    assertJsError(() => clusterAreaFaithfulness(imbLayout, badLabels), `gcaf invalid labels (${tag})`, "InvalidInput");
+    assertJsError(() => clusterAreaFaithfulnessDetail(imbLayout, badLabels), `gcafDetail invalid labels (${tag})`, "InvalidInput");
     assertJsError(
-      () => evaluateMetrics(imbGraph, imbLayout, ["gcaf"], null, null, null, null, badLabels),
+      () => evaluateMetrics(imbGraph, imbLayout, ["gcaf"], { labels: badLabels }),
       `evaluateMetrics invalid labels (${tag})`,
+      "InvalidInput",
     );
   }
   for (const [tag, nullish] of [["null", null], ["undefined", undefined]]) {
-    assertJsError(() => clusterAreaFaithfulness(imbLayout, nullish), `gcaf nullish labels (${tag})`);
-    assertJsError(() => clusterAreaFaithfulnessDetail(imbLayout, nullish), `gcafDetail nullish labels (${tag})`);
+    assertJsError(() => clusterAreaFaithfulness(imbLayout, nullish), `gcaf nullish labels (${tag})`, "InvalidInput");
+    assertJsError(() => clusterAreaFaithfulnessDetail(imbLayout, nullish), `gcafDetail nullish labels (${tag})`, "InvalidInput");
     assertJsError(
-      () => evaluateMetrics(imbGraph, imbLayout, ["gcaf"], null, null, null, null, nullish),
+      () => evaluateMetrics(imbGraph, imbLayout, ["gcaf"], { labels: nullish }),
       `evaluateMetrics nullish labels (${tag})`,
+      "InvalidInput",
     );
   }
   const nanImbCoords = new Float32Array(imbCoords);
   nanImbCoords[0] = Number.NaN;
   const nanImbLayout = Layout2d.fromCoords(nanImbCoords);
-  assertJsError(() => clusterAreaFaithfulness(nanImbLayout, imbLabels), "gcaf nan layout");
+  assertJsError(() => clusterAreaFaithfulness(nanImbLayout, imbLabels), "gcaf nan layout", "NonFiniteValue");
   nanImbLayout.free();
   for (const badG of [11, -1, 1.5]) {
-    assertJsError(() => clusterAreaFaithfulness(imbLayout, imbLabels, badG), `gcaf bad gMax=${badG}`);
+    assertJsError(() => clusterAreaFaithfulness(imbLayout, imbLabels, { gMax: badG }), `gcaf bad gMax=${badG}`, "InvalidInput");
   }
   for (const badSigma of [0, -0.5, Number.NaN, Number.POSITIVE_INFINITY, 400]) {
     assertJsError(
-      () => clusterAreaFaithfulness(imbLayout, imbLabels, null, badSigma),
+      () => clusterAreaFaithfulness(imbLayout, imbLabels, { sigmaCells: badSigma }),
       `gcaf bad sigmaCells=${badSigma}`,
+      Number.isFinite(badSigma) ? "InvalidInput" : "NonFiniteValue",
     );
   }
-  assertJsError(() => clusterAreaFaithfulness(imbLayout, imbLabels, null, null, 0), "gcaf bad kappa=0");
-  assertJsError(() => clusterAreaFaithfulness(imbLayout, imbLabels, null, null, null, -1), "gcaf bad tauFrac=-1");
+  assertJsError(() => clusterAreaFaithfulness(imbLayout, imbLabels, { kappa: 0 }), "gcaf bad kappa=0", "InvalidInput");
+  assertJsError(() => clusterAreaFaithfulness(imbLayout, imbLabels, { tauFrac: -1 }), "gcaf bad tauFrac=-1", "InvalidInput");
   for (const badR95 of [0, Number.NEGATIVE_INFINITY, Number.NaN]) {
     assertJsError(
-      () => clusterAreaFaithfulness(imbLayout, imbLabels, null, null, null, null, badR95),
+      () => clusterAreaFaithfulness(imbLayout, imbLabels, { boundaryR95: badR95 }),
       `gcaf bad boundaryR95=${badR95}`,
+      Number.isNaN(badR95) ? "NonFiniteValue" : "InvalidInput",
     );
   }
   for (const badGamma of [0, Number.POSITIVE_INFINITY]) {
     assertJsError(
-      () => clusterAreaFaithfulness(imbLayout, imbLabels, null, null, null, null, null, badGamma),
+      () => clusterAreaFaithfulness(imbLayout, imbLabels, { stevensGamma: badGamma }),
       `gcaf bad stevensGamma=${badGamma}`,
+      Number.isFinite(badGamma) ? "InvalidInput" : "NonFiniteValue",
     );
   }
   imbGraph.free();

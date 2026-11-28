@@ -9,7 +9,8 @@ use wasm_bindgen::prelude::*;
 
 use crate::csr_graph::JsCsrGraph;
 use crate::js_convert::{
-    core_err_to_js, parse_f64_sequence, parse_non_negative_usize, set_f64_prop, set_js_prop,
+    core_err_to_js, invalid_input_err, parse_f64_sequence, parse_non_negative_usize, set_f64_prop,
+    set_js_prop,
 };
 use crate::js_options::{
     check_options_arg, opt_f64_prop, opt_maybe_f64_prop, opt_maybe_usize_prop, opt_seed_prop,
@@ -17,7 +18,7 @@ use crate::js_options::{
 };
 use crate::linalg_matrix::{JsCsrMatrix, JsSpectralMomentStats};
 
-fn parse_chebyshev_dog_config(options: &JsValue, ctx: &str) -> Result<ChebyshevDogConfig, JsError> {
+fn parse_chebyshev_dog_config(options: &JsValue, ctx: &str) -> Result<ChebyshevDogConfig, JsValue> {
     let mut cfg = ChebyshevDogConfig::default();
     if check_options_arg(options, ctx)? {
         cfg.t1 = opt_maybe_f64_prop(options, "t1")?;
@@ -35,9 +36,9 @@ fn parse_chebyshev_dog_config(options: &JsValue, ctx: &str) -> Result<ChebyshevD
     Ok(cfg)
 }
 
-fn parse_filter_terms(terms: &JsValue, ctx: &str) -> Result<Vec<(f64, f64)>, JsError> {
+fn parse_filter_terms(terms: &JsValue, ctx: &str) -> Result<Vec<(f64, f64)>, JsValue> {
     if terms.is_null() || terms.is_undefined() || !terms.is_object() {
-        return Err(JsError::new(&format!(
+        return Err(invalid_input_err(format!(
             "{ctx}: terms must be an array of [weight, t] pairs or flat interleaved numeric array"
         )));
     }
@@ -49,7 +50,7 @@ fn parse_filter_terms(terms: &JsValue, ctx: &str) -> Result<Vec<(f64, f64)>, JsE
         for idx in 0..arr.length() {
             let pair = parse_f64_sequence(&arr.get(idx), "terms[i]")?;
             if pair.len() != 2 {
-                return Err(JsError::new(&format!(
+                return Err(invalid_input_err(format!(
                     "{ctx}: each term must have length 2 [weight, t], got {}",
                     pair.len()
                 )));
@@ -60,7 +61,7 @@ fn parse_filter_terms(terms: &JsValue, ctx: &str) -> Result<Vec<(f64, f64)>, JsE
     }
     let flat = parse_f64_sequence(terms, "terms")?;
     if !flat.len().is_multiple_of(2) {
-        return Err(JsError::new(&format!(
+        return Err(invalid_input_err(format!(
             "{ctx}: flat terms array length must be even, got {}",
             flat.len()
         )));
@@ -96,7 +97,7 @@ pub struct JsChebyshevDogKernel {
 impl JsChebyshevDogKernel {
     /// Builds a `ChebyshevDogKernel` from `graph` using Core-First MaxMin landmarks.
     #[wasm_bindgen(constructor)]
-    pub fn new(graph: &JsCsrGraph, options: &JsValue) -> Result<JsChebyshevDogKernel, JsError> {
+    pub fn new(graph: &JsCsrGraph, options: &JsValue) -> Result<JsChebyshevDogKernel, JsValue> {
         let cfg = parse_chebyshev_dog_config(options, "ChebyshevDogKernel")?;
         let inner = ChebyshevDogKernel::build(graph.inner(), &cfg).map_err(core_err_to_js)?;
         Ok(Self { inner })
@@ -108,7 +109,7 @@ impl JsChebyshevDogKernel {
         graph: &JsCsrGraph,
         landmarks: &[u32],
         options: &JsValue,
-    ) -> Result<JsChebyshevDogKernel, JsError> {
+    ) -> Result<JsChebyshevDogKernel, JsValue> {
         let cfg = parse_chebyshev_dog_config(options, "ChebyshevDogKernel.withLandmarks")?;
         let inner = ChebyshevDogKernel::build_with_landmarks(graph.inner(), &cfg, landmarks)
             .map_err(core_err_to_js)?;
@@ -151,7 +152,7 @@ impl JsChebyshevDogKernel {
 
     #[wasm_bindgen(js_name = momentStats)]
     pub fn moment_stats(&self) -> JsSpectralMomentStats {
-        JsSpectralMomentStats::from_inner(*self.inner.moment_stats())
+        JsSpectralMomentStats::from_inner(self.inner.moment_stats().clone())
     }
 
     #[wasm_bindgen(js_name = termsPsd)]
@@ -206,12 +207,12 @@ impl JsChebyshevDogKernel {
         l_sym: &JsCsrMatrix,
         v: &[f64],
         ncols: f64,
-    ) -> Result<Vec<f64>, JsError> {
+    ) -> Result<Vec<f64>, JsValue> {
         let nc = parse_non_negative_usize(ncols, "ncols")?;
         let n = self.inner.num_nodes();
         let total = n
             .checked_mul(nc)
-            .ok_or_else(|| JsError::new("ChebyshevDogKernel.applyBatch size overflow"))?;
+            .ok_or_else(|| invalid_input_err("ChebyshevDogKernel.applyBatch size overflow"))?;
         let mut out = vec![0.0_f64; total];
         let mut ws = ChebyshevWorkspace::with_capacity(total);
         self.inner
@@ -227,7 +228,7 @@ impl JsChebyshevDogKernel {
         p_exp: Option<f64>,
         degree_normalize: Option<bool>,
         eps_sim: Option<f64>,
-    ) -> Result<Vec<f64>, JsError> {
+    ) -> Result<Vec<f64>, JsValue> {
         self.inner
             .varadhan_landmark_table(
                 p_exp.unwrap_or(0.5),
@@ -244,10 +245,14 @@ pub fn js_build_dog_terms(
     t1: f64,
     t2: f64,
     alpha: f64,
-    beta_floor: Option<f64>,
-) -> Result<js_sys::Array, JsError> {
-    let terms =
-        build_dog_terms(t1, t2, alpha, beta_floor.unwrap_or(0.0)).map_err(core_err_to_js)?;
+    options: &JsValue,
+) -> Result<js_sys::Array, JsValue> {
+    let beta_floor = if check_options_arg(options, "buildDogTerms")? {
+        opt_f64_prop(options, "betaFloor", 0.0)?
+    } else {
+        0.0
+    };
+    let terms = build_dog_terms(t1, t2, alpha, beta_floor).map_err(core_err_to_js)?;
     Ok(terms_to_js_array(&terms))
 }
 
@@ -256,7 +261,7 @@ pub fn js_build_dog_terms(
 pub fn js_build_regularized_dog_terms(
     sigma_lambda: f64,
     beta_floor: Option<f64>,
-) -> Result<js_sys::Array, JsError> {
+) -> Result<js_sys::Array, JsValue> {
     let terms = build_regularized_dog_terms(sigma_lambda, beta_floor.unwrap_or(0.0))
         .map_err(core_err_to_js)?;
     Ok(terms_to_js_array(&terms))
@@ -280,7 +285,7 @@ pub fn js_compute_chebyshev_bandpass_coefficients(
     terms: &JsValue,
     lambda_max: Option<f64>,
     degree: Option<f64>,
-) -> Result<Vec<f64>, JsError> {
+) -> Result<Vec<f64>, JsValue> {
     let parsed = parse_filter_terms(terms, "computeChebyshevBandpassCoefficients")?;
     let lmax = lambda_max.unwrap_or(2.0);
     let deg = degree
@@ -294,17 +299,18 @@ pub fn js_compute_chebyshev_bandpass_coefficients(
 #[wasm_bindgen(js_name = projectPsdSpectralFilter)]
 pub fn js_project_psd_spectral_filter(
     terms: &JsValue,
-    lambda_max: Option<f64>,
-    degree: Option<f64>,
-    eps_psd: Option<f64>,
-) -> Result<JsValue, JsError> {
+    options: &JsValue,
+) -> Result<JsValue, JsValue> {
     let parsed = parse_filter_terms(terms, "projectPsdSpectralFilter")?;
-    let lmax = lambda_max.unwrap_or(2.0);
-    let deg = degree
-        .map(|d| parse_non_negative_usize(d, "degree"))
-        .transpose()?
-        .unwrap_or(25);
-    let eps = eps_psd.unwrap_or(1e-4);
+    let (lmax, deg, eps) = if check_options_arg(options, "projectPsdSpectralFilter")? {
+        (
+            opt_f64_prop(options, "lambdaMax", 2.0)?,
+            opt_usize_prop(options, "degree", 25)?,
+            opt_f64_prop(options, "epsPsd", 1e-4)?,
+        )
+    } else {
+        (2.0, 25, 1e-4)
+    };
     let (terms_psd, delta_psd, h_min) =
         project_psd_spectral_filter(&parsed, lmax, deg, eps).map_err(core_err_to_js)?;
     let obj = js_sys::Object::new();

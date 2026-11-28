@@ -8,7 +8,7 @@ use crate::linalg_matrix::JsSpectralMomentStats;
 
 /// Diagnostics emitted by `SgdSolver.sparseBarrierFromLandmarks` and `SgdSolver.sparseBarrierDog`.
 #[wasm_bindgen(js_name = SparseBarrierStats)]
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct JsSparseBarrierStats {
     inner: SparseBarrierStats,
 }
@@ -63,10 +63,13 @@ impl JsSparseBarrierStats {
         self.inner.per_node_neg_used
     }
 
-    /// Returns `"adaptive_2hop"` or `"explicit"`.
+    /// Returns `"adaptive2hop"` or `"explicit"`.
     #[wasm_bindgen(getter, js_name = perplexitySource)]
     pub fn perplexity_source(&self) -> String {
-        self.inner.perplexity_source.to_owned()
+        match self.inner.perplexity_source {
+            "adaptive_2hop" => "adaptive2hop".to_owned(),
+            other => other.to_owned(),
+        }
     }
 
     /// Returns the applied relative distance floor.
@@ -84,7 +87,7 @@ impl JsSparseBarrierStats {
 
 /// Regularized DoG Varadhan landmark diagnostics returned by `SgdSolver.dogStats()`.
 #[wasm_bindgen(js_name = DogStats)]
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct JsDogStats {
     inner: DogVaradhanStats,
 }
@@ -99,7 +102,7 @@ impl JsDogStats {
 impl JsDogStats {
     #[wasm_bindgen(getter, js_name = momentStats)]
     pub fn moment_stats(&self) -> JsSpectralMomentStats {
-        JsSpectralMomentStats::from_inner(self.inner.moment_stats)
+        JsSpectralMomentStats::from_inner(self.inner.moment_stats.clone())
     }
 
     #[wasm_bindgen(getter)]

@@ -40,7 +40,7 @@ impl JsPrismDistortion {
 
     /// Converts fields into a plain JavaScript object without requiring `serde`.
     #[wasm_bindgen(js_name = toRecord)]
-    pub fn to_record(&self) -> Result<js_sys::Object, JsError> {
+    pub fn to_record(&self) -> Result<js_sys::Object, JsValue> {
         let obj = js_sys::Object::new();
         set_f64_prop(&obj, "sigmaDist", self.sigma_dist)?;
         set_f64_prop(&obj, "sigmaDisp", self.sigma_disp)?;
@@ -50,7 +50,7 @@ impl JsPrismDistortion {
 
 /// DRGraph Eq. (19) minimum-angle resolution summary (`a1` and `a2`).
 #[wasm_bindgen(js_name = MinimumAngleSummary)]
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct JsMinimumAngleSummary {
     inner: MinimumAngleSummary,
 }
@@ -74,7 +74,7 @@ impl JsMinimumAngleSummary {
     }
 
     #[wasm_bindgen(js_name = toRecord)]
-    pub fn to_record(&self) -> Result<js_sys::Object, JsError> {
+    pub fn to_record(&self) -> Result<js_sys::Object, JsValue> {
         let obj = js_sys::Object::new();
         set_f64_prop(&obj, "a1", self.inner.a1)?;
         set_f64_prop(&obj, "a2", self.inner.a2)?;
@@ -84,7 +84,7 @@ impl JsMinimumAngleSummary {
 
 /// Detailed patch-occupancy diagnostics returned by `adjustedPatchNigDetail`.
 #[wasm_bindgen(js_name = AdjustedPatchNigDetail)]
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct JsAdjustedPatchNigDetail {
     inner: AdjustedPatchNigDetail,
 }
@@ -133,7 +133,7 @@ impl JsAdjustedPatchNigDetail {
     }
 
     #[wasm_bindgen(js_name = toRecord)]
-    pub fn to_record(&self) -> Result<js_sys::Object, JsError> {
+    pub fn to_record(&self) -> Result<js_sys::Object, JsValue> {
         let obj = js_sys::Object::new();
         set_f64_prop(&obj, "nig", self.inner.nig)?;
         set_f64_prop(&obj, "hObs", self.inner.h_obs)?;
@@ -165,7 +165,7 @@ impl JsAdjustedPatchNigDetail {
 /// Detailed closed-form Scale-Normalized Stress (`SNS`) diagnostics returned by
 /// `scaleNormalizedStressDetail`.
 #[wasm_bindgen(js_name = StressEvaluation)]
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct JsStressEvaluation {
     inner: StressEvaluation,
 }
@@ -222,7 +222,7 @@ impl JsStressEvaluation {
 
     /// Converts fields into a plain JavaScript object without requiring `serde`.
     #[wasm_bindgen(js_name = toRecord)]
-    pub fn to_record(&self) -> Result<js_sys::Object, JsError> {
+    pub fn to_record(&self) -> Result<js_sys::Object, JsValue> {
         let obj = js_sys::Object::new();
         set_f64_prop(&obj, "normalizedStress", self.inner.normalized_stress)?;
         set_f64_prop(&obj, "rawStress", self.inner.raw_stress)?;

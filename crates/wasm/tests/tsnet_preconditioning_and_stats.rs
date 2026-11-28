@@ -11,70 +11,28 @@ use wasm_bindgen_test::*;
 fn tsnet_jacobi_precondition_and_option_validation() {
     let grid = make_grid(4, 4);
 
-    // Invalid backend or extra positional arg with options rejected
+    // Invalid backend or snake_case rejected with structured error code
+    assert!(JsTsNetSolver::pure_2hop(&grid, &JsValue::from_str("bogus")).is_err());
     assert!(
         JsTsNetSolver::pure_2hop(
             &grid,
-            &JsValue::from_str("bogus"),
-            &JsValue::UNDEFINED,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            &JsValue::UNDEFINED,
-            None,
-            None,
+            &make_opts(&[("backend", JsValue::from_str("barnes_hut"))]),
         )
         .is_err()
     );
-    let opts = make_opts(&[("backend", JsValue::from_str("exact"))]);
-    assert!(
-        JsTsNetSolver::pure_2hop(
-            &grid,
-            &opts,
-            &js_sys::Array::of3(
-                &JsValue::from_f64(10.0),
-                &JsValue::from_f64(10.0),
-                &JsValue::from_f64(10.0),
-            )
-            .into(),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            &JsValue::UNDEFINED,
-            None,
-            None,
-        )
-        .is_err()
+    let illegal_pair = JsTsNetSolver::new(
+        &grid,
+        &make_opts(&[
+            ("target", JsValue::from_str("layoutNd")),
+            ("backend", JsValue::from_str("barnesHut")),
+        ]),
+    )
+    .expect_err("illegal (layoutNd, barnesHut) pair");
+    assert_eq!(
+        js_sys::Reflect::get(&illegal_pair, &"code".into())
+            .unwrap()
+            .as_string(),
+        Some("UnsupportedOperation".to_owned())
     );
 
     // jacobiPrecondition option on star graph (true vs false diverge; non-bool rejected)
@@ -120,60 +78,8 @@ fn tsnet_jacobi_precondition_and_option_validation() {
                 ("jacobiPrecondition", JsValue::from_bool(false)),
                 ("seed", JsValue::from_f64(42.0)),
             ]);
-            let mut s_on = JsTsNetSolver::pure_2hop(
-                &star,
-                &opts_on,
-                &JsValue::UNDEFINED,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                &JsValue::UNDEFINED,
-                None,
-                None,
-            )
-            .expect(label);
-            let mut s_off = JsTsNetSolver::pure_2hop(
-                &star,
-                &opts_off,
-                &JsValue::UNDEFINED,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                &JsValue::UNDEFINED,
-                None,
-                None,
-            )
-            .expect(label);
+            let mut s_on = JsTsNetSolver::pure_2hop(&star, &opts_on).expect(label);
+            let mut s_off = JsTsNetSolver::pure_2hop(&star, &opts_off).expect(label);
             assert_eq!(s_on.run_2d(&mut l_on).unwrap(), "completed");
             assert_eq!(s_off.run_2d(&mut l_off).unwrap(), "completed");
         } else {
@@ -191,52 +97,9 @@ fn tsnet_jacobi_precondition_and_option_validation() {
                 ("jacobiPrecondition", JsValue::from_bool(false)),
                 ("seed", JsValue::from_f64(42.0)),
             ]);
-            let mut s_on = JsTsNetSolver::from_graph_row_normalized(
-                &star,
-                &opts_on,
-                None,
-                &JsValue::UNDEFINED,
-                &JsValue::UNDEFINED,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                &JsValue::UNDEFINED,
-                None,
-                None,
-                None,
-            )
-            .expect(label);
-            let mut s_off = JsTsNetSolver::from_graph_row_normalized(
-                &star,
-                &opts_off,
-                None,
-                &JsValue::UNDEFINED,
-                &JsValue::UNDEFINED,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                &JsValue::UNDEFINED,
-                None,
-                None,
-                None,
-            )
-            .expect(label);
+            let mut s_on = JsTsNetSolver::from_graph_row_normalized(&star, &opts_on).expect(label);
+            let mut s_off =
+                JsTsNetSolver::from_graph_row_normalized(&star, &opts_off).expect(label);
             assert_eq!(s_on.run_2d(&mut l_on).unwrap(), "completed");
             assert_eq!(s_off.run_2d(&mut l_off).unwrap(), "completed");
         }
@@ -259,33 +122,5 @@ fn tsnet_jacobi_precondition_and_option_validation() {
         ("backend", JsValue::from_str("exact")),
         ("jacobiPrecondition", JsValue::from_str("nope")),
     ]);
-    assert!(
-        JsTsNetSolver::pure_2hop(
-            &star,
-            &bad_jacobi,
-            &JsValue::UNDEFINED,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            &JsValue::UNDEFINED,
-            None,
-            None,
-        )
-        .is_err()
-    );
+    assert!(JsTsNetSolver::pure_2hop(&star, &bad_jacobi).is_err());
 }

@@ -4,15 +4,17 @@ use egraph::clustering::{
     CoarseLouvainConfig, align_clustered_centroids, louvain_coarsen,
     project_clustered_layout_with_radii,
 };
-use egraph::core::CsrGraph;
+use egraph::core::{CsrGraph, LayoutGenerator};
 use egraph::layout::{
-    CoarseBackboneConfig, CoarseBackboneResult, CoarseBackboneStats, CoarseDistanceBackend,
-    CoarseEdgeLengthMode, coarse_backbone_init,
+    CoarseBackbone, CoarseBackboneConfig, CoarseBackboneResult, CoarseBackboneStats,
+    CoarseDistanceBackend, CoarseEdgeLengthMode,
 };
 use wasm_bindgen::prelude::*;
 
 use crate::csr_graph::JsCsrGraph;
-use crate::js_convert::{core_err_to_js, csr_f64_to_f32, ffi_err_to_js, parse_seed_u64};
+use crate::js_convert::{
+    DEFAULT_SEED, core_err_to_js, csr_f64_to_f32, ffi_err_to_js, invalid_input_err,
+};
 use crate::js_options::{
     check_options_arg, get_prop, normalize_enum_token, opt_f64_prop, opt_maybe_f64_prop,
     opt_seed_prop, opt_string_prop, opt_usize_prop,
@@ -22,26 +24,26 @@ use crate::layout_buffers::JsLayout2d;
 const DEFAULT_JITTER_SCALE: f64 = 0.5;
 const DEFAULT_GAMMA_TETHER: f64 = 0.5;
 
-fn parse_coarse_edge_length_mode(raw: &str) -> Result<CoarseEdgeLengthMode, JsError> {
-    match normalize_enum_token(raw).as_str() {
+fn parse_coarse_edge_length_mode(raw: &str) -> Result<CoarseEdgeLengthMode, JsValue> {
+    match normalize_enum_token(raw)?.as_str() {
         "conductanceinverse" | "conductance" | "inverseconductance" => {
             Ok(CoarseEdgeLengthMode::ConductanceInverse)
         }
         "resistancecurvatureflow" | "resistancecurvature" | "rcf" => {
             Ok(CoarseEdgeLengthMode::ResistanceCurvatureFlow)
         }
-        _ => Err(JsError::new(&format!(
+        _ => Err(invalid_input_err(format!(
             "unknown edgeLengthMode {raw:?}; expected 'conductanceInverse' or 'resistanceCurvatureFlow'"
         ))),
     }
 }
 
-fn parse_coarse_distance_backend(raw: &str) -> Result<CoarseDistanceBackend, JsError> {
-    match normalize_enum_token(raw).as_str() {
+fn parse_coarse_distance_backend(raw: &str) -> Result<CoarseDistanceBackend, JsValue> {
+    match normalize_enum_token(raw)?.as_str() {
         "rhgh" => Ok(CoarseDistanceBackend::Rhgh),
         "chebyshevdog" | "dog" => Ok(CoarseDistanceBackend::ChebyshevDog),
         "shortestpath" | "sp" => Ok(CoarseDistanceBackend::ShortestPath),
-        _ => Err(JsError::new(&format!(
+        _ => Err(invalid_input_err(format!(
             "unknown distanceBackend {raw:?}; expected 'rhgh', 'chebyshevDog', or 'shortestPath'"
         ))),
     }
@@ -50,7 +52,7 @@ fn parse_coarse_distance_backend(raw: &str) -> Result<CoarseDistanceBackend, JsE
 fn parse_coarse_louvain_config(
     options: &JsValue,
     ctx: &str,
-) -> Result<CoarseLouvainConfig, JsError> {
+) -> Result<CoarseLouvainConfig, JsValue> {
     let mut cfg = CoarseLouvainConfig::default();
     if check_options_arg(options, ctx)? {
         cfg.max_coarse_nodes = opt_usize_prop(options, "maxCoarseNodes", cfg.max_coarse_nodes)?;
@@ -69,7 +71,7 @@ fn parse_coarse_louvain_config(
 pub(crate) fn parse_coarse_backbone_config(
     options: &JsValue,
     ctx: &str,
-) -> Result<CoarseBackboneConfig, JsError> {
+) -> Result<CoarseBackboneConfig, JsValue> {
     let mut cfg = CoarseBackboneConfig::default();
     if check_options_arg(options, ctx)? {
         cfg.louvain = parse_coarse_louvain_config(options, ctx)?;
@@ -100,11 +102,10 @@ pub(crate) fn parse_coarse_backbone_config(
         if ts_val.is_null() {
             cfg.target_std = None;
         } else if !ts_val.is_undefined() {
-            cfg.target_std = Some(
-                ts_val
-                    .as_f64()
-                    .ok_or_else(|| JsError::new("options.targetStd must be a number or null"))?,
-            );
+            cfg.target_std =
+                Some(ts_val.as_f64().ok_or_else(|| {
+                    invalid_input_err("options.targetStd must be a number or null")
+                })?);
         }
         cfg.robust_quantile = opt_f64_prop(options, "robustQuantile", cfg.robust_quantile)?;
         cfg.seed = cfg.louvain.seed;
@@ -182,7 +183,7 @@ impl JsCoarsenedHierarchyResult {
 pub fn js_louvain_coarsen(
     graph: &JsCsrGraph,
     options: &JsValue,
-) -> Result<JsCoarsenedHierarchyResult, JsError> {
+) -> Result<JsCoarsenedHierarchyResult, JsValue> {
     let cfg = parse_coarse_louvain_config(options, "louvainCoarsen")?;
     let hierarchy = louvain_coarsen(graph.inner(), &cfg).map_err(core_err_to_js)?;
     let coarse_graph = csr_f64_to_f32(&hierarchy.coarsest.graph)?;
@@ -207,11 +208,14 @@ pub fn js_project_clustered_layout_with_radii(
     coarse_layout: &JsLayout2d,
     node_to_coarse: &[u32],
     cluster_radii: &[f64],
-    jitter_scale: Option<f64>,
-    seed: Option<f64>,
-) -> Result<JsLayout2d, JsError> {
-    let j_scale = jitter_scale.unwrap_or(DEFAULT_JITTER_SCALE);
-    let seed_u64 = parse_seed_u64(seed)?;
+    options: &JsValue,
+) -> Result<JsLayout2d, JsValue> {
+    let mut j_scale = DEFAULT_JITTER_SCALE;
+    let mut seed_u64 = DEFAULT_SEED;
+    if check_options_arg(options, "projectClusteredLayoutWithRadii")? {
+        j_scale = opt_f64_prop(options, "jitterScale", j_scale)?;
+        seed_u64 = opt_seed_prop(options)?;
+    }
     let coarse_soa = coarse_layout.inner().to_layout2d();
     let fine = project_clustered_layout_with_radii(
         &coarse_soa,
@@ -231,9 +235,13 @@ pub fn js_align_clustered_centroids(
     fine_layout: &mut JsLayout2d,
     coarse_layout: &JsLayout2d,
     node_to_coarse: &[u32],
-    gamma_tether: Option<f64>,
-) -> Result<(), JsError> {
-    let tether = gamma_tether.unwrap_or(DEFAULT_GAMMA_TETHER);
+    options: &JsValue,
+) -> Result<(), JsValue> {
+    let tether = if check_options_arg(options, "alignClusteredCentroids")? {
+        opt_f64_prop(options, "gammaTether", DEFAULT_GAMMA_TETHER)?
+    } else {
+        DEFAULT_GAMMA_TETHER
+    };
     let mut fine_soa = fine_layout.inner().to_layout2d();
     let coarse_soa = coarse_layout.inner().to_layout2d();
     align_clustered_centroids(&mut fine_soa, &coarse_soa, node_to_coarse, tether)
@@ -259,7 +267,7 @@ pub struct JsCoarseBackboneResult {
 }
 
 impl JsCoarseBackboneResult {
-    pub(crate) fn from_core(res: CoarseBackboneResult<f32>) -> Result<Self, JsError> {
+    pub(crate) fn from_core(res: CoarseBackboneResult<f32>) -> Result<Self, JsValue> {
         let coarse_graph = csr_f64_to_f32(&res.hierarchy.coarsest.graph)?;
         Ok(Self {
             fine_layout: JsLayout2d::from_layout2d(&res.fine_layout),
@@ -366,13 +374,49 @@ impl JsCoarseBackboneResult {
     }
 }
 
+/// Coarse Louvain edge-length-first area reservation and non-SPD backbone generator (`LayoutGenerator`).
+#[wasm_bindgen(js_name = CoarseBackbone)]
+#[derive(Debug, Clone)]
+pub struct JsCoarseBackbone {
+    graph: CsrGraph<f32>,
+    config: CoarseBackboneConfig,
+}
+
+#[wasm_bindgen(js_class = CoarseBackbone)]
+impl JsCoarseBackbone {
+    #[wasm_bindgen(constructor)]
+    pub fn new(graph: &JsCsrGraph, options: &JsValue) -> Result<JsCoarseBackbone, JsValue> {
+        let config = parse_coarse_backbone_config(options, "CoarseBackbone")?;
+        Ok(Self {
+            graph: graph.inner().clone(),
+            config,
+        })
+    }
+
+    pub fn generate(&mut self) -> Result<JsLayout2d, JsValue> {
+        let mut generator =
+            CoarseBackbone::<f32, f32>::from_config(&self.graph, self.config.clone());
+        let res = generator.generate().map_err(core_err_to_js)?;
+        Ok(JsLayout2d::from_layout2d(&res.fine_layout))
+    }
+
+    #[wasm_bindgen(js_name = generateResult)]
+    pub fn generate_result(&mut self) -> Result<JsCoarseBackboneResult, JsValue> {
+        let mut generator =
+            CoarseBackbone::<f32, f32>::from_config(&self.graph, self.config.clone());
+        let res = generator.generate().map_err(core_err_to_js)?;
+        JsCoarseBackboneResult::from_core(res)
+    }
+}
+
 /// Runs coarse Louvain edge-length-first area reservation and non-SPD backbone initialization.
 #[wasm_bindgen(js_name = coarseBackboneInit)]
 pub fn js_coarse_backbone_init(
     graph: &JsCsrGraph,
     options: &JsValue,
-) -> Result<JsCoarseBackboneResult, JsError> {
+) -> Result<JsCoarseBackboneResult, JsValue> {
     let cfg = parse_coarse_backbone_config(options, "coarseBackboneInit")?;
-    let res = coarse_backbone_init::<f32, f32>(graph.inner(), &cfg).map_err(core_err_to_js)?;
+    let mut generator = CoarseBackbone::<f32, f32>::from_config(graph.inner(), cfg);
+    let res = generator.generate().map_err(core_err_to_js)?;
     JsCoarseBackboneResult::from_core(res)
 }

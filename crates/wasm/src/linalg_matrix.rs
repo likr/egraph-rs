@@ -3,8 +3,9 @@
 
 use crate::csr_graph::JsCsrGraph;
 use crate::js_convert::{
-    core_err_to_js, parse_non_negative_usize, parse_optional_usize, parse_seed_u64,
+    core_err_to_js, non_finite_err, parse_non_negative_usize, parse_optional_usize, parse_seed_u64,
 };
+use crate::js_options::{check_options_arg, opt_bool_prop, opt_f64_prop, opt_maybe_f64_prop};
 use egraph::linalg::{
     AnisotropicLaplacianConfig, CsrMatrix, DEFAULT_SPECTRUM_LANCZOS_SAFETY_FACTOR,
     DEFAULT_SPECTRUM_LANCZOS_STEPS, DEFAULT_SPECTRUM_POWER_ITERS, DEFAULT_SPECTRUM_SAFETY_FACTOR,
@@ -41,7 +42,7 @@ impl JsCsrMatrix {
         indptr: &[u32],
         indices: &[u32],
         values: &[f64],
-    ) -> Result<JsCsrMatrix, JsError> {
+    ) -> Result<JsCsrMatrix, JsValue> {
         let n = parse_non_negative_usize(num_nodes, "numNodes")?;
         let inner = CsrMatrix::from_csr(n, indptr.to_vec(), indices.to_vec(), values.to_vec())
             .map_err(core_err_to_js)?;
@@ -97,8 +98,8 @@ impl JsCsrMatrix {
         &self,
         num_iters: Option<f64>,
         safety_factor: Option<f64>,
-        seed: Option<f64>,
-    ) -> Result<f64, JsError> {
+        seed: &JsValue,
+    ) -> Result<f64, JsValue> {
         let iters = parse_optional_usize(num_iters, DEFAULT_SPECTRUM_POWER_ITERS, "numIters")?;
         let sf = safety_factor.unwrap_or(DEFAULT_SPECTRUM_SAFETY_FACTOR);
         let s = parse_seed_u64(seed)?;
@@ -113,8 +114,8 @@ impl JsCsrMatrix {
         &self,
         num_steps: Option<f64>,
         safety_factor: Option<f64>,
-        seed: Option<f64>,
-    ) -> Result<f64, JsError> {
+        seed: &JsValue,
+    ) -> Result<f64, JsValue> {
         let steps = parse_optional_usize(num_steps, DEFAULT_SPECTRUM_LANCZOS_STEPS, "numSteps")?;
         let sf = safety_factor.unwrap_or(DEFAULT_SPECTRUM_LANCZOS_SAFETY_FACTOR);
         let s = parse_seed_u64(seed)?;
@@ -124,9 +125,9 @@ impl JsCsrMatrix {
     }
 
     /// Computes sparse matrix-vector product `y = A * x`.
-    pub fn spmv(&self, x: &[f64]) -> Result<Vec<f64>, JsError> {
+    pub fn spmv(&self, x: &[f64]) -> Result<Vec<f64>, JsValue> {
         if x.iter().any(|v| !v.is_finite()) {
-            return Err(JsError::new("x must contain only finite values"));
+            return Err(non_finite_err("x must contain only finite values"));
         }
         let mut out = vec![0.0_f64; self.inner.num_nodes()];
         self.inner.spmv(x, &mut out).map_err(core_err_to_js)?;
@@ -135,7 +136,7 @@ impl JsCsrMatrix {
 
     /// Returns `scale * A + shift * I`.
     #[wasm_bindgen(js_name = scaleAndShift)]
-    pub fn scale_and_shift(&self, scale: f64, shift: f64) -> Result<JsCsrMatrix, JsError> {
+    pub fn scale_and_shift(&self, scale: f64, shift: f64) -> Result<JsCsrMatrix, JsValue> {
         let inner = self
             .inner
             .scale_and_shift(scale, shift)
@@ -151,12 +152,12 @@ impl JsCsrMatrix {
 
     /// Converts to a flat row-major `(numNodes, numNodes)` `Float64Array`.
     #[wasm_bindgen(js_name = toDense)]
-    pub fn to_dense(&self) -> Result<Vec<f64>, JsError> {
+    pub fn to_dense(&self) -> Result<Vec<f64>, JsValue> {
         self.inner.to_dense().map_err(core_err_to_js)
     }
 }
 
-/// Output of `anisotropicLaplacian(graph, ...)`.
+/// Output of `anisotropicLaplacian(graph, options)`.
 #[wasm_bindgen(js_name = AnisotropicLaplacianResult)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct JsAnisotropicLaplacianResult {
@@ -190,12 +191,40 @@ impl JsAnisotropicLaplacianResult {
 #[wasm_bindgen(js_name = EigenResult)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct JsEigenResult {
-    inner: EigenResult,
+    lambdas: Vec<f64>,
+    vectors: Vec<f64>,
+    inv_sqrt_deg: Vec<f64>,
+    num_nodes: usize,
+    num_modes: usize,
+    used_dense_fallback: bool,
 }
 
 impl JsEigenResult {
     pub(crate) fn from_inner(inner: EigenResult) -> Self {
-        Self { inner }
+        Self {
+            lambdas: inner.lambdas,
+            vectors: inner.vectors,
+            inv_sqrt_deg: inner.inv_sqrt_deg,
+            num_nodes: inner.num_nodes,
+            num_modes: inner.num_modes,
+            used_dense_fallback: inner.used_dense_fallback,
+        }
+    }
+
+    pub(crate) fn from_jacobi(
+        lambdas: Vec<f64>,
+        vectors: Vec<f64>,
+        num_nodes: usize,
+        num_modes: usize,
+    ) -> Self {
+        Self {
+            lambdas,
+            vectors,
+            inv_sqrt_deg: Vec::new(),
+            num_nodes,
+            num_modes,
+            used_dense_fallback: true,
+        }
     }
 }
 
@@ -204,41 +233,41 @@ impl JsEigenResult {
     /// Returns the number of vertices in the graph.
     #[wasm_bindgen(getter, js_name = numNodes)]
     pub fn num_nodes(&self) -> usize {
-        self.inner.num_nodes
+        self.num_nodes
     }
 
     /// Returns the number of returned nontrivial eigenmodes.
     #[wasm_bindgen(getter, js_name = numModes)]
     pub fn num_modes(&self) -> usize {
-        self.inner.num_modes
+        self.num_modes
     }
 
     /// Returns `true` when the dense Jacobi eigensolver fallback path was used.
     #[wasm_bindgen(getter, js_name = usedDenseFallback)]
     pub fn used_dense_fallback(&self) -> bool {
-        self.inner.used_dense_fallback
+        self.used_dense_fallback
     }
 
     /// Returns the ascending nontrivial eigenvalues (`length === numModes`).
     pub fn lambdas(&self) -> Vec<f64> {
-        self.inner.lambdas.clone()
+        self.lambdas.clone()
     }
 
     /// Returns the flat row-major `(numNodes, numModes)` orthonormal eigenvectors.
     pub fn vectors(&self) -> Vec<f64> {
-        self.inner.vectors.clone()
+        self.vectors.clone()
     }
 
     /// Returns the $D^{-1/2}$ inverse square-root degree vector (`length === numNodes`).
     #[wasm_bindgen(js_name = invSqrtDeg)]
     pub fn inv_sqrt_deg(&self) -> Vec<f64> {
-        self.inner.inv_sqrt_deg.clone()
+        self.inv_sqrt_deg.clone()
     }
 }
 
 /// Exact $O(|E|)$ spectral variance and degree distribution summary statistics of $L_{\mathrm{sym}}$.
 #[wasm_bindgen(js_name = SpectralMomentStats)]
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct JsSpectralMomentStats {
     inner: SpectralMomentStats,
 }
@@ -292,19 +321,17 @@ pub fn js_spectral_moment_stats(graph: &JsCsrGraph) -> JsSpectralMomentStats {
 #[wasm_bindgen(js_name = anisotropicLaplacian)]
 pub fn js_anisotropic_laplacian(
     graph: &JsCsrGraph,
-    alpha: Option<f64>,
-    beta: Option<f64>,
-    degree_reg: Option<f64>,
-    degree_cap: Option<f64>,
-    reweighted_degree_norm: Option<bool>,
-) -> Result<JsAnisotropicLaplacianResult, JsError> {
-    let cfg = AnisotropicLaplacianConfig {
-        alpha: alpha.unwrap_or(0.5),
-        beta: beta.unwrap_or(0.0),
-        degree_reg: degree_reg.unwrap_or(0.0),
-        degree_cap,
-        reweighted_degree_norm: reweighted_degree_norm.unwrap_or(true),
-    };
+    options: &JsValue,
+) -> Result<JsAnisotropicLaplacianResult, JsValue> {
+    let mut cfg = AnisotropicLaplacianConfig::default();
+    if check_options_arg(options, "anisotropicLaplacian")? {
+        cfg.alpha = opt_f64_prop(options, "alpha", cfg.alpha)?;
+        cfg.beta = opt_f64_prop(options, "beta", cfg.beta)?;
+        cfg.degree_reg = opt_f64_prop(options, "degreeReg", cfg.degree_reg)?;
+        cfg.degree_cap = opt_maybe_f64_prop(options, "degreeCap")?;
+        cfg.reweighted_degree_norm =
+            opt_bool_prop(options, "reweightedDegreeNorm", cfg.reweighted_degree_norm)?;
+    }
     let res = anisotropic_laplacian(graph.inner(), cfg).map_err(core_err_to_js)?;
     Ok(JsAnisotropicLaplacianResult {
         matrix: res.matrix,

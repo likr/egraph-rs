@@ -1,18 +1,22 @@
 import assert from "node:assert/strict";
-import { readPkgText } from "./helpers.mjs";
+import { assertJsError, readPkgText } from "./helpers.mjs";
 
 // Verify force models, post-processing, layering, constraints, and FDEB
 export async function runForceAndConstraintsSmoke({ eg, webPkg }) {
   const {
     CsrGraph,
+    EdgePolylines,
     FdebSolver,
     ForceAtlas2Solver,
     GuMapSolver,
     IbUmapSolver,
     Layout2d,
+    PacmapGraphSolver,
     PrismOverlapRemoval,
     SeparationConstraint,
+    Sgd2Solver,
     SgdSolver,
+    SnapTFdpSolver,
     Sparse12HopPairs,
     TFdpSolver,
     YifanHuSolver,
@@ -29,11 +33,15 @@ export async function runForceAndConstraintsSmoke({ eg, webPkg }) {
   } = eg;
 
   const forceConstraintExports = [
+    "EdgePolylines",
     "FdebSolver",
     "ForceAtlas2Solver",
     "IbUmapSolver",
+    "PacmapGraphSolver",
     "PrismOverlapRemoval",
     "SeparationConstraint",
+    "Sgd2Solver",
+    "SnapTFdpSolver",
     "TFdpSolver",
     "YifanHuSolver",
     "assignLayers",
@@ -66,8 +74,8 @@ export async function runForceAndConstraintsSmoke({ eg, webPkg }) {
   assert(dtsText.includes("symmetricNegative?: boolean | null;"));
   assert(dtsText.includes("minSepRatio?: number | null;"));
   assert(dtsText.includes("wSep?: number | null;"));
-  assert(dtsText.includes("pacmapGraphWithLandmarks("));
-  assert(dtsText.includes("pacmapGraphWithLandmarkDistances("));
+  assert(dtsText.includes("withLandmarks("));
+  assert(dtsText.includes("withLandmarkDistances("));
   assert(dtsText.includes('"squared"'));
   assert(!dtsText.includes("options: any"));
   assert(!dtsText.includes("constraints: any"));
@@ -89,8 +97,8 @@ export async function runForceAndConstraintsSmoke({ eg, webPkg }) {
   }
 
   // TFdpSolver (new + fromKnn)
-  const tfdpRun = new TFdpSolver(grid, { backend: "ibfft", totalIterations: 8, seed: 42 });
-  const tfdpStep = new TFdpSolver(grid, { backend: "ibfft", totalIterations: 8, seed: 42 });
+  const tfdpRun = new TFdpSolver(grid, { backend: "ibFft", totalIterations: 8, seed: 42 });
+  const tfdpStep = new TFdpSolver(grid, { backend: "ibFft", totalIterations: 8, seed: 42 });
   const lTfdpRun = Layout2d.fromCoords(initCoords);
   const lTfdpStep = Layout2d.fromCoords(initCoords);
   assert.equal(tfdpRun.run(lTfdpRun), "completed");
@@ -112,11 +120,11 @@ export async function runForceAndConstraintsSmoke({ eg, webPkg }) {
   l3.free();
 
   // IbUmapSolver
-  const ib = new IbUmapSolver(grid, { backend: "barnes_hut", iterations: 6, degree: 6, numLandmarks: 8 });
+  const ib = new IbUmapSolver(grid, { backend: "barnesHut", iterations: 6, degree: 6, numLandmarks: 8 });
   const lIb = Layout2d.fromCoords(initCoords);
   assert.equal(ib.run(lIb), "completed");
   assert(ib.a > 0 && ib.b > 0);
-  assert.equal(ib.currentRho, 1.0);
+  assert.equal(ib.backend, "barnesHut");
   ib.free();
   lIb.free();
 
@@ -128,21 +136,22 @@ export async function runForceAndConstraintsSmoke({ eg, webPkg }) {
   assert(sparsePairs.v2 instanceof Uint32Array);
   sparsePairs.free();
 
-  const lmSmoke = computeRegularizedDogVaradhanLandmarks(grid, 6, 8, 42);
-  const gmLm = GuMapSolver.fromLandmarks(grid, lmSmoke, 32, { iterations: 4, seed: 42 });
+  const lmSmoke = computeRegularizedDogVaradhanLandmarks(grid, { degree: 6, numLandmarks: 8, seed: 42 });
+  const gmLm = GuMapSolver.fromLandmarks(grid, lmSmoke, { max2hopPerNode: 32, iterations: 4, seed: 42 });
   const lGmLm = Layout2d.fromCoords(initCoords);
   assert.equal(gmLm.run(lGmLm), "completed");
   gmLm.free();
   lGmLm.free();
 
-  const gmLmAsym = GuMapSolver.fromLandmarks(grid, lmSmoke, 32, { iterations: 4, symmetricNegative: false, seed: 42 });
+  const gmLmAsym = GuMapSolver.fromLandmarks(grid, lmSmoke, { max2hopPerNode: 32, iterations: 4, symmetricNegative: false, seed: 42 });
   const lGmLmAsym = Layout2d.fromCoords(initCoords);
   assert.equal(gmLmAsym.run(lGmLmAsym), "completed");
   gmLmAsym.free();
   lGmLmAsym.free();
-  assert.throws(
-    () => GuMapSolver.fromLandmarks(grid, lmSmoke, 32, { symmetricNegative: "nope" }),
-    Error,
+  assertJsError(
+    () => GuMapSolver.fromLandmarks(grid, lmSmoke, { max2hopPerNode: 32, symmetricNegative: "nope" }),
+    "GuMap invalid boolean",
+    "InvalidInput",
   );
 
   const ibLm = IbUmapSolver.fromLandmarks(grid, lmSmoke, { max2hopPerNode: 32, backend: "exact", iterations: 4, seed: 42 });
@@ -152,15 +161,15 @@ export async function runForceAndConstraintsSmoke({ eg, webPkg }) {
   lIbLm.free();
   lmSmoke.free();
 
-  const lmPm = computeRegularizedDogVaradhanLandmarks(grid, 6, 8, 42);
-  // SgdSolver.snapTFdp, pacmapGraph, pacmapGraphWithLandmarks, pacmapGraphWithLandmarkDistances, sgd2, "squared"
+  const lmPm = computeRegularizedDogVaradhanLandmarks(grid, { degree: 6, numLandmarks: 8, seed: 42 });
+  // SnapTFdpSolver, PacmapGraphSolver, Sgd2Solver, SgdSolver.full("squared")
   for (const solver of [
-    SgdSolver.snapTFdp(grid, { iterations: 6, seed: 42 }),
-    SgdSolver.snapTFdp(grid, { iterations: 6, degreeBeta: 0.5, boundedAttraction: false, seed: 42 }),
-    SgdSolver.pacmapGraph(grid, { nNeighbors: 5, phaseIterations: [3, 3, 3], keepAll1hop: true, max1hopPerNode: 3, degreeWeightBeta: 0.25, seed: 42 }),
-    SgdSolver.pacmapGraphWithLandmarks(grid, lmPm, { nNeighbors: 5, phaseIterations: [3, 3, 3], seed: 42 }),
-    SgdSolver.pacmapGraphWithLandmarkDistances(grid, lmPm.table(), lmPm.numLandmarks, { nNeighbors: 5, phaseIterations: [3, 3, 3], seed: 42 }),
-    SgdSolver.sgd2(grid, { iterations: 6, batchSize: 16, seed: 42 }),
+    new SnapTFdpSolver(grid, { iterations: 6, seed: 42 }),
+    new SnapTFdpSolver(grid, { iterations: 6, degreeBeta: 0.5, boundedAttraction: false, seed: 42 }),
+    new PacmapGraphSolver(grid, { nNeighbors: 5, phaseIterations: [3, 3, 3], keepAll1hop: true, max1hopPerNode: 3, degreeWeightBeta: 0.25, seed: 42 }),
+    PacmapGraphSolver.withLandmarks(grid, lmPm, { nNeighbors: 5, phaseIterations: [3, 3, 3], seed: 42 }),
+    PacmapGraphSolver.withLandmarkDistances(grid, lmPm.table(), lmPm.numLandmarks, { nNeighbors: 5, phaseIterations: [3, 3, 3], seed: 42 }),
+    new Sgd2Solver(grid, { iterations: 6, batchSize: 16, seed: 42 }),
     SgdSolver.full(grid, { iterations: 6, kind: "squared", seed: 42 }),
   ]) {
     const l = Layout2d.fromCoords(initCoords);
@@ -185,13 +194,15 @@ export async function runForceAndConstraintsSmoke({ eg, webPkg }) {
   assert(lFa2Cap.isAllFinite());
   fa2Cap.free();
   lFa2Cap.free();
-  assert.throws(
+  assertJsError(
     () => new ForceAtlas2Solver(grid, { maxDisplacement: "bad" }),
-    Error,
+    "FA2 invalid maxDisplacement",
+    "InvalidInput",
   );
-  assert.throws(
-    () => SgdSolver.snapTFdp(grid, { boundedAttraction: "bad" }),
-    Error,
+  assertJsError(
+    () => new SnapTFdpSolver(grid, { boundedAttraction: "bad" }),
+    "SnapTFdp invalid boolean",
+    "InvalidInput",
   );
 
   const yh = new YifanHuSolver(grid, { maxIterationsPerLevel: 8, minCoarsenSize: 6, seed: 42 });
@@ -231,7 +242,7 @@ export async function runForceAndConstraintsSmoke({ eg, webPkg }) {
   rectL.free();
 
   // Layering + generateLayeredConstraints + projectLayoutAxis
-  const cycGraph = CsrGraph.fromEdgeList(4, new Uint32Array([0, 1, 1, 2, 2, 0, 2, 3]), null, true, true);
+  const cycGraph = CsrGraph.fromEdgeList(4, new Uint32Array([0, 1, 1, 2, 2, 0, 2, 3]), null, { directed: true, sanitize: true });
   assert.deepEqual(Array.from(cycleEdges(cycGraph)), [2, 0]);
   const dag = removeCycles(cycGraph);
   assert.equal(cycleEdges(dag).length, 0);
@@ -245,19 +256,23 @@ export async function runForceAndConstraintsSmoke({ eg, webPkg }) {
   dag.free();
   cycGraph.free();
 
-  // FdebSolver (decoupled constructor + Layout2d/LayoutNd polymorphic run/step)
+  // FdebSolver + EdgePolylines (straightLineFromGraph + step/run)
   const lFdeb = Layout2d.fromCoords(initCoords);
-  const fdeb1 = new FdebSolver(grid, { cycles: 2, stepsPerCycle: 6 });
-  const fdeb2 = new FdebSolver(grid, { cycles: 2, stepsPerCycle: 6 });
+  const ep1 = EdgePolylines.straightLineFromGraph(grid, lFdeb);
+  const ep2 = EdgePolylines.straightLineFromGraph(grid, lFdeb);
+  const fdeb1 = new FdebSolver(ep1, { cycles: 2, stepsPerCycle: 6 });
+  const fdeb2 = new FdebSolver(ep2, { cycles: 2, stepsPerCycle: 6 });
   assert.equal(lFdeb.len(), 16);
-  assert.equal(fdeb1.run(lFdeb), "completed");
-  while (!fdeb2.isFinished) fdeb2.step(lFdeb);
-  assert.deepEqual(Array.from(fdeb1.edgeOffsets()), Array.from(fdeb2.edgeOffsets()));
-  assert.deepEqual(Array.from(fdeb1.points()), Array.from(fdeb2.points()));
+  assert.equal(fdeb1.run(ep1), "completed");
+  while (!fdeb2.isFinished) fdeb2.step(ep2);
+  assert.deepEqual(Array.from(ep1.edgeOffsetsView()), Array.from(ep2.edgeOffsetsView()));
+  assert.deepEqual(Array.from(ep1.pointsView()), Array.from(ep2.pointsView()));
   fdeb1.free();
   fdeb2.free();
+  ep1.free();
+  ep2.free();
   lFdeb.free();
 
-  assert.throws(() => assignLayers(grid, "longestPath"), Error);
+  assertJsError(() => assignLayers(grid, "longestPath"), "assignLayers undirected", "UnsupportedOperation");
   grid.free();
 }

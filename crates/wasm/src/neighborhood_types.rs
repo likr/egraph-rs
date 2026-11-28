@@ -33,7 +33,7 @@ impl JsKnnGraph {
         indptr: &[u32],
         indices: &[u32],
         distances: &[f64],
-    ) -> Result<JsKnnGraph, JsError> {
+    ) -> Result<JsKnnGraph, JsValue> {
         let n = parse_non_negative_usize(num_nodes, "numNodes")?;
         let inner =
             KnnGraph::new_validated(n, indptr.to_vec(), indices.to_vec(), distances.to_vec())
@@ -54,7 +54,7 @@ impl JsKnnGraph {
     }
 
     /// Returns a copy of the CSR `indptr` row-offset array (`length === numNodes + 1`).
-    pub fn indptr(&self) -> Result<Vec<u32>, JsError> {
+    pub fn indptr(&self) -> Result<Vec<u32>, JsValue> {
         Ok(self.inner.indptr().to_vec())
     }
 
@@ -96,7 +96,7 @@ impl JsSparseProbabilities {
         indptr: &[u32],
         indices: &[u32],
         values: &[f64],
-    ) -> Result<JsSparseProbabilities, JsError> {
+    ) -> Result<JsSparseProbabilities, JsValue> {
         let n = parse_non_negative_usize(num_nodes, "numNodes")?;
         let inner =
             SparseProbabilities::from_csr(n, indptr.to_vec(), indices.to_vec(), values.to_vec())
@@ -117,18 +117,18 @@ impl JsSparseProbabilities {
     }
 
     /// Returns a copy of the CSR `indptr` row-offset array (`length === numNodes + 1`).
-    pub fn indptr(&self) -> Result<Vec<u32>, JsError> {
-        Ok(self.inner.indptr.clone())
+    pub fn indptr(&self) -> Result<Vec<u32>, JsValue> {
+        Ok(self.inner.indptr().to_vec())
     }
 
     /// Returns a copy of the flat `Uint32Array` neighbor column indices (`length === nnz`).
     pub fn indices(&self) -> Vec<u32> {
-        self.inner.indices.clone()
+        self.inner.indices().to_vec()
     }
 
     /// Returns a copy of the flat `Float64Array` symmetric probability values (`length === nnz`).
     pub fn values(&self) -> Vec<f64> {
-        self.inner.values.clone()
+        self.inner.values().to_vec()
     }
 }
 
@@ -150,37 +150,37 @@ impl JsSparse12HopPairs {
     /// Returns the number of unique undirected 1-hop pairs (`u1 < v1`).
     #[wasm_bindgen(getter, js_name = num1hop)]
     pub fn num_1hop(&self) -> usize {
-        self.inner.u1.len()
+        self.inner.u1().len()
     }
 
     /// Returns the number of unique undirected 2-hop pairs (`u2 < v2`).
     #[wasm_bindgen(getter, js_name = num2hop)]
     pub fn num_2hop(&self) -> usize {
-        self.inner.u2.len()
+        self.inner.u2().len()
     }
 
     /// Returns a copy of 1-hop source vertex indices (`Uint32Array`).
     #[wasm_bindgen(getter)]
     pub fn u1(&self) -> Vec<u32> {
-        self.inner.u1.clone()
+        self.inner.u1().to_vec()
     }
 
     /// Returns a copy of 1-hop target vertex indices (`Uint32Array`).
     #[wasm_bindgen(getter)]
     pub fn v1(&self) -> Vec<u32> {
-        self.inner.v1.clone()
+        self.inner.v1().to_vec()
     }
 
     /// Returns a copy of 2-hop source vertex indices (`Uint32Array`).
     #[wasm_bindgen(getter)]
     pub fn u2(&self) -> Vec<u32> {
-        self.inner.u2.clone()
+        self.inner.u2().to_vec()
     }
 
     /// Returns a copy of 2-hop target vertex indices (`Uint32Array`).
     #[wasm_bindgen(getter)]
     pub fn v2(&self) -> Vec<u32> {
-        self.inner.v2.clone()
+        self.inner.v2().to_vec()
     }
 }
 

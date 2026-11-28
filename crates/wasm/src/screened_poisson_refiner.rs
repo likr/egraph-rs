@@ -17,11 +17,9 @@ use crate::solver_runner::{run_layout_in_place, run_steps_layout_in_place, step_
 fn parse_screened_poisson_refiner_config(
     options: &JsValue,
     ctx: &str,
-) -> Result<ScreenedPoissonRefinerConfig, JsError> {
-    let mut cfg = ScreenedPoissonRefinerConfig {
-        field: parse_screened_poisson_config(options, ctx)?,
-        ..ScreenedPoissonRefinerConfig::default()
-    };
+) -> Result<ScreenedPoissonRefinerConfig, JsValue> {
+    let mut cfg = ScreenedPoissonRefinerConfig::default();
+    cfg.field = parse_screened_poisson_config(options, ctx)?;
     if check_options_arg(options, ctx)? {
         cfg.iterations = opt_usize_prop(options, "iterations", cfg.iterations)?;
         cfg.step_size = opt_f64_prop(options, "stepSize", cfg.step_size)?;
@@ -48,7 +46,7 @@ pub struct JsScreenedPoissonRefiner {
 impl JsScreenedPoissonRefiner {
     /// Creates a standalone `ScreenedPoissonRefiner` for `numNodes` vertices.
     #[wasm_bindgen(constructor)]
-    pub fn new(num_nodes: f64, options: &JsValue) -> Result<JsScreenedPoissonRefiner, JsError> {
+    pub fn new(num_nodes: f64, options: &JsValue) -> Result<JsScreenedPoissonRefiner, JsValue> {
         let n = parse_non_negative_usize(num_nodes, "numNodes")?;
         let cfg = parse_screened_poisson_refiner_config(options, "ScreenedPoissonRefiner")?;
         let inner = ScreenedPoissonRefiner::<f32>::new(n, cfg).map_err(core_err_to_js)?;
@@ -60,7 +58,7 @@ impl JsScreenedPoissonRefiner {
     pub fn from_graph(
         graph: &JsCsrGraph,
         options: &JsValue,
-    ) -> Result<JsScreenedPoissonRefiner, JsError> {
+    ) -> Result<JsScreenedPoissonRefiner, JsValue> {
         let cfg =
             parse_screened_poisson_refiner_config(options, "ScreenedPoissonRefiner.fromGraph")?;
         let inner = ScreenedPoissonRefiner::<f32>::with_graph(graph.inner(), cfg)
@@ -74,21 +72,21 @@ impl JsScreenedPoissonRefiner {
         &mut self,
         coarse_layout: &JsLayout2d,
         node_to_coarse: &[u32],
-    ) -> Result<(), JsError> {
+    ) -> Result<(), JsValue> {
         let coarse_soa = coarse_layout.inner().to_layout2d();
         self.inner
-            .set_coarse_tether(coarse_soa, node_to_coarse.to_vec())
+            .set_coarse_tether(&coarse_soa, node_to_coarse)
             .map_err(core_err_to_js)
     }
 
     /// Executes one density refinement step on `layout` in place.
-    pub fn step(&mut self, layout: &mut JsLayout2d) -> Result<String, JsError> {
+    pub fn step(&mut self, layout: &mut JsLayout2d) -> Result<String, JsValue> {
         step_layout_in_place(&mut self.inner, layout)
     }
 
     /// Executes up to `steps` density refinement steps on `layout` in place.
     #[wasm_bindgen(js_name = runSteps)]
-    pub fn run_steps(&mut self, layout: &mut JsLayout2d, steps: f64) -> Result<String, JsError> {
+    pub fn run_steps(&mut self, layout: &mut JsLayout2d, steps: f64) -> Result<String, JsValue> {
         run_steps_layout_in_place(
             self.inner.num_nodes(),
             &mut self.inner,
@@ -99,7 +97,7 @@ impl JsScreenedPoissonRefiner {
     }
 
     /// Runs density refinement to completion or early convergence on `layout` in place.
-    pub fn run(&mut self, layout: &mut JsLayout2d) -> Result<String, JsError> {
+    pub fn run(&mut self, layout: &mut JsLayout2d) -> Result<String, JsValue> {
         run_layout_in_place(
             self.inner.num_nodes(),
             &mut self.inner,
@@ -113,7 +111,7 @@ impl JsScreenedPoissonRefiner {
     pub fn apply_epoch_step(
         &mut self,
         layout: &mut JsLayout2d,
-    ) -> Result<JsScreenedPoissonResult, JsError> {
+    ) -> Result<JsScreenedPoissonResult, JsValue> {
         let mut soa = layout.inner().to_layout2d();
         let stats = self
             .inner
@@ -129,7 +127,7 @@ impl JsScreenedPoissonRefiner {
     /// Returns telemetry from the most recent density field evaluation.
     #[wasm_bindgen(js_name = lastStats)]
     pub fn last_stats(&self) -> JsScreenedPoissonResult {
-        JsScreenedPoissonResult::from_stats(*self.inner.last_stats())
+        JsScreenedPoissonResult::from_stats(self.inner.last_stats().clone())
     }
 
     /// Most recently evaluated variational density energy.
@@ -152,7 +150,7 @@ impl JsScreenedPoissonRefiner {
 
     /// Returns the configured maximum number of refinement iterations.
     #[wasm_bindgen(getter, js_name = totalIterations)]
-    pub fn total_iterations(&self) -> usize {
+    pub fn total_iterations(&self) -> Option<usize> {
         self.inner.total_iterations()
     }
 

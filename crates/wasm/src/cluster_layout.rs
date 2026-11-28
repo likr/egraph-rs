@@ -11,8 +11,8 @@ use wasm_bindgen::prelude::*;
 
 use crate::csr_graph::JsCsrGraph;
 use crate::js_convert::{
-    core_err_to_js, ffi_err_to_js, parse_f64_sequence, parse_optional_f64_sequence,
-    parse_u32_sequence, set_f64_prop,
+    core_err_to_js, ffi_err_to_js, invalid_input_err, parse_f64_sequence,
+    parse_optional_f64_sequence, parse_u32_sequence, set_f64_prop,
 };
 use crate::js_options::{
     check_options_arg, get_prop, normalize_enum_token, opt_bool_prop, opt_f64_prop, opt_seed_prop,
@@ -21,11 +21,11 @@ use crate::js_options::{
 use crate::layout_buffers::JsLayout2d;
 use crate::solver_runner::{run_layout_in_place, run_steps_layout_in_place, step_layout_in_place};
 
-fn parse_cluster_refine_method(raw: &str) -> Result<ClusterRefineMethod, JsError> {
-    match normalize_enum_token(raw).as_str() {
+fn parse_cluster_refine_method(raw: &str) -> Result<ClusterRefineMethod, JsValue> {
+    match normalize_enum_token(raw)?.as_str() {
         "kmeans" | "clusterkmeans" => Ok(ClusterRefineMethod::Kmeans),
         "hac" | "clusterhac" => Ok(ClusterRefineMethod::Hac),
-        _ => Err(JsError::new(&format!(
+        _ => Err(invalid_input_err(format!(
             "unknown ClusterRefineMethod {raw:?}; expected 'kmeans' or 'hac'"
         ))),
     }
@@ -34,7 +34,7 @@ fn parse_cluster_refine_method(raw: &str) -> Result<ClusterRefineMethod, JsError
 fn parse_cluster_refine_config(
     options: &JsValue,
     ctx: &str,
-) -> Result<ClusterRefineConfig, JsError> {
+) -> Result<ClusterRefineConfig, JsValue> {
     let mut cfg = ClusterRefineConfig::default();
     if check_options_arg(options, ctx)? {
         if let Some(m_str) = opt_string_prop(options, "method")? {
@@ -62,10 +62,10 @@ pub struct JsClusterRefineSolver {
 impl JsClusterRefineSolver {
     /// Constructs a `ClusterRefineSolver` from `labels` without graph edge lengths.
     #[wasm_bindgen(constructor)]
-    pub fn new(labels: &JsValue, options: &JsValue) -> Result<JsClusterRefineSolver, JsError> {
+    pub fn new(labels: &JsValue, options: &JsValue) -> Result<JsClusterRefineSolver, JsValue> {
         let parsed_labels = parse_u32_sequence(labels, "labels")?;
         let cfg = parse_cluster_refine_config(options, "ClusterRefineSolver")?;
-        let inner = ClusterRefineSolver::<f32>::new(parsed_labels, cfg).map_err(core_err_to_js)?;
+        let inner = ClusterRefineSolver::<f32>::new(&parsed_labels, cfg).map_err(core_err_to_js)?;
         Ok(Self { inner })
     }
 
@@ -75,22 +75,22 @@ impl JsClusterRefineSolver {
         graph: &JsCsrGraph,
         labels: &JsValue,
         options: &JsValue,
-    ) -> Result<JsClusterRefineSolver, JsError> {
+    ) -> Result<JsClusterRefineSolver, JsValue> {
         let parsed_labels = parse_u32_sequence(labels, "labels")?;
         let cfg = parse_cluster_refine_config(options, "ClusterRefineSolver.fromGraph")?;
-        let inner = ClusterRefineSolver::<f32>::from_graph(graph.inner(), parsed_labels, cfg)
+        let inner = ClusterRefineSolver::<f32>::from_graph(graph.inner(), &parsed_labels, cfg)
             .map_err(core_err_to_js)?;
         Ok(Self { inner })
     }
 
     /// Executes one refinement round on `layout` in place.
-    pub fn step(&mut self, layout: &mut JsLayout2d) -> Result<String, JsError> {
+    pub fn step(&mut self, layout: &mut JsLayout2d) -> Result<String, JsValue> {
         step_layout_in_place(&mut self.inner, layout)
     }
 
     /// Executes up to `steps` refinement rounds on `layout` in place.
     #[wasm_bindgen(js_name = runSteps)]
-    pub fn run_steps(&mut self, layout: &mut JsLayout2d, steps: f64) -> Result<String, JsError> {
+    pub fn run_steps(&mut self, layout: &mut JsLayout2d, steps: f64) -> Result<String, JsValue> {
         run_steps_layout_in_place(
             self.inner.num_nodes(),
             &mut self.inner,
@@ -101,7 +101,7 @@ impl JsClusterRefineSolver {
     }
 
     /// Runs cluster refinement to completion on `layout` in place.
-    pub fn run(&mut self, layout: &mut JsLayout2d) -> Result<String, JsError> {
+    pub fn run(&mut self, layout: &mut JsLayout2d) -> Result<String, JsValue> {
         run_layout_in_place(
             self.inner.num_nodes(),
             &mut self.inner,
@@ -136,7 +136,7 @@ impl JsClusterRefineSolver {
 
     /// Returns the maximum scheduled iterations (`maxIterations`).
     #[wasm_bindgen(getter, js_name = totalIterations)]
-    pub fn total_iterations(&self) -> usize {
+    pub fn total_iterations(&self) -> Option<usize> {
         self.inner.total_iterations()
     }
 
@@ -159,7 +159,7 @@ pub fn js_refine_cluster_layout(
     layout: &mut JsLayout2d,
     labels: &JsValue,
     options: &JsValue,
-) -> Result<usize, JsError> {
+) -> Result<usize, JsValue> {
     let parsed_labels = parse_u32_sequence(labels, "labels")?;
     let cfg = parse_cluster_refine_config(options, "refineClusterLayout")?;
     let mut soa = layout.inner().to_layout2d();
@@ -174,22 +174,19 @@ pub fn js_refine_cluster_layout(
 
 /// Computes a Squarified Treemap partition returning flat `[xMin0, xMax0, yMin0, yMax0, ...]` (`Float64Array`).
 #[wasm_bindgen(js_name = squarifiedTreemap)]
-pub fn js_squarified_treemap(
-    weights: &JsValue,
-    width: Option<f64>,
-    height: Option<f64>,
-    x: Option<f64>,
-    y: Option<f64>,
-) -> Result<Vec<f64>, JsError> {
+pub fn js_squarified_treemap(weights: &JsValue, options: &JsValue) -> Result<Vec<f64>, JsValue> {
     let w = parse_f64_sequence(weights, "weights")?;
-    let rects = squarified_treemap(
-        &w,
-        x.unwrap_or(0.0),
-        y.unwrap_or(0.0),
-        width.unwrap_or(100.0),
-        height.unwrap_or(100.0),
-    )
-    .map_err(core_err_to_js)?;
+    let mut x = 0.0;
+    let mut y = 0.0;
+    let mut width = 100.0;
+    let mut height = 100.0;
+    if check_options_arg(options, "squarifiedTreemap")? {
+        x = opt_f64_prop(options, "x", x)?;
+        y = opt_f64_prop(options, "y", y)?;
+        width = opt_f64_prop(options, "width", width)?;
+        height = opt_f64_prop(options, "height", height)?;
+    }
+    let rects = squarified_treemap(&w, x, y, width, height).map_err(core_err_to_js)?;
     let mut flat = Vec::with_capacity(rects.len() * 4);
     for r in rects {
         flat.extend_from_slice(&r);
@@ -197,23 +194,23 @@ pub fn js_squarified_treemap(
     Ok(flat)
 }
 
-fn parse_gib_box_mode(raw: &str) -> Result<GibBoxLayoutMode, JsError> {
-    match normalize_enum_token(raw).as_str() {
+fn parse_gib_box_mode(raw: &str) -> Result<GibBoxLayoutMode, JsValue> {
+    match normalize_enum_token(raw)?.as_str() {
         "treemap" | "squarifiedtreemap" | "trgib" => Ok(GibBoxLayoutMode::SquarifiedTreemap),
         "forcedirected" | "fd" | "fdgib" => Ok(GibBoxLayoutMode::ForceDirected),
-        _ => Err(JsError::new(&format!(
-            "unknown GibBoxLayoutMode {raw:?}; expected 'treemap' or 'force_directed'"
+        _ => Err(invalid_input_err(format!(
+            "unknown GibBoxLayoutMode {raw:?}; expected 'treemap' or 'forceDirected'"
         ))),
     }
 }
 
-fn parse_gib_intra_mode(raw: &str) -> Result<GibIntraLayoutMode, JsError> {
-    match normalize_enum_token(raw).as_str() {
+fn parse_gib_intra_mode(raw: &str) -> Result<GibIntraLayoutMode, JsValue> {
+    match normalize_enum_token(raw)?.as_str() {
         "fr" | "fruchtermanreingold" => Ok(GibIntraLayoutMode::Fr),
         "sgdfull" | "sgd" => Ok(GibIntraLayoutMode::SgdFull),
         "yifanhu" => Ok(GibIntraLayoutMode::YifanHu),
-        _ => Err(JsError::new(&format!(
-            "unknown GibIntraLayoutMode {raw:?}; expected 'fr', 'sgd_full', or 'yifan_hu'"
+        _ => Err(invalid_input_err(format!(
+            "unknown GibIntraLayoutMode {raw:?}; expected 'fr', 'sgdFull', or 'yifanHu'"
         ))),
     }
 }
@@ -235,7 +232,7 @@ impl JsGroupInABoxSolver {
         graph: &JsCsrGraph,
         labels: &JsValue,
         options: &JsValue,
-    ) -> Result<JsGroupInABoxSolver, JsError> {
+    ) -> Result<JsGroupInABoxSolver, JsValue> {
         let parsed_labels = parse_u32_sequence(labels, "labels")?;
         let mut cfg = GroupInABoxConfig::default();
         let mut cluster_weights: Option<Vec<f64>> = None;
@@ -260,20 +257,20 @@ impl JsGroupInABoxSolver {
             cfg.seed = opt_seed_prop(options)?;
         }
         let inner = match cluster_weights {
-            Some(cw) => GroupInABoxSolver::<f32>::with_cluster_weights(
+            Some(ref cw) => GroupInABoxSolver::<f32>::with_cluster_weights(
                 graph.inner(),
-                parsed_labels,
+                &parsed_labels,
                 cw,
                 cfg,
             ),
-            None => GroupInABoxSolver::<f32>::new(graph.inner(), parsed_labels, cfg),
+            None => GroupInABoxSolver::<f32>::new(graph.inner(), &parsed_labels, cfg),
         }
         .map_err(core_err_to_js)?;
         Ok(Self { inner })
     }
 
     /// Returns the computed cluster boxes ordered canonically by first appearance.
-    pub fn boxes(&self) -> Result<js_sys::Array, JsError> {
+    pub fn boxes(&self) -> Result<js_sys::Array, JsValue> {
         let out = js_sys::Array::new();
         for b in self.inner.boxes() {
             let obj = js_sys::Object::new();
@@ -290,13 +287,13 @@ impl JsGroupInABoxSolver {
     }
 
     /// Executes one intra-box layout iteration across active clusters on `layout` in place.
-    pub fn step(&mut self, layout: &mut JsLayout2d) -> Result<String, JsError> {
+    pub fn step(&mut self, layout: &mut JsLayout2d) -> Result<String, JsValue> {
         step_layout_in_place(&mut self.inner, layout)
     }
 
     /// Executes up to `steps` intra-box layout iterations on `layout` in place.
     #[wasm_bindgen(js_name = runSteps)]
-    pub fn run_steps(&mut self, layout: &mut JsLayout2d, steps: f64) -> Result<String, JsError> {
+    pub fn run_steps(&mut self, layout: &mut JsLayout2d, steps: f64) -> Result<String, JsValue> {
         run_steps_layout_in_place(
             self.inner.num_nodes(),
             &mut self.inner,
@@ -307,7 +304,7 @@ impl JsGroupInABoxSolver {
     }
 
     /// Runs Group-in-a-Box intra-cluster optimization to completion on `layout` in place.
-    pub fn run(&mut self, layout: &mut JsLayout2d) -> Result<String, JsError> {
+    pub fn run(&mut self, layout: &mut JsLayout2d) -> Result<String, JsValue> {
         run_layout_in_place(
             self.inner.num_nodes(),
             &mut self.inner,
@@ -330,7 +327,7 @@ impl JsGroupInABoxSolver {
 
     /// Returns the scheduled intra-cluster iteration count.
     #[wasm_bindgen(getter, js_name = totalIterations)]
-    pub fn total_iterations(&self) -> usize {
+    pub fn total_iterations(&self) -> Option<usize> {
         self.inner.total_iterations()
     }
 

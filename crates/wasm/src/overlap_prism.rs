@@ -1,6 +1,6 @@
 //! Cooperative Gansner-Hu (2010) PRISM proximity-stress overlap removal WebAssembly bindings (`f32`).
 
-use egraph::core::IterativeSolver;
+use egraph::core::{IterativeSolver, NodeExtents2d};
 use egraph::layout::{PrismConfig, PrismOverlapRemoval};
 use wasm_bindgen::prelude::*;
 
@@ -11,7 +11,7 @@ use crate::js_options::{
 use crate::layout_buffers::JsLayout2d;
 use crate::solver_runner::{run_layout_in_place, run_steps_layout_in_place, step_layout_in_place};
 
-fn parse_prism_config(options: &JsValue) -> Result<PrismConfig, JsError> {
+fn parse_prism_config(options: &JsValue) -> Result<PrismConfig, JsValue> {
     let mut cfg = PrismConfig::default();
     if check_options_arg(options, "PrismOverlapRemoval")? {
         cfg.max_iterations = opt_usize_prop(options, "maxIterations", cfg.max_iterations)?;
@@ -25,9 +25,6 @@ fn parse_prism_config(options: &JsValue) -> Result<PrismConfig, JsError> {
 }
 
 /// Cooperative Gansner-Hu (2010) PRISM proximity-stress overlap removal solver (`f32`).
-///
-/// Uses `Delaunay2d` when compiled with `delaunay` and falls back automatically to
-/// `StaticKdTree` $k$-NN proximity + `RectangleOverlapSweep` under `--no-default-features`.
 #[wasm_bindgen(js_name = PrismOverlapRemoval)]
 #[derive(Debug, Clone)]
 pub struct JsPrismOverlapRemoval {
@@ -42,32 +39,30 @@ impl JsPrismOverlapRemoval {
         half_widths: &[f32],
         half_heights: &[f32],
         options: &JsValue,
-    ) -> Result<JsPrismOverlapRemoval, JsError> {
+    ) -> Result<JsPrismOverlapRemoval, JsValue> {
         let cfg = parse_prism_config(options)?;
-        let inner =
-            PrismOverlapRemoval::<f32>::new(half_widths.to_vec(), half_heights.to_vec(), cfg)
-                .map_err(core_err_to_js)?;
+        let extents = NodeExtents2d::new(half_widths, half_heights).map_err(core_err_to_js)?;
+        let inner = PrismOverlapRemoval::<f32>::new(extents, cfg).map_err(core_err_to_js)?;
         Ok(Self { inner })
     }
 
     /// Constructs a `PrismOverlapRemoval` solver for circular/square nodes with equal
     /// half-width and half-height given by `radii`.
     #[wasm_bindgen(js_name = fromRadii)]
-    pub fn from_radii(radii: &[f32], options: &JsValue) -> Result<JsPrismOverlapRemoval, JsError> {
+    pub fn from_radii(radii: &[f32], options: &JsValue) -> Result<JsPrismOverlapRemoval, JsValue> {
         let cfg = parse_prism_config(options)?;
-        let inner =
-            PrismOverlapRemoval::<f32>::from_radii(radii.to_vec(), cfg).map_err(core_err_to_js)?;
+        let inner = PrismOverlapRemoval::<f32>::from_radii(radii, cfg).map_err(core_err_to_js)?;
         Ok(Self { inner })
     }
 
     /// Executes one PRISM proximity-stress round on `layout` in place.
-    pub fn step(&mut self, layout: &mut JsLayout2d) -> Result<String, JsError> {
+    pub fn step(&mut self, layout: &mut JsLayout2d) -> Result<String, JsValue> {
         step_layout_in_place(&mut self.inner, layout)
     }
 
     /// Executes up to `steps` PRISM rounds on `layout` in place.
     #[wasm_bindgen(js_name = runSteps)]
-    pub fn run_steps(&mut self, layout: &mut JsLayout2d, steps: f64) -> Result<String, JsError> {
+    pub fn run_steps(&mut self, layout: &mut JsLayout2d, steps: f64) -> Result<String, JsValue> {
         run_steps_layout_in_place(
             self.inner.num_nodes(),
             &mut self.inner,
@@ -78,7 +73,7 @@ impl JsPrismOverlapRemoval {
     }
 
     /// Runs PRISM overlap removal until `0` overlaps remain or `maxIterations` is reached.
-    pub fn run(&mut self, layout: &mut JsLayout2d) -> Result<String, JsError> {
+    pub fn run(&mut self, layout: &mut JsLayout2d) -> Result<String, JsValue> {
         run_layout_in_place(
             self.inner.num_nodes(),
             &mut self.inner,
@@ -107,7 +102,7 @@ impl JsPrismOverlapRemoval {
 
     /// Returns the maximum scheduled PRISM rounds (`maxIterations`).
     #[wasm_bindgen(getter, js_name = totalIterations)]
-    pub fn total_iterations(&self) -> usize {
+    pub fn total_iterations(&self) -> Option<usize> {
         self.inner.total_iterations()
     }
 

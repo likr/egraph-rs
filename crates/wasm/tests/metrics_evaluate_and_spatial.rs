@@ -8,19 +8,19 @@ use egraph_wasm::metrics_crossings::{
 };
 use egraph_wasm::metrics_eval_dispatch::js_evaluate_metrics_2d;
 use egraph_wasm::metrics_functions::{
+    js_gabriel_graph_edges, js_ideal_edge_lengths_with_unit, js_prism_distortion,
+    js_prism_distortion_with_edges, js_relative_neighborhood_edges,
+};
+use egraph_wasm::metrics_geometry::{
     js_all_pairs_bfs, js_bfs_single_source, js_neighborhood_preservation_1hop, js_sampled_np1,
     js_sampled_np2, js_sampled_scale_normalized_stress, js_scale_normalized_stress,
     js_scale_normalized_stress_from_distances,
 };
-use egraph_wasm::metrics_geometry::{
-    js_gabriel_graph_edges, js_ideal_edge_lengths_with_unit, js_prism_distortion,
-    js_prism_distortion_with_edges, js_relative_neighborhood_edges,
-};
 use egraph_wasm::metrics_non_euclidean_crossings::js_crossing_edges_torus_2d;
-#[cfg(feature = "delaunay")]
-use egraph_wasm::spatial_dataset::{js_delaunay_to_csr, js_delaunay_triangulation};
-use egraph_wasm::spatial_dataset::{js_parse_csr_csv, js_rectangle_overlaps};
-use util::fixtures::{make_grid, make_grid_4x4_with_layout};
+use egraph_wasm::spatial_dataset::{
+    js_delaunay_to_csr, js_delaunay_triangulation, js_parse_csr_csv, js_rectangle_overlaps,
+};
+use util::fixtures::{make_grid, make_grid_4x4_with_layout, make_opts};
 use wasm_bindgen::JsValue;
 use wasm_bindgen_test::*;
 
@@ -31,33 +31,18 @@ fn selective_evaluate_metrics_and_adversarial_errors() {
         &"sns".into(),
         &"np2".into(),
         &"sampledNp1".into(),
-        &"sampled_np2".into(),
+        &"sampledNp2".into(),
         &"aspectRatio".into(),
     );
     let report = js_evaluate_metrics_2d(
         &grid,
         &layout,
         &targets,
-        &JsValue::from_f64(8.0),
-        Some(64.0),
-        Some(42.0),
-        None,
-        &JsValue::UNDEFINED,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        &JsValue::UNDEFINED,
-        &JsValue::UNDEFINED,
-        &JsValue::UNDEFINED,
+        &make_opts(&[
+            ("numPivots", JsValue::from_f64(8.0)),
+            ("numSamples", JsValue::from_f64(64.0)),
+            ("seed", JsValue::from_f64(42.0)),
+        ]),
     )
     .expect("selective report");
 
@@ -95,34 +80,119 @@ fn selective_evaluate_metrics_and_adversarial_errors() {
             .is_undefined()
     );
 
-    // Adversarial inputs return Err(JsError) without panicking.
+    // Adversarial inputs return Err(JsValue) with .code without panicking.
     let short_layout = JsLayout2d::zeros(3.0).unwrap();
-    assert!(js_scale_normalized_stress(&grid, &short_layout).is_err());
+    let dim_err = js_scale_normalized_stress(&grid, &short_layout).unwrap_err();
+    assert_eq!(
+        js_sys::Reflect::get(&dim_err, &"code".into())
+            .unwrap()
+            .as_string(),
+        Some("DimensionMismatch".to_owned())
+    );
     assert!(js_sweep_crossing_number(&grid, &short_layout).is_err());
     assert!(js_neighborhood_preservation_1hop(&grid, &short_layout).is_err());
     assert!(js_prism_distortion(&layout, &short_layout).is_err());
 
     let mut nan_layout = JsLayout2d::zeros(16.0).unwrap();
     nan_layout.set_x(0.0, f32::NAN).unwrap();
-    assert!(js_scale_normalized_stress(&grid, &nan_layout).is_err());
+    let nan_err = js_scale_normalized_stress(&grid, &nan_layout).unwrap_err();
+    assert_eq!(
+        js_sys::Reflect::get(&nan_err, &"code".into())
+            .unwrap()
+            .as_string(),
+        Some("NonFiniteValue".to_owned())
+    );
     assert!(js_node_resolution(&nan_layout).is_err());
     assert!(js_aspect_ratio(&nan_layout).is_err());
 
     // Seed and sample/pivot bounds
-    assert!(js_sampled_scale_normalized_stress(&grid, &layout, Some(0.0), Some(42.0)).is_err());
-    assert!(js_sampled_scale_normalized_stress(&grid, &layout, Some(4.0), Some(-1.0)).is_err());
-    assert!(js_sampled_scale_normalized_stress(&grid, &layout, Some(4.0), Some(1.5)).is_err());
     assert!(
-        js_sampled_scale_normalized_stress(&grid, &layout, Some(4.0), Some(9007199254740992.0))
-            .is_err()
+        js_sampled_scale_normalized_stress(
+            &grid,
+            &layout,
+            &make_opts(&[
+                ("numPivots", JsValue::from_f64(0.0)),
+                ("seed", JsValue::from_f64(42.0)),
+            ]),
+        )
+        .is_err()
     );
-    assert!(js_sampled_crossing_number(&grid, &layout, Some(0.0), Some(42.0)).is_err());
-    assert!(js_sampled_np1(&grid, &layout, Some(0.0), Some(42.0)).is_err());
-    assert!(js_sampled_np2(&grid, &layout, Some(0.0), Some(42.0)).is_err());
+    assert!(
+        js_sampled_scale_normalized_stress(
+            &grid,
+            &layout,
+            &make_opts(&[
+                ("numPivots", JsValue::from_f64(4.0)),
+                ("seed", JsValue::from_f64(-1.0)),
+            ]),
+        )
+        .is_err()
+    );
+    assert!(
+        js_sampled_scale_normalized_stress(
+            &grid,
+            &layout,
+            &make_opts(&[
+                ("numPivots", JsValue::from_f64(4.0)),
+                ("seed", JsValue::from_f64(1.5)),
+            ]),
+        )
+        .is_err()
+    );
+    assert!(
+        js_sampled_scale_normalized_stress(
+            &grid,
+            &layout,
+            &make_opts(&[
+                ("numPivots", JsValue::from_f64(4.0)),
+                ("seed", JsValue::from_f64(9007199254740992.0)),
+            ]),
+        )
+        .is_err()
+    );
+    assert!(
+        js_sampled_crossing_number(
+            &grid,
+            &layout,
+            &make_opts(&[
+                ("numSamples", JsValue::from_f64(0.0)),
+                ("seed", JsValue::from_f64(42.0)),
+            ]),
+        )
+        .is_err()
+    );
+    assert!(
+        js_sampled_np1(
+            &grid,
+            &layout,
+            &make_opts(&[
+                ("numSamples", JsValue::from_f64(0.0)),
+                ("seed", JsValue::from_f64(42.0)),
+            ]),
+        )
+        .is_err()
+    );
+    assert!(
+        js_sampled_np2(
+            &grid,
+            &layout,
+            &make_opts(&[
+                ("numSamples", JsValue::from_f64(0.0)),
+                ("seed", JsValue::from_f64(42.0)),
+            ]),
+        )
+        .is_err()
+    );
     let empty_g = JsCsrGraph::from_edge_list(0.0, &[], None, &JsValue::UNDEFINED, None).unwrap();
     let empty_l = JsLayout2d::zeros(0.0).unwrap();
-    assert_eq!(js_sampled_np1(&empty_g, &empty_l, None, None).unwrap(), 0.0);
-    assert_eq!(js_sampled_np2(&empty_g, &empty_l, None, None).unwrap(), 0.0);
+    assert_eq!(
+        js_sampled_np1(&empty_g, &empty_l, &JsValue::UNDEFINED).unwrap(),
+        0.0
+    );
+    assert_eq!(
+        js_sampled_np2(&empty_g, &empty_l, &JsValue::UNDEFINED).unwrap(),
+        0.0
+    );
 
     // Bad targets
     assert!(
@@ -130,87 +200,14 @@ fn selective_evaluate_metrics_and_adversarial_errors() {
             &grid,
             &layout,
             &JsValue::from_str("sns"),
-            &JsValue::UNDEFINED,
-            None,
-            None,
-            None,
-            &JsValue::UNDEFINED,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            &JsValue::UNDEFINED,
-            &JsValue::UNDEFINED,
-            &JsValue::UNDEFINED,
+            &JsValue::UNDEFINED
         )
         .is_err()
     );
     let bad_target = js_sys::Array::of1(&"nonExistentMetric".into());
-    assert!(
-        js_evaluate_metrics_2d(
-            &grid,
-            &layout,
-            &bad_target,
-            &JsValue::UNDEFINED,
-            None,
-            None,
-            None,
-            &JsValue::UNDEFINED,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            &JsValue::UNDEFINED,
-            &JsValue::UNDEFINED,
-            &JsValue::UNDEFINED,
-        )
-        .is_err()
-    );
+    assert!(js_evaluate_metrics_2d(&grid, &layout, &bad_target, &JsValue::UNDEFINED).is_err());
     let non_str_target = js_sys::Array::of1(&JsValue::from_f64(123.0));
-    assert!(
-        js_evaluate_metrics_2d(
-            &grid,
-            &layout,
-            &non_str_target,
-            &JsValue::UNDEFINED,
-            None,
-            None,
-            None,
-            &JsValue::UNDEFINED,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            &JsValue::UNDEFINED,
-            &JsValue::UNDEFINED,
-            &JsValue::UNDEFINED,
-        )
-        .is_err()
-    );
+    assert!(js_evaluate_metrics_2d(&grid, &layout, &non_str_target, &JsValue::UNDEFINED).is_err());
 }
 
 #[wasm_bindgen_test]
@@ -266,26 +263,7 @@ fn dataset_spatial_crossings_and_bfs_metrics() {
         &grid,
         &grid_layout,
         &targets,
-        &JsValue::UNDEFINED,
-        None,
-        None,
-        Some(1.0),
-        &JsValue::UNDEFINED,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        &JsValue::UNDEFINED,
-        &JsValue::UNDEFINED,
-        &JsValue::UNDEFINED,
+        &make_opts(&[("idealEdgeLength", JsValue::from_f64(1.0))]),
     )
     .unwrap();
     assert!(report.scale_normalized_stress().is_some());
@@ -308,15 +286,11 @@ fn dataset_spatial_crossings_and_bfs_metrics() {
     let p_dist = js_prism_distortion_with_edges(&grid_layout, &adjusted, &gg_edges).unwrap();
     assert!(p_dist.sigma_dist().is_finite() && p_dist.sigma_disp().is_finite());
 
-    #[cfg(feature = "delaunay")]
-    {
-        let del_csr = js_delaunay_to_csr(&grid_layout).unwrap();
-        assert_eq!(del_csr.num_nodes(), 9);
-        assert!(del_csr.num_edges() >= 12);
-    }
+    let del_csr = js_delaunay_to_csr(&grid_layout).unwrap();
+    assert_eq!(del_csr.num_nodes(), 9);
+    assert!(del_csr.num_edges() >= 12);
 }
 
-#[cfg(feature = "delaunay")]
 #[wasm_bindgen_test]
 fn delaunay_triangulation_square_collinear_and_errors() {
     let square = JsLayout2d::from_coords(&[0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 1.0]).unwrap();

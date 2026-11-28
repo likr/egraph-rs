@@ -8,7 +8,10 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "../../..");
 const pkgDir = path.join(repoRoot, "crates/wasm/pkg");
-const distDir = path.join(repoRoot, "js/examples/dist");
+const examplesWebDist = path.join(repoRoot, "examples/web/dist");
+const distDir = existsSync(examplesWebDist)
+  ? examplesWebDist
+  : path.join(repoRoot, "js/examples/dist");
 
 async function loadPlaywright() {
   try {
@@ -101,30 +104,50 @@ try {
     const eg = await import(pkgUrl);
     await eg.default();
 
-    // Test 1: Layout2d, LayoutNd & ManifoldLayout2d coordsView across memory.grow
+    // Test 1: Layout2d, Layout3d, LayoutNd, ManifoldLayout2d & EdgePolylines views across memory.grow
     const l2 = eg.Layout2d.fromCoords(new Float32Array([1.5, -2.5, 3.25, 4.75]));
+    const l3 = eg.Layout3d.fromCoords(new Float32Array([1, 2, 3, 4, 5, 6]));
     const lnd = eg.LayoutNd.fromCoords(2, 3, new Float32Array([1, 2, 3, 4, 5, 6]));
     const lm = eg.ManifoldLayout2d.fromCoords("torus", new Float32Array([0.1, 0.2, 0.3, 0.4]));
+    const polyGraph = eg.CsrGraph.fromEdgeList(2, new Uint32Array([0, 1]));
+    const poly = eg.EdgePolylines.straightLineFromGraph(polyGraph, l3);
     const v2Before = l2.coordsView();
+    const v3Before = l3.coordsView();
     const vndBefore = lnd.coordsView();
     const vmBefore = lm.coordsView();
+    const poBefore = poly.edgeOffsetsView();
+    const ppBefore = poly.pointsView();
     const bufBefore2 = v2Before.buffer;
+    const bufBefore3 = v3Before.buffer;
     const bufBeforeNd = vndBefore.buffer;
     const bufBeforeM = vmBefore.buffer;
+    const bufBeforePo = poBefore.buffer;
+    const bufBeforePp = ppBefore.buffer;
 
     eg.wasmMemory().grow(2);
 
     const detached2Len = bufBefore2.byteLength;
+    const detached3Len = bufBefore3.byteLength;
     const detachedNdLen = bufBeforeNd.byteLength;
     const detachedMLen = bufBeforeM.byteLength;
+    const detachedPoLen = bufBeforePo.byteLength;
+    const detachedPpLen = bufBeforePp.byteLength;
     const v2After = l2.coordsView();
+    const v3After = l3.coordsView();
     const vndAfter = lnd.coordsView();
     const vmAfter = lm.coordsView();
+    const poAfter = poly.edgeOffsetsView();
+    const ppAfter = poly.pointsView();
     const l2Ok =
       detached2Len === 0 &&
       v2After.buffer.byteLength > 0 &&
       v2After[0] === 1.5 &&
       v2After[3] === 4.75;
+    const l3Ok =
+      detached3Len === 0 &&
+      v3After.buffer.byteLength > 0 &&
+      v3After[0] === 1 &&
+      v3After[5] === 6;
     const lndOk =
       detachedNdLen === 0 &&
       vndAfter.buffer.byteLength > 0 &&
@@ -135,9 +158,20 @@ try {
       vmAfter.buffer.byteLength > 0 &&
       Math.abs(vmAfter[0] - 0.1) < 1e-6 &&
       Math.abs(vmAfter[3] - 0.4) < 1e-6;
+    const polyOk =
+      detachedPoLen === 0 &&
+      detachedPpLen === 0 &&
+      poAfter.buffer.byteLength > 0 &&
+      ppAfter.buffer.byteLength > 0 &&
+      poAfter.length === 2 &&
+      ppAfter.length === 6 &&
+      ppAfter[5] === 6;
 
+    poly.free();
+    polyGraph.free();
     lm.free();
     l2.free();
+    l3.free();
     lnd.free();
 
     // Test 2: N=5,000 (50x100 grid) runProgressive <= 10 ms/frame budget
@@ -244,8 +278,10 @@ try {
 
     return {
       l2Ok,
+      l3Ok,
       lndOk,
       lmOk,
+      polyOk,
       n,
       totalMs,
       frames: pureFrameTimes.length,
@@ -258,8 +294,10 @@ try {
   }, `${baseUrl}/pkg/index.js`);
 
   assert(browserBench.l2Ok, "Layout2d.coordsView() failed memory.grow detach recovery in Chromium");
+  assert(browserBench.l3Ok, "Layout3d.coordsView() failed memory.grow detach recovery in Chromium");
   assert(browserBench.lndOk, "LayoutNd.coordsView() failed memory.grow detach recovery in Chromium");
   assert(browserBench.lmOk, "ManifoldLayout2d.coordsView() failed memory.grow detach recovery in Chromium");
+  assert(browserBench.polyOk, "EdgePolylines views failed memory.grow detach recovery in Chromium");
   assert(browserBench.coordsFinite, "N=5,000 layout produced non-finite coordinates");
   assert.equal(browserBench.finalStatus, "completed");
   assert(

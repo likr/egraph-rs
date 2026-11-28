@@ -27,7 +27,7 @@ pub fn js_poincare_mobius_add(x1: f64, y1: f64, x2: f64, y2: f64) -> Vec<f64> {
 
 /// Computes the closed-form Möbius-equivariant Einstein midpoint `[cx, cy]` of Poincaré disk points `(xs, ys)`.
 #[wasm_bindgen(js_name = poincareEinsteinMidpoint)]
-pub fn js_poincare_einstein_midpoint(xs: &[f64], ys: &[f64]) -> Result<Vec<f64>, JsError> {
+pub fn js_poincare_einstein_midpoint(xs: &[f64], ys: &[f64]) -> Result<Vec<f64>, JsValue> {
     let (cx, cy) = poincare_einstein_midpoint(xs, ys).map_err(core_err_to_js)?;
     Ok(vec![cx, cy])
 }
@@ -61,7 +61,7 @@ pub fn js_lorentz_log_map(x1: f64, y1: f64, x2: f64, y2: f64) -> Vec<f64> {
 
 /// Computes the Einstein midpoint `[cx, cy]` of Lorentz hyperboloid spatial coordinates `(xs, ys)`.
 #[wasm_bindgen(js_name = lorentzEinsteinMidpoint)]
-pub fn js_lorentz_einstein_midpoint(xs: &[f64], ys: &[f64]) -> Result<Vec<f64>, JsError> {
+pub fn js_lorentz_einstein_midpoint(xs: &[f64], ys: &[f64]) -> Result<Vec<f64>, JsValue> {
     let (cx, cy) = lorentz_einstein_midpoint(xs, ys).map_err(core_err_to_js)?;
     Ok(vec![cx, cy])
 }
@@ -89,8 +89,8 @@ pub fn js_wrap_torus_point(x: f64, y: f64) -> Vec<f64> {
 #[wasm_bindgen(js_name = torusSpectralPhaseInit)]
 pub fn js_torus_spectral_phase_init(
     graph: &JsCsrGraph,
-    seed: Option<f64>,
-) -> Result<JsManifoldLayout2d, JsError> {
+    seed: &JsValue,
+) -> Result<JsManifoldLayout2d, JsValue> {
     let seed_u64 = parse_seed_u64(seed)?;
     let inner = ManifoldLayout2d::<f32>::torus_spectral_phase_init(graph.inner(), seed_u64)
         .map_err(core_err_to_js)?;

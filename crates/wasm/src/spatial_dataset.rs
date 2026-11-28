@@ -1,18 +1,14 @@
 //! WebAssembly bindings for 2D Delaunay triangulation, rectangle overlap sweeps, and CSV CSR parsing.
 
 use crate::csr_graph::JsCsrGraph;
-use crate::js_convert::core_err_to_js;
+use crate::js_convert::{core_err_to_js, invalid_input_err};
 use crate::layout_buffers::JsLayout2d;
-#[cfg(feature = "delaunay")]
 use egraph::core::{CoreError, CsrGraph};
-#[cfg(feature = "delaunay")]
-use egraph::spatial::Delaunay2d;
-use egraph::spatial::RectangleOverlapSweep;
-use egraph_dataset::parse_csr_csv;
+use egraph::dataset::parse_csr_csv;
+use egraph::spatial::{Delaunay2d, RectangleOverlapSweep};
 use wasm_bindgen::prelude::*;
 
 /// Deterministic 2D Delaunay triangulation result returned by `delaunayTriangulation`.
-#[cfg(feature = "delaunay")]
 #[wasm_bindgen(js_name = DelaunayResult)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct JsDelaunayResult {
@@ -21,7 +17,6 @@ pub struct JsDelaunayResult {
     triangles: Vec<u32>,
 }
 
-#[cfg(feature = "delaunay")]
 #[wasm_bindgen(js_class = DelaunayResult)]
 impl JsDelaunayResult {
     /// Returns the number of vertices in the triangulated layout.
@@ -41,10 +36,9 @@ impl JsDelaunayResult {
     }
 }
 
-/// Computes the deterministic 2D Delaunay triangulation of `layout` (`delaunay` feature).
-#[cfg(feature = "delaunay")]
+/// Computes the deterministic 2D Delaunay triangulation of `layout`.
 #[wasm_bindgen(js_name = delaunayTriangulation)]
-pub fn js_delaunay_triangulation(layout: &JsLayout2d) -> Result<JsDelaunayResult, JsError> {
+pub fn js_delaunay_triangulation(layout: &JsLayout2d) -> Result<JsDelaunayResult, JsValue> {
     let soa = layout.inner().to_layout2d();
     let dt = Delaunay2d::triangulate(&soa).map_err(core_err_to_js)?;
     let mut flat_edges = Vec::with_capacity(dt.edges().len() * 2);
@@ -65,8 +59,7 @@ pub fn js_delaunay_triangulation(layout: &JsLayout2d) -> Result<JsDelaunayResult
     })
 }
 
-#[cfg(feature = "delaunay")]
-fn csr_f64_to_f32_unweighted_or_checked(g64: CsrGraph<f64>) -> Result<CsrGraph<f32>, JsError> {
+fn csr_f64_to_f32_unweighted_or_checked(g64: CsrGraph<f64>) -> Result<CsrGraph<f32>, JsValue> {
     let weights_f32: Option<Vec<f32>> = g64
         .weights()
         .map(|ws| {
@@ -78,7 +71,7 @@ fn csr_f64_to_f32_unweighted_or_checked(g64: CsrGraph<f64>) -> Result<CsrGraph<f
                     }
                     Ok(wf)
                 })
-                .collect::<Result<Vec<f32>, JsError>>()
+                .collect::<Result<Vec<f32>, JsValue>>()
         })
         .transpose()?;
     CsrGraph::<f32>::from_csr(
@@ -93,22 +86,12 @@ fn csr_f64_to_f32_unweighted_or_checked(g64: CsrGraph<f64>) -> Result<CsrGraph<f
 
 /// Converts the 2D Delaunay triangulation of `layout` directly into an unweighted `CsrGraph`.
 #[wasm_bindgen(js_name = delaunayToCsr)]
-pub fn js_delaunay_to_csr(layout: &JsLayout2d) -> Result<JsCsrGraph, JsError> {
-    #[cfg(feature = "delaunay")]
-    {
-        let soa = layout.inner().to_layout2d();
-        let dt = Delaunay2d::triangulate(&soa).map_err(core_err_to_js)?;
-        let csr64 = dt.to_csr().map_err(core_err_to_js)?;
-        let csr32 = csr_f64_to_f32_unweighted_or_checked(csr64)?;
-        Ok(JsCsrGraph::from_inner(csr32))
-    }
-    #[cfg(not(feature = "delaunay"))]
-    {
-        let _ = layout;
-        Err(JsError::new(
-            "delaunayToCsr requires the 'delaunay' feature to be enabled",
-        ))
-    }
+pub fn js_delaunay_to_csr(layout: &JsLayout2d) -> Result<JsCsrGraph, JsValue> {
+    let soa = layout.inner().to_layout2d();
+    let dt = Delaunay2d::triangulate(&soa).map_err(core_err_to_js)?;
+    let csr64 = dt.to_csr().map_err(core_err_to_js)?;
+    let csr32 = csr_f64_to_f32_unweighted_or_checked(csr64)?;
+    Ok(JsCsrGraph::from_inner(csr32))
 }
 
 /// Finds all overlapping rectangle pairs `[i0, j0, i1, j1, ...]` (`i < j`) for `layout`
@@ -118,16 +101,16 @@ pub fn js_rectangle_overlaps(
     layout: &JsLayout2d,
     half_widths: &[f32],
     half_heights: &[f32],
-) -> Result<Vec<u32>, JsError> {
+) -> Result<Vec<u32>, JsValue> {
     let soa = layout.inner().to_layout2d();
     let pairs = RectangleOverlapSweep::find_layout_overlaps(&soa, half_widths, half_heights)
         .map_err(core_err_to_js)?;
     let mut flat = Vec::with_capacity(pairs.len() * 2);
     for (i, j) in pairs {
         let iu = u32::try_from(i)
-            .map_err(|_| JsError::new("rectangleOverlaps index i exceeds u32::MAX"))?;
+            .map_err(|_| invalid_input_err("rectangleOverlaps index i exceeds u32::MAX"))?;
         let ju = u32::try_from(j)
-            .map_err(|_| JsError::new("rectangleOverlaps index j exceeds u32::MAX"))?;
+            .map_err(|_| invalid_input_err("rectangleOverlaps index j exceeds u32::MAX"))?;
         flat.push(iu);
         flat.push(ju);
     }
@@ -140,7 +123,7 @@ pub fn js_parse_csr_csv(
     csv: &str,
     directed: Option<bool>,
     sanitize: Option<bool>,
-) -> Result<JsCsrGraph, JsError> {
+) -> Result<JsCsrGraph, JsValue> {
     let g32 = parse_csr_csv::<f32>(csv, directed.unwrap_or(false), sanitize.unwrap_or(false))
         .map_err(core_err_to_js)?;
     Ok(JsCsrGraph::from_inner(g32))

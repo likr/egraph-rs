@@ -6,8 +6,9 @@ use crate::layout_buffers::JsLayout2d;
 use crate::manifold::JsManifoldLayout2d;
 use crate::metrics_crossings::JsCrossingPair;
 use egraph::metrics::{
-    TorusCrossing, crossing_edges_hyperbolic, crossing_edges_spherical, crossing_edges_torus,
-    hyperbolic_crossing_number, spherical_crossing_number, torus_crossing_number,
+    TorusCrossing, TorusView, crossing_edges_hyperbolic, crossing_edges_spherical,
+    crossing_edges_torus, hyperbolic_crossing_number, spherical_crossing_number,
+    torus_crossing_number,
 };
 use egraph::spatial::{torus_edge_segments, torus_layout_edge_segments};
 use wasm_bindgen::prelude::*;
@@ -17,23 +18,24 @@ use wasm_bindgen::prelude::*;
 pub fn js_torus_crossing_number_2d(
     graph: &JsCsrGraph,
     layout: &JsLayout2d,
-) -> Result<usize, JsError> {
+) -> Result<usize, JsValue> {
     let soa = layout.inner().to_layout2d();
-    torus_crossing_number(graph.inner(), &soa).map_err(core_err_to_js)
+    let view = TorusView::new(&soa, 1.0, 1.0).map_err(core_err_to_js)?;
+    torus_crossing_number(graph.inner(), &view).map_err(core_err_to_js)
 }
 
-/// Counts non-adjacent edge sub-segment crossings on the flat torus for `ManifoldLayout2d` (`torus_2d`).
+/// Counts non-adjacent edge sub-segment crossings on the flat torus for `ManifoldLayout2d` (`torus2d`).
 #[wasm_bindgen(js_name = _torusCrossingNumberManifold)]
 pub fn js_torus_crossing_number_manifold(
     graph: &JsCsrGraph,
     layout: &JsManifoldLayout2d,
-) -> Result<usize, JsError> {
+) -> Result<usize, JsValue> {
     torus_crossing_number(graph.inner(), layout.inner()).map_err(core_err_to_js)
 }
 
 /// Periodic `[0, 1)^2` torus crossing edge sub-segment pair returned by `crossingEdgesTorus`.
 #[wasm_bindgen(js_name = TorusCrossing)]
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct JsTorusCrossing {
     inner: TorusCrossing,
 }
@@ -99,7 +101,7 @@ impl JsTorusCrossing {
     }
 
     #[wasm_bindgen(js_name = toRecord)]
-    pub fn to_record(&self) -> Result<js_sys::Object, JsError> {
+    pub fn to_record(&self) -> Result<js_sys::Object, JsValue> {
         let obj = js_sys::Object::new();
         set_f64_prop(&obj, "edgeA", self.inner.edge_a as f64)?;
         set_f64_prop(&obj, "edgeB", self.inner.edge_b as f64)?;
@@ -130,21 +132,22 @@ impl JsTorusCrossing {
 pub fn js_crossing_edges_torus_2d(
     graph: &JsCsrGraph,
     layout: &JsLayout2d,
-) -> Result<Vec<JsTorusCrossing>, JsError> {
+) -> Result<Vec<JsTorusCrossing>, JsValue> {
     let soa = layout.inner().to_layout2d();
-    let crossings = crossing_edges_torus(graph.inner(), &soa).map_err(core_err_to_js)?;
+    let view = TorusView::new(&soa, 1.0, 1.0).map_err(core_err_to_js)?;
+    let crossings = crossing_edges_torus(graph.inner(), &view).map_err(core_err_to_js)?;
     Ok(crossings
         .into_iter()
         .map(JsTorusCrossing::from_inner)
         .collect())
 }
 
-/// Finds all crossing edge sub-segment pairs on the flat torus for `ManifoldLayout2d` (`torus_2d`).
+/// Finds all crossing edge sub-segment pairs on the flat torus for `ManifoldLayout2d` (`torus2d`).
 #[wasm_bindgen(js_name = _crossingEdgesTorusManifold)]
 pub fn js_crossing_edges_torus_manifold(
     graph: &JsCsrGraph,
     layout: &JsManifoldLayout2d,
-) -> Result<Vec<JsTorusCrossing>, JsError> {
+) -> Result<Vec<JsTorusCrossing>, JsValue> {
     let crossings = crossing_edges_torus(graph.inner(), layout.inner()).map_err(core_err_to_js)?;
     Ok(crossings
         .into_iter()
@@ -154,7 +157,7 @@ pub fn js_crossing_edges_torus_manifold(
 
 /// Splits a 2D torus edge `(x1, y1) -> (x2, y2)` into `[x1, y1, x2, y2, ...]` sub-segments in `[0, 1)^2`.
 #[wasm_bindgen(js_name = torusEdgeSegments)]
-pub fn js_torus_edge_segments(x1: f64, y1: f64, x2: f64, y2: f64) -> Result<Vec<f64>, JsError> {
+pub fn js_torus_edge_segments(x1: f64, y1: f64, x2: f64, y2: f64) -> Result<Vec<f64>, JsValue> {
     let segs = torus_edge_segments(x1, y1, x2, y2).map_err(core_err_to_js)?;
     let mut flat = Vec::with_capacity(segs.len() * 4);
     for s in segs {
@@ -168,9 +171,10 @@ pub fn js_torus_edge_segments(x1: f64, y1: f64, x2: f64, y2: f64) -> Result<Vec<
 pub fn js_torus_layout_edge_segments_2d(
     graph: &JsCsrGraph,
     layout: &JsLayout2d,
-) -> Result<Vec<f64>, JsError> {
+) -> Result<Vec<f64>, JsValue> {
     let soa = layout.inner().to_layout2d();
-    let segs = torus_layout_edge_segments(graph.inner(), &soa).map_err(core_err_to_js)?;
+    let view = TorusView::new(&soa, 1.0, 1.0).map_err(core_err_to_js)?;
+    let segs = torus_layout_edge_segments(graph.inner(), &view).map_err(core_err_to_js)?;
     let mut flat = Vec::with_capacity(segs.len() * 4);
     for s in segs {
         flat.extend_from_slice(&s);
@@ -183,7 +187,7 @@ pub fn js_torus_layout_edge_segments_2d(
 pub fn js_torus_layout_edge_segments_manifold(
     graph: &JsCsrGraph,
     layout: &JsManifoldLayout2d,
-) -> Result<Vec<f64>, JsError> {
+) -> Result<Vec<f64>, JsValue> {
     let segs = torus_layout_edge_segments(graph.inner(), layout.inner()).map_err(core_err_to_js)?;
     let mut flat = Vec::with_capacity(segs.len() * 4);
     for s in segs {
@@ -197,7 +201,7 @@ pub fn js_torus_layout_edge_segments_manifold(
 pub fn js_spherical_crossing_number(
     graph: &JsCsrGraph,
     layout: &JsManifoldLayout2d,
-) -> Result<usize, JsError> {
+) -> Result<usize, JsValue> {
     spherical_crossing_number(graph.inner(), layout.inner()).map_err(core_err_to_js)
 }
 
@@ -206,7 +210,7 @@ pub fn js_spherical_crossing_number(
 pub fn js_crossing_edges_spherical(
     graph: &JsCsrGraph,
     layout: &JsManifoldLayout2d,
-) -> Result<Vec<JsCrossingPair>, JsError> {
+) -> Result<Vec<JsCrossingPair>, JsValue> {
     let pairs = crossing_edges_spherical(graph.inner(), layout.inner()).map_err(core_err_to_js)?;
     Ok(pairs.into_iter().map(JsCrossingPair::from_inner).collect())
 }
@@ -216,7 +220,7 @@ pub fn js_crossing_edges_spherical(
 pub fn js_hyperbolic_crossing_number(
     graph: &JsCsrGraph,
     layout: &JsManifoldLayout2d,
-) -> Result<usize, JsError> {
+) -> Result<usize, JsValue> {
     hyperbolic_crossing_number(graph.inner(), layout.inner()).map_err(core_err_to_js)
 }
 
@@ -225,7 +229,7 @@ pub fn js_hyperbolic_crossing_number(
 pub fn js_crossing_edges_hyperbolic(
     graph: &JsCsrGraph,
     layout: &JsManifoldLayout2d,
-) -> Result<Vec<JsCrossingPair>, JsError> {
+) -> Result<Vec<JsCrossingPair>, JsValue> {
     let pairs = crossing_edges_hyperbolic(graph.inner(), layout.inner()).map_err(core_err_to_js)?;
     Ok(pairs.into_iter().map(JsCrossingPair::from_inner).collect())
 }

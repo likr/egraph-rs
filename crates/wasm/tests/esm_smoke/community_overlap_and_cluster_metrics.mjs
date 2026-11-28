@@ -33,7 +33,7 @@ export async function runCommunityOverlapAndClusterMetricsSmoke({ eg, webPkg }) 
       2, 0, 2.5, 0.5, 1.5, 0.5, 2, 1,
     ]),
   );
-  const llSolver = new webPkg.LinLogSolver(g8, { iterations: 8, repulsionModel: "edge_repulsion", seed: 42 });
+  const llSolver = new webPkg.LinLogSolver(g8, { iterations: 8, repulsionModel: "edgeRepulsion", seed: 42 });
   assert(llSolver instanceof webPkg.LinLogSolver);
   assert.equal(llSolver.masses().length, 8);
   await webPkg.runProgressive(llSolver, lInit, null, { maxStepsPerFrame: 4 });
@@ -41,7 +41,7 @@ export async function runCommunityOverlapAndClusterMetricsSmoke({ eg, webPkg }) 
   assert(Number.isFinite(llSolver.energy(lInit)));
   llSolver.free();
 
-  const frSolver = new webPkg.FruchtermanReingoldSolver(g8, { iterations: 8, backend: "barnes_hut", seed: 42 });
+  const frSolver = new webPkg.FruchtermanReingoldSolver(g8, { iterations: 8, backend: "barnesHut", seed: 42 });
   assert(frSolver instanceof webPkg.FruchtermanReingoldSolver);
   assert(frSolver.optimalDistance > 0);
   frSolver.run(lInit);
@@ -101,7 +101,7 @@ export async function runCommunityOverlapAndClusterMetricsSmoke({ eg, webPkg }) 
   const movedFn = webPkg.refineClusterLayout(lSwapped, labels, { method: "hac", maxIterations: 3, seed: 42 });
   assert.equal(typeof movedFn, "number");
 
-  const treemapRects = webPkg.squarifiedTreemap([3, 2, 1], 100, 50, 0, 0);
+  const treemapRects = webPkg.squarifiedTreemap([3, 2, 1], { width: 100, height: 50, x: 0, y: 0 });
   assert.equal(treemapRects.length, 12);
 
   const gibSolver = new webPkg.GroupInABoxSolver(g8, labels, {
@@ -136,7 +136,7 @@ export async function runCommunityOverlapAndClusterMetricsSmoke({ eg, webPkg }) 
   gtSolver.free();
 
   const lFb = Layout2d.fromCoords(new Float32Array(lOverlap.coordsView()));
-  const fbSolver = webPkg.ForbidOverlapRemoval.fromRadii(hw, { variant: "sparse_forbid", maxScaleIters: 20, sgdIterations: 15, seed: 42 });
+  const fbSolver = webPkg.ForbidOverlapRemoval.fromRadii(hw, { variant: "sparseForbid", maxScaleIters: 20, sgdIterations: 15, seed: 42 });
   assert(fbSolver instanceof webPkg.ForbidOverlapRemoval);
   fbSolver.run(lFb);
   assert.equal(fbSolver.lastOverlapCount, 0);
@@ -154,7 +154,7 @@ export async function runCommunityOverlapAndClusterMetricsSmoke({ eg, webPkg }) 
   assert(Math.abs(paRes.toRecord().ari - 1.0) < 1e-12);
   paRes.free();
 
-  const cqK = webPkg.cqKmeans(lSep, labels, 5, 50, 42);
+  const cqK = webPkg.cqKmeans(lSep, labels, { nInit: 5, maxIterations: 50, seed: 42 });
   assert(Math.abs(cqK.ari - 1.0) < 1e-12);
   cqK.free();
 
@@ -163,24 +163,24 @@ export async function runCommunityOverlapAndClusterMetricsSmoke({ eg, webPkg }) 
   cqH.free();
 
   assert(Math.abs(webPkg.distanceConsistency(lSep, labels) - 1.0) < 1e-12);
-  assert(webPkg.distributionConsistency(lSep, labels, 16) > 0.9);
-  const cdRes = webPkg.classDensityMeasure(lSep, labels, 32, null);
+  assert(webPkg.distributionConsistency(lSep, labels, { gridSize: 16 }) > 0.9);
+  const cdRes = webPkg.classDensityMeasure(lSep, labels, { gridSize: 32 });
   assert(cdRes instanceof webPkg.ClassDensityResult);
   assert(cdRes.toRecord().cdm > 0.8);
   cdRes.free();
 
-  assert(Math.abs(webPkg.sepmeKnng(lSep, labels, 2) - 1.0) < 1e-12);
+  assert(Math.abs(webPkg.sepmeKnng(lSep, labels, { k: 2 }) - 1.0) < 1e-12);
   const rngScore = webPkg.sepmeRng(lSep, labels);
   const gabScore = webPkg.sepmeGab(lSep, labels);
-  const gongScore = webPkg.sepmeGong(lSep, labels, 0.35);
+  const gongScore = webPkg.sepmeGong(lSep, labels, { gamma: 0.35 });
   assert(rngScore > 0.5 && rngScore <= 1.0);
   assert(gabScore > 0.5 && gabScore <= 1.0);
   assert(gongScore > 0.5 && gongScore <= 1.0);
-  assert(Math.abs(webPkg.neighborhoodHit(lSep, labels, 3) - 1.0) < 1e-12);
+  assert(Math.abs(webPkg.neighborhoodHit(lSep, labels, { k: 3 }) - 1.0) < 1e-12);
   assert(webPkg.silhouetteScore(lSep, labels) > 0.8);
   assert(webPkg.calinskiHarabaszScore(lSep, labels) > 50.0);
   assert(webPkg.daviesBouldinScore(lSep, labels) < 0.3);
-  assert(webPkg.pairwiseDistanceOverlapError(lSep, labels, 32) < 0.1);
+  assert(webPkg.pairwiseDistanceOverlapError(lSep, labels, { numBins: 32 }) < 0.1);
   assert(webPkg.sprawlterNn(lOverlap, hw, hh) > 0.0);
   assert(webPkg.sprawlterNnRadii(lOverlap, hw) > 0.0);
 
@@ -201,19 +201,19 @@ export async function runCommunityOverlapAndClusterMetricsSmoke({ eg, webPkg }) 
       "distributionConsistency",
       "classDensityMeasure",
       "histogramDensityMeasure",
-      "sepme-knng2",
-      "sepme_rng",
-      "sepme_gab",
-      "sepme_gong",
-      "neighborhood_hit",
+      "sepmeKnng2",
+      "sepmeRng",
+      "sepmeGab",
+      "sepmeGong",
+      "neighborhoodHit",
       "silhouetteScore",
       "calinskiHarabaszScore",
       "daviesBouldinScore",
-      "cq_kmeans_ari",
-      "cq_kmeans_ami",
-      "cq_hac_hom",
-      "cq_hac_ami",
-      "pairwise_distance_overlap_error",
+      "cqKmeansAri",
+      "cqKmeansAmi",
+      "cqHacHom",
+      "cqHacAmi",
+      "pairwiseDistanceOverlapError",
       "sprawlterNn",
     ],
     {

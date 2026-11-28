@@ -8,8 +8,9 @@ use wasm_bindgen::prelude::*;
 
 use crate::csr_graph::JsCsrGraph;
 use crate::js_convert::{
-    core_err_to_js, parse_optional_usize, parse_seed_u64, set_f64_prop, set_js_prop,
+    DEFAULT_SEED, core_err_to_js, parse_optional_usize, parse_seed_u64, set_f64_prop, set_js_prop,
 };
+use crate::js_options::{check_options_arg, opt_f64_prop, opt_seed_prop, opt_usize_prop};
 
 const DEFAULT_KMEANS_MAX_ITERS: usize = 100;
 const DEFAULT_KMEANS_TOL: f64 = 1e-4;
@@ -64,7 +65,7 @@ impl JsLabelPropagationResult {
 
     /// Converts this result into a plain JavaScript object without requiring `serde`.
     #[wasm_bindgen(js_name = toRecord)]
-    pub fn to_record(&self) -> Result<js_sys::Object, JsError> {
+    pub fn to_record(&self) -> Result<js_sys::Object, JsValue> {
         let obj = js_sys::Object::new();
         set_js_prop(
             &obj,
@@ -118,7 +119,7 @@ impl JsSpectralClusteringResult {
 
     /// Converts this result into a plain JavaScript object without requiring `serde`.
     #[wasm_bindgen(js_name = toRecord)]
-    pub fn to_record(&self) -> Result<js_sys::Object, JsError> {
+    pub fn to_record(&self) -> Result<js_sys::Object, JsValue> {
         let obj = js_sys::Object::new();
         set_js_prop(
             &obj,
@@ -135,29 +136,25 @@ impl JsSpectralClusteringResult {
 #[wasm_bindgen(js_name = spectralClustering)]
 pub fn js_spectral_clustering(
     graph: &JsCsrGraph,
-    k: Option<f64>,
-    max_eigen_iterations: Option<f64>,
-    eigen_tol: Option<f64>,
-    kmeans_max_iterations: Option<f64>,
-    kmeans_tol: Option<f64>,
-    seed: Option<f64>,
-) -> Result<JsSpectralClusteringResult, JsError> {
-    let cfg = SpectralClusteringConfig {
-        k: parse_optional_usize(k, DEFAULT_SPECTRAL_K, "k")?,
-        max_eigen_iterations: parse_optional_usize(
-            max_eigen_iterations,
-            DEFAULT_SPECTRAL_MAX_EIGEN_ITERS,
-            "maxEigenIterations",
-        )?,
-        eigen_tol: eigen_tol.unwrap_or(DEFAULT_SPECTRAL_EIGEN_TOL),
-        kmeans_max_iterations: parse_optional_usize(
-            kmeans_max_iterations,
-            DEFAULT_KMEANS_MAX_ITERS,
-            "kmeansMaxIterations",
-        )?,
-        kmeans_tol: kmeans_tol.unwrap_or(DEFAULT_KMEANS_TOL),
-        seed: parse_seed_u64(seed)?,
-    };
+    options: &JsValue,
+) -> Result<JsSpectralClusteringResult, JsValue> {
+    let mut cfg = SpectralClusteringConfig::default();
+    cfg.k = DEFAULT_SPECTRAL_K;
+    cfg.max_eigen_iterations = DEFAULT_SPECTRAL_MAX_EIGEN_ITERS;
+    cfg.eigen_tol = DEFAULT_SPECTRAL_EIGEN_TOL;
+    cfg.kmeans_max_iterations = DEFAULT_KMEANS_MAX_ITERS;
+    cfg.kmeans_tol = DEFAULT_KMEANS_TOL;
+    cfg.seed = DEFAULT_SEED;
+    if check_options_arg(options, "spectralClustering")? {
+        cfg.k = opt_usize_prop(options, "k", cfg.k)?;
+        cfg.max_eigen_iterations =
+            opt_usize_prop(options, "maxEigenIterations", cfg.max_eigen_iterations)?;
+        cfg.eigen_tol = opt_f64_prop(options, "eigenTol", cfg.eigen_tol)?;
+        cfg.kmeans_max_iterations =
+            opt_usize_prop(options, "kmeansMaxIterations", cfg.kmeans_max_iterations)?;
+        cfg.kmeans_tol = opt_f64_prop(options, "kmeansTol", cfg.kmeans_tol)?;
+        cfg.seed = opt_seed_prop(options)?;
+    }
     let inner = spectral_clustering(graph.inner(), &cfg).map_err(core_err_to_js)?;
     Ok(JsSpectralClusteringResult { inner })
 }
@@ -167,16 +164,12 @@ pub fn js_spectral_clustering(
 pub fn js_label_propagation(
     graph: &JsCsrGraph,
     max_iterations: Option<f64>,
-    seed: Option<f64>,
-) -> Result<JsLabelPropagationResult, JsError> {
-    let cfg = LabelPropagationConfig {
-        max_iterations: parse_optional_usize(
-            max_iterations,
-            DEFAULT_LPA_MAX_ITERS,
-            "maxIterations",
-        )?,
-        seed: parse_seed_u64(seed)?,
-    };
+    seed: &JsValue,
+) -> Result<JsLabelPropagationResult, JsValue> {
+    let mut cfg = LabelPropagationConfig::default();
+    cfg.max_iterations =
+        parse_optional_usize(max_iterations, DEFAULT_LPA_MAX_ITERS, "maxIterations")?;
+    cfg.seed = parse_seed_u64(seed)?;
     let inner = label_propagation(graph.inner(), &cfg).map_err(core_err_to_js)?;
     Ok(JsLabelPropagationResult { inner })
 }

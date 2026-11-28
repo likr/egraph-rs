@@ -1,6 +1,6 @@
 //! Separation constraints, VPSC projection, cycle removal, and hierarchical layering bindings.
 
-use egraph::core::CoreError;
+use egraph::core::{CoreError, CsrGraph, NodeExtents2d};
 use egraph::layout::{
     ConstraintProjector, LayeringMethod, SeparationConstraint, assign_layers, cycle_edges,
     generate_layered_constraints, project_clustered_rectangle_no_overlap_2d,
@@ -10,7 +10,8 @@ use wasm_bindgen::prelude::*;
 
 use crate::csr_graph::JsCsrGraph;
 use crate::js_convert::{
-    core_err_to_js, ffi_err_to_js, parse_non_negative_u32, parse_non_negative_usize,
+    core_err_to_js, ffi_err_to_js, invalid_input_err, parse_non_negative_u32,
+    parse_non_negative_usize,
 };
 use crate::js_options::{get_prop, normalize_enum_token};
 use crate::layout_buffers::JsLayout2d;
@@ -19,7 +20,7 @@ const DEFAULT_MIN_LAYER_DISTANCE: f32 = 1.0;
 
 /// One-dimensional separation constraint enforcing `coord[left] + gap <= coord[right]`.
 #[wasm_bindgen(js_name = SeparationConstraint)]
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct JsSeparationConstraint {
     inner: SeparationConstraint<f32>,
 }
@@ -28,7 +29,7 @@ pub struct JsSeparationConstraint {
 impl JsSeparationConstraint {
     /// Creates a new `SeparationConstraint(left, right, gap)`.
     #[wasm_bindgen(constructor)]
-    pub fn new(left: f64, right: f64, gap: f32) -> Result<JsSeparationConstraint, JsError> {
+    pub fn new(left: f64, right: f64, gap: f32) -> Result<JsSeparationConstraint, JsValue> {
         let l = parse_non_negative_u32(left, "left")?;
         let r = parse_non_negative_u32(right, "right")?;
         if !gap.is_finite() {
@@ -36,9 +37,8 @@ impl JsSeparationConstraint {
                 "SeparationConstraint::gap",
             )));
         }
-        Ok(Self {
-            inner: SeparationConstraint::new(l, r, gap),
-        })
+        let inner = SeparationConstraint::new(l, r, gap).map_err(core_err_to_js)?;
+        Ok(Self { inner })
     }
 
     /// Returns the constrained left vertex index.
@@ -60,27 +60,27 @@ impl JsSeparationConstraint {
     }
 }
 
-fn parse_constraints(constraints: &JsValue) -> Result<Vec<SeparationConstraint<f32>>, JsError> {
+fn parse_constraints(constraints: &JsValue) -> Result<Vec<SeparationConstraint<f32>>, JsValue> {
     if constraints.is_null()
         || constraints.is_undefined()
         || constraints.is_string()
         || !constraints.is_object()
     {
-        return Err(JsError::new(
+        return Err(invalid_input_err(
             "constraints must be an array or iterable of SeparationConstraint objects",
         ));
     }
     let iter = js_sys::try_iter(constraints)
-        .map_err(|err| JsError::new(&format!("failed to iterate constraints: {err:?}")))?
+        .map_err(|err| invalid_input_err(format!("failed to iterate constraints: {err:?}")))?
         .ok_or_else(|| {
-            JsError::new("constraints must be an array or iterable of SeparationConstraint")
+            invalid_input_err("constraints must be an array or iterable of SeparationConstraint")
         })?;
     let mut out = Vec::new();
     for item_res in iter {
         let item = item_res
-            .map_err(|err| JsError::new(&format!("failed to read constraint item: {err:?}")))?;
+            .map_err(|err| invalid_input_err(format!("failed to read constraint item: {err:?}")))?;
         if item.is_null() || !item.is_object() {
-            return Err(JsError::new(
+            return Err(invalid_input_err(
                 "each constraint entry must be a SeparationConstraint or { left, right, gap } object",
             ));
         }
@@ -90,13 +90,13 @@ fn parse_constraints(constraints: &JsValue) -> Result<Vec<SeparationConstraint<f
 
         let left_f64 = left_val
             .as_f64()
-            .ok_or_else(|| JsError::new("constraint.left must be a non-negative integer"))?;
+            .ok_or_else(|| invalid_input_err("constraint.left must be a non-negative integer"))?;
         let right_f64 = right_val
             .as_f64()
-            .ok_or_else(|| JsError::new("constraint.right must be a non-negative integer"))?;
+            .ok_or_else(|| invalid_input_err("constraint.right must be a non-negative integer"))?;
         let gap_f64 = gap_val
             .as_f64()
-            .ok_or_else(|| JsError::new("constraint.gap must be a finite number"))?;
+            .ok_or_else(|| invalid_input_err("constraint.gap must be a finite number"))?;
 
         let left = parse_non_negative_u32(left_f64, "constraint.left")?;
         let right = parse_non_negative_u32(right_f64, "constraint.right")?;
@@ -104,30 +104,30 @@ fn parse_constraints(constraints: &JsValue) -> Result<Vec<SeparationConstraint<f
         if !gap.is_finite() {
             return Err(core_err_to_js(CoreError::non_finite("constraint.gap")));
         }
-        out.push(SeparationConstraint::new(left, right, gap));
+        out.push(SeparationConstraint::new(left, right, gap).map_err(core_err_to_js)?);
     }
     Ok(out)
 }
 
-fn parse_axis(axis: &JsValue) -> Result<usize, JsError> {
+fn parse_axis(axis: &JsValue) -> Result<usize, JsValue> {
     if let Some(num) = axis.as_f64() {
         return parse_non_negative_usize(num, "axis");
     }
     if let Some(raw) = axis.as_string() {
-        return match normalize_enum_token(&raw).as_str() {
+        return match normalize_enum_token(&raw)?.as_str() {
             "x" | "0" => Ok(0),
             "y" | "1" => Ok(1),
-            _ => Err(JsError::new(&format!(
+            _ => Err(invalid_input_err(format!(
                 "layout axis must be 0 ('x') or 1 ('y'), got {raw:?}"
             ))),
         };
     }
-    Err(JsError::new("layout axis must be 0 ('x') or 1 ('y')"))
+    Err(invalid_input_err("layout axis must be 0 ('x') or 1 ('y')"))
 }
 
 /// Projects `coords` (`Float32Array`) in place onto the feasible region defined by `constraints`.
 #[wasm_bindgen(js_name = project1d)]
-pub fn js_project_1d(coords: &mut [f32], constraints: &JsValue) -> Result<(), JsError> {
+pub fn js_project_1d(coords: &mut [f32], constraints: &JsValue) -> Result<(), JsValue> {
     let parsed = parse_constraints(constraints)?;
     let mut projector = ConstraintProjector::<f32>::new(coords.len());
     projector
@@ -141,7 +141,7 @@ pub fn js_project_layout_axis(
     layout: &mut JsLayout2d,
     axis: &JsValue,
     constraints: &JsValue,
-) -> Result<(), JsError> {
+) -> Result<(), JsValue> {
     let axis_idx = parse_axis(axis)?;
     let parsed = parse_constraints(constraints)?;
     let mut projector = ConstraintProjector::<f32>::new(layout.len());
@@ -163,11 +163,9 @@ pub fn js_generate_layered_constraints(
     graph: &JsCsrGraph,
     layers: &[u32],
     min_layer_distance: Option<f32>,
-) -> Result<Vec<JsSeparationConstraint>, JsError> {
-    let layers_usize: Vec<usize> = layers.iter().map(|&v| v as usize).collect();
+) -> Result<Vec<JsSeparationConstraint>, JsValue> {
     let dist = min_layer_distance.unwrap_or(DEFAULT_MIN_LAYER_DISTANCE);
-    let raw =
-        generate_layered_constraints(graph.inner(), &layers_usize, dist).map_err(core_err_to_js)?;
+    let raw = generate_layered_constraints(graph.inner(), layers, dist).map_err(core_err_to_js)?;
     Ok(raw
         .into_iter()
         .map(|inner| JsSeparationConstraint { inner })
@@ -181,9 +179,10 @@ pub fn js_project_rectangle_no_overlap_2d(
     layout: &mut JsLayout2d,
     half_widths: &[f32],
     half_heights: &[f32],
-) -> Result<(), JsError> {
+) -> Result<(), JsValue> {
+    let extents = NodeExtents2d::new(half_widths, half_heights).map_err(core_err_to_js)?;
     let mut soa = layout.inner().to_layout2d();
-    project_rectangle_no_overlap_2d(&mut soa, half_widths, half_heights).map_err(core_err_to_js)?;
+    project_rectangle_no_overlap_2d(&mut soa, extents).map_err(core_err_to_js)?;
     layout
         .inner_mut()
         .copy_from_layout2d(&soa)
@@ -203,10 +202,10 @@ pub fn js_project_clustered_rectangle_no_overlap_2d(
     labels: &[u32],
     half_widths: &[f32],
     half_heights: &[f32],
-) -> Result<(), JsError> {
+) -> Result<(), JsValue> {
+    let extents = NodeExtents2d::new(half_widths, half_heights).map_err(core_err_to_js)?;
     let mut soa = layout.inner().to_layout2d();
-    project_clustered_rectangle_no_overlap_2d(&mut soa, labels, half_widths, half_heights)
-        .map_err(core_err_to_js)?;
+    project_clustered_rectangle_no_overlap_2d(&mut soa, labels, extents).map_err(core_err_to_js)?;
     layout
         .inner_mut()
         .copy_from_layout2d(&soa)
@@ -214,20 +213,31 @@ pub fn js_project_clustered_rectangle_no_overlap_2d(
     Ok(())
 }
 
-/// Computes the exact transitive reduction of a directed acyclic `CsrGraph`.
-#[wasm_bindgen(js_name = transitiveReduction)]
-pub fn js_transitive_reduction(graph: &JsCsrGraph) -> Result<JsCsrGraph, JsError> {
-    let reduced = transitive_reduction(graph.inner()).map_err(core_err_to_js)?;
-    Ok(JsCsrGraph::from_inner(reduced))
+fn csr_unit_to_f32(unit: &CsrGraph<()>) -> Result<CsrGraph<f32>, JsValue> {
+    CsrGraph::<f32>::from_csr(
+        unit.indptr(),
+        unit.indices(),
+        None,
+        unit.is_directed(),
+        false,
+    )
+    .map_err(core_err_to_js)
 }
 
-fn parse_layering_method(method: Option<String>) -> Result<LayeringMethod, JsError> {
+/// Computes the exact transitive reduction of a directed acyclic `CsrGraph`.
+#[wasm_bindgen(js_name = transitiveReduction)]
+pub fn js_transitive_reduction(graph: &JsCsrGraph) -> Result<JsCsrGraph, JsValue> {
+    let reduced = transitive_reduction(graph.inner()).map_err(core_err_to_js)?;
+    Ok(JsCsrGraph::from_inner(csr_unit_to_f32(&reduced)?))
+}
+
+fn parse_layering_method(method: Option<String>) -> Result<LayeringMethod, JsValue> {
     match method {
         None => Ok(LayeringMethod::LongestPath),
-        Some(raw) => match normalize_enum_token(&raw).as_str() {
+        Some(raw) => match normalize_enum_token(&raw)?.as_str() {
             "longestpath" | "lp" => Ok(LayeringMethod::LongestPath),
             "networksimplex" | "ns" => Ok(LayeringMethod::NetworkSimplex),
-            _ => Err(JsError::new(&format!(
+            _ => Err(invalid_input_err(format!(
                 "unknown LayeringMethod {raw:?}; expected 'longestPath' or 'networkSimplex'"
             ))),
         },
@@ -237,7 +247,7 @@ fn parse_layering_method(method: Option<String>) -> Result<LayeringMethod, JsErr
 /// Identifies back-edges `(u, v)` whose reversal eliminates all directed cycles in `graph`,
 /// returned as a flat interleaved `[u0, v0, u1, v1, ...]` `Uint32Array`.
 #[wasm_bindgen(js_name = cycleEdges)]
-pub fn js_cycle_edges(graph: &JsCsrGraph) -> Result<Vec<u32>, JsError> {
+pub fn js_cycle_edges(graph: &JsCsrGraph) -> Result<Vec<u32>, JsValue> {
     let pairs = cycle_edges(graph.inner()).map_err(core_err_to_js)?;
     let mut flat = Vec::with_capacity(pairs.len() * 2);
     for (u, v) in pairs {
@@ -249,21 +259,14 @@ pub fn js_cycle_edges(graph: &JsCsrGraph) -> Result<Vec<u32>, JsError> {
 
 /// Constructs a directed acyclic `CsrGraph` by reversing cycle-closing back-edges.
 #[wasm_bindgen(js_name = removeCycles)]
-pub fn js_remove_cycles(graph: &JsCsrGraph) -> Result<JsCsrGraph, JsError> {
+pub fn js_remove_cycles(graph: &JsCsrGraph) -> Result<JsCsrGraph, JsValue> {
     let dag = remove_cycles(graph.inner()).map_err(core_err_to_js)?;
-    Ok(JsCsrGraph::from_inner(dag))
+    Ok(JsCsrGraph::from_inner(csr_unit_to_f32(&dag)?))
 }
 
 /// Assigns hierarchical layers (`0, 1, ...`) to all vertices of a directed `CsrGraph`.
 #[wasm_bindgen(js_name = assignLayers)]
-pub fn js_assign_layers(graph: &JsCsrGraph, method: Option<String>) -> Result<Vec<u32>, JsError> {
+pub fn js_assign_layers(graph: &JsCsrGraph, method: Option<String>) -> Result<Vec<u32>, JsValue> {
     let m = parse_layering_method(method)?;
-    let layers = assign_layers(graph.inner(), m).map_err(core_err_to_js)?;
-    let mut out = Vec::with_capacity(layers.len());
-    for layer in layers {
-        let l_u32 = u32::try_from(layer)
-            .map_err(|_| JsError::new(&format!("layer index {layer} exceeds u32::MAX")))?;
-        out.push(l_u32);
-    }
-    Ok(out)
+    assign_layers(graph.inner(), m).map_err(core_err_to_js)
 }

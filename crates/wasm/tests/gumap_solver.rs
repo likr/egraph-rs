@@ -19,60 +19,9 @@ fn gumap_solver_constructors_symmetric_negative_and_errors() {
         ("negativeSampleRate", JsValue::from_f64(4.0)),
         ("seed", JsValue::from_f64(42.0)),
     ]);
-    let mut g_run = JsGuMapSolver::from_graph_dog(
-        &grid,
-        &gm_opts,
-        &JsValue::UNDEFINED,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-    )
-    .expect("GuMap.fromGraphDog");
-    let mut g_step = JsGuMapSolver::from_graph_dog(
-        &grid,
-        &gm_opts,
-        &JsValue::UNDEFINED,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-    )
-    .expect("GuMap.fromGraphDog step");
+    let mut g_run = JsGuMapSolver::from_graph_dog(&grid, &gm_opts).expect("GuMap.fromGraphDog");
+    let mut g_step =
+        JsGuMapSolver::from_graph_dog(&grid, &gm_opts).expect("GuMap.fromGraphDog step");
     assert!(g_run.num_edges() > 0);
     assert!(g_run.a() > 0.0 && g_run.b() > 0.0);
 
@@ -89,50 +38,19 @@ fn gumap_solver_constructors_symmetric_negative_and_errors() {
 
     let knn = js_build_pure_2hop_knn(&grid).unwrap().knn();
     let fuzzy = js_compute_fuzzy_simplicial_set(&knn, None, None).unwrap();
-    let g_knn = JsGuMapSolver::from_knn(
-        &knn,
-        &JsValue::from_f64(5.0),
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-    )
-    .unwrap();
-    let g_fuz = JsGuMapSolver::from_fuzzy_set(
-        &fuzzy,
-        &JsValue::from_f64(5.0),
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-    )
-    .unwrap();
+    let iter_opts = make_opts(&[("iterations", JsValue::from_f64(5.0))]);
+    let g_knn = JsGuMapSolver::from_knn(&knn, &iter_opts).unwrap();
+    let g_fuz = JsGuMapSolver::from_fuzzy_set(&fuzzy, &iter_opts).unwrap();
     assert_eq!(g_knn.num_edges(), g_fuz.num_edges());
 
-    // GuMapSolver.fromLandmarks (both options-object and positional max2hopPerNode)
+    // GuMapSolver.fromLandmarks
     let lm_barbell = js_compute_regularized_dog_varadhan_landmarks(
         &grid,
-        Some(12.0),
-        Some(6.0),
-        Some(42.0),
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
+        &make_opts(&[
+            ("degree", JsValue::from_f64(12.0)),
+            ("numLandmarks", JsValue::from_f64(6.0)),
+            ("seed", JsValue::from_f64(42.0)),
+        ]),
     )
     .unwrap();
     let g_lm_opts = make_opts(&[
@@ -141,18 +59,9 @@ fn gumap_solver_constructors_symmetric_negative_and_errors() {
         ("seed", JsValue::from_f64(42.0)),
     ]);
     let mut g_lm_run =
-        JsGuMapSolver::from_landmarks(&grid, &lm_barbell, &g_lm_opts, &JsValue::UNDEFINED)
-            .expect("GuMap.fromLandmarks opts");
-    let mut g_lm_step = JsGuMapSolver::from_landmarks(
-        &grid,
-        &lm_barbell,
-        &JsValue::from_f64(32.0),
-        &make_opts(&[
-            ("iterations", JsValue::from_f64(10.0)),
-            ("seed", JsValue::from_f64(42.0)),
-        ]),
-    )
-    .expect("GuMap.fromLandmarks pos");
+        JsGuMapSolver::from_landmarks(&grid, &lm_barbell, &g_lm_opts).expect("GuMap.fromLandmarks");
+    let mut g_lm_step = JsGuMapSolver::from_landmarks(&grid, &lm_barbell, &g_lm_opts)
+        .expect("GuMap.fromLandmarks step");
     let mut glm_l1 = init.clone();
     let mut glm_l2 = init.clone();
     assert_eq!(g_lm_run.run_2d(&mut glm_l1).unwrap(), "completed");
@@ -168,60 +77,8 @@ fn gumap_solver_constructors_symmetric_negative_and_errors() {
         ("symmetricNegative", JsValue::from_bool(false)),
         ("seed", JsValue::from_f64(42.0)),
     ]);
-    let mut g_asym_r = JsGuMapSolver::from_graph_dog(
-        &grid,
-        &gm_asym_opts,
-        &JsValue::UNDEFINED,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-    )
-    .unwrap();
-    let mut g_asym_s = JsGuMapSolver::from_graph_dog(
-        &grid,
-        &gm_asym_opts,
-        &JsValue::UNDEFINED,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-    )
-    .unwrap();
+    let mut g_asym_r = JsGuMapSolver::from_graph_dog(&grid, &gm_asym_opts).unwrap();
+    let mut g_asym_s = JsGuMapSolver::from_graph_dog(&grid, &gm_asym_opts).unwrap();
     let mut gl_asym_r = init.clone();
     let mut gl_asym_s = init.clone();
     assert_eq!(g_asym_r.run_2d(&mut gl_asym_r).unwrap(), "completed");
@@ -246,9 +103,7 @@ fn gumap_solver_constructors_symmetric_negative_and_errors() {
         ("symmetricNegative", JsValue::from_bool(false)),
         ("seed", JsValue::from_f64(42.0)),
     ]);
-    let mut g_lm_asym =
-        JsGuMapSolver::from_landmarks(&grid, &lm_barbell, &g_lm_asym_opts, &JsValue::UNDEFINED)
-            .unwrap();
+    let mut g_lm_asym = JsGuMapSolver::from_landmarks(&grid, &lm_barbell, &g_lm_asym_opts).unwrap();
     let mut glm_asym_l = init;
     assert_eq!(g_lm_asym.run_2d(&mut glm_asym_l).unwrap(), "completed");
     let max_lm_diff = glm_l1
@@ -266,42 +121,25 @@ fn gumap_solver_constructors_symmetric_negative_and_errors() {
             &grid,
             &lm_barbell,
             &make_opts(&[("symmetricNegative", JsValue::from_str("nope"))]),
-            &JsValue::UNDEFINED,
         )
         .is_err()
     );
     let lm_small = js_compute_regularized_dog_varadhan_landmarks(
         &make_grid(2, 2),
-        None,
-        Some(2.0),
-        Some(42.0),
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
+        &make_opts(&[
+            ("numLandmarks", JsValue::from_f64(2.0)),
+            ("seed", JsValue::from_f64(42.0)),
+        ]),
     )
     .unwrap();
-    assert!(
-        JsGuMapSolver::from_landmarks(&grid, &lm_small, &JsValue::UNDEFINED, &JsValue::UNDEFINED)
-            .is_err()
-    );
+    assert!(JsGuMapSolver::from_landmarks(&grid, &lm_small, &JsValue::UNDEFINED).is_err());
     assert!(
         JsGuMapSolver::from_knn(
             &knn,
-            &JsValue::from_f64(5.0),
-            None,
-            Some(0.0),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
+            &make_opts(&[
+                ("iterations", JsValue::from_f64(5.0)),
+                ("learningRate", JsValue::from_f64(0.0)),
+            ]),
         )
         .is_err()
     );

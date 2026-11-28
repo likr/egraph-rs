@@ -1,42 +1,58 @@
-//! Cooperative ForceAtlas2 and multilevel Yifan Hu WebAssembly bindings (`f32`).
+//! Cooperative ForceAtlas2 WebAssembly bindings (`f32`)
+//! supporting Policy 1A + Option 1 `(target, backend)` dispatch across 2D, 3D, and N-D.
 
-use egraph::layout::{ForceAtlas2Config, ForceAtlas2Solver, YifanHuConfig, YifanHuSolver};
+use egraph::core::{Layout2d, Layout3d, LayoutNd};
+use egraph::layout::force::Exact;
+use egraph::layout::{ForceAtlas2Config, ForceAtlas2Solver, ForceBackend};
 use wasm_bindgen::prelude::*;
 
 use crate::csr_graph::JsCsrGraph;
-use crate::js_convert::{core_err_to_js, parse_optional_f64_sequence};
+use crate::force_classic::{build_force_backend, parse_force_backend_for_target};
+pub use crate::force_yifan_hu::JsYifanHuSolver;
+use crate::js_convert::{core_err_to_js, parse_optional_f64_sequence, unsupported_err};
 use crate::js_options::{
-    check_options_arg, get_prop, opt_bool_prop, opt_f64_prop, opt_maybe_f64_prop, opt_seed_prop,
-    opt_usize_prop, solver_status_str,
+    JsTargetKind, check_options_arg, get_prop, opt_bool_prop, opt_f64_prop, opt_maybe_f64_prop,
+    opt_seed_prop, opt_target_prop, opt_usize_prop, solver_status_str,
 };
 use crate::layout_buffers::{JsLayout2d, JsLayoutNd};
+use crate::layout3d::JsLayout3d;
 use crate::solver_runner::{
-    run_layout_in_place, run_nd_in_place, run_steps_layout_in_place, run_steps_nd_in_place,
-    step_layout_in_place, step_nd_in_place,
+    run_layout_in_place, run_layout3d_in_place, run_nd_in_place, run_steps_layout_in_place,
+    run_steps_layout3d_in_place, run_steps_nd_in_place, step_layout_in_place,
+    step_layout3d_in_place, step_nd_in_place,
 };
 
+#[derive(Debug, Clone)]
+enum Fa2Inner {
+    Dim2(ForceAtlas2Solver<Layout2d<f32>, ForceBackend>),
+    Dim3(ForceAtlas2Solver<Layout3d<f32>, ForceBackend>),
+    DimN(ForceAtlas2Solver<LayoutNd<f32>, Exact>),
+}
+
 /// Cooperative ForceAtlas2 (Jacomy et al., 2014) force-directed layout solver (`f32`).
-///
-/// Note: `linlogMode` enables ForceAtlas2 logarithmic attraction
-/// ($w \frac{\ln(1 + d)}{d} (p_v - p_u)$, decaying linearly to `0` as $d \to 0$) and is
-/// distinct from Noack (2007) true LinLog (`LinLogSolver`).
 #[wasm_bindgen(js_name = ForceAtlas2Solver)]
 #[derive(Debug, Clone)]
 pub struct JsForceAtlas2Solver {
-    inner: ForceAtlas2Solver<f32>,
+    inner: Fa2Inner,
 }
 
 #[wasm_bindgen(js_class = ForceAtlas2Solver)]
 impl JsForceAtlas2Solver {
     /// Constructs a `ForceAtlas2Solver` from `graph` and optional `ForceAtlas2Options`.
     #[wasm_bindgen(constructor)]
-    pub fn new(graph: &JsCsrGraph, options: &JsValue) -> Result<JsForceAtlas2Solver, JsError> {
+    pub fn new(graph: &JsCsrGraph, options: &JsValue) -> Result<JsForceAtlas2Solver, JsValue> {
         let mut cfg = ForceAtlas2Config::default();
         let mut node_radii: Option<Vec<f64>> = None;
-        if check_options_arg(options, "ForceAtlas2Solver")? {
+        let has_opts = check_options_arg(options, "ForceAtlas2Solver")?;
+        let target = if has_opts {
+            opt_target_prop(options)?
+        } else {
+            JsTargetKind::Layout2d
+        };
+        let (use_bh, theta) =
+            parse_force_backend_for_target(target, options, has_opts, "ForceAtlas2Solver")?;
+        if has_opts {
             cfg.iterations = opt_usize_prop(options, "iterations", cfg.iterations)?;
-            cfg.theta = opt_f64_prop(options, "theta", cfg.theta)?;
-            cfg.use_barnes_hut = opt_bool_prop(options, "useBarnesHut", cfg.use_barnes_hut)?;
             cfg.linlog_mode = opt_bool_prop(options, "linlogMode", cfg.linlog_mode)?;
             cfg.strong_gravity = opt_bool_prop(options, "strongGravity", cfg.strong_gravity)?;
             cfg.gravity = opt_f64_prop(options, "gravity", cfg.gravity)?;
@@ -57,248 +73,249 @@ impl JsForceAtlas2Solver {
                 parse_optional_f64_sequence(&get_prop(options, "nodeRadii")?, "nodeRadii")?;
             cfg.seed = opt_seed_prop(options)?;
         }
-        let inner = match node_radii {
-            Some(radii) => ForceAtlas2Solver::<f32>::with_node_radii(graph.inner(), cfg, radii),
-            None => ForceAtlas2Solver::<f32>::new(graph.inner(), cfg),
-        }
-        .map_err(core_err_to_js)?;
+        let inner = match target {
+            JsTargetKind::Layout2d => {
+                let b = build_force_backend(use_bh, theta);
+                let s = match node_radii.as_deref() {
+                    Some(radii) => ForceAtlas2Solver::<Layout2d<f32>, ForceBackend>::with_node_radii_and_backend(graph.inner(), cfg, radii, b),
+                    None => ForceAtlas2Solver::<Layout2d<f32>, ForceBackend>::with_backend(graph.inner(), cfg, b),
+                }.map_err(core_err_to_js)?;
+                Fa2Inner::Dim2(s)
+            }
+            JsTargetKind::Layout3d => {
+                let b = build_force_backend(use_bh, theta);
+                let s = match node_radii.as_deref() {
+                    Some(radii) => ForceAtlas2Solver::<Layout3d<f32>, ForceBackend>::with_node_radii_and_backend(graph.inner(), cfg, radii, b),
+                    None => ForceAtlas2Solver::<Layout3d<f32>, ForceBackend>::with_backend(graph.inner(), cfg, b),
+                }.map_err(core_err_to_js)?;
+                Fa2Inner::Dim3(s)
+            }
+            JsTargetKind::LayoutNd => {
+                let s = match node_radii.as_deref() {
+                    Some(radii) => {
+                        ForceAtlas2Solver::<LayoutNd<f32>, Exact>::with_node_radii_and_backend(
+                            graph.inner(),
+                            cfg,
+                            radii,
+                            Exact::new(),
+                        )
+                    }
+                    None => ForceAtlas2Solver::<LayoutNd<f32>, Exact>::with_backend(
+                        graph.inner(),
+                        cfg,
+                        Exact::new(),
+                    ),
+                }
+                .map_err(core_err_to_js)?;
+                Fa2Inner::DimN(s)
+            }
+            JsTargetKind::Manifold2d => unreachable!(),
+        };
         Ok(Self { inner })
     }
 
-    /// Executes one ForceAtlas2 iteration on `Layout2d` in place.
     #[wasm_bindgen(js_name = _step2d)]
-    pub fn step_2d(&mut self, layout: &mut JsLayout2d) -> Result<String, JsError> {
-        step_layout_in_place(&mut self.inner, layout)
+    pub fn step_2d(&mut self, layout: &mut JsLayout2d) -> Result<String, JsValue> {
+        match &mut self.inner {
+            Fa2Inner::Dim2(s) => step_layout_in_place(s, layout),
+            _ => Err(unsupported_err(
+                "ForceAtlas2Solver was not configured for target 'layout2d'",
+            )),
+        }
     }
 
-    /// Executes up to `steps` ForceAtlas2 iterations on `Layout2d` in place.
     #[wasm_bindgen(js_name = _runSteps2d)]
-    pub fn run_steps_2d(&mut self, layout: &mut JsLayout2d, steps: f64) -> Result<String, JsError> {
-        run_steps_layout_in_place(
-            self.inner.num_nodes(),
-            &mut self.inner,
-            layout,
-            steps,
-            "ForceAtlas2Solver::run_steps",
-        )
+    pub fn run_steps_2d(&mut self, layout: &mut JsLayout2d, steps: f64) -> Result<String, JsValue> {
+        match &mut self.inner {
+            Fa2Inner::Dim2(s) => run_steps_layout_in_place(
+                s.num_nodes(),
+                s,
+                layout,
+                steps,
+                "ForceAtlas2Solver::run_steps",
+            ),
+            _ => Err(unsupported_err(
+                "ForceAtlas2Solver was not configured for target 'layout2d'",
+            )),
+        }
     }
 
-    /// Runs ForceAtlas2 to completion on `Layout2d` in place.
     #[wasm_bindgen(js_name = _run2d)]
-    pub fn run_2d(&mut self, layout: &mut JsLayout2d) -> Result<String, JsError> {
-        run_layout_in_place(
-            self.inner.num_nodes(),
-            &mut self.inner,
-            layout,
-            "ForceAtlas2Solver::run",
-        )
+    pub fn run_2d(&mut self, layout: &mut JsLayout2d) -> Result<String, JsValue> {
+        match &mut self.inner {
+            Fa2Inner::Dim2(s) => {
+                run_layout_in_place(s.num_nodes(), s, layout, "ForceAtlas2Solver::run")
+            }
+            _ => Err(unsupported_err(
+                "ForceAtlas2Solver was not configured for target 'layout2d'",
+            )),
+        }
     }
 
-    /// Executes one ForceAtlas2 iteration on `LayoutNd` in place.
+    #[wasm_bindgen(js_name = _step3d)]
+    pub fn step_3d(&mut self, layout: &mut JsLayout3d) -> Result<String, JsValue> {
+        match &mut self.inner {
+            Fa2Inner::Dim3(s) => step_layout3d_in_place(s, layout),
+            _ => Err(unsupported_err(
+                "ForceAtlas2Solver was not configured for target 'layout3d'",
+            )),
+        }
+    }
+
+    #[wasm_bindgen(js_name = _runSteps3d)]
+    pub fn run_steps_3d(&mut self, layout: &mut JsLayout3d, steps: f64) -> Result<String, JsValue> {
+        match &mut self.inner {
+            Fa2Inner::Dim3(s) => run_steps_layout3d_in_place(
+                s.num_nodes(),
+                s,
+                layout,
+                steps,
+                "ForceAtlas2Solver::run_steps_3d",
+            ),
+            _ => Err(unsupported_err(
+                "ForceAtlas2Solver was not configured for target 'layout3d'",
+            )),
+        }
+    }
+
+    #[wasm_bindgen(js_name = _run3d)]
+    pub fn run_3d(&mut self, layout: &mut JsLayout3d) -> Result<String, JsValue> {
+        match &mut self.inner {
+            Fa2Inner::Dim3(s) => {
+                run_layout3d_in_place(s.num_nodes(), s, layout, "ForceAtlas2Solver::run_3d")
+            }
+            _ => Err(unsupported_err(
+                "ForceAtlas2Solver was not configured for target 'layout3d'",
+            )),
+        }
+    }
+
     #[wasm_bindgen(js_name = _stepNd)]
-    pub fn step_nd(&mut self, layout: &mut JsLayoutNd) -> Result<String, JsError> {
-        step_nd_in_place(&mut self.inner, layout)
+    pub fn step_nd(&mut self, layout: &mut JsLayoutNd) -> Result<String, JsValue> {
+        match &mut self.inner {
+            Fa2Inner::DimN(s) => step_nd_in_place(s, layout),
+            _ => Err(unsupported_err(
+                "ForceAtlas2Solver was not configured for target 'layoutNd'",
+            )),
+        }
     }
 
-    /// Executes up to `steps` ForceAtlas2 iterations on `LayoutNd` in place.
     #[wasm_bindgen(js_name = _runStepsNd)]
-    pub fn run_steps_nd(&mut self, layout: &mut JsLayoutNd, steps: f64) -> Result<String, JsError> {
-        run_steps_nd_in_place(
-            self.inner.num_nodes(),
-            &mut self.inner,
-            layout,
-            steps,
-            "ForceAtlas2Solver::run_steps_nd",
-        )
+    pub fn run_steps_nd(&mut self, layout: &mut JsLayoutNd, steps: f64) -> Result<String, JsValue> {
+        match &mut self.inner {
+            Fa2Inner::DimN(s) => run_steps_nd_in_place(
+                s.num_nodes(),
+                s,
+                layout,
+                steps,
+                "ForceAtlas2Solver::run_steps_nd",
+            ),
+            _ => Err(unsupported_err(
+                "ForceAtlas2Solver was not configured for target 'layoutNd'",
+            )),
+        }
     }
 
-    /// Runs ForceAtlas2 to completion on `LayoutNd` in place.
     #[wasm_bindgen(js_name = _runNd)]
-    pub fn run_nd(&mut self, layout: &mut JsLayoutNd) -> Result<String, JsError> {
-        run_nd_in_place(
-            self.inner.num_nodes(),
-            &mut self.inner,
-            layout,
-            "ForceAtlas2Solver::run_nd",
-        )
+    pub fn run_nd(&mut self, layout: &mut JsLayoutNd) -> Result<String, JsValue> {
+        match &mut self.inner {
+            Fa2Inner::DimN(s) => {
+                run_nd_in_place(s.num_nodes(), s, layout, "ForceAtlas2Solver::run_nd")
+            }
+            _ => Err(unsupported_err(
+                "ForceAtlas2Solver was not configured for target 'layoutNd'",
+            )),
+        }
     }
 
-    /// Returns the solver lifecycle status string.
+    #[wasm_bindgen(getter)]
+    pub fn target(&self) -> String {
+        match &self.inner {
+            Fa2Inner::Dim2(_) => "layout2d",
+            Fa2Inner::Dim3(_) => "layout3d",
+            Fa2Inner::DimN(_) => "layoutNd",
+        }
+        .to_owned()
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn backend(&self) -> String {
+        match &self.inner {
+            Fa2Inner::Dim2(s) => match s.backend() {
+                ForceBackend::Exact(_) => "exact",
+                _ => "barnesHut",
+            },
+            Fa2Inner::Dim3(s) => match s.backend() {
+                ForceBackend::Exact(_) => "exact",
+                _ => "barnesHut",
+            },
+            Fa2Inner::DimN(_) => "exact",
+        }
+        .to_owned()
+    }
+
     #[wasm_bindgen(getter)]
     pub fn status(&self) -> String {
-        solver_status_str(self.inner.status()).to_owned()
+        let st = match &self.inner {
+            Fa2Inner::Dim2(s) => s.status(),
+            Fa2Inner::Dim3(s) => s.status(),
+            Fa2Inner::DimN(s) => s.status(),
+        };
+        solver_status_str(st).to_owned()
     }
 
-    /// Returns the number of iterations executed so far.
     #[wasm_bindgen(getter)]
     pub fn iteration(&self) -> usize {
-        self.inner.iteration()
+        match &self.inner {
+            Fa2Inner::Dim2(s) => s.iteration(),
+            Fa2Inner::Dim3(s) => s.iteration(),
+            Fa2Inner::DimN(s) => s.iteration(),
+        }
     }
 
-    /// Returns the scheduled iteration count.
     #[wasm_bindgen(getter, js_name = totalIterations)]
-    pub fn total_iterations(&self) -> usize {
-        self.inner.total_iterations()
+    pub fn total_iterations(&self) -> Option<usize> {
+        match &self.inner {
+            Fa2Inner::Dim2(s) => s.total_iterations(),
+            Fa2Inner::Dim3(s) => s.total_iterations(),
+            Fa2Inner::DimN(s) => s.total_iterations(),
+        }
     }
 
-    /// Returns `true` when the solver has converged or completed.
     #[wasm_bindgen(getter, js_name = isFinished)]
     pub fn is_finished(&self) -> bool {
-        self.inner.status().is_finished()
+        let st = match &self.inner {
+            Fa2Inner::Dim2(s) => s.status(),
+            Fa2Inner::Dim3(s) => s.status(),
+            Fa2Inner::DimN(s) => s.status(),
+        };
+        st.is_finished()
     }
 
-    /// Returns the expected vertex count.
     #[wasm_bindgen(getter, js_name = numNodes)]
     pub fn num_nodes(&self) -> usize {
-        self.inner.num_nodes()
+        match &self.inner {
+            Fa2Inner::Dim2(s) => s.num_nodes(),
+            Fa2Inner::Dim3(s) => s.num_nodes(),
+            Fa2Inner::DimN(s) => s.num_nodes(),
+        }
     }
 
-    /// Returns the per-node collision radii (`Float64Array`).
     #[wasm_bindgen(js_name = nodeRadii)]
     pub fn node_radii(&self) -> Vec<f64> {
-        self.inner.node_radii().to_vec()
+        match &self.inner {
+            Fa2Inner::Dim2(s) => s.node_radii().to_vec(),
+            Fa2Inner::Dim3(s) => s.node_radii().to_vec(),
+            Fa2Inner::DimN(s) => s.node_radii().to_vec(),
+        }
     }
 
-    /// Returns the effective per-step vertex displacement cap.
     #[wasm_bindgen(getter, js_name = maxDisplacement)]
     pub fn max_displacement(&self) -> f64 {
-        self.inner.max_displacement()
-    }
-}
-
-/// Cooperative multilevel Yifan Hu (2005) force-directed layout solver (`f32`).
-#[wasm_bindgen(js_name = YifanHuSolver)]
-#[derive(Debug, Clone)]
-pub struct JsYifanHuSolver {
-    inner: YifanHuSolver<f32>,
-}
-
-#[wasm_bindgen(js_class = YifanHuSolver)]
-impl JsYifanHuSolver {
-    /// Constructs a `YifanHuSolver` from `graph` and optional `YifanHuOptions`.
-    #[wasm_bindgen(constructor)]
-    pub fn new(graph: &JsCsrGraph, options: &JsValue) -> Result<JsYifanHuSolver, JsError> {
-        let mut cfg = YifanHuConfig::default();
-        if check_options_arg(options, "YifanHuSolver")? {
-            cfg.max_iterations_per_level = opt_usize_prop(
-                options,
-                "maxIterationsPerLevel",
-                cfg.max_iterations_per_level,
-            )?;
-            cfg.step_size = opt_f64_prop(options, "stepSize", cfg.step_size)?;
-            cfg.step_ratio = opt_f64_prop(options, "stepRatio", cfg.step_ratio)?;
-            cfg.relative_strength =
-                opt_f64_prop(options, "relativeStrength", cfg.relative_strength)?;
-            cfg.optimal_distance = opt_maybe_f64_prop(options, "optimalDistance")?;
-            cfg.theta = opt_f64_prop(options, "theta", cfg.theta)?;
-            cfg.min_coarsen_size = opt_usize_prop(options, "minCoarsenSize", cfg.min_coarsen_size)?;
-            cfg.min_coarsen_ratio =
-                opt_f64_prop(options, "minCoarsenRatio", cfg.min_coarsen_ratio)?;
-            cfg.convergence_tolerance =
-                opt_f64_prop(options, "convergenceTolerance", cfg.convergence_tolerance)?;
-            cfg.seed = opt_seed_prop(options)?;
+        match &self.inner {
+            Fa2Inner::Dim2(s) => s.max_displacement(),
+            Fa2Inner::Dim3(s) => s.max_displacement(),
+            Fa2Inner::DimN(s) => s.max_displacement(),
         }
-        let inner = YifanHuSolver::<f32>::new(graph.inner(), cfg).map_err(core_err_to_js)?;
-        Ok(Self { inner })
-    }
-
-    /// Executes one Yifan Hu iteration on `Layout2d` in place.
-    #[wasm_bindgen(js_name = _step2d)]
-    pub fn step_2d(&mut self, layout: &mut JsLayout2d) -> Result<String, JsError> {
-        step_layout_in_place(&mut self.inner, layout)
-    }
-
-    /// Executes up to `steps` Yifan Hu iterations on `Layout2d` in place.
-    #[wasm_bindgen(js_name = _runSteps2d)]
-    pub fn run_steps_2d(&mut self, layout: &mut JsLayout2d, steps: f64) -> Result<String, JsError> {
-        run_steps_layout_in_place(
-            self.inner.num_nodes(),
-            &mut self.inner,
-            layout,
-            steps,
-            "YifanHuSolver::run_steps",
-        )
-    }
-
-    /// Runs Yifan Hu multilevel optimization to completion on `Layout2d` in place.
-    #[wasm_bindgen(js_name = _run2d)]
-    pub fn run_2d(&mut self, layout: &mut JsLayout2d) -> Result<String, JsError> {
-        run_layout_in_place(
-            self.inner.num_nodes(),
-            &mut self.inner,
-            layout,
-            "YifanHuSolver::run",
-        )
-    }
-
-    /// Executes one Yifan Hu iteration on `LayoutNd` in place.
-    #[wasm_bindgen(js_name = _stepNd)]
-    pub fn step_nd(&mut self, layout: &mut JsLayoutNd) -> Result<String, JsError> {
-        step_nd_in_place(&mut self.inner, layout)
-    }
-
-    /// Executes up to `steps` Yifan Hu iterations on `LayoutNd` in place.
-    #[wasm_bindgen(js_name = _runStepsNd)]
-    pub fn run_steps_nd(&mut self, layout: &mut JsLayoutNd, steps: f64) -> Result<String, JsError> {
-        run_steps_nd_in_place(
-            self.inner.num_nodes(),
-            &mut self.inner,
-            layout,
-            steps,
-            "YifanHuSolver::run_steps_nd",
-        )
-    }
-
-    /// Runs Yifan Hu multilevel optimization to completion on `LayoutNd` in place.
-    #[wasm_bindgen(js_name = _runNd)]
-    pub fn run_nd(&mut self, layout: &mut JsLayoutNd) -> Result<String, JsError> {
-        run_nd_in_place(
-            self.inner.num_nodes(),
-            &mut self.inner,
-            layout,
-            "YifanHuSolver::run_nd",
-        )
-    }
-
-    /// Returns the number of levels in the `EC + MIVS` coarsening hierarchy (`>= 1`).
-    #[wasm_bindgen(getter, js_name = numLevels)]
-    pub fn num_levels(&self) -> usize {
-        self.inner.num_levels()
-    }
-
-    /// Returns the currently active level index (`numLevels - 1` coarsest down to `0` finest).
-    #[wasm_bindgen(getter, js_name = currentLevel)]
-    pub fn current_level(&self) -> usize {
-        self.inner.current_level()
-    }
-
-    /// Returns the solver lifecycle status string.
-    #[wasm_bindgen(getter)]
-    pub fn status(&self) -> String {
-        solver_status_str(self.inner.status()).to_owned()
-    }
-
-    /// Returns the total iterations executed so far across all levels.
-    #[wasm_bindgen(getter)]
-    pub fn iteration(&self) -> usize {
-        self.inner.iteration()
-    }
-
-    /// Returns the maximum scheduled iterations (`numLevels * maxIterationsPerLevel`).
-    #[wasm_bindgen(getter, js_name = totalIterations)]
-    pub fn total_iterations(&self) -> usize {
-        self.inner.total_iterations()
-    }
-
-    /// Returns `true` when the solver has converged or completed.
-    #[wasm_bindgen(getter, js_name = isFinished)]
-    pub fn is_finished(&self) -> bool {
-        self.inner.status().is_finished()
-    }
-
-    /// Returns the expected vertex count.
-    #[wasm_bindgen(getter, js_name = numNodes)]
-    pub fn num_nodes(&self) -> usize {
-        self.inner.num_nodes()
     }
 }

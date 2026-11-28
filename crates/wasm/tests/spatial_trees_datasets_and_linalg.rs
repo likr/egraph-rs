@@ -85,19 +85,42 @@ fn datasets_catalog_and_synthetic_generators() {
     assert!(info.to_record().unwrap().is_object());
 
     assert_eq!(
-        js_generate_weighted_graph(10.0, Some(3.0), Some(0.5), Some(2.0), Some(7.0))
-            .unwrap()
-            .num_nodes(),
+        js_generate_weighted_graph(
+            10.0,
+            &make_opts(&[
+                ("avgDegree", JsValue::from_f64(3.0)),
+                ("minWeight", JsValue::from_f64(0.5)),
+                ("maxWeight", JsValue::from_f64(2.0)),
+                ("seed", JsValue::from_f64(7.0)),
+            ]),
+        )
+        .unwrap()
+        .num_nodes(),
         10
     );
-    let dag = js_generate_layered_dag(3.0, 4.0, Some(0.4), Some(7.0)).unwrap();
+    let dag = js_generate_layered_dag(
+        3.0,
+        4.0,
+        &make_opts(&[
+            ("edgeProb", JsValue::from_f64(0.4)),
+            ("seed", JsValue::from_f64(7.0)),
+        ]),
+    )
+    .unwrap();
     assert!(dag.is_directed());
     let red = js_transitive_reduction(&dag).unwrap();
     assert!(red.num_edges() <= dag.num_edges());
     assert!(
-        js_generate_sbm_graph(&[4, 4], Some(0.7), Some(0.1), Some(7.0))
-            .unwrap()
-            .is_object()
+        js_generate_sbm_graph(
+            &[4, 4],
+            &make_opts(&[
+                ("pIntra", JsValue::from_f64(0.7)),
+                ("pInter", JsValue::from_f64(0.1)),
+                ("seed", JsValue::from_f64(7.0)),
+            ]),
+        )
+        .unwrap()
+        .is_object()
     );
     assert_eq!(
         js_generate_torus_grid(3.0, 4.0, Some(true))
@@ -139,15 +162,13 @@ fn dijkstra_chebyshev_kernel_declutter_rta_and_stages() {
     assert_eq!(kern.num_nodes(), 16);
     assert!(kern.terms_psd().length() > 0);
 
-    // Twin decluttering
+    // Twin decluttering (LayoutTransform.apply)
     let mut dup = JsLayout2d::from_coords(&[0.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 2.0]).unwrap();
     let mut declutter =
-        JsTwinDeclutterer::new(&make_opts(&[("iterations", JsValue::from_f64(3.0))])).unwrap();
-    let step_st = declutter.step(&mut dup).unwrap();
-    assert!(step_st == "running" || step_st == "converged");
+        JsTwinDeclutterer::new(&make_opts(&[("iterations", JsValue::from_f64(1.0))])).unwrap();
+    declutter.apply(&mut dup).unwrap();
+    assert_eq!(declutter.last_pass_count(), 1);
     assert!(declutter.last_moved_count() > 0);
-    let dec_st = declutter.run(&mut dup).unwrap();
-    assert!(dec_st == "converged" || dec_st == "completed");
     let mut dup2 = JsLayout2d::from_coords(&[0.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 2.0]).unwrap();
     assert!(js_declutter_twins_2d(&mut dup2, &JsValue::UNDEFINED).unwrap() > 0);
 
@@ -170,16 +191,13 @@ fn dijkstra_chebyshev_kernel_declutter_rta_and_stages() {
         ][..],
     )
     .into();
-    let r64 = js_rta_from_landmarks_2d(
-        &dup,
-        &lm_ids.clone().into(),
-        &f64_dists,
-        Some(64.0),
-        Some(42.0),
-    )
-    .unwrap();
-    let r32 =
-        js_rta_from_landmarks_2d(&dup, &lm_ids.into(), &f32_dists, Some(64.0), Some(42.0)).unwrap();
+    let rta_opts = make_opts(&[
+        ("numTriplets", JsValue::from_f64(64.0)),
+        ("seed", JsValue::from_f64(42.0)),
+    ]);
+    let r64 =
+        js_rta_from_landmarks_2d(&dup, &lm_ids.clone().into(), &f64_dists, &rta_opts).unwrap();
+    let r32 = js_rta_from_landmarks_2d(&dup, &lm_ids.into(), &f32_dists, &rta_opts).unwrap();
     assert!(r64.rta().is_finite() && r32.rta().is_finite());
 
     // SgdSolver packed symmetric, resetSchedule, runScheduleWindow, maxMu
@@ -188,16 +206,10 @@ fn dijkstra_chebyshev_kernel_declutter_rta_and_stages() {
         &[0, 1, 2],
         &[1, 2, 3],
         &[1.0, 1.0, 1.0],
-        None,
-        None,
         &make_opts(&[
             ("iterations", JsValue::from_f64(6.0)),
             ("maxMu", JsValue::from_f64(0.5)),
         ]),
-        None,
-        None,
-        None,
-        None,
     )
     .unwrap();
     assert_eq!(sgd.max_mu(), Some(0.5));
@@ -206,42 +218,32 @@ fn dijkstra_chebyshev_kernel_declutter_rta_and_stages() {
         sgd.run_schedule_window_2d(&mut l4, 0.0, 3.0).unwrap(),
         "running"
     );
-    sgd.reset_schedule(&JsValue::from_f64(4.0), None, None, None, Some(42.0))
-        .unwrap();
+    sgd.reset_schedule(&make_opts(&[
+        ("iterations", JsValue::from_f64(4.0)),
+        ("seed", JsValue::from_f64(42.0)),
+    ]))
+    .unwrap();
     assert_eq!(sgd.run_2d(&mut l4).unwrap(), "completed");
 
     // TsNetBackend::Auto + TsNetStage
     let ts_auto = JsTsNetSolver::pure_2hop(
         &grid,
         &make_opts(&[
-            ("backend", JsValue::from_str("auto")),
+            ("backend", JsValue::from_str("auto2d")),
             ("learningRateDivisor", JsValue::from_f64(2.0)),
         ]),
-        &JsValue::UNDEFINED,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        &JsValue::UNDEFINED,
-        None,
-        None,
     )
     .unwrap();
     assert!(!ts_auto.resolved_backend().is_empty());
-    let stage = JsTsNetStage::new(3.0, 2.0, 1.0, 0.1, 0.0).unwrap();
+    let stage = JsTsNetStage::new(
+        &JsValue::from_f64(3.0),
+        &make_opts(&[
+            ("exaggeration", JsValue::from_f64(2.0)),
+            ("lambdaKl", JsValue::from_f64(1.0)),
+            ("lambdaC", JsValue::from_f64(0.1)),
+            ("lambdaR", JsValue::from_f64(0.0)),
+        ]),
+    )
+    .unwrap();
     assert_eq!(stage.iterations(), 3);
 }

@@ -1,0 +1,346 @@
+//! Cooperative `Graph-CNE` (Bohm et al., 2025) contrastive neighbor embedding solver (`f32`)
+//! supporting `Layout2d`, `Layout3d`, `LayoutNd`, and `ManifoldLayout2d`.
+
+use egraph::core::{IterativeSolver, Layout2d, Layout3d, LayoutNd, ManifoldKind, ManifoldLayout2d};
+use egraph::layout::{GraphCneConfig, GraphCneObjective, GraphCneSolver};
+use wasm_bindgen::prelude::*;
+
+use crate::csr_graph::JsCsrGraph;
+use crate::js_convert::{core_err_to_js, invalid_input_err, unsupported_err};
+use crate::js_options::{
+    JsTargetKind, check_options_arg, normalize_enum_token, opt_bool_prop, opt_f64_prop,
+    opt_seed_prop, opt_string_prop, opt_target_prop, opt_usize_prop, solver_status_str,
+};
+use crate::layout_buffers::{JsLayout2d, JsLayoutNd};
+use crate::layout3d::JsLayout3d;
+use crate::manifold::JsManifoldLayout2d;
+use crate::sgd::target_kind_str;
+use crate::solver_runner::{
+    run_layout_in_place, run_layout3d_in_place, run_manifold_in_place, run_nd_in_place,
+    run_steps_layout_in_place, run_steps_layout3d_in_place, run_steps_manifold_in_place,
+    run_steps_nd_in_place, step_layout_in_place, step_layout3d_in_place, step_manifold_in_place,
+    step_nd_in_place,
+};
+
+fn parse_graph_cne_objective(raw: &str) -> Result<GraphCneObjective, JsValue> {
+    match normalize_enum_token(raw)?.as_str() {
+        "infonce" => Ok(GraphCneObjective::InfoNce),
+        "negtsne" => Ok(GraphCneObjective::NegTSne),
+        _ => Err(invalid_input_err(format!(
+            "unknown GraphCneObjective {raw:?}; expected 'infoNce' or 'negTSne'"
+        ))),
+    }
+}
+
+#[derive(Debug, Clone)]
+enum GraphCneInner {
+    Dim2(GraphCneSolver<Layout2d<f32>>),
+    Dim3(GraphCneSolver<Layout3d<f32>>),
+    DimN(GraphCneSolver<LayoutNd<f32>>),
+    Manifold(GraphCneSolver<ManifoldLayout2d<f32>>),
+}
+
+fn parse_graph_cne_options(options: &JsValue) -> Result<(GraphCneConfig, JsTargetKind), JsValue> {
+    let mut cfg = GraphCneConfig::default();
+    let mut target = JsTargetKind::Layout2d;
+    if check_options_arg(options, "GraphCneSolver")? {
+        if let Some(obj_str) = opt_string_prop(options, "objective")? {
+            cfg.objective = parse_graph_cne_objective(&obj_str)?;
+        }
+        cfg.negative_samples = opt_usize_prop(options, "negativeSamples", cfg.negative_samples)?;
+        cfg.iterations = opt_usize_prop(options, "iterations", cfg.iterations)?;
+        cfg.initial_lr = opt_f64_prop(options, "initialLr", cfg.initial_lr)?;
+        cfg.min_lr = opt_f64_prop(options, "minLr", cfg.min_lr)?;
+        cfg.repulsion_weight = opt_f64_prop(options, "repulsionWeight", cfg.repulsion_weight)?;
+        cfg.row_normalize = opt_bool_prop(options, "rowNormalize", cfg.row_normalize)?;
+        cfg.seed = opt_seed_prop(options)?;
+        target = opt_target_prop(options)?;
+    }
+    Ok((cfg, target))
+}
+
+/// Cooperative `Graph-CNE` (Bohm et al., 2025) contrastive neighbor embedding solver (`f32`).
+#[wasm_bindgen(js_name = GraphCneSolver)]
+#[derive(Debug, Clone)]
+pub struct JsGraphCneSolver {
+    inner: GraphCneInner,
+    locked_manifold: Option<ManifoldKind>,
+}
+
+#[wasm_bindgen(js_class = GraphCneSolver)]
+impl JsGraphCneSolver {
+    /// Constructs a `GraphCneSolver` from `graph` and `GraphCneOptions`.
+    #[wasm_bindgen(constructor)]
+    pub fn new(graph: &JsCsrGraph, options: &JsValue) -> Result<JsGraphCneSolver, JsValue> {
+        let (cfg, target) = parse_graph_cne_options(options)?;
+        let inner = match target {
+            JsTargetKind::Layout2d => GraphCneInner::Dim2(
+                GraphCneSolver::<Layout2d<f32>>::new(graph.inner(), cfg).map_err(core_err_to_js)?,
+            ),
+            JsTargetKind::Layout3d => GraphCneInner::Dim3(
+                GraphCneSolver::<Layout3d<f32>>::new(graph.inner(), cfg).map_err(core_err_to_js)?,
+            ),
+            JsTargetKind::LayoutNd => GraphCneInner::DimN(
+                GraphCneSolver::<LayoutNd<f32>>::new(graph.inner(), cfg).map_err(core_err_to_js)?,
+            ),
+            JsTargetKind::Manifold2d => GraphCneInner::Manifold(
+                GraphCneSolver::<ManifoldLayout2d<f32>>::new(graph.inner(), cfg)
+                    .map_err(core_err_to_js)?,
+            ),
+        };
+        Ok(Self {
+            inner,
+            locked_manifold: None,
+        })
+    }
+
+    #[wasm_bindgen(js_name = _step2d)]
+    pub fn step_2d(&mut self, layout: &mut JsLayout2d) -> Result<String, JsValue> {
+        match &mut self.inner {
+            GraphCneInner::Dim2(s) => step_layout_in_place(s, layout),
+            _ => Err(unsupported_err(
+                "GraphCneSolver was not configured for target 'layout2d'",
+            )),
+        }
+    }
+
+    #[wasm_bindgen(js_name = _runSteps2d)]
+    pub fn run_steps_2d(&mut self, layout: &mut JsLayout2d, steps: f64) -> Result<String, JsValue> {
+        match &mut self.inner {
+            GraphCneInner::Dim2(s) => run_steps_layout_in_place(
+                s.num_nodes(),
+                s,
+                layout,
+                steps,
+                "GraphCneSolver::run_steps",
+            ),
+            _ => Err(unsupported_err(
+                "GraphCneSolver was not configured for target 'layout2d'",
+            )),
+        }
+    }
+
+    #[wasm_bindgen(js_name = _run2d)]
+    pub fn run_2d(&mut self, layout: &mut JsLayout2d) -> Result<String, JsValue> {
+        match &mut self.inner {
+            GraphCneInner::Dim2(s) => {
+                run_layout_in_place(s.num_nodes(), s, layout, "GraphCneSolver::run")
+            }
+            _ => Err(unsupported_err(
+                "GraphCneSolver was not configured for target 'layout2d'",
+            )),
+        }
+    }
+
+    #[wasm_bindgen(js_name = _step3d)]
+    pub fn step_3d(&mut self, layout: &mut JsLayout3d) -> Result<String, JsValue> {
+        match &mut self.inner {
+            GraphCneInner::Dim3(s) => step_layout3d_in_place(s, layout),
+            _ => Err(unsupported_err(
+                "GraphCneSolver was not configured for target 'layout3d'",
+            )),
+        }
+    }
+
+    #[wasm_bindgen(js_name = _runSteps3d)]
+    pub fn run_steps_3d(&mut self, layout: &mut JsLayout3d, steps: f64) -> Result<String, JsValue> {
+        match &mut self.inner {
+            GraphCneInner::Dim3(s) => run_steps_layout3d_in_place(
+                s.num_nodes(),
+                s,
+                layout,
+                steps,
+                "GraphCneSolver::run_steps_3d",
+            ),
+            _ => Err(unsupported_err(
+                "GraphCneSolver was not configured for target 'layout3d'",
+            )),
+        }
+    }
+
+    #[wasm_bindgen(js_name = _run3d)]
+    pub fn run_3d(&mut self, layout: &mut JsLayout3d) -> Result<String, JsValue> {
+        match &mut self.inner {
+            GraphCneInner::Dim3(s) => {
+                run_layout3d_in_place(s.num_nodes(), s, layout, "GraphCneSolver::run_3d")
+            }
+            _ => Err(unsupported_err(
+                "GraphCneSolver was not configured for target 'layout3d'",
+            )),
+        }
+    }
+
+    #[wasm_bindgen(js_name = _stepNd)]
+    pub fn step_nd(&mut self, layout: &mut JsLayoutNd) -> Result<String, JsValue> {
+        match &mut self.inner {
+            GraphCneInner::DimN(s) => step_nd_in_place(s, layout),
+            _ => Err(unsupported_err(
+                "GraphCneSolver was not configured for target 'layoutNd'",
+            )),
+        }
+    }
+
+    #[wasm_bindgen(js_name = _runStepsNd)]
+    pub fn run_steps_nd(&mut self, layout: &mut JsLayoutNd, steps: f64) -> Result<String, JsValue> {
+        match &mut self.inner {
+            GraphCneInner::DimN(s) => run_steps_nd_in_place(
+                s.num_nodes(),
+                s,
+                layout,
+                steps,
+                "GraphCneSolver::run_steps_nd",
+            ),
+            _ => Err(unsupported_err(
+                "GraphCneSolver was not configured for target 'layoutNd'",
+            )),
+        }
+    }
+
+    #[wasm_bindgen(js_name = _runNd)]
+    pub fn run_nd(&mut self, layout: &mut JsLayoutNd) -> Result<String, JsValue> {
+        match &mut self.inner {
+            GraphCneInner::DimN(s) => {
+                run_nd_in_place(s.num_nodes(), s, layout, "GraphCneSolver::run_nd")
+            }
+            _ => Err(unsupported_err(
+                "GraphCneSolver was not configured for target 'layoutNd'",
+            )),
+        }
+    }
+
+    #[wasm_bindgen(js_name = _stepManifold)]
+    pub fn step_manifold(&mut self, layout: &mut JsManifoldLayout2d) -> Result<String, JsValue> {
+        match &mut self.inner {
+            GraphCneInner::Manifold(s) => step_manifold_in_place(
+                s,
+                layout,
+                &mut self.locked_manifold,
+                s.num_nodes(),
+                "GraphCneSolver::step_manifold",
+            ),
+            _ => Err(unsupported_err(
+                "GraphCneSolver was not configured for target 'manifold2d'",
+            )),
+        }
+    }
+
+    #[wasm_bindgen(js_name = _runStepsManifold)]
+    pub fn run_steps_manifold(
+        &mut self,
+        layout: &mut JsManifoldLayout2d,
+        steps: f64,
+    ) -> Result<String, JsValue> {
+        match &mut self.inner {
+            GraphCneInner::Manifold(s) => run_steps_manifold_in_place(
+                s.num_nodes(),
+                s,
+                layout,
+                steps,
+                &mut self.locked_manifold,
+                "GraphCneSolver::run_steps_manifold",
+            ),
+            _ => Err(unsupported_err(
+                "GraphCneSolver was not configured for target 'manifold2d'",
+            )),
+        }
+    }
+
+    #[wasm_bindgen(js_name = _runManifold)]
+    pub fn run_manifold(&mut self, layout: &mut JsManifoldLayout2d) -> Result<String, JsValue> {
+        match &mut self.inner {
+            GraphCneInner::Manifold(s) => run_manifold_in_place(
+                s.num_nodes(),
+                s,
+                layout,
+                &mut self.locked_manifold,
+                "GraphCneSolver::run_manifold",
+            ),
+            _ => Err(unsupported_err(
+                "GraphCneSolver was not configured for target 'manifold2d'",
+            )),
+        }
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn target(&self) -> String {
+        let kind = match &self.inner {
+            GraphCneInner::Dim2(_) => JsTargetKind::Layout2d,
+            GraphCneInner::Dim3(_) => JsTargetKind::Layout3d,
+            GraphCneInner::DimN(_) => JsTargetKind::LayoutNd,
+            GraphCneInner::Manifold(_) => JsTargetKind::Manifold2d,
+        };
+        target_kind_str(kind).to_owned()
+    }
+
+    #[wasm_bindgen(getter, js_name = numNodes)]
+    pub fn num_nodes(&self) -> usize {
+        match &self.inner {
+            GraphCneInner::Dim2(s) => s.num_nodes(),
+            GraphCneInner::Dim3(s) => s.num_nodes(),
+            GraphCneInner::DimN(s) => s.num_nodes(),
+            GraphCneInner::Manifold(s) => s.num_nodes(),
+        }
+    }
+
+    #[wasm_bindgen(getter, js_name = numSprings)]
+    pub fn num_springs(&self) -> usize {
+        match &self.inner {
+            GraphCneInner::Dim2(s) => s.num_springs(),
+            GraphCneInner::Dim3(s) => s.num_springs(),
+            GraphCneInner::DimN(s) => s.num_springs(),
+            GraphCneInner::Manifold(s) => s.num_springs(),
+        }
+    }
+
+    #[wasm_bindgen(getter, js_name = currentLr)]
+    pub fn current_lr(&self) -> f64 {
+        match &self.inner {
+            GraphCneInner::Dim2(s) => s.current_lr(),
+            GraphCneInner::Dim3(s) => s.current_lr(),
+            GraphCneInner::DimN(s) => s.current_lr(),
+            GraphCneInner::Manifold(s) => s.current_lr(),
+        }
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn status(&self) -> String {
+        let st = match &self.inner {
+            GraphCneInner::Dim2(s) => s.status(),
+            GraphCneInner::Dim3(s) => s.status(),
+            GraphCneInner::DimN(s) => s.status(),
+            GraphCneInner::Manifold(s) => s.status(),
+        };
+        solver_status_str(st).to_owned()
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn iteration(&self) -> usize {
+        match &self.inner {
+            GraphCneInner::Dim2(s) => s.iteration(),
+            GraphCneInner::Dim3(s) => s.iteration(),
+            GraphCneInner::DimN(s) => s.iteration(),
+            GraphCneInner::Manifold(s) => s.iteration(),
+        }
+    }
+
+    #[wasm_bindgen(getter, js_name = totalIterations)]
+    pub fn total_iterations(&self) -> Option<usize> {
+        match &self.inner {
+            GraphCneInner::Dim2(s) => s.total_iterations(),
+            GraphCneInner::Dim3(s) => s.total_iterations(),
+            GraphCneInner::DimN(s) => s.total_iterations(),
+            GraphCneInner::Manifold(s) => s.total_iterations(),
+        }
+    }
+
+    #[wasm_bindgen(getter, js_name = isFinished)]
+    pub fn is_finished(&self) -> bool {
+        let st = match &self.inner {
+            GraphCneInner::Dim2(s) => s.status(),
+            GraphCneInner::Dim3(s) => s.status(),
+            GraphCneInner::DimN(s) => s.status(),
+            GraphCneInner::Manifold(s) => s.status(),
+        };
+        st.is_finished()
+    }
+}

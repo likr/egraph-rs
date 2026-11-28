@@ -22,11 +22,9 @@ fn stress_majorization_and_kamada_kawai_solvers() {
         ("maxIterations", JsValue::from_f64(30.0)),
     ]);
     let mut sm_run =
-        JsStressMajorizationSolver::from_graph(&small_grid, &sm_opts, None, None, None, None)
-            .expect("SM fromGraph");
+        JsStressMajorizationSolver::from_graph(&small_grid, &sm_opts).expect("SM fromGraph");
     let mut sm_step =
-        JsStressMajorizationSolver::from_graph(&small_grid, &sm_opts, None, None, None, None)
-            .expect("SM fromGraph step");
+        JsStressMajorizationSolver::from_graph(&small_grid, &sm_opts).expect("SM fromGraph step");
     let mut sm_l_run = make_circle_layout(9, 0.2);
     let mut sm_l_step = sm_l_run.clone();
     let stress_before = sm_run.compute_stress_2d(&sm_l_run).unwrap();
@@ -45,11 +43,7 @@ fn stress_majorization_and_kamada_kawai_solvers() {
     let sm_dm = JsStressMajorizationSolver::from_distance_matrix(
         2.0,
         &[0.0, 2.0, 2.0, 0.0],
-        &JsValue::UNDEFINED,
-        Some(15.0),
-        None,
-        None,
-        None,
+        &make_opts(&[("maxIterations", JsValue::from_f64(15.0))]),
     )
     .unwrap();
     assert_eq!(sm_dm.num_nodes(), 2);
@@ -60,8 +54,8 @@ fn stress_majorization_and_kamada_kawai_solvers() {
         ("maxInnerIters", JsValue::from_f64(50.0)),
         ("maxIterations", JsValue::from_f64(100.0)),
     ]);
-    let mut kk_run = JsKamadaKawaiSolver::from_graph(&small_grid, &kk_opts, None, None).unwrap();
-    let mut kk_step = JsKamadaKawaiSolver::from_graph(&small_grid, &kk_opts, None, None).unwrap();
+    let mut kk_run = JsKamadaKawaiSolver::from_graph(&small_grid, &kk_opts).unwrap();
+    let mut kk_step = JsKamadaKawaiSolver::from_graph(&small_grid, &kk_opts).unwrap();
     let mut kk_l_run = make_circle_layout(9, 1.5);
     let mut kk_l_step = kk_l_run.clone();
     kk_run.run_2d(&mut kk_l_run).unwrap();
@@ -74,9 +68,10 @@ fn stress_majorization_and_kamada_kawai_solvers() {
     let mut kk_dm = JsKamadaKawaiSolver::from_distance_matrix(
         2.0,
         &[0.0, 3.0, 3.0, 0.0],
-        &JsValue::UNDEFINED,
-        None,
-        Some(20.0),
+        &make_opts(&[
+            ("eps", JsValue::from_f64(1e-4)),
+            ("maxIterations", JsValue::from_f64(250.0)),
+        ]),
     )
     .unwrap();
     let mut kk_l2 = JsLayout2d::from_coords(&[0.0, 0.0, 0.5, 0.0]).unwrap();
@@ -91,10 +86,6 @@ fn stress_majorization_and_kamada_kawai_solvers() {
             2.0,
             &[0.0, f64::NAN, 1.0, 0.0],
             &JsValue::UNDEFINED,
-            None,
-            None,
-            None,
-            None,
         )
         .is_err()
     );
@@ -103,8 +94,6 @@ fn stress_majorization_and_kamada_kawai_solvers() {
             2.0,
             &[0.0, -1.0, 1.0, 0.0],
             &JsValue::UNDEFINED,
-            None,
-            None,
         )
         .is_err()
     );
@@ -146,7 +135,7 @@ fn maxent_stress_step_eq_run_and_getters() {
         let mut s_step = JsMaxentStressSolver::new(&graph, &opts).unwrap();
         let mut s_run = JsMaxentStressSolver::new(&graph, &opts).unwrap();
         assert_eq!(s_step.num_nodes(), 8);
-        assert_eq!(s_step.total_iterations(), 10);
+        assert_eq!(s_step.total_iterations(), Some(10));
         assert!((s_step.effective_q() - 0.4).abs() < 1e-12);
         let alpha_0 = s_step.current_alpha();
         assert!((alpha_0 - 1.0).abs() < 1e-12);

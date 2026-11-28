@@ -1,9 +1,9 @@
 //! WebAssembly bindings for Grid-based Cluster Area Faithfulness (`G-CAF`).
 
 use crate::js_convert::{
-    core_err_to_js, parse_non_negative_usize, parse_optional_f64_sequence, parse_u32_sequence,
-    set_f64_prop, set_js_prop,
+    core_err_to_js, parse_optional_f64_sequence, parse_u32_sequence, set_f64_prop, set_js_prop,
 };
+use crate::js_options::{check_options_arg, get_prop, opt_f64_prop, opt_usize_prop};
 use crate::layout_buffers::JsLayout2d;
 use egraph::metrics::{
     ClusterAreaConfig, ClusterAreaDetail, cluster_area_faithfulness_detail_with_weights,
@@ -127,7 +127,7 @@ impl JsClusterAreaReport {
 
     /// Converts summary and per-cluster diagnostics into a plain JavaScript object without `serde`.
     #[wasm_bindgen(js_name = toRecord)]
-    pub fn to_record(&self) -> Result<js_sys::Object, JsError> {
+    pub fn to_record(&self) -> Result<js_sys::Object, JsValue> {
         let obj = js_sys::Object::new();
         let r = &self.inner.report;
         for (k, v) in [
@@ -169,93 +169,73 @@ impl JsClusterAreaReport {
     }
 }
 
-pub(crate) fn parse_cluster_area_config(
-    g_max: Option<f64>,
-    sigma_cells: Option<f64>,
-    kappa: Option<f64>,
-    tau_frac: Option<f64>,
-    boundary_r95: Option<f64>,
-    stevens_gamma: Option<f64>,
-) -> Result<ClusterAreaConfig, JsError> {
-    let def = ClusterAreaConfig::default();
-    Ok(ClusterAreaConfig {
-        g_max: match g_max {
-            None => def.g_max,
-            Some(v) => parse_non_negative_usize(v, "gMax")?,
-        },
-        sigma_cells: sigma_cells.unwrap_or(def.sigma_cells),
-        kappa: kappa.unwrap_or(def.kappa),
-        tau_frac: tau_frac.unwrap_or(def.tau_frac),
-        boundary_r95: boundary_r95.unwrap_or(def.boundary_r95),
-        stevens_gamma: stevens_gamma.unwrap_or(def.stevens_gamma),
+pub(crate) struct ParsedClusterAreaOptions {
+    cfg: ClusterAreaConfig,
+    node_weights: Option<Vec<f64>>,
+    cluster_weights: Option<Vec<f64>>,
+}
+
+pub(crate) fn parse_cluster_area_options(
+    options: &JsValue,
+    ctx: &str,
+) -> Result<ParsedClusterAreaOptions, JsValue> {
+    let mut cfg = ClusterAreaConfig::default();
+    let mut nw = None;
+    let mut cw = None;
+    if check_options_arg(options, ctx)? {
+        cfg.g_max = opt_usize_prop(options, "gMax", cfg.g_max)?;
+        cfg.sigma_cells = opt_f64_prop(options, "sigmaCells", cfg.sigma_cells)?;
+        cfg.kappa = opt_f64_prop(options, "kappa", cfg.kappa)?;
+        cfg.tau_frac = opt_f64_prop(options, "tauFrac", cfg.tau_frac)?;
+        cfg.boundary_r95 = opt_f64_prop(options, "boundaryR95", cfg.boundary_r95)?;
+        cfg.stevens_gamma = opt_f64_prop(options, "stevensGamma", cfg.stevens_gamma)?;
+        nw = parse_optional_f64_sequence(&get_prop(options, "nodeWeights")?, "nodeWeights")?;
+        cw = parse_optional_f64_sequence(&get_prop(options, "clusterWeights")?, "clusterWeights")?;
+    }
+    Ok(ParsedClusterAreaOptions {
+        cfg,
+        node_weights: nw,
+        cluster_weights: cw,
     })
 }
 
 /// Computes Grid-based Cluster Area Faithfulness (`G-CAF`) in `[0.0, 1.0]`.
 #[wasm_bindgen(js_name = clusterAreaFaithfulness)]
-#[allow(clippy::too_many_arguments)]
 pub fn js_cluster_area_faithfulness(
     layout: &JsLayout2d,
     labels: &JsValue,
-    g_max: Option<f64>,
-    sigma_cells: Option<f64>,
-    kappa: Option<f64>,
-    tau_frac: Option<f64>,
-    boundary_r95: Option<f64>,
-    stevens_gamma: Option<f64>,
-    node_weights: &JsValue,
-    cluster_weights: &JsValue,
-) -> Result<f64, JsError> {
+    options: &JsValue,
+) -> Result<f64, JsValue> {
     let parsed_labels = parse_u32_sequence(labels, "labels")?;
-    let nw = parse_optional_f64_sequence(node_weights, "nodeWeights")?;
-    let cw = parse_optional_f64_sequence(cluster_weights, "clusterWeights")?;
-    let cfg = parse_cluster_area_config(
-        g_max,
-        sigma_cells,
-        kappa,
-        tau_frac,
-        boundary_r95,
-        stevens_gamma,
-    )?;
+    let opts = parse_cluster_area_options(options, "clusterAreaFaithfulness")?;
     let soa = layout.inner().to_layout2d();
-    cluster_area_faithfulness_with_weights(&soa, &parsed_labels, &cfg, nw.as_deref(), cw.as_deref())
-        .map(|r| r.caf)
-        .map_err(core_err_to_js)
+    cluster_area_faithfulness_with_weights(
+        &soa,
+        &parsed_labels,
+        &opts.cfg,
+        opts.node_weights.as_deref(),
+        opts.cluster_weights.as_deref(),
+    )
+    .map(|r| r.caf)
+    .map_err(core_err_to_js)
 }
 
 /// Computes Grid-based Cluster Area Faithfulness (`G-CAF`) with per-cluster diagnostics ([`ClusterAreaReport`]).
 #[wasm_bindgen(js_name = clusterAreaFaithfulnessDetail)]
-#[allow(clippy::too_many_arguments)]
 pub fn js_cluster_area_faithfulness_detail(
     layout: &JsLayout2d,
     labels: &JsValue,
-    g_max: Option<f64>,
-    sigma_cells: Option<f64>,
-    kappa: Option<f64>,
-    tau_frac: Option<f64>,
-    boundary_r95: Option<f64>,
-    stevens_gamma: Option<f64>,
-    node_weights: &JsValue,
-    cluster_weights: &JsValue,
-) -> Result<JsClusterAreaReport, JsError> {
+    options: &JsValue,
+) -> Result<JsClusterAreaReport, JsValue> {
     let parsed_labels = parse_u32_sequence(labels, "labels")?;
-    let nw = parse_optional_f64_sequence(node_weights, "nodeWeights")?;
-    let cw = parse_optional_f64_sequence(cluster_weights, "clusterWeights")?;
-    let cfg = parse_cluster_area_config(
-        g_max,
-        sigma_cells,
-        kappa,
-        tau_frac,
-        boundary_r95,
-        stevens_gamma,
-    )?;
+    let opts = parse_cluster_area_options(options, "clusterAreaFaithfulnessDetail")?;
     let soa = layout.inner().to_layout2d();
     let inner = cluster_area_faithfulness_detail_with_weights(
         &soa,
         &parsed_labels,
-        &cfg,
-        nw.as_deref(),
-        cw.as_deref(),
+        &opts.cfg,
+        opts.node_weights.as_deref(),
+        opts.cluster_weights.as_deref(),
     )
     .map_err(core_err_to_js)?;
     Ok(JsClusterAreaReport { inner })

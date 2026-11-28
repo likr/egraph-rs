@@ -1,13 +1,17 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
-export function assertJsError(fn, label) {
+export function assertJsError(fn, label, expectedCode = null) {
   let threw = false;
   try {
     fn();
   } catch (err) {
     assert(!(err instanceof WebAssembly.RuntimeError), `${label} trapped with RuntimeError`);
     assert(err instanceof Error, `${label} must throw Error`);
+    assert.equal(typeof err.code, "string", `${label} must expose string .code`);
+    if (expectedCode !== null) {
+      assert.equal(err.code, expectedCode, `${label} expected code ${expectedCode}, got ${err.code}`);
+    }
     threw = true;
   }
   assert(threw, `${label} must throw`);

@@ -24,7 +24,7 @@ fn tsnet_pure_2hop_and_row_normalized_backends() {
         &JsValue::from_f64(2.0),
     );
 
-    for backend in ["exact", "BARNES-HUT", "fft_interpolation", "L"] {
+    for backend in ["exact", "barnesHut", "fitFft", "linearFft"] {
         let opts = make_opts(&[
             ("backend", JsValue::from_str(backend)),
             ("stageIterations", stages_4.clone().into()),
@@ -33,60 +33,8 @@ fn tsnet_pure_2hop_and_row_normalized_backends() {
             ("seed", JsValue::from_f64(42.0)),
         ]);
 
-        let mut s_run = JsTsNetSolver::pure_2hop(
-            &grid,
-            &opts,
-            &JsValue::UNDEFINED,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            &JsValue::UNDEFINED,
-            None,
-            None,
-        )
-        .expect("tsnet pure2Hop");
-        let mut s_step = JsTsNetSolver::pure_2hop(
-            &grid,
-            &opts,
-            &JsValue::UNDEFINED,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            &JsValue::UNDEFINED,
-            None,
-            None,
-        )
-        .expect("tsnet pure2Hop step");
+        let mut s_run = JsTsNetSolver::pure_2hop(&grid, &opts).expect("tsnet pure2Hop");
+        let mut s_step = JsTsNetSolver::pure_2hop(&grid, &opts).expect("tsnet pure2Hop step");
 
         let mut l_run = init.clone();
         let mut l_step = init.clone();
@@ -94,7 +42,7 @@ fn tsnet_pure_2hop_and_row_normalized_backends() {
 
         assert_eq!(s_run.status(), "initialized");
         assert!(s_run.sampling_mode().is_none());
-        assert_eq!(s_run.total_iterations(), 12);
+        assert_eq!(s_run.total_iterations(), Some(12));
         assert_eq!(s_run.run_2d(&mut l_run).unwrap(), "completed");
         assert!(s_run.is_finished());
 
@@ -108,7 +56,7 @@ fn tsnet_pure_2hop_and_row_normalized_backends() {
         assert_eq!(s_step.status(), "completed");
         assert_eq!(s_step.total_fft_2d_calls(), s_run.total_fft_2d_calls());
         assert_layouts_bit_exact(&l_run, &l_step);
-        if matches!(backend, "fft_interpolation" | "L") {
+        if matches!(backend, "fitFft" | "linearFft") {
             assert!(s_run.total_fft_2d_calls() > 0.0);
         } else {
             assert_eq!(s_run.total_fft_2d_calls(), 0.0);
@@ -118,120 +66,50 @@ fn tsnet_pure_2hop_and_row_normalized_backends() {
     // fromKnn and fromProbabilities
     let pure = js_build_pure_2hop_knn(&grid).unwrap();
     let knn = pure.knn();
-    let perps = js_compute_nodewise_2hop_perplexities(&grid, None, None, None).unwrap();
-    let probs = js_compute_knn_probabilities(&knn, &perps, None, None, None, None).unwrap();
+    let perps = js_compute_nodewise_2hop_perplexities(&grid, &JsValue::UNDEFINED).unwrap();
+    let probs = js_compute_knn_probabilities(&knn, &perps, &JsValue::UNDEFINED).unwrap();
 
     let s_knn = JsTsNetSolver::from_knn(
         &knn,
-        Some(perps),
-        None,
-        &JsValue::from_str("fit"),
-        stages_2.as_ref(),
-        Some(20.0),
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        Some(42.0),
-        None,
-        &JsValue::UNDEFINED,
-        None,
-        None,
+        &make_opts(&[
+            ("perplexities", perps.into()),
+            ("backend", JsValue::from_str("fitFft")),
+            ("stageIterations", stages_2.clone().into()),
+            ("learningRate", JsValue::from_f64(20.0)),
+            ("seed", JsValue::from_f64(42.0)),
+        ]),
     )
     .unwrap();
     let s_probs = JsTsNetSolver::from_probabilities(
         &probs,
-        &JsValue::from_str("fft"),
-        stages_2.as_ref(),
-        Some(20.0),
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        Some(42.0),
-        None,
-        &JsValue::UNDEFINED,
-        None,
-        None,
+        &make_opts(&[
+            ("backend", JsValue::from_str("fitFft")),
+            ("stageIterations", stages_2.clone().into()),
+            ("learningRate", JsValue::from_f64(20.0)),
+            ("seed", JsValue::from_f64(42.0)),
+        ]),
     )
     .unwrap();
     assert_eq!(s_knn.num_nodes(), 16);
-    assert_eq!(s_probs.total_iterations(), 6);
+    assert_eq!(s_probs.total_iterations(), Some(6));
 
     // Optional learningRate auto-scaling & Stage 3 LR cap (2 * N for N < 100) + fromGraphRowNormalized
     let rn_opts = make_opts(&[
         ("w2", JsValue::from_f64(0.5)),
         ("max2hopPerNode", JsValue::from_f64(8.0)),
         ("degreeBeta", JsValue::from_f64(0.35)),
-        ("backend", JsValue::from_str("fft")),
+        ("backend", JsValue::from_str("fitFft")),
         ("stageIterations", stages_2.clone().into()),
         ("seed", JsValue::from_f64(42.0)),
     ]);
-    let mut rn_run = JsTsNetSolver::from_graph_row_normalized(
-        &grid,
-        &rn_opts,
-        None,
-        &JsValue::UNDEFINED,
-        &JsValue::UNDEFINED,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        &JsValue::UNDEFINED,
-        None,
-        None,
-        None,
-    )
-    .expect("fromGraphRowNormalized opts");
-    assert_eq!(
-        rn_run.sampling_mode().as_deref(),
-        Some("two_step_random_walk")
-    );
-    let mut rn_step = JsTsNetSolver::from_graph_row_normalized(
-        &grid,
-        &JsValue::from_f64(0.5),
-        Some(8.0),
-        &JsValue::from_str("fft"),
-        stages_2.as_ref(),
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        Some(42.0),
-        None,
-        &JsValue::UNDEFINED,
-        None,
-        None,
-        Some(0.35),
-    )
-    .expect("fromGraphRowNormalized pos");
+    let mut rn_run =
+        JsTsNetSolver::from_graph_row_normalized(&grid, &rn_opts).expect("fromGraphRowNormalized");
+    assert_eq!(rn_run.sampling_mode().as_deref(), Some("twoStepRandomWalk"));
+    let mut rn_step = JsTsNetSolver::from_graph_row_normalized(&grid, &rn_opts)
+        .expect("fromGraphRowNormalized step");
     assert_eq!(
         rn_step.sampling_mode().as_deref(),
-        Some("two_step_random_walk")
+        Some("twoStepRandomWalk")
     );
     let mut lrn_run = init.clone();
     let mut lrn_step = init.clone();
@@ -242,88 +120,42 @@ fn tsnet_pure_2hop_and_row_normalized_backends() {
     assert_layouts_bit_exact(&lrn_run, &lrn_step);
     assert!(rn_run.current_stage_lr() <= 32.0);
 
-    // Explicit samplingMode + twoStepRandomWalk override in fromGraphRowNormalized
+    // Explicit samplingMode override in fromGraphRowNormalized
     let rn_deg_opts = make_opts(&[
         ("w2", JsValue::from_f64(0.5)),
         (
             "samplingMode",
-            JsValue::from_str("degree_ordered_hub_suppressed"),
+            JsValue::from_str("degreeOrderedHubSuppressed"),
         ),
         ("maxBridgeDegree", JsValue::from_f64(4.0)),
         ("backend", JsValue::from_str("exact")),
         ("stageIterations", stages_2.clone().into()),
     ]);
-    let rn_deg = JsTsNetSolver::from_graph_row_normalized(
-        &grid,
-        &rn_deg_opts,
-        None,
-        &JsValue::UNDEFINED,
-        &JsValue::UNDEFINED,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        &JsValue::UNDEFINED,
-        None,
-        None,
-        None,
-    )
-    .unwrap();
+    let rn_deg = JsTsNetSolver::from_graph_row_normalized(&grid, &rn_deg_opts).unwrap();
     assert_eq!(
         rn_deg.sampling_mode().as_deref(),
-        Some("degree_ordered_hub_suppressed")
+        Some("degreeOrderedHubSuppressed")
     );
 
     // w2 = 0.0 parity with graphRowNormalizedProbabilities + fromProbabilities
     let probs_1hop = js_graph_row_normalized_probabilities(&grid).unwrap();
     let mut s_rn0 = JsTsNetSolver::from_graph_row_normalized(
         &grid,
-        &JsValue::from_f64(0.0),
-        None,
-        &JsValue::from_str("fft"),
-        stages_2.as_ref(),
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        Some(42.0),
-        None,
-        &JsValue::UNDEFINED,
-        None,
-        None,
-        None,
+        &make_opts(&[
+            ("w2", JsValue::from_f64(0.0)),
+            ("backend", JsValue::from_str("fitFft")),
+            ("stageIterations", stages_2.clone().into()),
+            ("seed", JsValue::from_f64(42.0)),
+        ]),
     )
     .unwrap();
     let mut s_p0 = JsTsNetSolver::from_probabilities(
         &probs_1hop,
-        &JsValue::from_str("fft"),
-        stages_2.as_ref(),
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        Some(42.0),
-        None,
-        &JsValue::UNDEFINED,
-        None,
-        None,
+        &make_opts(&[
+            ("backend", JsValue::from_str("fitFft")),
+            ("stageIterations", stages_2.into()),
+            ("seed", JsValue::from_f64(42.0)),
+        ]),
     )
     .unwrap();
     let mut lp0 = init.clone();
@@ -331,29 +163,5 @@ fn tsnet_pure_2hop_and_row_normalized_backends() {
     s_rn0.run_2d(&mut lr0).unwrap();
     s_p0.run_2d(&mut lp0).unwrap();
     assert_layouts_bit_exact(&lr0, &lp0);
-    assert!(
-        JsTsNetSolver::from_graph_row_normalized(
-            &grid,
-            &JsValue::from_f64(-0.1),
-            None,
-            &JsValue::UNDEFINED,
-            &JsValue::UNDEFINED,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            &JsValue::UNDEFINED,
-            None,
-            None,
-            None,
-        )
-        .is_err()
-    );
+    assert!(JsTsNetSolver::from_graph_row_normalized(&grid, &JsValue::from_f64(-0.1)).is_err());
 }

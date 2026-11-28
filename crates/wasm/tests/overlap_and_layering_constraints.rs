@@ -169,7 +169,7 @@ fn layering_cycle_edges_remove_cycles_and_assign_layers() {
     )
     .unwrap();
     let lp = js_assign_layers(&span_dag, Some("longestPath".to_owned())).unwrap();
-    let ns = js_assign_layers(&span_dag, Some("network_simplex".to_owned())).unwrap();
+    let ns = js_assign_layers(&span_dag, Some("networkSimplex".to_owned())).unwrap();
     assert_eq!(lp.len(), 5);
     assert_eq!(ns.len(), 5);
     assert_eq!(*ns.iter().min().unwrap(), 0);
@@ -213,7 +213,7 @@ fn gtree_and_forbid_overlap_removal_step_eq_run() {
     gt_radii.run(&mut l_gt_rad).unwrap();
     assert_eq!(count_rect_overlaps(&l_gt_rad, &radii, &radii), 0);
 
-    for variant in ["forbid", "forbid_prime", "sparse_forbid"] {
+    for variant in ["forbid", "forbidPrime", "sparseForbid"] {
         let f_opts = make_opts(&[
             ("variant", JsValue::from_str(variant)),
             ("maxScaleIters", JsValue::from_f64(20.0)),

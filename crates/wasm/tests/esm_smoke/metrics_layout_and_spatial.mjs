@@ -6,6 +6,7 @@ export function runMetricsLayoutAndSpatialSmoke({ eg, webPkg }) {
   const {
     CsrGraph,
     Layout2d,
+    Layout3d,
     LayoutDegeneracy,
     ManifoldLayout2d,
     MetricReport,
@@ -58,16 +59,19 @@ export function runMetricsLayoutAndSpatialSmoke({ eg, webPkg }) {
   // 4x4 grid layout (16 nodes, 24 edges, planar crystalline)
   const gridEdges = [];
   const gridCoords = [];
+  const gridCoords3d = [];
   for (let r = 0; r < 4; r += 1) {
     for (let c = 0; c < 4; c += 1) {
       const id = r * 4 + c;
       gridCoords.push(c, r);
+      gridCoords3d.push(c, r, 0);
       if (c + 1 < 4) gridEdges.push(id, id + 1);
       if (r + 1 < 4) gridEdges.push(id, id + 4);
     }
   }
   const grid = CsrGraph.fromEdgeList(16, new Uint32Array(gridEdges));
   const gridLayout = Layout2d.fromCoords(new Float32Array(gridCoords));
+  const gridLayout3d = Layout3d.fromCoords(new Float32Array(gridCoords3d));
   const scaledCoords = new Float32Array(gridCoords.length);
   for (let i = 0; i < gridCoords.length; i += 2) {
     scaledCoords[i] = 10.0 * gridCoords[i] + 5.0;
@@ -77,8 +81,10 @@ export function runMetricsLayoutAndSpatialSmoke({ eg, webPkg }) {
 
   const sns1 = scaleNormalizedStress(grid, gridLayout);
   const sns10 = scaleNormalizedStress(grid, gridScaled);
+  const sns3d = scaleNormalizedStress(grid, gridLayout3d);
   assert(Number.isFinite(sns1) && sns1 >= 0 && sns1 < 0.05);
   assert(Math.abs(sns1 - sns10) < 1e-5, "SNS must be scale-invariant");
+  assert(Math.abs(sns1 - sns3d) < 1e-5, "3D SNS on z=0 grid must match 2D SNS");
   const snsDet = scaleNormalizedStressDetail(grid, gridLayout);
   assert(snsDet instanceof StressEvaluation);
   assert(Math.abs(snsDet.normalizedStress - sns1) < 1e-12);
@@ -91,7 +97,7 @@ export function runMetricsLayoutAndSpatialSmoke({ eg, webPkg }) {
   snsDet.free();
 
   const sampledSnsDefault = sampledScaleNormalizedStress(grid, gridLayout);
-  const sampledSns4 = sampledScaleNormalizedStress(grid, gridLayout, 16, 42);
+  const sampledSns4 = sampledScaleNormalizedStress(grid, gridLayout, { numPivots: 16, seed: 42 });
   assert(Math.abs(sampledSnsDefault - sns1) < 1e-5);
   assert(Number.isFinite(sampledSns4) && sampledSns4 >= 0);
 
@@ -106,9 +112,13 @@ export function runMetricsLayoutAndSpatialSmoke({ eg, webPkg }) {
   const k4Layout = Layout2d.fromCoords(new Float32Array([0, 0, 1, 0, 1, 1, 0, 1]));
   assert.equal(sweepCrossingNumber(k4, k4Layout), 1);
   assert(Math.abs(sweepCrossingAngle(k4, k4Layout)) < 1e-6);
-  assert.equal(sampledCrossingNumber(k4, k4Layout, 100, 42), 1);
+  assert.equal(sampledCrossingNumber(k4, k4Layout, { numSamples: 100, seed: 42 }), 1);
   assert(Math.abs(crosslessness(k4, k4Layout) - (1 - Math.sqrt(1 / 3))) < 1e-12);
-  assert(Math.abs(sampledCrosslessness(k4, k4Layout, 100, 42) - (1 - Math.sqrt(1 / 3))) < 1e-12);
+  assert(
+    Math.abs(
+      sampledCrosslessness(k4, k4Layout, { numSamples: 100, seed: 42 }) - (1 - Math.sqrt(1 / 3)),
+    ) < 1e-12,
+  );
   k4.free();
   k4Layout.free();
 
@@ -127,13 +137,24 @@ export function runMetricsLayoutAndSpatialSmoke({ eg, webPkg }) {
   degInfo.free();
 
   const commLabels = new Uint32Array(Array.from({ length: 16 }, (_, i) => (i < 8 ? 0 : 1)));
-  const nigVal = adjustedPatchNig(gridLayout, commLabels, 16, 2048, 0.04, 42);
-  const nigMs = adjustedPatchNigMultiscale(gridLayout, commLabels, [16, 32], 2048, 0.04, 42);
+  const nigVal = adjustedPatchNig(gridLayout, commLabels, {
+    patchRadius: 16,
+    canvasSize: 2048,
+    padFrac: 0.04,
+    seed: 42,
+  });
+  const nigMs = adjustedPatchNigMultiscale(gridLayout, commLabels, {
+    radii: [16, 32],
+    canvasSize: 2048,
+    padFrac: 0.04,
+    seed: 42,
+  });
   assert(nigMs instanceof Float64Array);
   assert(Math.abs(nigMs[0] - nigVal) < 1e-12);
 
-  const rtaVal = landmarkStratifiedRta(grid, gridLayout, 4, 10000, 2, 42);
-  const rtaDet = landmarkStratifiedRtaDetail(grid, gridLayout, 4, 10000, 2, 42);
+  const rtaOpts = { numLandmarks: 4, numTriplets: 10000, minDegree: 2, seed: 42 };
+  const rtaVal = landmarkStratifiedRta(grid, gridLayout, rtaOpts);
+  const rtaDet = landmarkStratifiedRtaDetail(grid, gridLayout, rtaOpts);
   assert(rtaDet instanceof RtaEvaluation);
   assert(Math.abs(rtaDet.rta - rtaVal) < 1e-12);
   assert.equal(rtaDet.isExact, true);
@@ -145,8 +166,7 @@ export function runMetricsLayoutAndSpatialSmoke({ eg, webPkg }) {
       0, 1, 2, 3, 1, 2, 3, 4, 2, 3, 4, 5, 3, 4, 5, 6,
       6, 5, 4, 3, 5, 4, 3, 2, 4, 3, 2, 1, 3, 2, 1, 0,
     ]),
-    10000,
-    42,
+    { numTriplets: 10000, seed: 42 },
   );
   assert(rtaFromTbl instanceof RtaEvaluation);
   rtaFromTbl.free();
@@ -158,9 +178,9 @@ export function runMetricsLayoutAndSpatialSmoke({ eg, webPkg }) {
   torusGraph.free();
   torusLayout.free();
 
-  // Gabriel & Relative Neighborhood edges across ManifoldLayout2d variants
-  for (const kind of ["hyperbolic_poincare", "hyperbolic_lorentz", "spherical", "torus_2d"]) {
-    const ml = ManifoldLayout2d.init(kind, 8, 42, 0.35);
+  // Gabriel & Relative Neighborhood edges across ManifoldLayout2d variants (canonical camelCase)
+  for (const kind of ["hyperbolicPoincare", "hyperbolicLorentz", "spherical", "torus2d"]) {
+    const ml = ManifoldLayout2d.init(kind, 8, { seed: 42, scale: 0.35 });
     const ggMani = gabrielGraphEdges(ml);
     const rngMani = relativeNeighborhoodEdges(ml);
     const ggWeb = webPkg.gabrielGraphEdges(ml);
@@ -193,24 +213,27 @@ export function runMetricsLayoutAndSpatialSmoke({ eg, webPkg }) {
   assert(distortion.sigmaDisp < 1e-5);
   distortion.free();
 
-  // Selective metric evaluation without serde
+  // Selective metric evaluation across Layout2d & Layout3d
   const report = evaluateMetrics(
     grid,
     gridLayout,
     ["sns", "np2", "sampledNp1", "sampledNp2", "aspectRatio", "drng"],
-    8,
-    64,
-    42,
+    { numPivots: 8, numSamples: 64, seed: 42 },
   );
   assert(report instanceof MetricReport);
   assert(Math.abs(report.scaleNormalizedStress - sns1) < 1e-12);
   assert(Math.abs(report.neighborhoodPreservation2Hop - 1.0) < 1e-6);
-  assert.equal(report.sampledNp1, sampledNp1(grid, gridLayout, 64, 42));
-  assert.equal(report.sampledNp2, sampledNp2(grid, gridLayout, 64, 42));
+  assert.equal(report.sampledNp1, sampledNp1(grid, gridLayout, { numSamples: 64, seed: 42 }));
+  assert.equal(report.sampledNp2, sampledNp2(grid, gridLayout, { numSamples: 64, seed: 42 }));
   assert(Math.abs(report.aspectRatio - 1.0) < 1e-6);
   assert(Math.abs(report.relativeNeighborhoodPreservation - 1.0) < 1e-6);
   assert.equal(report.crossingNumber, undefined);
   assert.equal(report.idealEdgeLengths, undefined);
+
+  const report3d = evaluateMetrics(grid, gridLayout3d, ["sns", "np2"]);
+  assert(Math.abs(report3d.scaleNormalizedStress - sns3d) < 1e-12);
+  assert(Math.abs(report3d.neighborhoodPreservation2Hop - 1.0) < 1e-6);
+  report3d.free();
 
   const rec = report.toRecord();
   assert.deepEqual(
@@ -227,46 +250,44 @@ export function runMetricsLayoutAndSpatialSmoke({ eg, webPkg }) {
   assert(Math.abs(rec.scaleNormalizedStress - sns1) < 1e-12);
   report.free();
 
-  // Delaunay triangulation when `delaunay` feature is enabled
-  if (typeof eg.delaunayTriangulation === "function") {
-    assert.equal(typeof webPkg.delaunayTriangulation, "function");
-    const sq = Layout2d.fromCoords(new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]));
-    const dt = eg.delaunayTriangulation(sq);
-    const dtEdges = dt.edges();
-    const dtTris = dt.triangles();
-    assert(dtEdges instanceof Uint32Array);
-    assert(dtTris instanceof Uint32Array);
-    assert.equal(dt.numNodes, 4);
-    assert.equal(dtEdges.length, 10);
-    assert.equal(dtTris.length, 6);
-    dt.free();
-    sq.free();
-  }
+  // Delaunay triangulation (always-on)
+  assert.equal(typeof webPkg.delaunayTriangulation, "function");
+  const sq = Layout2d.fromCoords(new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]));
+  const dt = eg.delaunayTriangulation(sq);
+  const dtEdges = dt.edges();
+  const dtTris = dt.triangles();
+  assert(dtEdges instanceof Uint32Array);
+  assert(dtTris instanceof Uint32Array);
+  assert.equal(dt.numNodes, 4);
+  assert.equal(dtEdges.length, 10);
+  assert.equal(dtTris.length, 6);
+  dt.free();
+  sq.free();
 
-  // Adversarial inputs must throw Error (never WebAssembly.RuntimeError)
+  // Adversarial inputs must throw Error with .code (never WebAssembly.RuntimeError)
   const shortLayout = Layout2d.zeros(3);
   const nanLayout = Layout2d.fromCoords(new Float32Array([Number.NaN, 0, ...gridCoords.slice(2)]));
-  assertJsError(() => scaleNormalizedStress(grid, shortLayout), "sns dimension mismatch");
-  assertJsError(() => sweepCrossingNumber(grid, nanLayout), "crossings non-finite");
-  assertJsError(() => neighborhoodPreservation1Hop(grid, shortLayout), "np1 dimension mismatch");
-  assertJsError(() => prismDistortion(gridLayout, shortLayout), "prism dimension mismatch");
-  assertJsError(() => sampledScaleNormalizedStress(grid, gridLayout, 0, 42), "numPivots=0");
-  assertJsError(() => sampledScaleNormalizedStress(grid, gridLayout, 4, -1), "seed=-1");
-  assertJsError(() => sampledScaleNormalizedStress(grid, gridLayout, 4, 1.5), "seed=1.5");
+  assertJsError(() => scaleNormalizedStress(grid, shortLayout), "sns dimension mismatch", "DimensionMismatch");
+  assertJsError(() => sweepCrossingNumber(grid, nanLayout), "crossings non-finite", "NonFiniteValue");
+  assertJsError(() => neighborhoodPreservation1Hop(grid, shortLayout), "np1 dimension mismatch", "DimensionMismatch");
+  assertJsError(() => prismDistortion(gridLayout, shortLayout), "prism dimension mismatch", "DimensionMismatch");
+  assertJsError(() => sampledScaleNormalizedStress(grid, gridLayout, { numPivots: 0, seed: 42 }), "numPivots=0", "InvalidInput");
+  assertJsError(() => sampledScaleNormalizedStress(grid, gridLayout, { numPivots: 4, seed: -1 }), "seed=-1", "InvalidInput");
+  assertJsError(() => sampledScaleNormalizedStress(grid, gridLayout, { numPivots: 4, seed: 1.5 }), "seed=1.5", "InvalidInput");
   assertJsError(
-    () => sampledScaleNormalizedStress(grid, gridLayout, 4, 9007199254740992),
+    () => sampledScaleNormalizedStress(grid, gridLayout, { numPivots: 4, seed: 9007199254740992 }),
     "seed > MAX_SAFE_INTEGER",
+    "InvalidInput",
   );
-  assertJsError(() => sampledCrossingNumber(grid, gridLayout, 0, 42), "numSamples=0");
-  assertJsError(() => evaluateMetrics(grid, gridLayout, "sns"), "non-array targets");
-  assertJsError(() => evaluateMetrics(grid, gridLayout, [123]), "non-string target element");
-  assertJsError(() => evaluateMetrics(grid, gridLayout, ["bogusMetric"]), "unknown target name");
-  if (typeof eg.delaunayTriangulation === "function") {
-    assertJsError(() => eg.delaunayTriangulation(nanLayout), "delaunay non-finite");
-  }
+  assertJsError(() => sampledCrossingNumber(grid, gridLayout, { numSamples: 0, seed: 42 }), "numSamples=0", "InvalidInput");
+  assertJsError(() => evaluateMetrics(grid, gridLayout, "sns"), "non-array targets", "InvalidInput");
+  assertJsError(() => evaluateMetrics(grid, gridLayout, [123]), "non-string target element", "InvalidInput");
+  assertJsError(() => evaluateMetrics(grid, gridLayout, ["bogusMetric"]), "unknown target name", "InvalidInput");
+  assertJsError(() => eg.delaunayTriangulation(nanLayout), "delaunay non-finite", "NonFiniteValue");
   shortLayout.free();
   nanLayout.free();
   grid.free();
   gridLayout.free();
+  gridLayout3d.free();
   gridScaled.free();
 }

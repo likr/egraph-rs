@@ -12,8 +12,20 @@ export const linalgNeighborhoodDtsReplacements = [
     "$1termsPsd(): SpectralFilterTerm[];",
   ],
   [
+    /(export class CsrMatrix \{[\s\S]*?)estimateLambdaMax\([^;]+\): number;/,
+    "$1estimateLambdaMax(numIters?: number | null, safetyFactor?: number | null, seed?: number | bigint | null): number;",
+  ],
+  [
+    /(export class CsrMatrix \{[\s\S]*?)estimateLambdaMaxLanczos\([^;]+\): number;/,
+    "$1estimateLambdaMaxLanczos(numSteps?: number | null, safetyFactor?: number | null, seed?: number | bigint | null): number;",
+  ],
+  [
+    /(export class CsrMatrix \{[\s\S]*?)static fromCsr\([^;]+\): CsrMatrix;/,
+    "$1static fromCsr(numNodes: number, indptr: Uint32Array | number[], indices: Uint32Array | number[], values: Float64Array | number[]): CsrMatrix;",
+  ],
+  [
     /export function buildDogTerms\([^;]+\): Array<any>;/,
-    "export function buildDogTerms(t1: number, t2: number, alpha: number, betaFloor?: number | null): SpectralFilterTerm[];",
+    "export function buildDogTerms(t1: number, t2: number, alpha: number, options?: { betaFloor?: number | null } | null): SpectralFilterTerm[];",
   ],
   [
     /export function buildRegularizedDogTerms\([^;]+\): Array<any>;/,
@@ -25,7 +37,7 @@ export const linalgNeighborhoodDtsReplacements = [
   ],
   [
     /export function projectPsdSpectralFilter\([^;]+\): any;/,
-    "export function projectPsdSpectralFilter(terms: SpectralFilterTermsInput, lambdaMax?: number | null, degree?: number | null, epsPsd?: number | null): PsdSpectralFilterProjection;",
+    "export function projectPsdSpectralFilter(terms: SpectralFilterTermsInput, options?: { lambdaMax?: number | null; degree?: number | null; epsPsd?: number | null } | null): PsdSpectralFilterProjection;",
   ],
   [
     /export function symmetricNormalizedLaplacian\(graph: CsrGraph\): any;/,
@@ -37,123 +49,167 @@ export const linalgNeighborhoodDtsReplacements = [
   ],
   [
     /export function selectMaxminSpPivots\([^;]+\): Uint32Array;/,
-    "export function selectMaxminSpPivots(graph: CsrGraph, numPivots?: number | null, seed?: number | null, minDegree?: number | null): Uint32Array;",
+    "export function selectMaxminSpPivots(graph: CsrGraph, options?: PivotMdsGeneratorOptions | null): Uint32Array;",
   ],
   [
     /export function pivotMdsInit\([^;]+\): Layout2d;/,
-    "export function pivotMdsInit(graph: CsrGraph, numPivots?: number | null, seed?: number | null, minDegree?: number | null, targetStd?: number | null): Layout2d;",
+    "export function pivotMdsInit(graph: CsrGraph, options?: PivotMdsGeneratorOptions | null): Layout2d;",
   ],
   [
     /export function pivotMds\([^;]+\): Layout2d;/,
-    "export function pivotMds(graph: CsrGraph, numPivots?: number | null, seed?: number | null, minDegree?: number | null, targetStd?: number | null): Layout2d;",
+    "export function pivotMds(graph: CsrGraph, options?: PivotMdsGeneratorOptions | null): Layout2d;",
   ],
   [
     /export function pivotMdsFromDistances\([^;]+\): Layout2d;/,
-    "export function pivotMdsFromDistances(distancesNk: Float64Array | number[], numNodes: number, numPivots: number, targetStd?: number | null, seed?: number | null): Layout2d;",
+    "export function pivotMdsFromDistances(distancesNk: Float64Array | number[], numNodes: number, numPivots: number, options?: { targetStd?: number | null; seed?: number | bigint | null } | null): Layout2d;",
   ],
   [
     /export function pivotMdsWithPivots\([^;]+\): Layout2d;/,
-    "export function pivotMdsWithPivots(graph: CsrGraph, pivots: Uint32Array | number[], targetStd?: number | null, seed?: number | null): Layout2d;",
+    "export function pivotMdsWithPivots(graph: CsrGraph, pivots: Uint32Array | number[], options?: { targetStd?: number | null; seed?: number | bigint | null } | null): Layout2d;",
   ],
   [
     /export function korenSpectralInit\([^;]+\): Layout2d;/,
-    "export function korenSpectralInit(graph: CsrGraph, targetStd?: number | null, tol?: number | null, maxIterations?: number | null, seed?: number | null): Layout2d;",
+    "export function korenSpectralInit(graph: CsrGraph, options?: KorenSpectralGeneratorOptions | null): Layout2d;",
   ],
   [
     /export function smallestLaplacianEigenpairs\([^;]+\): EigenResult;/,
-    "export function smallestLaplacianEigenpairs(graph: CsrGraph, nModes?: number | null, tol?: number | null, maxIterations?: number | null, seed?: number | null): EigenResult;",
+    "export function smallestLaplacianEigenpairs(graph: CsrGraph, options?: SpectralEigenOptions | null): EigenResult;",
   ],
   [
     /export function symmetricEigenJacobi\([^;]+\): EigenResult;/,
-    "export function symmetricEigenJacobi(aRowMajor: Float64Array | number[], n: number, nModes?: number | null, maxSweeps?: number | null, tol?: number | null): EigenResult;",
+    "export function symmetricEigenJacobi(aRowMajor: Float64Array | number[], n: number, options?: SpectralEigenOptions | null): EigenResult;",
   ],
   [
     /export function rdMds\([^;]+\): LayoutNd;/,
-    "export function rdMds(graph: CsrGraph, dims?: number | null, eigEps?: number | null, tol?: number | null, maxIterations?: number | null, seed?: number | null, degreeNormalize?: boolean | null): LayoutNd;",
+    "export function rdMds(graph: CsrGraph, options?: RdMdsGeneratorOptions | null): LayoutNd;",
   ],
   [
     /export function computeResistanceEmbedding\([^;]+\): SpectralEmbeddingResult;/,
-    "export function computeResistanceEmbedding(graph: CsrGraph, dim?: number | null, tol?: number | null, maxIterations?: number | null, seed?: number | null, eigEps?: number | null): SpectralEmbeddingResult;",
+    "export function computeResistanceEmbedding(graph: CsrGraph, options?: SpectralEmbeddingOptions | null): SpectralEmbeddingResult;",
   ],
   [
     /export function computeDiffusionEmbedding\([^;]+\): SpectralEmbeddingResult;/,
-    "export function computeDiffusionEmbedding(graph: CsrGraph, dim?: number | null, p?: number | null, t?: number | null, tol?: number | null, maxIterations?: number | null, seed?: number | null): SpectralEmbeddingResult;",
+    "export function computeDiffusionEmbedding(graph: CsrGraph, options?: SpectralEmbeddingOptions | null): SpectralEmbeddingResult;",
   ],
   [
     /export function chebyshevHeatSpmv\([^;]+\): Float64Array;/,
-    "export function chebyshevHeatSpmv(graph: CsrGraph, vectors: Float64Array | number[], numCols: number, t: number, degree?: number | null, lambdaMax?: number | null): Float64Array;",
+    "export function chebyshevHeatSpmv(graph: CsrGraph, vectors: Float64Array | number[], numCols: number, t: number, options?: ChebyshevHeatSpmvOptions | null): Float64Array;",
   ],
   [
     /export function chebyshevHeatSpmvMatrix\([^;]+\): Float64Array;/,
-    "export function chebyshevHeatSpmvMatrix(matrix: CsrMatrix, vectors: Float64Array | number[], numCols: number, t: number, degree?: number | null, lambdaMax?: number | null, lanczosSteps?: number | null, safetyFactor?: number | null, seed?: number | null): Float64Array;",
+    "export function chebyshevHeatSpmvMatrix(matrix: CsrMatrix, vectors: Float64Array | number[], numCols: number, t: number, options?: ChebyshevHeatSpmvOptions | null): Float64Array;",
   ],
   [
     /export function chebyshevDogJlEmbedding\([^;]+\): Float64Array;/,
-    "export function chebyshevDogJlEmbedding(graph: CsrGraph, jlDim?: number | null, degree?: number | null, seed?: number | null, degreeNormalize?: boolean | null, epsPsd?: number | null, t1?: number | null, t2?: number | null, alpha?: number | null): Float64Array;",
+    "export function chebyshevDogJlEmbedding(graph: CsrGraph, options?: ChebyshevDogJlOptions | null): Float64Array;",
   ],
   [
     /export function chebyshevDogJlEmbeddingMatrix\([^;]+\): Float64Array;/,
-    "export function chebyshevDogJlEmbeddingMatrix(matrix: CsrMatrix, jlDim?: number | null, degree?: number | null, seed?: number | null, epsPsd?: number | null, t1?: number | null, t2?: number | null, alpha?: number | null, lambdaMax?: number | null, lanczosSteps?: number | null, safetyFactor?: number | null, scaleVec?: Float64Array | number[] | null): Float64Array;",
+    "export function chebyshevDogJlEmbeddingMatrix(matrix: CsrMatrix, options?: ChebyshevDogJlOptions | null): Float64Array;",
   ],
   [
     /export function anisotropicLaplacian\([^;]+\): AnisotropicLaplacianResult;/,
-    "export function anisotropicLaplacian(graph: CsrGraph, alpha?: number | null, beta?: number | null, degreeReg?: number | null, degreeCap?: number | null, reweightedDegreeNorm?: boolean | null): AnisotropicLaplacianResult;",
-  ],
-  [
-    /(export class CsrMatrix \{[\s\S]*?)static fromCsr\([^;]+\): CsrMatrix;/,
-    "$1static fromCsr(numNodes: number, indptr: Uint32Array | number[], indices: Uint32Array | number[], values: Float64Array | number[]): CsrMatrix;",
+    "export function anisotropicLaplacian(graph: CsrGraph, options?: AnisotropicLaplacianOptions | null): AnisotropicLaplacianResult;",
   ],
   [
     /export function extractSparse1hop2hopPairs\([^;]+\): Sparse12HopPairs;/,
-    "export function extractSparse1hop2hopPairs(graph: CsrGraph, max2hopPerNode?: number | null, seed?: number | null): Sparse12HopPairs;",
+    "export function extractSparse1hop2hopPairs(graph: CsrGraph, max2hopPerNode?: number | null, seed?: number | bigint | null): Sparse12HopPairs;",
+  ],
+  [
+    /export function extractSparse1hop2hopPairsWithMode\([^;]+\): Sparse12HopPairs;/,
+    "export function extractSparse1hop2hopPairsWithMode(graph: CsrGraph, options?: TwoHopModeOptions | null): Sparse12HopPairs;",
   ],
   [
     /export function buildCapped12hopKnn\([^;]+\): TwoHopKnnResult;/,
-    "export function buildCapped12hopKnn(graph: CsrGraph, max2hopPerNode?: number | null, seed?: number | null): TwoHopKnnResult;",
+    "export function buildCapped12hopKnn(graph: CsrGraph, max2hopPerNode?: number | null, seed?: number | bigint | null): TwoHopKnnResult;",
+  ],
+  [
+    /export function partialBfsKnn\([^;]+\): KnnGraph;/,
+    "export function partialBfsKnn(graph: CsrGraph, k?: number | null, seed?: number | bigint | null): KnnGraph;",
+  ],
+  [
+    /export function normalizeLayout2d\([^;]+\): void;/,
+    "export function normalizeLayout2d(layout: Layout2d, targetStd?: number | null, seed?: number | bigint | null): void;",
   ],
   [
     /export function robustNormalizeLayout2d\([^;]+\): void;/,
-    "export function robustNormalizeLayout2d(layout: Layout2d, targetStd?: number | null, quantile?: number | null, seed?: number | null): void;",
+    "export function robustNormalizeLayout2d(layout: Layout2d, options?: { targetStd?: number | null; quantile?: number | null; seed?: number | bigint | null } | null): void;",
   ],
   [
     /export function graph12hopRowNormalizedProbabilities\([^;]+\): SparseProbabilities;/,
-    "export function graph12hopRowNormalizedProbabilities(graph: CsrGraph, w2?: number | null, max2hopPerNode?: number | null, degreeBeta?: number | null, seed?: number | null): SparseProbabilities;",
+    "export function graph12hopRowNormalizedProbabilities(graph: CsrGraph, options?: TsNetRowNormalizedOptions | null): SparseProbabilities;",
+  ],
+  [
+    /export function graph12hopRowNormalizedProbabilitiesWithOptions\([^;]+\): SparseProbabilities;/,
+    "export function graph12hopRowNormalizedProbabilitiesWithOptions(graph: CsrGraph, options?: TsNetRowNormalizedOptions | null): SparseProbabilities;",
   ],
   [
     /export function computeNodewise2hopPerplexities\([^;]+\): Float64Array;/,
-    "export function computeNodewise2hopPerplexities(graph: CsrGraph, c?: number | null, minPerplexity?: number | null, maxPerplexity?: number | null): Float64Array;",
+    "export function computeNodewise2hopPerplexities(graph: CsrGraph, options?: PerplexityOptions | null): Float64Array;",
   ],
   [
     /export function computeMedian2hopPerplexity\([^;]+\): number;/,
-    "export function computeMedian2hopPerplexity(graph: CsrGraph, c?: number | null, minPerplexity?: number | null, maxPerplexity?: number | null): number;",
+    "export function computeMedian2hopPerplexity(graph: CsrGraph, options?: PerplexityOptions | null): number;",
   ],
   [
     /export function buildHybridAdaptiveKnn\([^;]+\): HybridKnnResult;/,
-    "export function buildHybridAdaptiveKnn(graph: CsrGraph, coords: Float64Array | number[], dim: number, perplexities: Float64Array | number[], kFactor?: number | null, marginGap?: number | null, coarseDim?: number | null, rerankFactor?: number | null, k?: number | null, maxRowK?: number | null): HybridKnnResult;",
+    "export function buildHybridAdaptiveKnn(graph: CsrGraph, coords: Float64Array | number[], dim: number, perplexities: Float64Array | number[], options?: HybridAdaptiveKnnOptions | null): HybridKnnResult;",
   ],
   [
     /export function computeKnnProbabilities\([^;]+\): SparseProbabilities;/,
-    "export function computeKnnProbabilities(knn: KnnGraph, perplexities: Float64Array | number[], power?: number | null, sigmaIters?: number | null, sigmaTolerance?: number | null, rowNormalize?: boolean | null): SparseProbabilities;",
+    "export function computeKnnProbabilities(knn: KnnGraph, perplexities: Float64Array | number[], options?: KnnProbabilitiesOptions | null): SparseProbabilities;",
   ],
   [
-    /export function computeFuzzySimplicialSet\([^;]+\): SparseProbabilities;/,
-    "export function computeFuzzySimplicialSet(knn: KnnGraph, sigmaIters?: number | null, sigmaTolerance?: number | null): SparseProbabilities;",
+    /export function buildRerankKnn\([^;]+\): KnnGraph;/,
+    "export function buildRerankKnn(coords: Float64Array | number[], numNodes: number, dim: number, k: number, options?: { coarseDim?: number | null; rerankFactor?: number | null } | null): KnnGraph;",
   ],
   [
-    /export function findAbParams\([^;]+\): Float64Array;/,
-    "export function findAbParams(minDist?: number | null, spread?: number | null): Float64Array;",
+    /export function buildGumap12hopPriorityCsr\([^;]+\): KnnGraph;/,
+    "export function buildGumap12hopPriorityCsr(numNodes: number, u1: Uint32Array | number[], v1: Uint32Array | number[], d1: Float64Array | number[], u2: Uint32Array | number[], v2: Uint32Array | number[], d2: Float64Array | number[], options?: { tier2Margin?: number | null } | null): KnnGraph;",
   ],
   [
-    /export function computeHorvitzThompsonGamma\([^;]+\): number;/,
-    "export function computeHorvitzThompsonGamma(gammaNon2: number, numNodes: number, negPerNode: number): number;",
+    /export function applyRelativeDistanceFloor\([^;]+\): number;/,
+    "export function applyRelativeDistanceFloor(d1: Float64Array, d2: Float64Array, d3: Float64Array, options?: { epsDist?: number | null; minRatio?: number | null } | null): number;",
   ],
   [
     /export function computeRegularizedDogVaradhanLandmarks\([^;]+\): DogVaradhanLandmarks;/,
-    "export function computeRegularizedDogVaradhanLandmarks(graph: CsrGraph, degree?: number | null, numLandmarks?: number | null, seed?: number | null, degreeNormalize?: boolean | null, pExp?: number | null, epsPsd?: number | null, tCoarse?: number | null, t1?: number | null, t2?: number | null, alpha?: number | null, betaFloor?: number | null): DogVaradhanLandmarks;",
+    "export function computeRegularizedDogVaradhanLandmarks(graph: CsrGraph, options?: DogVaradhanOptions | null): DogVaradhanLandmarks;",
   ],
   [
     /export function computeRegularizedDogVaradhanLandmarksFromMatrix\([^;]+\): DogVaradhanLandmarks;/,
-    "export function computeRegularizedDogVaradhanLandmarksFromMatrix(graph: CsrGraph, matrix: CsrMatrix, lambdaMax?: number | null, degree?: number | null, numLandmarks?: number | null, minDegree?: number | null, jlDim?: number | null, seed?: number | null, degreeNormalize?: boolean | null, pExp?: number | null, epsPsd?: number | null, tCoarse?: number | null, t1?: number | null, t2?: number | null, alpha?: number | null, betaFloor?: number | null): DogVaradhanLandmarks;",
+    "export function computeRegularizedDogVaradhanLandmarksFromMatrix(graph: CsrGraph, matrix: CsrMatrix, options?: DogVaradhanOptions | null): DogVaradhanLandmarks;",
+  ],
+  [
+    /(export class ClassicalMds \{[\s\S]*?)generate\(graph: CsrGraph\): any;/,
+    "$1generate(graph: CsrGraph): Layout2d | Layout3d | LayoutNd;",
+  ],
+  [
+    /(export class ClassicalMds \{[\s\S]*?)constructor\(options: any\);/,
+    "$1constructor(options?: ClassicalMdsOptions | null);",
+  ],
+  [
+    /(export class PivotMds \{[\s\S]*?)generate\(graph: CsrGraph\): any;/,
+    "$1generate(graph: CsrGraph): Layout2d | Layout3d | LayoutNd;",
+  ],
+  [
+    /(export class PivotMds \{[\s\S]*?)constructor\(options: any\);/,
+    "$1constructor(options?: PivotMdsGeneratorOptions | null);",
+  ],
+  [
+    /(export class RdMds \{[\s\S]*?)generate\(graph: CsrGraph\): any;/,
+    "$1generate(graph: CsrGraph): Layout2d | Layout3d | LayoutNd;",
+  ],
+  [
+    /(export class RdMds \{[\s\S]*?)constructor\(options: any\);/,
+    "$1constructor(options?: RdMdsGeneratorOptions | null);",
+  ],
+  [
+    /(export class KorenSpectral \{[\s\S]*?)generate\(graph: CsrGraph\): any;/,
+    "$1generate(graph: CsrGraph): Layout2d | Layout3d | LayoutNd;",
+  ],
+  [
+    /(export class KorenSpectral \{[\s\S]*?)constructor\(options: any\);/,
+    "$1constructor(options?: KorenSpectralGeneratorOptions | null);",
   ],
   [
     /(export class AmgPcgSolver \{[\s\S]*?)static fromCsr\([^;]+\): AmgPcgSolver;/,
@@ -169,7 +225,7 @@ export const linalgNeighborhoodDtsReplacements = [
   ],
   [
     /(export class AmgPcgSolver \{[\s\S]*?)static fromGraphLaplacian\([^;]+\): AmgPcgSolver;/,
-    "$1static fromGraphLaplacian(graph: CsrGraph, kind?: string | null, shift?: number | null, options?: AmgPcgOptions | null): AmgPcgSolver;",
+    "$1static fromGraphLaplacian(graph: CsrGraph, kind?: AmgLaplacianKind | string | null, shift?: number | null, options?: AmgPcgOptions | null): AmgPcgSolver;",
   ],
   [
     /(export class AmgPcgSolver \{[\s\S]*?)solveBatch\([^;]+\): AmgPcgBatchResult;/,
@@ -191,20 +247,20 @@ export const clusteringSolversDtsReplacements = [
     "$1step(layout: AnyLayout): string;\n    runSteps(layout: AnyLayout, steps: number): string;\n    run(layout: AnyLayout): string;\n    _step2d(layout: Layout2d): string;",
   ],
   [
-    /static fromFuzzySet\([^;]+\): GuMapSolver;/,
-    "static fromFuzzySet(probs: SparseProbabilities, iterationsOrOptions?: number | GuMapOptions | null, negativeSampleRate?: number | null, learningRate?: number | null, minDist?: number | null, spread?: number | null, a?: number | null, b?: number | null, seed?: number | null, sigmaIters?: number | null, sigmaTolerance?: number | null): GuMapSolver;",
+    /(export class GuMapSolver \{[\s\S]*?)static fromFuzzySet\([^;]+\): GuMapSolver;/,
+    "$1static fromFuzzySet(probs: SparseProbabilities, options?: GuMapOptions | null): GuMapSolver;",
   ],
   [
-    /static fromGraphDog\([^;]+\): GuMapSolver;/,
-    "static fromGraphDog(graph: CsrGraph, max2hopOrOptions?: number | GuMapDogOptions | null, iterationsOrOptions?: number | GuMapDogOptions | null, negativeSampleRate?: number | null, learningRate?: number | null, minDist?: number | null, spread?: number | null, a?: number | null, b?: number | null, sigmaIters?: number | null, sigmaTolerance?: number | null, seed?: number | null, degree?: number | null, numLandmarks?: number | null, degreeNormalize?: boolean | null, pExp?: number | null, epsPsd?: number | null, tCoarse?: number | null, t1?: number | null, t2?: number | null, alpha?: number | null, betaFloor?: number | null, minDegree?: number | null, jlDim?: number | null): GuMapSolver;",
+    /(export class GuMapSolver \{[\s\S]*?)static fromGraphDog\([^;]+\): GuMapSolver;/,
+    "$1static fromGraphDog(graph: CsrGraph, options?: GuMapDogOptions | null): GuMapSolver;",
   ],
   [
-    /static fromLandmarks\([^;]+\): GuMapSolver;/,
-    "static fromLandmarks(graph: CsrGraph, landmarks: DogVaradhanLandmarks, options?: GuMapLandmarksOptions | null): GuMapSolver;\n    static fromLandmarks(graph: CsrGraph, landmarks: DogVaradhanLandmarks, max2hopPerNode?: number | null, options?: GuMapOptions | null): GuMapSolver;",
+    /(export class GuMapSolver \{[\s\S]*?)static fromLandmarks\([^;]+\): GuMapSolver;/,
+    "$1static fromLandmarks(graph: CsrGraph, landmarks: DogVaradhanLandmarks, options?: GuMapLandmarksOptions | null): GuMapSolver;",
   ],
   [
-    /static fromKnn\([^;]+\): GuMapSolver;/,
-    "static fromKnn(knn: KnnGraph, iterationsOrOptions?: number | GuMapOptions | null, negativeSampleRate?: number | null, learningRate?: number | null, minDist?: number | null, spread?: number | null, a?: number | null, b?: number | null, sigmaIters?: number | null, sigmaTolerance?: number | null, seed?: number | null): GuMapSolver;",
+    /(export class GuMapSolver \{[\s\S]*?)static fromKnn\([^;]+\): GuMapSolver;/,
+    "$1static fromKnn(knn: KnnGraph, options?: GuMapOptions | null): GuMapSolver;",
   ],
   [
     /(export class GuMapSolver \{[\s\S]*?)constructor\(graph: CsrGraph, options: any\);/,
@@ -212,63 +268,63 @@ export const clusteringSolversDtsReplacements = [
   ],
   [
     /(export class KamadaKawaiSolver \{[\s\S]*?)_step2d\(layout: Layout2d\): string;/,
-    "$1step(layout: AnyLayout): string;\n    runSteps(layout: AnyLayout, steps: number): string;\n    run(layout: AnyLayout): string;\n    computeStress(layout: AnyLayout): number;\n    _step2d(layout: Layout2d): string;",
+    "$1step(layout: AnyLayout): string;\n    runSteps(layout: AnyLayout, steps: number): string;\n    run(layout: AnyLayout): string;\n    _step2d(layout: Layout2d): string;",
   ],
   [
     /(export class KamadaKawaiSolver \{[\s\S]*?)constructor\(graph: CsrGraph, options: any\);/,
     "$1constructor(graph: CsrGraph, options?: KamadaKawaiOptions | null);",
   ],
   [
-    /static fromDistanceMatrix\(num_nodes: number, dists_flat: Float64Array \| number\[\], eps_or_options: any[^;]*\): KamadaKawaiSolver;/,
-    "static fromDistanceMatrix(numNodes: number, distsFlat: Float64Array | number[], epsOrOptions?: number | KamadaKawaiOptions | null, maxInnerIters?: number | null, maxIterations?: number | null): KamadaKawaiSolver;",
+    /(export class KamadaKawaiSolver \{[\s\S]*?)static fromDistanceMatrix\([^;]+\): KamadaKawaiSolver;/,
+    "$1static fromDistanceMatrix(numNodes: number, distsFlat: Float64Array | number[], options?: KamadaKawaiOptions | null): KamadaKawaiSolver;",
   ],
   [
-    /static fromGraph\(graph: CsrGraph, eps_or_options: any[^;]*\): KamadaKawaiSolver;/,
-    "static fromGraph(graph: CsrGraph, epsOrOptions?: number | KamadaKawaiOptions | null, maxInnerIters?: number | null, maxIterations?: number | null): KamadaKawaiSolver;",
+    /(export class KamadaKawaiSolver \{[\s\S]*?)static fromGraph\([^;]+\): KamadaKawaiSolver;/,
+    "$1static fromGraph(graph: CsrGraph, options?: KamadaKawaiOptions | null): KamadaKawaiSolver;",
   ],
   [
     /(export class SgdSolver \{[\s\S]*?)_step2d\(layout: Layout2d\): string;/,
-    "$1step(layout: AnyLayout): string;\n    runSteps(layout: AnyLayout, steps: number): string;\n    run(layout: AnyLayout): string;\n    runScheduleWindow(layout: Layout2d | ManifoldLayout2d, startIter: number, count: number): string;\n    _step2d(layout: Layout2d): string;",
+    "$1step(layout: AnyLayout): string;\n    runSteps(layout: AnyLayout, steps: number): string;\n    run(layout: AnyLayout): string;\n    runScheduleWindow(layout: AnyLayout, startIter: number, count: number): string;\n    _step2d(layout: Layout2d): string;",
   ],
   [
-    /static fromPairsWithHinges\([^;]+\): SgdSolver;/,
-    "static fromPairsWithHinges(numNodes: number, springSrc: Uint32Array | number[], springTgt: Uint32Array | number[], springDij: Float32Array | number[], springDji: Float32Array | number[] | null | undefined, springWij: Float32Array | number[] | null | undefined, springWji: Float32Array | number[] | null | undefined, hingeSrc: Uint32Array | number[], hingeTgt: Uint32Array | number[], hingeDij: Float32Array | number[], hingeDji?: Float32Array | number[] | null, hingeWij?: Float32Array | number[] | null, hingeWji?: Float32Array | number[] | null, iterationsOrOptions?: number | SgdScheduleOptions | null, eps?: number | null, kind?: SgdScheduleKind | string | null, stepScale?: number | null, seed?: number | null): SgdSolver;",
+    /(export class SgdSolver \{[\s\S]*?)static fromPairsWithHinges\([^;]+\): SgdSolver;/,
+    "$1static fromPairsWithHinges(numNodes: number, springSrc: Uint32Array | number[], springTgt: Uint32Array | number[], springDij: Float32Array | number[], hingeSrc: Uint32Array | number[], hingeTgt: Uint32Array | number[], hingeDij: Float32Array | number[], options?: SgdPairsWithHingesOptions | null): SgdSolver;",
   ],
   [
     /(export class SgdSolver \{[\s\S]*?)constructor\(graph: CsrGraph, options: any\);/,
     "$1constructor(graph: CsrGraph, options?: SgdScheduleOptions | null);",
   ],
   [
-    /static fromPairs\([^;]+\): SgdSolver;/,
-    "static fromPairs(numNodes: number, src: Uint32Array | number[], tgt: Uint32Array | number[], dij: Float32Array | number[], dji?: Float32Array | number[] | null, wij?: Float32Array | number[] | null, wji?: Float32Array | number[] | null, iterationsOrOptions?: number | SgdScheduleOptions | null, eps?: number | null, kind?: SgdScheduleKind | string | null, stepScale?: number | null, seed?: number | null): SgdSolver;",
+    /(export class SgdSolver \{[\s\S]*?)static fromPairs\([^;]+\): SgdSolver;/,
+    "$1static fromPairs(numNodes: number, src: Uint32Array | number[], tgt: Uint32Array | number[], dij: Float32Array | number[], options?: SgdPairsOptions | null): SgdSolver;",
   ],
   [
-    /static full\([^;]+\): SgdSolver;/,
-    "static full(graph: CsrGraph, iterationsOrOptions?: number | SgdScheduleOptions | null, eps?: number | null, kind?: SgdScheduleKind | string | null, stepScale?: number | null, seed?: number | null): SgdSolver;",
+    /(export class SgdSolver \{[\s\S]*?)static full\([^;]+\): SgdSolver;/,
+    "$1static full(graph: CsrGraph, options?: SgdScheduleOptions | null): SgdSolver;",
   ],
   [
-    /static omega\([^;]+\): SgdSolver;/,
-    "static omega(graph: CsrGraph, embedding: Float64Array | number[], dims: number, kOrOptions?: number | OmegaSgdOptions | null, minDist?: number | null, iterationsOrOptions?: number | SgdScheduleOptions | null, eps?: number | null, kind?: SgdScheduleKind | string | null, stepScale?: number | null, seed?: number | null): SgdSolver;",
+    /(export class SgdSolver \{[\s\S]*?)static omega\([^;]+\): SgdSolver;/,
+    "$1static omega(graph: CsrGraph, embedding: Float64Array | number[], dims: number, options?: OmegaSgdOptions | null): SgdSolver;",
   ],
   [
-    /static randomPair\([^;]+\): SgdSolver;/,
-    "static randomPair(graph: CsrGraph, pairsPerNodeOrOptions?: number | RandomPairSgdOptions | null, iterationsOrOptions?: number | SgdScheduleOptions | null, eps?: number | null, kind?: SgdScheduleKind | string | null, stepScale?: number | null, seed?: number | null): SgdSolver;",
+    /(export class SgdSolver \{[\s\S]*?)static randomPair\([^;]+\): SgdSolver;/,
+    "$1static randomPair(graph: CsrGraph, options?: RandomPairSgdOptions | null): SgdSolver;",
   ],
   [
-    /static sparseBarrierDog\([^;]+\): SgdSolver;/,
-    "static sparseBarrierDog(graph: CsrGraph, max2hopOrOptions?: number | SparseBarrierDogOptions | null, hingeRepulsion?: boolean | null, deltaRel?: number | null, barrierSym?: BarrierSymmetry | string | null, omega1?: number | null, omega2?: number | null, gammaNon2?: number | null, htRepulsion?: boolean | null, minRatio?: number | null, epsDist?: number | null, negPerNode?: number | null, numPivots?: number | null, corePivots?: boolean | null, iterations?: number | null, eps?: number | null, kind?: SgdScheduleKind | string | null, stepScale?: number | null, seed?: number | null, degree?: number | null, numLandmarks?: number | null, degreeNormalize?: boolean | null, pExp?: number | null, epsPsd?: number | null, tCoarse?: number | null, t1?: number | null, t2?: number | null, alpha?: number | null, betaFloor?: number | null, minDegree?: number | null, jlDim?: number | null): SgdSolver;",
+    /(export class SgdSolver \{[\s\S]*?)static sparseBarrierDog\([^;]+\): SgdSolver;/,
+    "$1static sparseBarrierDog(graph: CsrGraph, options?: SparseBarrierDogOptions | null): SgdSolver;",
   ],
   [
-    /static sparseBarrierFromLandmarks\([^;]+\): SgdSolver;/,
-    "static sparseBarrierFromLandmarks(graph: CsrGraph, landmarks: DogVaradhanLandmarks, pivots?: Uint32Array | number[] | null, max2hopOrOptions?: number | SparseBarrierOptions | null, hingeRepulsion?: boolean | null, deltaRel?: number | null, barrierSym?: BarrierSymmetry | string | null, omega1?: number | null, omega2?: number | null, gammaNon2?: number | null, htRepulsion?: boolean | null, minRatio?: number | null, epsDist?: number | null, negPerNode?: number | null, numPivots?: number | null, corePivots?: boolean | null, iterations?: number | null, eps?: number | null, kind?: SgdScheduleKind | string | null, stepScale?: number | null, seed?: number | null): SgdSolver;",
+    /(export class SgdSolver \{[\s\S]*?)static sparseBarrierFromLandmarks\([^;]+\): SgdSolver;/,
+    "$1static sparseBarrierFromLandmarks(graph: CsrGraph, landmarks: DogVaradhanLandmarks, options?: SparseBarrierOptions | null): SgdSolver;",
   ],
   [
-    /static streamingNegatives\([^;]+\): SgdSolver;/,
-    "static streamingNegatives(graph: CsrGraph, negativesOrOptions?: number | StreamingNegativeOptions | null, targetDistance?: number | null, weight?: number | null, hingeOnly?: boolean | null, iterationsOrOptions?: number | SgdScheduleOptions | null, eps?: number | null, kind?: SgdScheduleKind | string | null, stepScale?: number | null, seed?: number | null): SgdSolver;",
+    /(export class SgdSolver \{[\s\S]*?)static streamingNegatives\([^;]+\): SgdSolver;/,
+    "$1static streamingNegatives(graph: CsrGraph, options?: StreamingNegativeOptions | null): SgdSolver;",
   ],
   [
-    /constructor\(graph: CsrGraph, rounds_or_options: any[^;]*\);/,
-    "constructor(graph: CsrGraph, iterationsOrOptions?: number | SpatialRefinerOptions | null, kCap?: number | null, marginScale?: number | null, wAnchor?: number | null, wFn?: number | null, wFp?: number | null, fnShrink?: number | null, roundDecay?: number | null, sgdIterations?: number | null, eps?: number | null, hingeFp?: boolean | null, seed?: number | null, wAnchor2?: number | null, kCapDecay?: number | null, kCapMin?: number | null, minSepRatio?: number | null, wSep?: number | null);",
+    /(export class SpatialIntruderRefiner \{[\s\S]*?)constructor\([^;]+\);/,
+    "$1constructor(graph: CsrGraph, options?: SpatialRefinerOptions | null);",
   ],
   [
     /setKCap\(k_cap: number\): void;/,
@@ -279,12 +335,12 @@ export const clusteringSolversDtsReplacements = [
     "$1step(layout: AnyLayout): string;\n    runSteps(layout: AnyLayout, steps: number): string;\n    run(layout: AnyLayout): string;\n    computeStress(layout: AnyLayout): number;\n    _step2d(layout: Layout2d): string;",
   ],
   [
-    /static fromDistanceMatrix\(num_nodes: number, dists_flat: Float64Array \| number\[\], epsilon_or_options: any[^;]*\): StressMajorizationSolver;/,
-    "static fromDistanceMatrix(numNodes: number, distsFlat: Float64Array | number[], epsilonOrOptions?: number | StressMajorizationOptions | null, maxIterations?: number | null, pcgTolerance?: number | null, pcgMaxIterations?: number | null, minNorm?: number | null): StressMajorizationSolver;",
+    /(export class StressMajorizationSolver \{[\s\S]*?)static fromDistanceMatrix\([^;]+\): StressMajorizationSolver;/,
+    "$1static fromDistanceMatrix(numNodes: number, distsFlat: Float64Array | number[], options?: StressMajorizationOptions | null): StressMajorizationSolver;",
   ],
   [
-    /static fromGraph\(graph: CsrGraph, epsilon_or_options: any[^;]*\): StressMajorizationSolver;/,
-    "static fromGraph(graph: CsrGraph, epsilonOrOptions?: number | StressMajorizationOptions | null, maxIterations?: number | null, pcgTolerance?: number | null, pcgMaxIterations?: number | null, minNorm?: number | null): StressMajorizationSolver;",
+    /(export class StressMajorizationSolver \{[\s\S]*?)static fromGraph\([^;]+\): StressMajorizationSolver;/,
+    "$1static fromGraph(graph: CsrGraph, options?: StressMajorizationOptions | null): StressMajorizationSolver;",
   ],
   [
     /(export class StressMajorizationSolver \{[\s\S]*?)constructor\(graph: CsrGraph, options: any\);/,
@@ -300,62 +356,78 @@ export const clusteringSolversDtsReplacements = [
   ],
   [
     /(export class TsNetSolver \{[\s\S]*?)static fromProbabilitiesWithStages\([^;]+\): TsNetSolver;/,
-    "$1static fromProbabilitiesWithStages(probs: SparseProbabilities, stages: readonly TsNetStage[] | TsNetStage[], options?: TsNetOptions | null): TsNetSolver;",
+    "$1static fromProbabilitiesWithStages(probs: SparseProbabilities, stages: readonly (TsNetStage | TsNetStageOptions)[], options?: TsNetOptions | null): TsNetSolver;",
   ],
   [
     /(export class TsNetSolver \{[\s\S]*?)constructor\(graph: CsrGraph, options: any\);/,
     "$1constructor(graph: CsrGraph, options?: TsNetOptions | null);",
   ],
   [
-    /static fromGraphPartialBfs\([^;]+\): TsNetSolver;/,
-    "static fromGraphPartialBfs(graph: CsrGraph, k?: number | null, uniformPerplexity?: number | null, backendOrOptions?: TsNetBackend | TsNetOptions | string | null, stageIterations?: readonly [number, number, number] | Uint32Array | number[] | null, learningRate?: number | null, exaggeration?: number | null, lambdaCStage1?: number | null, lambdaCStage2?: number | null, lambdaCStage3?: number | null, lambdaRStage3?: number | null, momentum?: number | null, epsilonR?: number | null, theta?: number | null, power?: number | null, sigmaIters?: number | null, sigmaTolerance?: number | null, rowNormalize?: boolean | null, seed?: number | null, intervals?: number | null, interpolationOrder?: \"bilinear\" | \"cubic\" | 1 | 3 | null, minGridDim?: number | null, maxGridDim?: number | null): TsNetSolver;",
+    /(export class TsNetSolver \{[\s\S]*?)static fromGraphPartialBfs\([^;]+\): TsNetSolver;/,
+    "$1static fromGraphPartialBfs(graph: CsrGraph, options?: TsNetPartialBfsOptions | null): TsNetSolver;",
   ],
   [
-    /static fromLayoutScaled\([^;]+\): ManifoldLayout2d;/,
-    "static fromLayoutScaled(kind: ManifoldKind | string, layout: Layout2d, maxRadius?: number | null): ManifoldLayout2d;",
+    /(export class TsNetSolver \{[\s\S]*?)static fromGraphRowNormalized\([^;]+\): TsNetSolver;/,
+    "$1static fromGraphRowNormalized(graph: CsrGraph, options?: TsNetRowNormalizedOptions | null): TsNetSolver;",
   ],
   [
-    /static randomInit\([^;]+\): ManifoldLayout2d;/,
-    "static randomInit(kind: ManifoldKind | string, n: number, scale?: number | null, seed?: number | null): ManifoldLayout2d;",
+    /(export class TsNetSolver \{[\s\S]*?)static fromKnn\([^;]+\): TsNetSolver;/,
+    "$1static fromKnn(knn: KnnGraph, options?: TsNetKnnOptions | null): TsNetSolver;",
+  ],
+  [
+    /(export class TsNetSolver \{[\s\S]*?)static fromProbabilities\([^;]+\): TsNetSolver;/,
+    "$1static fromProbabilities(probs: SparseProbabilities, options?: TsNetOptions | null): TsNetSolver;",
+  ],
+  [
+    /(export class TsNetSolver \{[\s\S]*?)static pure2Hop\([^;]+\): TsNetSolver;/,
+    "$1static pure2Hop(graph: CsrGraph, options?: TsNetOptions | null): TsNetSolver;",
+  ],
+  [
+    /(export class TsNetStage \{[\s\S]*?)constructor\([^;]+\);/,
+    "$1constructor(iterationsOrOptions: number | TsNetStageOptions, options?: TsNetStageOptions | null);",
+  ],
+  [
+    /(export class ManifoldLayout2d \{[\s\S]*?)static init\([^;]+\): ManifoldLayout2d;/,
+    "$1static init(kind: ManifoldKind | string, n: number, options?: LayoutInitOptions | null): ManifoldLayout2d;",
+  ],
+  [
+    /(export class ManifoldLayout2d \{[\s\S]*?)static fromLayoutScaled\([^;]+\): ManifoldLayout2d;/,
+    "$1static fromLayoutScaled(kind: ManifoldKind | string, layout: Layout2d, maxRadius?: number | null): ManifoldLayout2d;",
+  ],
+  [
+    /(export class ManifoldLayout2d \{[\s\S]*?)static randomInit\([^;]+\): ManifoldLayout2d;/,
+    "$1static randomInit(kind: ManifoldKind | string, n: number, options?: LayoutInitOptions | null): ManifoldLayout2d;",
   ],
   [
     /(export class ManifoldLayout2d \{[\s\S]*?)metric\(\): any;/,
     "$1metric(): ManifoldMetricRecord;",
   ],
   [
-    /static fromGraphRowNormalized\([^;]+\): TsNetSolver;/,
-    "static fromGraphRowNormalized(graph: CsrGraph, w2OrOptions?: number | TsNetRowNormalizedOptions | null, max2hopPerNode?: number | null, backendOrOptions?: TsNetBackend | TsNetOptions | string | null, stageIterations?: readonly [number, number, number] | Uint32Array | number[] | null, learningRate?: number | null, exaggeration?: number | null, lambdaCStage1?: number | null, lambdaCStage2?: number | null, lambdaCStage3?: number | null, lambdaRStage3?: number | null, momentum?: number | null, epsilonR?: number | null, theta?: number | null, seed?: number | null, intervals?: number | null, interpolationOrder?: \"bilinear\" | \"cubic\" | 1 | 3 | null, minGridDim?: number | null, maxGridDim?: number | null, degreeBeta?: number | null): TsNetSolver;",
+    /static torusSpectralPhaseInit\([^;]+\): ManifoldLayout2d;/,
+    "static torusSpectralPhaseInit(graph: CsrGraph, seed?: number | bigint | null): ManifoldLayout2d;",
   ],
   [
-    /static fromKnn\([^;]+\): TsNetSolver;/,
-    "static fromKnn(knn: KnnGraph, perplexities?: Float64Array | number[] | null, uniformPerplexity?: number | null, backendOrOptions?: TsNetBackend | TsNetOptions | string | null, stageIterations?: readonly [number, number, number] | Uint32Array | number[] | null, learningRate?: number | null, exaggeration?: number | null, lambdaCStage1?: number | null, lambdaCStage2?: number | null, lambdaCStage3?: number | null, lambdaRStage3?: number | null, momentum?: number | null, epsilonR?: number | null, theta?: number | null, power?: number | null, sigmaIters?: number | null, sigmaTolerance?: number | null, rowNormalize?: boolean | null, seed?: number | null, intervals?: number | null, interpolationOrder?: \"bilinear\" | \"cubic\" | 1 | 3 | null, minGridDim?: number | null, maxGridDim?: number | null): TsNetSolver;",
-  ],
-  [
-    /static fromProbabilities\([^;]+\): TsNetSolver;/,
-    "static fromProbabilities(probs: SparseProbabilities, backendOrOptions?: TsNetBackend | TsNetOptions | string | null, stageIterations?: readonly [number, number, number] | Uint32Array | number[] | null, learningRate?: number | null, exaggeration?: number | null, lambdaCStage1?: number | null, lambdaCStage2?: number | null, lambdaCStage3?: number | null, lambdaRStage3?: number | null, momentum?: number | null, epsilonR?: number | null, theta?: number | null, seed?: number | null, intervals?: number | null, interpolationOrder?: \"bilinear\" | \"cubic\" | 1 | 3 | null, minGridDim?: number | null, maxGridDim?: number | null): TsNetSolver;",
-  ],
-  [
-    /static pure2Hop\([^;]+\): TsNetSolver;/,
-    "static pure2Hop(graph: CsrGraph, backendOrOptions?: TsNetBackend | TsNetOptions | string | null, stageIterations?: readonly [number, number, number] | Uint32Array | number[] | null, learningRate?: number | null, perplexityC?: number | null, minPerplexity?: number | null, maxPerplexity?: number | null, exaggeration?: number | null, lambdaCStage1?: number | null, lambdaCStage2?: number | null, lambdaCStage3?: number | null, lambdaRStage3?: number | null, momentum?: number | null, epsilonR?: number | null, theta?: number | null, power?: number | null, sigmaIters?: number | null, sigmaTolerance?: number | null, rowNormalize?: boolean | null, seed?: number | null, intervals?: number | null, interpolationOrder?: \"bilinear\" | \"cubic\" | 1 | 3 | null, minGridDim?: number | null, maxGridDim?: number | null): TsNetSolver;",
+    /export function torusSpectralPhaseInit\([^;]+\): ManifoldLayout2d;/,
+    "export function torusSpectralPhaseInit(graph: CsrGraph, seed?: number | bigint | null): ManifoldLayout2d;",
   ],
   [
     /export function kmeansPlusPlus\([^;]+\): KMeansResult;/,
-    "export function kmeansPlusPlus(points: Float64Array | number[], numNodes: number, dims: number, k?: number | null, maxIterations?: number | null, tol?: number | null, nInit?: number | null, seed?: number | null): KMeansResult;",
+    "export function kmeansPlusPlus(points: Float64Array | number[], numNodes: number, dims: number, options?: KMeansOptions | null): KMeansResult;",
   ],
   [
     /export function labelPropagation\([^;]+\): LabelPropagationResult;/,
-    "export function labelPropagation(graph: CsrGraph, maxIterations?: number | null, seed?: number | null): LabelPropagationResult;",
+    "export function labelPropagation(graph: CsrGraph, maxIterations?: number | null, seed?: number | bigint | null): LabelPropagationResult;",
   ],
   [
     /export function louvainCommunities\([^;]+\): LouvainResult;/,
-    "export function louvainCommunities(graph: CsrGraph, maxPasses?: number | null, resolution?: number | null, minModularityGain?: number | null, seed?: number | null): LouvainResult;",
+    "export function louvainCommunities(graph: CsrGraph, options?: LouvainOptions | null): LouvainResult;",
   ],
   [
     /export function projectClusteredLayout\([^;]+\): Layout2d;/,
-    "export function projectClusteredLayout(coarseLayout: Layout2d, nodeToCoarse: Uint32Array | number[], spreadRadius?: number | null, seed?: number | null): Layout2d;",
+    "export function projectClusteredLayout(coarseLayout: Layout2d, nodeToCoarse: Uint32Array | number[], options?: ProjectClusteredLayoutOptions | null): Layout2d;",
   ],
   [
     /export function spectralClustering\([^;]+\): SpectralClusteringResult;/,
-    "export function spectralClustering(graph: CsrGraph, k?: number | null, maxEigenIterations?: number | null, eigenTol?: number | null, kmeansMaxIterations?: number | null, kmeansTol?: number | null, seed?: number | null): SpectralClusteringResult;",
+    "export function spectralClustering(graph: CsrGraph, options?: SpectralClusteringOptions | null): SpectralClusteringResult;",
   ],
 ];

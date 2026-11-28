@@ -1,20 +1,18 @@
 //! WebAssembly bindings for Landmark-Stratified Random Triplet Accuracy (`L-Stratified-RTA`)
-//! across `Layout2d`, `LayoutNd`, and `ManifoldLayout2d`.
+//! across `Layout2d`, `Layout3d`, `LayoutNd`, and `ManifoldLayout2d`.
 
 use crate::csr_graph::JsCsrGraph;
 use crate::js_convert::{
-    core_err_to_js, parse_non_negative_usize, parse_rta_landmark_f64_sequence, parse_seed_u64,
-    parse_u32_sequence, set_f64_prop, set_js_prop,
+    DEFAULT_SEED, core_err_to_js, parse_rta_landmark_f64_sequence, parse_u32_sequence,
+    set_f64_prop, set_js_prop,
 };
+use crate::js_options::{check_options_arg, opt_seed_prop, opt_usize_prop};
 use crate::layout_buffers::{JsLayout2d, JsLayoutNd};
+use crate::layout3d::JsLayout3d;
 use crate::manifold::JsManifoldLayout2d;
 use egraph::metrics::{
     RtaEvaluation, landmark_stratified_rta, landmark_stratified_rta_detail,
-    landmark_stratified_rta_detail_manifold, landmark_stratified_rta_detail_nd,
     landmark_stratified_rta_from_landmarks_f64,
-    landmark_stratified_rta_from_landmarks_f64_manifold,
-    landmark_stratified_rta_from_landmarks_f64_nd, landmark_stratified_rta_manifold,
-    landmark_stratified_rta_nd,
 };
 use wasm_bindgen::prelude::*;
 
@@ -24,7 +22,7 @@ const DEFAULT_RTA_MIN_DEGREE: usize = 2;
 
 /// Detailed result returned by `landmarkStratifiedRtaDetail` and `landmarkStratifiedRtaFromLandmarks`.
 #[wasm_bindgen(js_name = RtaEvaluation)]
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct JsRtaEvaluation {
     inner: RtaEvaluation,
 }
@@ -57,7 +55,7 @@ impl JsRtaEvaluation {
     }
 
     #[wasm_bindgen(js_name = toRecord)]
-    pub fn to_record(&self) -> Result<js_sys::Object, JsError> {
+    pub fn to_record(&self) -> Result<js_sys::Object, JsValue> {
         let obj = js_sys::Object::new();
         for (k, v) in [
             ("rta", self.inner.rta),
@@ -72,39 +70,49 @@ impl JsRtaEvaluation {
     }
 }
 
-fn parse_rta_params(
-    num_landmarks: Option<f64>,
-    num_triplets: Option<f64>,
-    min_degree: Option<f64>,
-    seed: Option<f64>,
-) -> Result<(usize, usize, usize, u64), JsError> {
-    let nl = match num_landmarks {
-        None => DEFAULT_RTA_NUM_LANDMARKS,
-        Some(v) => parse_non_negative_usize(v, "numLandmarks")?,
-    };
-    let nt = match num_triplets {
-        None => DEFAULT_RTA_NUM_TRIPLETS,
-        Some(v) => parse_non_negative_usize(v, "numTriplets")?,
-    };
-    let md = match min_degree {
-        None => DEFAULT_RTA_MIN_DEGREE,
-        Some(v) => parse_non_negative_usize(v, "minDegree")?,
-    };
-    let seed_u64 = parse_seed_u64(seed)?;
-    Ok((nl, nt, md, seed_u64))
+fn parse_rta_options(options: &JsValue, ctx: &str) -> Result<(usize, usize, usize, u64), JsValue> {
+    let mut num_landmarks = DEFAULT_RTA_NUM_LANDMARKS;
+    let mut num_triplets = DEFAULT_RTA_NUM_TRIPLETS;
+    let mut min_degree = DEFAULT_RTA_MIN_DEGREE;
+    let mut seed = DEFAULT_SEED;
+    if check_options_arg(options, ctx)? {
+        num_landmarks = opt_usize_prop(options, "numLandmarks", num_landmarks)?;
+        num_triplets = opt_usize_prop(options, "numTriplets", num_triplets)?;
+        min_degree = opt_usize_prop(options, "minDegree", min_degree)?;
+        seed = opt_seed_prop(options)?;
+    }
+    Ok((num_landmarks, num_triplets, min_degree, seed))
+}
+
+fn parse_rta_landmark_options(options: &JsValue, ctx: &str) -> Result<(usize, u64), JsValue> {
+    let mut num_triplets = DEFAULT_RTA_NUM_TRIPLETS;
+    let mut seed = DEFAULT_SEED;
+    if check_options_arg(options, ctx)? {
+        num_triplets = opt_usize_prop(options, "numTriplets", num_triplets)?;
+        seed = opt_seed_prop(options)?;
+    }
+    Ok((num_triplets, seed))
 }
 
 #[wasm_bindgen(js_name = _landmarkStratifiedRta2d)]
 pub fn js_rta_2d(
     graph: &JsCsrGraph,
     layout: &JsLayout2d,
-    num_landmarks: Option<f64>,
-    num_triplets: Option<f64>,
-    min_degree: Option<f64>,
-    seed: Option<f64>,
-) -> Result<f64, JsError> {
-    let (nl, nt, md, seed_u64) = parse_rta_params(num_landmarks, num_triplets, min_degree, seed)?;
+    options: &JsValue,
+) -> Result<f64, JsValue> {
+    let (nl, nt, md, seed_u64) = parse_rta_options(options, "landmarkStratifiedRta")?;
     let soa = layout.inner().to_layout2d();
+    landmark_stratified_rta(graph.inner(), &soa, nl, nt, md, seed_u64).map_err(core_err_to_js)
+}
+
+#[wasm_bindgen(js_name = _landmarkStratifiedRta3d)]
+pub fn js_rta_3d(
+    graph: &JsCsrGraph,
+    layout: &JsLayout3d,
+    options: &JsValue,
+) -> Result<f64, JsValue> {
+    let (nl, nt, md, seed_u64) = parse_rta_options(options, "landmarkStratifiedRta")?;
+    let soa = layout.inner().to_layout3d();
     landmark_stratified_rta(graph.inner(), &soa, nl, nt, md, seed_u64).map_err(core_err_to_js)
 }
 
@@ -112,13 +120,10 @@ pub fn js_rta_2d(
 pub fn js_rta_nd(
     graph: &JsCsrGraph,
     layout: &JsLayoutNd,
-    num_landmarks: Option<f64>,
-    num_triplets: Option<f64>,
-    min_degree: Option<f64>,
-    seed: Option<f64>,
-) -> Result<f64, JsError> {
-    let (nl, nt, md, seed_u64) = parse_rta_params(num_landmarks, num_triplets, min_degree, seed)?;
-    landmark_stratified_rta_nd(graph.inner(), layout.inner(), nl, nt, md, seed_u64)
+    options: &JsValue,
+) -> Result<f64, JsValue> {
+    let (nl, nt, md, seed_u64) = parse_rta_options(options, "landmarkStratifiedRta")?;
+    landmark_stratified_rta(graph.inner(), layout.inner(), nl, nt, md, seed_u64)
         .map_err(core_err_to_js)
 }
 
@@ -126,13 +131,10 @@ pub fn js_rta_nd(
 pub fn js_rta_manifold(
     graph: &JsCsrGraph,
     layout: &JsManifoldLayout2d,
-    num_landmarks: Option<f64>,
-    num_triplets: Option<f64>,
-    min_degree: Option<f64>,
-    seed: Option<f64>,
-) -> Result<f64, JsError> {
-    let (nl, nt, md, seed_u64) = parse_rta_params(num_landmarks, num_triplets, min_degree, seed)?;
-    landmark_stratified_rta_manifold(graph.inner(), layout.inner(), nl, nt, md, seed_u64)
+    options: &JsValue,
+) -> Result<f64, JsValue> {
+    let (nl, nt, md, seed_u64) = parse_rta_options(options, "landmarkStratifiedRta")?;
+    landmark_stratified_rta(graph.inner(), layout.inner(), nl, nt, md, seed_u64)
         .map_err(core_err_to_js)
 }
 
@@ -140,13 +142,23 @@ pub fn js_rta_manifold(
 pub fn js_rta_detail_2d(
     graph: &JsCsrGraph,
     layout: &JsLayout2d,
-    num_landmarks: Option<f64>,
-    num_triplets: Option<f64>,
-    min_degree: Option<f64>,
-    seed: Option<f64>,
-) -> Result<JsRtaEvaluation, JsError> {
-    let (nl, nt, md, seed_u64) = parse_rta_params(num_landmarks, num_triplets, min_degree, seed)?;
+    options: &JsValue,
+) -> Result<JsRtaEvaluation, JsValue> {
+    let (nl, nt, md, seed_u64) = parse_rta_options(options, "landmarkStratifiedRtaDetail")?;
     let soa = layout.inner().to_layout2d();
+    let inner = landmark_stratified_rta_detail(graph.inner(), &soa, nl, nt, md, seed_u64)
+        .map_err(core_err_to_js)?;
+    Ok(JsRtaEvaluation { inner })
+}
+
+#[wasm_bindgen(js_name = _landmarkStratifiedRtaDetail3d)]
+pub fn js_rta_detail_3d(
+    graph: &JsCsrGraph,
+    layout: &JsLayout3d,
+    options: &JsValue,
+) -> Result<JsRtaEvaluation, JsValue> {
+    let (nl, nt, md, seed_u64) = parse_rta_options(options, "landmarkStratifiedRtaDetail")?;
+    let soa = layout.inner().to_layout3d();
     let inner = landmark_stratified_rta_detail(graph.inner(), &soa, nl, nt, md, seed_u64)
         .map_err(core_err_to_js)?;
     Ok(JsRtaEvaluation { inner })
@@ -156,15 +168,11 @@ pub fn js_rta_detail_2d(
 pub fn js_rta_detail_nd(
     graph: &JsCsrGraph,
     layout: &JsLayoutNd,
-    num_landmarks: Option<f64>,
-    num_triplets: Option<f64>,
-    min_degree: Option<f64>,
-    seed: Option<f64>,
-) -> Result<JsRtaEvaluation, JsError> {
-    let (nl, nt, md, seed_u64) = parse_rta_params(num_landmarks, num_triplets, min_degree, seed)?;
-    let inner =
-        landmark_stratified_rta_detail_nd(graph.inner(), layout.inner(), nl, nt, md, seed_u64)
-            .map_err(core_err_to_js)?;
+    options: &JsValue,
+) -> Result<JsRtaEvaluation, JsValue> {
+    let (nl, nt, md, seed_u64) = parse_rta_options(options, "landmarkStratifiedRtaDetail")?;
+    let inner = landmark_stratified_rta_detail(graph.inner(), layout.inner(), nl, nt, md, seed_u64)
+        .map_err(core_err_to_js)?;
     Ok(JsRtaEvaluation { inner })
 }
 
@@ -172,21 +180,11 @@ pub fn js_rta_detail_nd(
 pub fn js_rta_detail_manifold(
     graph: &JsCsrGraph,
     layout: &JsManifoldLayout2d,
-    num_landmarks: Option<f64>,
-    num_triplets: Option<f64>,
-    min_degree: Option<f64>,
-    seed: Option<f64>,
-) -> Result<JsRtaEvaluation, JsError> {
-    let (nl, nt, md, seed_u64) = parse_rta_params(num_landmarks, num_triplets, min_degree, seed)?;
-    let inner = landmark_stratified_rta_detail_manifold(
-        graph.inner(),
-        layout.inner(),
-        nl,
-        nt,
-        md,
-        seed_u64,
-    )
-    .map_err(core_err_to_js)?;
+    options: &JsValue,
+) -> Result<JsRtaEvaluation, JsValue> {
+    let (nl, nt, md, seed_u64) = parse_rta_options(options, "landmarkStratifiedRtaDetail")?;
+    let inner = landmark_stratified_rta_detail(graph.inner(), layout.inner(), nl, nt, md, seed_u64)
+        .map_err(core_err_to_js)?;
     Ok(JsRtaEvaluation { inner })
 }
 
@@ -195,17 +193,28 @@ pub fn js_rta_from_landmarks_2d(
     layout: &JsLayout2d,
     landmark_ids: &JsValue,
     landmark_dists: &JsValue,
-    num_triplets: Option<f64>,
-    seed: Option<f64>,
-) -> Result<JsRtaEvaluation, JsError> {
+    options: &JsValue,
+) -> Result<JsRtaEvaluation, JsValue> {
     let ids = parse_u32_sequence(landmark_ids, "landmarkIds")?;
     let dists = parse_rta_landmark_f64_sequence(landmark_dists, "landmarkDists")?;
-    let nt = match num_triplets {
-        None => DEFAULT_RTA_NUM_TRIPLETS,
-        Some(v) => parse_non_negative_usize(v, "numTriplets")?,
-    };
-    let seed_u64 = parse_seed_u64(seed)?;
+    let (nt, seed_u64) = parse_rta_landmark_options(options, "landmarkStratifiedRtaFromLandmarks")?;
     let soa = layout.inner().to_layout2d();
+    let inner = landmark_stratified_rta_from_landmarks_f64(&soa, &ids, &dists, nt, seed_u64)
+        .map_err(core_err_to_js)?;
+    Ok(JsRtaEvaluation { inner })
+}
+
+#[wasm_bindgen(js_name = _landmarkStratifiedRtaFromLandmarks3d)]
+pub fn js_rta_from_landmarks_3d(
+    layout: &JsLayout3d,
+    landmark_ids: &JsValue,
+    landmark_dists: &JsValue,
+    options: &JsValue,
+) -> Result<JsRtaEvaluation, JsValue> {
+    let ids = parse_u32_sequence(landmark_ids, "landmarkIds")?;
+    let dists = parse_rta_landmark_f64_sequence(landmark_dists, "landmarkDists")?;
+    let (nt, seed_u64) = parse_rta_landmark_options(options, "landmarkStratifiedRtaFromLandmarks")?;
+    let soa = layout.inner().to_layout3d();
     let inner = landmark_stratified_rta_from_landmarks_f64(&soa, &ids, &dists, nt, seed_u64)
         .map_err(core_err_to_js)?;
     Ok(JsRtaEvaluation { inner })
@@ -216,18 +225,13 @@ pub fn js_rta_from_landmarks_nd(
     layout: &JsLayoutNd,
     landmark_ids: &JsValue,
     landmark_dists: &JsValue,
-    num_triplets: Option<f64>,
-    seed: Option<f64>,
-) -> Result<JsRtaEvaluation, JsError> {
+    options: &JsValue,
+) -> Result<JsRtaEvaluation, JsValue> {
     let ids = parse_u32_sequence(landmark_ids, "landmarkIds")?;
     let dists = parse_rta_landmark_f64_sequence(landmark_dists, "landmarkDists")?;
-    let nt = match num_triplets {
-        None => DEFAULT_RTA_NUM_TRIPLETS,
-        Some(v) => parse_non_negative_usize(v, "numTriplets")?,
-    };
-    let seed_u64 = parse_seed_u64(seed)?;
+    let (nt, seed_u64) = parse_rta_landmark_options(options, "landmarkStratifiedRtaFromLandmarks")?;
     let inner =
-        landmark_stratified_rta_from_landmarks_f64_nd(layout.inner(), &ids, &dists, nt, seed_u64)
+        landmark_stratified_rta_from_landmarks_f64(layout.inner(), &ids, &dists, nt, seed_u64)
             .map_err(core_err_to_js)?;
     Ok(JsRtaEvaluation { inner })
 }
@@ -237,23 +241,13 @@ pub fn js_rta_from_landmarks_manifold(
     layout: &JsManifoldLayout2d,
     landmark_ids: &JsValue,
     landmark_dists: &JsValue,
-    num_triplets: Option<f64>,
-    seed: Option<f64>,
-) -> Result<JsRtaEvaluation, JsError> {
+    options: &JsValue,
+) -> Result<JsRtaEvaluation, JsValue> {
     let ids = parse_u32_sequence(landmark_ids, "landmarkIds")?;
     let dists = parse_rta_landmark_f64_sequence(landmark_dists, "landmarkDists")?;
-    let nt = match num_triplets {
-        None => DEFAULT_RTA_NUM_TRIPLETS,
-        Some(v) => parse_non_negative_usize(v, "numTriplets")?,
-    };
-    let seed_u64 = parse_seed_u64(seed)?;
-    let inner = landmark_stratified_rta_from_landmarks_f64_manifold(
-        layout.inner(),
-        &ids,
-        &dists,
-        nt,
-        seed_u64,
-    )
-    .map_err(core_err_to_js)?;
+    let (nt, seed_u64) = parse_rta_landmark_options(options, "landmarkStratifiedRtaFromLandmarks")?;
+    let inner =
+        landmark_stratified_rta_from_landmarks_f64(layout.inner(), &ids, &dists, nt, seed_u64)
+            .map_err(core_err_to_js)?;
     Ok(JsRtaEvaluation { inner })
 }

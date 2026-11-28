@@ -4,6 +4,7 @@
 use crate::csr_graph::JsCsrGraph;
 use crate::js_convert::core_err_to_js;
 use crate::js_options::{parse_effective_resistance_options, parse_resistance_curvature_options};
+use crate::manifold::manifold_kind_str;
 use egraph::linalg::{
     EffectiveResistanceResult, ResistanceCurvatureFlowResult, ResistanceCurvatureStep,
     compute_effective_resistances, resistance_curvature_flow,
@@ -111,7 +112,7 @@ impl JsEffectiveResistanceResult {
 
 /// Per-iteration summary recorded during `resistanceCurvatureFlow()`.
 #[wasm_bindgen(js_name = ResistanceCurvatureStep)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct JsResistanceCurvatureStep {
     inner: ResistanceCurvatureStep,
 }
@@ -320,12 +321,12 @@ impl JsResistanceCurvatureFlowResult {
         self.inner.suggested_geometry.as_str().to_owned()
     }
 
-    /// Returns the suggested `ManifoldKind` (`"hyperbolic"`, `"spherical"`, `"torus"`), or `undefined`.
+    /// Returns the suggested `ManifoldKind` (`"hyperbolicPoincare"`, `"spherical"`, `"torus"`), or `undefined`.
     #[wasm_bindgen(getter, js_name = suggestedManifold)]
     pub fn suggested_manifold(&self) -> Option<String> {
         self.inner
             .suggested_manifold_kind()
-            .map(|_| self.inner.suggested_geometry.as_str().to_owned())
+            .map(|kind| manifold_kind_str(kind).to_owned())
     }
 
     /// Returns canonical edge source endpoints `u < v` (`Uint32Array`).
@@ -375,14 +376,14 @@ impl JsResistanceCurvatureFlowResult {
         self.inner
             .step_history
             .iter()
-            .copied()
+            .cloned()
             .map(|inner| JsResistanceCurvatureStep { inner })
             .collect()
     }
 
     /// Builds a weighted undirected `CsrGraph` (`f32`) storing final edge lengths `l_e`.
     #[wasm_bindgen(js_name = lengthGraph)]
-    pub fn length_graph(&self) -> Result<JsCsrGraph, JsError> {
+    pub fn length_graph(&self) -> Result<JsCsrGraph, JsValue> {
         self.inner
             .to_length_graph_f32()
             .map(JsCsrGraph::from_inner)
@@ -391,7 +392,7 @@ impl JsResistanceCurvatureFlowResult {
 
     /// Builds a weighted undirected `CsrGraph` (`f32`) storing final conductances `w_e = 1 / l_e`.
     #[wasm_bindgen(js_name = conductanceGraph)]
-    pub fn conductance_graph(&self) -> Result<JsCsrGraph, JsError> {
+    pub fn conductance_graph(&self) -> Result<JsCsrGraph, JsValue> {
         self.inner
             .to_conductance_graph_f32()
             .map(JsCsrGraph::from_inner)
@@ -405,7 +406,7 @@ impl JsResistanceCurvatureFlowResult {
 pub fn js_compute_effective_resistances(
     graph: &JsCsrGraph,
     options: &JsValue,
-) -> Result<JsEffectiveResistanceResult, JsError> {
+) -> Result<JsEffectiveResistanceResult, JsValue> {
     let cfg = parse_effective_resistance_options(options)?;
     let inner = compute_effective_resistances(graph.inner(), &cfg).map_err(core_err_to_js)?;
     Ok(JsEffectiveResistanceResult { inner })
@@ -416,7 +417,7 @@ pub fn js_compute_effective_resistances(
 pub fn js_resistance_curvature_flow(
     graph: &JsCsrGraph,
     options: &JsValue,
-) -> Result<JsResistanceCurvatureFlowResult, JsError> {
+) -> Result<JsResistanceCurvatureFlowResult, JsValue> {
     let cfg = parse_resistance_curvature_options(options)?;
     let inner = resistance_curvature_flow(graph.inner(), &cfg).map_err(core_err_to_js)?;
     Ok(JsResistanceCurvatureFlowResult { inner })

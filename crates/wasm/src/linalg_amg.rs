@@ -2,7 +2,7 @@
 //! Gradient (`AmgPcgSolver`) linear solver.
 
 use crate::csr_graph::JsCsrGraph;
-use crate::js_convert::{core_err_to_js, parse_non_negative_usize};
+use crate::js_convert::{core_err_to_js, invalid_input_err, parse_non_negative_usize};
 use crate::js_options::{parse_amg_laplacian_kind, parse_amg_pcg_config, solver_status_str};
 use crate::linalg_matrix::JsCsrMatrix;
 use egraph::core::CoreError;
@@ -175,7 +175,7 @@ impl JsAmgPcgSolver {
         indices: &[u32],
         values: &[f64],
         options: &JsValue,
-    ) -> Result<JsAmgPcgSolver, JsError> {
+    ) -> Result<JsAmgPcgSolver, JsValue> {
         let n = parse_non_negative_usize(num_nodes, "numNodes")?;
         let (cfg, ns) = parse_amg_pcg_config(options)?;
         let mat = CsrMatrix::from_csr(n, indptr.to_vec(), indices.to_vec(), values.to_vec())
@@ -191,7 +191,7 @@ impl JsAmgPcgSolver {
     pub fn from_csr_matrix(
         matrix: &JsCsrMatrix,
         options: &JsValue,
-    ) -> Result<JsAmgPcgSolver, JsError> {
+    ) -> Result<JsAmgPcgSolver, JsValue> {
         let (cfg, ns) = parse_amg_pcg_config(options)?;
         let inner = AmgPcgSolver::with_near_nullspace(matrix.inner(), ns.as_deref(), cfg)
             .map_err(core_err_to_js)?;
@@ -205,7 +205,7 @@ impl JsAmgPcgSolver {
         graph: &JsCsrGraph,
         gamma: Option<f64>,
         options: &JsValue,
-    ) -> Result<JsAmgPcgSolver, JsError> {
+    ) -> Result<JsAmgPcgSolver, JsValue> {
         let (cfg, _) = parse_amg_pcg_config(options)?;
         let inner =
             AmgPcgSolver::from_regularized_sym_laplacian(graph.inner(), gamma.unwrap_or(1.0), cfg)
@@ -214,14 +214,14 @@ impl JsAmgPcgSolver {
         Ok(Self { inner, ws })
     }
 
-    /// Constructs an `AmgPcgSolver` for a shifted graph Laplacian (`"combinatorial"` or `"symmetric_normalized"`).
+    /// Constructs an `AmgPcgSolver` for a shifted graph Laplacian (`"combinatorial"` or `"symmetricNormalized"`).
     #[wasm_bindgen(js_name = fromGraphLaplacian)]
     pub fn from_graph_laplacian(
         graph: &JsCsrGraph,
         kind: Option<String>,
         shift: Option<f64>,
         options: &JsValue,
-    ) -> Result<JsAmgPcgSolver, JsError> {
+    ) -> Result<JsAmgPcgSolver, JsValue> {
         let lap_kind = match kind {
             Some(ref k) => parse_amg_laplacian_kind(k)?,
             None => LaplacianKind::Combinatorial,
@@ -239,7 +239,7 @@ impl JsAmgPcgSolver {
         &mut self,
         b: &[f64],
         x0: Option<Vec<f64>>,
-    ) -> Result<JsAmgPcgSolveResult, JsError> {
+    ) -> Result<JsAmgPcgSolveResult, JsValue> {
         self.inner
             .init_solve(b, x0.as_deref(), &mut self.ws)
             .map_err(core_err_to_js)?;
@@ -257,12 +257,12 @@ impl JsAmgPcgSolver {
         b_flat: &[f64],
         ncols: f64,
         x0_flat: Option<Vec<f64>>,
-    ) -> Result<JsAmgPcgBatchResult, JsError> {
+    ) -> Result<JsAmgPcgBatchResult, JsValue> {
         let nc = parse_non_negative_usize(ncols, "ncols")?;
         let n = self.inner.num_nodes();
         let expected = n
             .checked_mul(nc)
-            .ok_or_else(|| JsError::new("AmgPcgSolver.solveBatch size overflow"))?;
+            .ok_or_else(|| invalid_input_err("AmgPcgSolver.solveBatch size overflow"))?;
         let mut x_out = match x0_flat {
             Some(v) => {
                 if v.len() != expected {
@@ -290,7 +290,7 @@ impl JsAmgPcgSolver {
 
     /// Initializes a cooperative PCG solve for `b` and optional initial guess `x0`.
     #[wasm_bindgen(js_name = startSolve)]
-    pub fn start_solve(&mut self, b: &[f64], x0: Option<Vec<f64>>) -> Result<String, JsError> {
+    pub fn start_solve(&mut self, b: &[f64], x0: Option<Vec<f64>>) -> Result<String, JsValue> {
         let status = self
             .inner
             .init_solve(b, x0.as_deref(), &mut self.ws)
@@ -299,14 +299,14 @@ impl JsAmgPcgSolver {
     }
 
     /// Executes a single cooperative PCG iteration and returns the updated status string.
-    pub fn step(&mut self) -> Result<String, JsError> {
+    pub fn step(&mut self) -> Result<String, JsValue> {
         let status = self.inner.step(&mut self.ws).map_err(core_err_to_js)?;
         Ok(solver_status_str(status).to_owned())
     }
 
     /// Executes up to `steps` cooperative PCG iterations and returns the updated status string.
     #[wasm_bindgen(js_name = runSteps)]
-    pub fn run_steps(&mut self, steps: f64) -> Result<String, JsError> {
+    pub fn run_steps(&mut self, steps: f64) -> Result<String, JsValue> {
         let n_steps = parse_non_negative_usize(steps, "steps")?;
         let status = self
             .inner
@@ -316,7 +316,7 @@ impl JsAmgPcgSolver {
     }
 
     /// Runs the active cooperative solve to completion and returns the final status string.
-    pub fn run(&mut self) -> Result<String, JsError> {
+    pub fn run(&mut self) -> Result<String, JsValue> {
         let status = self.inner.run(&mut self.ws).map_err(core_err_to_js)?;
         Ok(solver_status_str(status).to_owned())
     }

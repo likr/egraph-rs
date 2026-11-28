@@ -1,6 +1,8 @@
 //! WebAssembly bindings for zero-copy `CsrGraph` construction and graph queries.
 
-use crate::js_convert::{core_err_to_js, ffi_err_to_js, parse_non_negative_usize};
+use crate::js_convert::{
+    core_err_to_js, ffi_err_to_js, invalid_input_err, parse_non_negative_usize,
+};
 use egraph::core::CsrGraph;
 use egraph_ffi::{build_csr_f32, build_edges_f32};
 use wasm_bindgen::prelude::*;
@@ -8,7 +10,7 @@ use wasm_bindgen::prelude::*;
 fn parse_csr_options(
     directed_or_options: &JsValue,
     sanitize: Option<bool>,
-) -> Result<(bool, bool), JsError> {
+) -> Result<(bool, bool), JsValue> {
     if directed_or_options.is_undefined() || directed_or_options.is_null() {
         return Ok((false, sanitize.unwrap_or(true)));
     }
@@ -21,53 +23,53 @@ fn parse_csr_options(
         && !directed_or_options.is_function()
     {
         if sanitize.is_some() {
-            return Err(JsError::new(
+            return Err(invalid_input_err(
                 "unexpected sanitize argument when passing an options object",
             ));
         }
         let directed_val =
             js_sys::Reflect::get(directed_or_options, &JsValue::from_str("directed")).map_err(
-                |err| JsError::new(&format!("failed to read options.directed: {err:?}")),
+                |err| invalid_input_err(format!("failed to read options.directed: {err:?}")),
             )?;
-        let directed = if directed_val.is_undefined() {
+        let directed = if directed_val.is_undefined() || directed_val.is_null() {
             false
         } else {
             directed_val
                 .as_bool()
-                .ok_or_else(|| JsError::new("options.directed must be a boolean"))?
+                .ok_or_else(|| invalid_input_err("options.directed must be a boolean"))?
         };
 
         let sanitize_val =
             js_sys::Reflect::get(directed_or_options, &JsValue::from_str("sanitize")).map_err(
-                |err| JsError::new(&format!("failed to read options.sanitize: {err:?}")),
+                |err| invalid_input_err(format!("failed to read options.sanitize: {err:?}")),
             )?;
-        let sanitize_flag = if sanitize_val.is_undefined() {
+        let sanitize_flag = if sanitize_val.is_undefined() || sanitize_val.is_null() {
             true
         } else {
             sanitize_val
                 .as_bool()
-                .ok_or_else(|| JsError::new("options.sanitize must be a boolean"))?
+                .ok_or_else(|| invalid_input_err("options.sanitize must be a boolean"))?
         };
 
         let dtype_val =
             js_sys::Reflect::get(directed_or_options, &JsValue::from_str("weightDtype")).map_err(
-                |err| JsError::new(&format!("failed to read options.weightDtype: {err:?}")),
+                |err| invalid_input_err(format!("failed to read options.weightDtype: {err:?}")),
             )?;
         if !dtype_val.is_undefined() && !dtype_val.is_null() {
             let dtype_str = dtype_val
                 .as_string()
-                .ok_or_else(|| JsError::new("options.weightDtype must be a string"))?;
-            if dtype_str != "float32" && dtype_str != "float64" {
-                return Err(JsError::new(&format!(
-                    "unknown weightDtype {dtype_str:?}; expected 'float32' or 'float64'"
+                .ok_or_else(|| invalid_input_err("options.weightDtype must be a string"))?;
+            if dtype_str != "float32" {
+                return Err(invalid_input_err(format!(
+                    "unsupported weightDtype {dtype_str:?}; WebAssembly CsrGraph only supports 'float32'"
                 )));
             }
         }
 
         return Ok((directed, sanitize_flag));
     }
-    Err(JsError::new(
-        "expected boolean `directed` or options object `{ directed?: boolean, sanitize?: boolean }`",
+    Err(invalid_input_err(
+        "expected boolean `directed` or options object `{ directed?: boolean, sanitize?: boolean, weightDtype?: 'float32' }`",
     ))
 }
 
@@ -123,8 +125,8 @@ impl JsCsrGraph {
     /// Constructs a `CsrGraph` from CSR `indptr`, `indices`, and optional `weights`.
     ///
     /// The optional trailing parameters accept either `(directed, sanitize)` booleans or an
-    /// options object `{ directed?: boolean, sanitize?: boolean }`. Defaults are
-    /// `directed = false` and `sanitize = true`.
+    /// options object `{ directed?: boolean, sanitize?: boolean, weightDtype?: "float32" }`.
+    /// Defaults are `directed = false` and `sanitize = true`.
     #[wasm_bindgen(js_name = fromCsr)]
     pub fn from_csr(
         indptr: &[u32],
@@ -132,7 +134,7 @@ impl JsCsrGraph {
         weights: Option<Vec<f32>>,
         directed_or_options: &JsValue,
         sanitize: Option<bool>,
-    ) -> Result<JsCsrGraph, JsError> {
+    ) -> Result<JsCsrGraph, JsValue> {
         let (directed, sanitize_flag) = parse_csr_options(directed_or_options, sanitize)?;
         let inner = build_csr_f32(indptr, indices, weights.as_deref(), directed, sanitize_flag)
             .map_err(ffi_err_to_js)?;
@@ -148,7 +150,7 @@ impl JsCsrGraph {
         weights: Option<Vec<f32>>,
         directed_or_options: &JsValue,
         sanitize: Option<bool>,
-    ) -> Result<JsCsrGraph, JsError> {
+    ) -> Result<JsCsrGraph, JsValue> {
         let n = parse_non_negative_usize(num_nodes, "numNodes")?;
         let (directed, sanitize_flag) = parse_csr_options(directed_or_options, sanitize)?;
         let inner = build_edges_f32(n, edges, weights.as_deref(), directed, sanitize_flag)
@@ -227,7 +229,7 @@ impl JsCsrGraph {
 
     /// Returns `true` if an edge `(u, v)` exists in the graph.
     #[wasm_bindgen(js_name = hasEdge)]
-    pub fn has_edge(&self, u: f64, v: f64) -> Result<bool, JsError> {
+    pub fn has_edge(&self, u: f64, v: f64) -> Result<bool, JsValue> {
         let ui = parse_non_negative_usize(u, "u")?;
         let vi = parse_non_negative_usize(v, "v")?;
         self.inner.try_has_edge(ui, vi).map_err(core_err_to_js)
@@ -235,20 +237,20 @@ impl JsCsrGraph {
 
     /// Returns the stored weight of edge `(u, v)`, `1.0` if unweighted, or `undefined` if absent.
     #[wasm_bindgen(js_name = edgeWeight)]
-    pub fn edge_weight(&self, u: f64, v: f64) -> Result<Option<f32>, JsError> {
+    pub fn edge_weight(&self, u: f64, v: f64) -> Result<Option<f32>, JsValue> {
         let ui = parse_non_negative_usize(u, "u")?;
         let vi = parse_non_negative_usize(v, "v")?;
         self.inner.try_edge_weight(ui, vi).map_err(core_err_to_js)
     }
 
     /// Returns the degree (outgoing degree for directed graphs) of vertex `u`.
-    pub fn degree(&self, u: f64) -> Result<usize, JsError> {
+    pub fn degree(&self, u: f64) -> Result<usize, JsValue> {
         let idx = parse_non_negative_usize(u, "u")?;
         self.inner.try_degree(idx).map_err(core_err_to_js)
     }
 
     /// Returns a copy of the neighbor indices adjacent to vertex `u`.
-    pub fn neighbors(&self, u: f64) -> Result<Vec<u32>, JsError> {
+    pub fn neighbors(&self, u: f64) -> Result<Vec<u32>, JsValue> {
         let idx = parse_non_negative_usize(u, "u")?;
         self.inner
             .try_neighbors(idx)
@@ -273,7 +275,7 @@ impl JsCsrGraph {
 
     /// Extracts the induced subgraph on `nodes` with compact `0..nodes.length` vertex IDs.
     #[wasm_bindgen(js_name = inducedSubgraph)]
-    pub fn induced_subgraph(&self, nodes: &[u32]) -> Result<JsCsrGraph, JsError> {
+    pub fn induced_subgraph(&self, nodes: &[u32]) -> Result<JsCsrGraph, JsValue> {
         let sub = self.inner.induced_subgraph(nodes).map_err(core_err_to_js)?;
         Ok(JsCsrGraph { inner: sub })
     }

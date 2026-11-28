@@ -1,6 +1,7 @@
 mod util;
 
-use egraph_wasm::force_classic::{JsFruchtermanReingoldSolver, JsLinLogSolver};
+use egraph_wasm::force_classic::JsLinLogSolver;
+use egraph_wasm::force_fr::JsFruchtermanReingoldSolver;
 use egraph_wasm::force_multilevel::{JsForceAtlas2Solver, JsYifanHuSolver};
 use egraph_wasm::layout_buffers::JsLayout2d;
 use util::fixtures::{
@@ -147,8 +148,8 @@ fn linlog_fr_and_fa2_overlap_step_eq_run() {
     let (graph, _) = make_two_cluster_graph();
     let init = make_circle_layout(8, 2.0);
 
-    // LinLogSolver (edge_repulsion & node_repulsion)
-    for rep in ["edge_repulsion", "node_repulsion"] {
+    // LinLogSolver (edgeRepulsion & nodeRepulsion)
+    for rep in ["edgeRepulsion", "nodeRepulsion"] {
         let opts = make_opts(&[
             ("iterations", JsValue::from_f64(10.0)),
             ("repulsionModel", JsValue::from_str(rep)),
@@ -158,7 +159,7 @@ fn linlog_fr_and_fa2_overlap_step_eq_run() {
         let mut s_step = JsLinLogSolver::new(&graph, &opts).unwrap();
         let mut s_run = JsLinLogSolver::new(&graph, &opts).unwrap();
         assert_eq!(s_step.num_nodes(), 8);
-        assert_eq!(s_step.total_iterations(), 10);
+        assert_eq!(s_step.total_iterations(), Some(10));
         assert_eq!(s_step.masses().len(), 8);
         assert!(s_step.max_displacement() > 0.0);
 
@@ -178,8 +179,8 @@ fn linlog_fr_and_fa2_overlap_step_eq_run() {
     ]);
     assert!(JsLinLogSolver::new(&graph, &bad_ll).is_err());
 
-    // FruchtermanReingoldSolver (exact, barnes_hut, grid)
-    for backend in ["exact", "barnes_hut", "grid"] {
+    // FruchtermanReingoldSolver (exact, barnesHut, grid)
+    for backend in ["exact", "barnesHut", "grid"] {
         let opts = make_opts(&[
             ("iterations", JsValue::from_f64(10.0)),
             ("backend", JsValue::from_str(backend)),

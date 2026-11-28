@@ -1,50 +1,141 @@
-//! WebAssembly bindings for classic force-directed layout solvers (Noack LinLog and
-//! Fruchterman-Reingold; `f32`-backed layouts with `f64` internal solver math).
+//! WebAssembly bindings for Noack LinLog layout solver (`f32`-backed layouts with `f64` math)
+//! supporting Policy 1A + Option 1 `(target, backend)` dispatch across 2D, 3D, and N-D.
 
-use egraph::layout::{
-    FrBackend, FruchtermanReingoldConfig, FruchtermanReingoldSolver, LinLogConfig, LinLogRepulsion,
-    LinLogSolver,
-};
+use egraph::core::{Layout2d, Layout3d, LayoutNd};
+use egraph::layout::force::{BarnesHut, Exact};
+use egraph::layout::{ForceBackend, LinLogConfig, LinLogRepulsion, LinLogSolver};
 use wasm_bindgen::prelude::*;
 
 use crate::csr_graph::JsCsrGraph;
-use crate::js_convert::core_err_to_js;
+use crate::js_convert::{core_err_to_js, invalid_input_err, unsupported_err};
 use crate::js_options::{
-    check_options_arg, normalize_enum_token, opt_bool_prop, opt_f64_prop, opt_maybe_f64_prop,
-    opt_seed_prop, opt_string_prop, opt_usize_prop, solver_status_str,
+    JsTargetKind, check_options_arg, normalize_enum_token, opt_f64_prop, opt_maybe_bool_prop,
+    opt_maybe_f64_prop, opt_seed_prop, opt_string_prop, opt_target_prop, opt_usize_prop,
+    solver_status_str,
 };
 use crate::layout_buffers::{JsLayout2d, JsLayoutNd};
-use crate::manifold::JsManifoldLayout2d;
+use crate::layout3d::JsLayout3d;
 use crate::solver_runner::{
-    run_layout_in_place, run_manifold_in_place, run_nd_in_place, run_steps_layout_in_place,
-    run_steps_manifold_in_place, run_steps_nd_in_place, step_layout_in_place,
-    step_manifold_in_place, step_nd_in_place,
+    run_layout_in_place, run_layout3d_in_place, run_nd_in_place, run_steps_layout_in_place,
+    run_steps_layout3d_in_place, run_steps_nd_in_place, step_layout_in_place,
+    step_layout3d_in_place, step_nd_in_place,
 };
 
-fn parse_linlog_repulsion(raw: &str) -> Result<LinLogRepulsion, JsError> {
-    match normalize_enum_token(raw).as_str() {
+pub(crate) const DEFAULT_BARNES_HUT_THETA: f64 = 1.2;
+
+pub(crate) fn parse_force_backend_for_target(
+    target: JsTargetKind,
+    options: &JsValue,
+    has_opts: bool,
+    solver_name: &str,
+) -> Result<(bool, f64), JsValue> {
+    let theta = if has_opts {
+        opt_f64_prop(options, "theta", DEFAULT_BARNES_HUT_THETA)?
+    } else {
+        DEFAULT_BARNES_HUT_THETA
+    };
+    let backend_str = if has_opts {
+        opt_string_prop(options, "backend")?
+    } else {
+        None
+    };
+    let use_bh_opt = if has_opts {
+        opt_maybe_bool_prop(options, "useBarnesHut")?
+    } else {
+        None
+    };
+
+    let use_bh = match target {
+        JsTargetKind::Manifold2d => {
+            return Err(unsupported_err(format!(
+                "{solver_name} does not support target 'manifold2d'"
+            )));
+        }
+        JsTargetKind::Layout2d | JsTargetKind::Layout3d => match backend_str {
+            Some(ref b) => match normalize_enum_token(b)?.as_str() {
+                "barneshut" | "bh" => true,
+                "exact" => false,
+                _ => {
+                    return Err(invalid_input_err(format!(
+                        "unknown {solver_name} backend {b:?}; expected 'barnesHut' or 'exact'"
+                    )));
+                }
+            },
+            None => use_bh_opt.unwrap_or(true),
+        },
+        JsTargetKind::LayoutNd => {
+            if let Some(ref b) = backend_str {
+                match normalize_enum_token(b)?.as_str() {
+                    "exact" => {}
+                    "barneshut" | "bh" => {
+                        return Err(unsupported_err(format!(
+                            "{solver_name} target 'layoutNd' only supports backend 'exact'"
+                        )));
+                    }
+                    _ => {
+                        return Err(invalid_input_err(format!(
+                            "unknown {solver_name} backend {b:?}; expected 'exact'"
+                        )));
+                    }
+                }
+            } else if use_bh_opt == Some(true) {
+                return Err(unsupported_err(format!(
+                    "{solver_name} target 'layoutNd' only supports backend 'exact'"
+                )));
+            }
+            false
+        }
+    };
+    Ok((use_bh, theta))
+}
+
+pub(crate) fn build_force_backend(use_bh: bool, theta: f64) -> ForceBackend {
+    if use_bh {
+        ForceBackend::BarnesHut(BarnesHut::new(theta))
+    } else {
+        ForceBackend::Exact(Exact::new())
+    }
+}
+
+fn parse_linlog_repulsion(raw: &str) -> Result<LinLogRepulsion, JsValue> {
+    match normalize_enum_token(raw)?.as_str() {
         "edgerepulsion" | "edge" => Ok(LinLogRepulsion::EdgeRepulsion),
         "noderepulsion" | "node" => Ok(LinLogRepulsion::NodeRepulsion),
-        _ => Err(JsError::new(&format!(
-            "unknown LinLogRepulsion {raw:?}; expected 'edge_repulsion' or 'node_repulsion'"
+        _ => Err(invalid_input_err(format!(
+            "unknown LinLogRepulsion {raw:?}; expected 'edgeRepulsion' or 'nodeRepulsion'"
         ))),
     }
+}
+
+#[derive(Debug, Clone)]
+enum LinLogInner {
+    Dim2(LinLogSolver<Layout2d<f32>, ForceBackend>),
+    Dim3(LinLogSolver<Layout3d<f32>, ForceBackend>),
+    DimN(LinLogSolver<LayoutNd<f32>, Exact>),
 }
 
 /// Cooperative Noack (2007/2009) LinLog / $(a, r)$-PolyLog force-directed layout solver (`f32`).
 #[wasm_bindgen(js_name = LinLogSolver)]
 #[derive(Debug, Clone)]
 pub struct JsLinLogSolver {
-    inner: LinLogSolver<f32>,
+    inner: LinLogInner,
 }
 
 #[wasm_bindgen(js_class = LinLogSolver)]
 impl JsLinLogSolver {
     /// Constructs a `LinLogSolver` from `graph` and optional `LinLogOptions`.
     #[wasm_bindgen(constructor)]
-    pub fn new(graph: &JsCsrGraph, options: &JsValue) -> Result<JsLinLogSolver, JsError> {
+    pub fn new(graph: &JsCsrGraph, options: &JsValue) -> Result<JsLinLogSolver, JsValue> {
         let mut cfg = LinLogConfig::default();
-        if check_options_arg(options, "LinLogSolver")? {
+        let has_opts = check_options_arg(options, "LinLogSolver")?;
+        let target = if has_opts {
+            opt_target_prop(options)?
+        } else {
+            JsTargetKind::Layout2d
+        };
+        let (use_bh, theta) =
+            parse_force_backend_for_target(target, options, has_opts, "LinLogSolver")?;
+        if has_opts {
             cfg.iterations = opt_usize_prop(options, "iterations", cfg.iterations)?;
             if let Some(rep_str) = opt_string_prop(options, "repulsionModel")? {
                 cfg.repulsion_model = parse_linlog_repulsion(&rep_str)?;
@@ -53,313 +144,278 @@ impl JsLinLogSolver {
                 opt_f64_prop(options, "attractionExponent", cfg.attraction_exponent)?;
             cfg.repulsion_exponent =
                 opt_f64_prop(options, "repulsionExponent", cfg.repulsion_exponent)?;
-            cfg.theta = opt_f64_prop(options, "theta", cfg.theta)?;
-            cfg.use_barnes_hut = opt_bool_prop(options, "useBarnesHut", cfg.use_barnes_hut)?;
             cfg.gravity = opt_f64_prop(options, "gravity", cfg.gravity)?;
             cfg.edge_weight_influence =
                 opt_f64_prop(options, "edgeWeightInfluence", cfg.edge_weight_influence)?;
             cfg.max_displacement = opt_maybe_f64_prop(options, "maxDisplacement")?;
             cfg.seed = opt_seed_prop(options)?;
         }
-        let inner = LinLogSolver::<f32>::new(graph.inner(), cfg).map_err(core_err_to_js)?;
+        let inner = match target {
+            JsTargetKind::Layout2d => LinLogInner::Dim2(
+                LinLogSolver::<Layout2d<f32>, ForceBackend>::with_backend(
+                    graph.inner(),
+                    cfg,
+                    build_force_backend(use_bh, theta),
+                )
+                .map_err(core_err_to_js)?,
+            ),
+            JsTargetKind::Layout3d => LinLogInner::Dim3(
+                LinLogSolver::<Layout3d<f32>, ForceBackend>::with_backend(
+                    graph.inner(),
+                    cfg,
+                    build_force_backend(use_bh, theta),
+                )
+                .map_err(core_err_to_js)?,
+            ),
+            JsTargetKind::LayoutNd => LinLogInner::DimN(
+                LinLogSolver::<LayoutNd<f32>, Exact>::with_backend(
+                    graph.inner(),
+                    cfg,
+                    Exact::new(),
+                )
+                .map_err(core_err_to_js)?,
+            ),
+            JsTargetKind::Manifold2d => unreachable!(),
+        };
         Ok(Self { inner })
     }
 
-    /// Executes one LinLog iteration on `Layout2d` in place.
     #[wasm_bindgen(js_name = _step2d)]
-    pub fn step_2d(&mut self, layout: &mut JsLayout2d) -> Result<String, JsError> {
-        step_layout_in_place(&mut self.inner, layout)
+    pub fn step_2d(&mut self, layout: &mut JsLayout2d) -> Result<String, JsValue> {
+        match &mut self.inner {
+            LinLogInner::Dim2(s) => step_layout_in_place(s, layout),
+            _ => Err(unsupported_err(
+                "LinLogSolver was not configured for target 'layout2d'",
+            )),
+        }
     }
 
-    /// Executes up to `steps` LinLog iterations on `Layout2d` in place.
     #[wasm_bindgen(js_name = _runSteps2d)]
-    pub fn run_steps_2d(&mut self, layout: &mut JsLayout2d, steps: f64) -> Result<String, JsError> {
-        run_steps_layout_in_place(
-            self.inner.num_nodes(),
-            &mut self.inner,
-            layout,
-            steps,
-            "LinLogSolver::run_steps",
-        )
+    pub fn run_steps_2d(&mut self, layout: &mut JsLayout2d, steps: f64) -> Result<String, JsValue> {
+        match &mut self.inner {
+            LinLogInner::Dim2(s) => run_steps_layout_in_place(
+                s.num_nodes(),
+                s,
+                layout,
+                steps,
+                "LinLogSolver::run_steps",
+            ),
+            _ => Err(unsupported_err(
+                "LinLogSolver was not configured for target 'layout2d'",
+            )),
+        }
     }
 
-    /// Runs LinLog to completion on `Layout2d` in place.
     #[wasm_bindgen(js_name = _run2d)]
-    pub fn run_2d(&mut self, layout: &mut JsLayout2d) -> Result<String, JsError> {
-        run_layout_in_place(
-            self.inner.num_nodes(),
-            &mut self.inner,
-            layout,
-            "LinLogSolver::run",
-        )
+    pub fn run_2d(&mut self, layout: &mut JsLayout2d) -> Result<String, JsValue> {
+        match &mut self.inner {
+            LinLogInner::Dim2(s) => {
+                run_layout_in_place(s.num_nodes(), s, layout, "LinLogSolver::run")
+            }
+            _ => Err(unsupported_err(
+                "LinLogSolver was not configured for target 'layout2d'",
+            )),
+        }
     }
 
-    /// Executes one LinLog iteration on `LayoutNd` in place.
+    #[wasm_bindgen(js_name = _step3d)]
+    pub fn step_3d(&mut self, layout: &mut JsLayout3d) -> Result<String, JsValue> {
+        match &mut self.inner {
+            LinLogInner::Dim3(s) => step_layout3d_in_place(s, layout),
+            _ => Err(unsupported_err(
+                "LinLogSolver was not configured for target 'layout3d'",
+            )),
+        }
+    }
+
+    #[wasm_bindgen(js_name = _runSteps3d)]
+    pub fn run_steps_3d(&mut self, layout: &mut JsLayout3d, steps: f64) -> Result<String, JsValue> {
+        match &mut self.inner {
+            LinLogInner::Dim3(s) => run_steps_layout3d_in_place(
+                s.num_nodes(),
+                s,
+                layout,
+                steps,
+                "LinLogSolver::run_steps_3d",
+            ),
+            _ => Err(unsupported_err(
+                "LinLogSolver was not configured for target 'layout3d'",
+            )),
+        }
+    }
+
+    #[wasm_bindgen(js_name = _run3d)]
+    pub fn run_3d(&mut self, layout: &mut JsLayout3d) -> Result<String, JsValue> {
+        match &mut self.inner {
+            LinLogInner::Dim3(s) => {
+                run_layout3d_in_place(s.num_nodes(), s, layout, "LinLogSolver::run_3d")
+            }
+            _ => Err(unsupported_err(
+                "LinLogSolver was not configured for target 'layout3d'",
+            )),
+        }
+    }
+
     #[wasm_bindgen(js_name = _stepNd)]
-    pub fn step_nd(&mut self, layout: &mut JsLayoutNd) -> Result<String, JsError> {
-        step_nd_in_place(&mut self.inner, layout)
+    pub fn step_nd(&mut self, layout: &mut JsLayoutNd) -> Result<String, JsValue> {
+        match &mut self.inner {
+            LinLogInner::DimN(s) => step_nd_in_place(s, layout),
+            _ => Err(unsupported_err(
+                "LinLogSolver was not configured for target 'layoutNd'",
+            )),
+        }
     }
 
-    /// Executes up to `steps` LinLog iterations on `LayoutNd` in place.
     #[wasm_bindgen(js_name = _runStepsNd)]
-    pub fn run_steps_nd(&mut self, layout: &mut JsLayoutNd, steps: f64) -> Result<String, JsError> {
-        run_steps_nd_in_place(
-            self.inner.num_nodes(),
-            &mut self.inner,
-            layout,
-            steps,
-            "LinLogSolver::run_steps_nd",
-        )
+    pub fn run_steps_nd(&mut self, layout: &mut JsLayoutNd, steps: f64) -> Result<String, JsValue> {
+        match &mut self.inner {
+            LinLogInner::DimN(s) => run_steps_nd_in_place(
+                s.num_nodes(),
+                s,
+                layout,
+                steps,
+                "LinLogSolver::run_steps_nd",
+            ),
+            _ => Err(unsupported_err(
+                "LinLogSolver was not configured for target 'layoutNd'",
+            )),
+        }
     }
 
-    /// Runs LinLog to completion on `LayoutNd` in place.
     #[wasm_bindgen(js_name = _runNd)]
-    pub fn run_nd(&mut self, layout: &mut JsLayoutNd) -> Result<String, JsError> {
-        run_nd_in_place(
-            self.inner.num_nodes(),
-            &mut self.inner,
-            layout,
-            "LinLogSolver::run_nd",
-        )
+    pub fn run_nd(&mut self, layout: &mut JsLayoutNd) -> Result<String, JsValue> {
+        match &mut self.inner {
+            LinLogInner::DimN(s) => {
+                run_nd_in_place(s.num_nodes(), s, layout, "LinLogSolver::run_nd")
+            }
+            _ => Err(unsupported_err(
+                "LinLogSolver was not configured for target 'layoutNd'",
+            )),
+        }
     }
 
-    /// Evaluates the exact LinLog energy of `Layout2d`.
     #[wasm_bindgen(js_name = _energy2d)]
-    pub fn energy_2d(&self, layout: &JsLayout2d) -> Result<f64, JsError> {
-        let soa = layout.inner().to_layout2d();
-        self.inner.energy(&soa).map_err(core_err_to_js)
+    pub fn energy_2d(&self, layout: &JsLayout2d) -> Result<f64, JsValue> {
+        match &self.inner {
+            LinLogInner::Dim2(s) => s
+                .energy(&layout.inner().to_layout2d())
+                .map_err(core_err_to_js),
+            _ => Err(unsupported_err(
+                "LinLogSolver was not configured for target 'layout2d'",
+            )),
+        }
     }
 
-    /// Evaluates the exact LinLog energy of `LayoutNd`.
+    #[wasm_bindgen(js_name = _energy3d)]
+    pub fn energy_3d(&self, layout: &JsLayout3d) -> Result<f64, JsValue> {
+        match &self.inner {
+            LinLogInner::Dim3(s) => s
+                .energy(&layout.inner().to_layout3d())
+                .map_err(core_err_to_js),
+            _ => Err(unsupported_err(
+                "LinLogSolver was not configured for target 'layout3d'",
+            )),
+        }
+    }
+
     #[wasm_bindgen(js_name = _energyNd)]
-    pub fn energy_nd(&self, layout: &JsLayoutNd) -> Result<f64, JsError> {
-        self.inner.energy_nd(layout.inner()).map_err(core_err_to_js)
+    pub fn energy_nd(&self, layout: &JsLayoutNd) -> Result<f64, JsValue> {
+        match &self.inner {
+            LinLogInner::DimN(s) => s.energy(layout.inner()).map_err(core_err_to_js),
+            _ => Err(unsupported_err(
+                "LinLogSolver was not configured for target 'layoutNd'",
+            )),
+        }
     }
 
-    /// Returns the per-node repulsive masses (`Float64Array`).
     pub fn masses(&self) -> Vec<f64> {
-        self.inner.masses().to_vec()
+        match &self.inner {
+            LinLogInner::Dim2(s) => s.masses().to_vec(),
+            LinLogInner::Dim3(s) => s.masses().to_vec(),
+            LinLogInner::DimN(s) => s.masses().to_vec(),
+        }
     }
 
-    /// Returns the effective per-step vertex displacement cap.
     #[wasm_bindgen(getter, js_name = maxDisplacement)]
     pub fn max_displacement(&self) -> f64 {
-        self.inner.max_displacement()
-    }
-
-    /// Returns the solver lifecycle status string.
-    #[wasm_bindgen(getter)]
-    pub fn status(&self) -> String {
-        solver_status_str(self.inner.status()).to_owned()
-    }
-
-    /// Returns the number of iterations executed so far.
-    #[wasm_bindgen(getter)]
-    pub fn iteration(&self) -> usize {
-        self.inner.iteration()
-    }
-
-    /// Returns the scheduled iteration count.
-    #[wasm_bindgen(getter, js_name = totalIterations)]
-    pub fn total_iterations(&self) -> usize {
-        self.inner.total_iterations()
-    }
-
-    /// Returns `true` when the solver has converged or completed.
-    #[wasm_bindgen(getter, js_name = isFinished)]
-    pub fn is_finished(&self) -> bool {
-        self.inner.status().is_finished()
-    }
-
-    /// Returns the expected vertex count.
-    #[wasm_bindgen(getter, js_name = numNodes)]
-    pub fn num_nodes(&self) -> usize {
-        self.inner.num_nodes()
-    }
-}
-
-fn parse_fr_backend(raw: &str) -> Result<FrBackend, JsError> {
-    match normalize_enum_token(raw).as_str() {
-        "exact" => Ok(FrBackend::Exact),
-        "barneshut" | "bh" => Ok(FrBackend::BarnesHut),
-        "grid" => Ok(FrBackend::Grid),
-        _ => Err(JsError::new(&format!(
-            "unknown FrBackend {raw:?}; expected 'exact', 'barnes_hut', or 'grid'"
-        ))),
-    }
-}
-
-pub(crate) fn parse_fr_config(
-    options: &JsValue,
-    ctx: &str,
-) -> Result<FruchtermanReingoldConfig, JsError> {
-    let mut cfg = FruchtermanReingoldConfig::default();
-    if check_options_arg(options, ctx)? {
-        cfg.iterations = opt_usize_prop(options, "iterations", cfg.iterations)?;
-        if let Some(b_str) = opt_string_prop(options, "backend")? {
-            cfg.backend = parse_fr_backend(&b_str)?;
+        match &self.inner {
+            LinLogInner::Dim2(s) => s.max_displacement(),
+            LinLogInner::Dim3(s) => s.max_displacement(),
+            LinLogInner::DimN(s) => s.max_displacement(),
         }
-        cfg.k = opt_maybe_f64_prop(options, "k")?;
-        cfg.area = opt_maybe_f64_prop(options, "area")?;
-        cfg.initial_temperature = opt_maybe_f64_prop(options, "initialTemperature")?;
-        cfg.gravity = opt_f64_prop(options, "gravity", cfg.gravity)?;
-        cfg.theta = opt_f64_prop(options, "theta", cfg.theta)?;
-        cfg.seed = opt_seed_prop(options)?;
-    }
-    Ok(cfg)
-}
-
-/// Cooperative Fruchterman-Reingold (1991) force-directed layout solver (`f32`).
-#[wasm_bindgen(js_name = FruchtermanReingoldSolver)]
-#[derive(Debug, Clone)]
-pub struct JsFruchtermanReingoldSolver {
-    inner: FruchtermanReingoldSolver<f32>,
-}
-
-#[wasm_bindgen(js_class = FruchtermanReingoldSolver)]
-impl JsFruchtermanReingoldSolver {
-    /// Constructs a `FruchtermanReingoldSolver` from `graph` and optional `FruchtermanReingoldOptions`.
-    #[wasm_bindgen(constructor)]
-    pub fn new(
-        graph: &JsCsrGraph,
-        options: &JsValue,
-    ) -> Result<JsFruchtermanReingoldSolver, JsError> {
-        let cfg = parse_fr_config(options, "FruchtermanReingoldSolver")?;
-        let inner =
-            FruchtermanReingoldSolver::<f32>::new(graph.inner(), cfg).map_err(core_err_to_js)?;
-        Ok(Self { inner })
     }
 
-    /// Executes one Fruchterman-Reingold iteration on `Layout2d` in place.
-    #[wasm_bindgen(js_name = _step2d)]
-    pub fn step_2d(&mut self, layout: &mut JsLayout2d) -> Result<String, JsError> {
-        step_layout_in_place(&mut self.inner, layout)
+    #[wasm_bindgen(getter)]
+    pub fn target(&self) -> String {
+        match &self.inner {
+            LinLogInner::Dim2(_) => "layout2d".to_owned(),
+            LinLogInner::Dim3(_) => "layout3d".to_owned(),
+            LinLogInner::DimN(_) => "layoutNd".to_owned(),
+        }
     }
 
-    /// Executes up to `steps` Fruchterman-Reingold iterations on `Layout2d` in place.
-    #[wasm_bindgen(js_name = _runSteps2d)]
-    pub fn run_steps_2d(&mut self, layout: &mut JsLayout2d, steps: f64) -> Result<String, JsError> {
-        run_steps_layout_in_place(
-            self.inner.num_nodes(),
-            &mut self.inner,
-            layout,
-            steps,
-            "FruchtermanReingoldSolver::run_steps",
-        )
+    #[wasm_bindgen(getter)]
+    pub fn backend(&self) -> String {
+        match &self.inner {
+            LinLogInner::Dim2(s) => match s.backend() {
+                ForceBackend::Exact(_) => "exact",
+                ForceBackend::BarnesHut(_) => "barnesHut",
+                _ => "barnesHut",
+            },
+            LinLogInner::Dim3(s) => match s.backend() {
+                ForceBackend::Exact(_) => "exact",
+                ForceBackend::BarnesHut(_) => "barnesHut",
+                _ => "barnesHut",
+            },
+            LinLogInner::DimN(_) => "exact",
+        }
+        .to_owned()
     }
 
-    /// Runs Fruchterman-Reingold to completion on `Layout2d` in place.
-    #[wasm_bindgen(js_name = _run2d)]
-    pub fn run_2d(&mut self, layout: &mut JsLayout2d) -> Result<String, JsError> {
-        run_layout_in_place(
-            self.inner.num_nodes(),
-            &mut self.inner,
-            layout,
-            "FruchtermanReingoldSolver::run",
-        )
-    }
-
-    /// Executes one Fruchterman-Reingold iteration on `LayoutNd` in place.
-    #[wasm_bindgen(js_name = _stepNd)]
-    pub fn step_nd(&mut self, layout: &mut JsLayoutNd) -> Result<String, JsError> {
-        step_nd_in_place(&mut self.inner, layout)
-    }
-
-    /// Executes up to `steps` Fruchterman-Reingold iterations on `LayoutNd` in place.
-    #[wasm_bindgen(js_name = _runStepsNd)]
-    pub fn run_steps_nd(&mut self, layout: &mut JsLayoutNd, steps: f64) -> Result<String, JsError> {
-        run_steps_nd_in_place(
-            self.inner.num_nodes(),
-            &mut self.inner,
-            layout,
-            steps,
-            "FruchtermanReingoldSolver::run_steps_nd",
-        )
-    }
-
-    /// Runs Fruchterman-Reingold to completion on `LayoutNd` in place.
-    #[wasm_bindgen(js_name = _runNd)]
-    pub fn run_nd(&mut self, layout: &mut JsLayoutNd) -> Result<String, JsError> {
-        run_nd_in_place(
-            self.inner.num_nodes(),
-            &mut self.inner,
-            layout,
-            "FruchtermanReingoldSolver::run_nd",
-        )
-    }
-
-    /// Executes one Fruchterman-Reingold geodesic step on `ManifoldLayout2d` in place.
-    #[wasm_bindgen(js_name = _stepManifold)]
-    pub fn step_manifold(&mut self, layout: &mut JsManifoldLayout2d) -> Result<String, JsError> {
-        step_manifold_in_place(&mut self.inner, layout)
-    }
-
-    /// Executes up to `steps` Fruchterman-Reingold geodesic steps on `ManifoldLayout2d` in place.
-    #[wasm_bindgen(js_name = _runStepsManifold)]
-    pub fn run_steps_manifold(
-        &mut self,
-        layout: &mut JsManifoldLayout2d,
-        steps: f64,
-    ) -> Result<String, JsError> {
-        run_steps_manifold_in_place(
-            self.inner.num_nodes(),
-            &mut self.inner,
-            layout,
-            steps,
-            "FruchtermanReingoldSolver::run_steps_manifold",
-        )
-    }
-
-    /// Runs Fruchterman-Reingold to completion on `ManifoldLayout2d` in place.
-    #[wasm_bindgen(js_name = _runManifold)]
-    pub fn run_manifold(&mut self, layout: &mut JsManifoldLayout2d) -> Result<String, JsError> {
-        run_manifold_in_place(
-            self.inner.num_nodes(),
-            &mut self.inner,
-            layout,
-            "FruchtermanReingoldSolver::run_manifold",
-        )
-    }
-
-    /// Returns the effective optimal pairwise distance $k$.
-    #[wasm_bindgen(getter, js_name = optimalDistance)]
-    pub fn optimal_distance(&self) -> f64 {
-        self.inner.optimal_distance()
-    }
-
-    /// Returns the current cooling temperature.
-    #[wasm_bindgen(getter, js_name = currentTemperature)]
-    pub fn current_temperature(&self) -> f64 {
-        self.inner.current_temperature()
-    }
-
-    /// Returns the solver lifecycle status string.
     #[wasm_bindgen(getter)]
     pub fn status(&self) -> String {
-        solver_status_str(self.inner.status()).to_owned()
+        let st = match &self.inner {
+            LinLogInner::Dim2(s) => s.status(),
+            LinLogInner::Dim3(s) => s.status(),
+            LinLogInner::DimN(s) => s.status(),
+        };
+        solver_status_str(st).to_owned()
     }
 
-    /// Returns the number of iterations executed so far.
     #[wasm_bindgen(getter)]
     pub fn iteration(&self) -> usize {
-        self.inner.iteration()
+        match &self.inner {
+            LinLogInner::Dim2(s) => s.iteration(),
+            LinLogInner::Dim3(s) => s.iteration(),
+            LinLogInner::DimN(s) => s.iteration(),
+        }
     }
 
-    /// Returns the scheduled iteration count.
     #[wasm_bindgen(getter, js_name = totalIterations)]
-    pub fn total_iterations(&self) -> usize {
-        self.inner.total_iterations()
+    pub fn total_iterations(&self) -> Option<usize> {
+        match &self.inner {
+            LinLogInner::Dim2(s) => s.total_iterations(),
+            LinLogInner::Dim3(s) => s.total_iterations(),
+            LinLogInner::DimN(s) => s.total_iterations(),
+        }
     }
 
-    /// Returns `true` when the solver has converged or completed.
     #[wasm_bindgen(getter, js_name = isFinished)]
     pub fn is_finished(&self) -> bool {
-        self.inner.status().is_finished()
+        let st = match &self.inner {
+            LinLogInner::Dim2(s) => s.status(),
+            LinLogInner::Dim3(s) => s.status(),
+            LinLogInner::DimN(s) => s.status(),
+        };
+        st.is_finished()
     }
 
-    /// Returns the expected vertex count.
     #[wasm_bindgen(getter, js_name = numNodes)]
     pub fn num_nodes(&self) -> usize {
-        self.inner.num_nodes()
+        match &self.inner {
+            LinLogInner::Dim2(s) => s.num_nodes(),
+            LinLogInner::Dim3(s) => s.num_nodes(),
+            LinLogInner::DimN(s) => s.num_nodes(),
+        }
     }
 }

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readKarateCsv } from "./helpers.mjs";
+import { assertJsError, readKarateCsv } from "./helpers.mjs";
 
 // Verify dataset, LayoutNd.coordsView(), runProgressive, AbortSignal, and AMG/resistance APIs
 export async function runDatasetAndProgressiveSmoke({ eg, webPkg }) {
@@ -114,7 +114,7 @@ export async function runDatasetAndProgressiveSmoke({ eg, webPkg }) {
 
   // ManifoldLayout2d constructors, coordsView(), tangentDelta, applyTangentStep & distance helpers
   const mHyp = ManifoldLayout2d.hyperbolicPoincare(2);
-  assert.equal(mHyp.kind, "hyperbolic");
+  assert.equal(mHyp.kind, "hyperbolicPoincare");
   assert.equal(mHyp.manifold, undefined);
   assert(mHyp.coordsView() instanceof Float32Array);
   mHyp.setPoint(0, 0.1, 0.1);
@@ -129,7 +129,7 @@ export async function runDatasetAndProgressiveSmoke({ eg, webPkg }) {
   assert(Math.abs(wrapped[0] - 0.25) < 1e-9 && Math.abs(wrapped[1] - 0.75) < 1e-9);
   const mAdd = poincareMobiusAdd(-0.3, 0.4, 0.3, -0.4);
   assert(Math.hypot(mAdd[0], mAdd[1]) < 1e-12);
-  const mRand = ManifoldLayout2d.randomInit("hyperbolic", 4, 0.25, 42);
+  const mRand = ManifoldLayout2d.randomInit("hyperbolicPoincare", 4, { scale: 0.25, seed: 42 });
   mRand.centerPoincareCentroid();
   const mc = mRand.poincareCentroid();
   assert(Math.hypot(mc[0], mc[1]) < 1e-4);
@@ -137,7 +137,7 @@ export async function runDatasetAndProgressiveSmoke({ eg, webPkg }) {
   mHyp.free();
 
   // Spatial + metrics helpers
-  const xGraph = CsrGraph.fromEdgeList(4, new Uint32Array([0, 3, 1, 2]), null, false, true);
+  const xGraph = CsrGraph.fromEdgeList(4, new Uint32Array([0, 3, 1, 2]), null, { directed: false, sanitize: true });
   const xLayout = Layout2d.fromCoords(new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]));
   const cPairs = crossingEdges(xGraph, xLayout);
   assert.equal(cPairs.length, 1);
@@ -161,14 +161,14 @@ export async function runDatasetAndProgressiveSmoke({ eg, webPkg }) {
   // Linalg + neighborhood embedding & probability helpers
   const cmds = classicalMds2d(karate);
   normalizeLayout2d(cmds, 1.0, 42);
-  robustNormalizeLayout2d(cmds, 1.0, 0.95, 42);
+  robustNormalizeLayout2d(cmds, { targetStd: 1.0, quantile: 0.95, seed: 42 });
   assert(cmds.isAllFinite());
   const delCsr = delaunayToCsr(cmds);
   assert.equal(delCsr.numNodes(), 34);
   assert(delCsr.numEdges() >= 33);
   delCsr.free();
 
-  const rd = rdMds(karate, 3, 1e-10, 1e-5, 200, 42);
+  const rd = rdMds(karate, { dims: 3, eigEps: 1e-10, tol: 1e-5, maxIterations: 200, seed: 42 });
   assert.equal(rd.numNodes, 34);
   assert.equal(rd.dims, 3);
   rd.free();
@@ -177,9 +177,9 @@ export async function runDatasetAndProgressiveSmoke({ eg, webPkg }) {
   assert.equal(rep.numNodes, 3);
   rep.free();
 
-  const resEmb = computeResistanceEmbedding(karate, 4);
-  const diffEmb = computeDiffusionEmbedding(karate, 4, 0.5);
-  const rerank = buildRerankKnn(diffEmb.coords(), 34, diffEmb.dim, 5, 2, 2);
+  const resEmb = computeResistanceEmbedding(karate, { dim: 4 });
+  const diffEmb = computeDiffusionEmbedding(karate, { dim: 4, p: 0.5 });
+  const rerank = buildRerankKnn(diffEmb.coords(), 34, diffEmb.dim, 5, { coarseDim: 2, rerankFactor: 2 });
   assert.equal(rerank.numNodes, 34);
   resEmb.free();
   diffEmb.free();
@@ -187,7 +187,7 @@ export async function runDatasetAndProgressiveSmoke({ eg, webPkg }) {
   const rowProbs = graphRowNormalizedProbabilities(karate);
   assert.equal(rowProbs.numNodes, 34);
   rowProbs.free();
-  const rowProbs12 = graph12hopRowNormalizedProbabilities(karate, 0.5, 8, 0.35, 42);
+  const rowProbs12 = graph12hopRowNormalizedProbabilities(karate, { w2: 0.5, max2hopPerNode: 8, degreeBeta: 0.35, seed: 42 });
   assert.equal(rowProbs12.numNodes, 34);
   rowProbs12.free();
   const cappedKnn = buildCapped12hopKnn(karate, 8, 42);
@@ -197,14 +197,14 @@ export async function runDatasetAndProgressiveSmoke({ eg, webPkg }) {
   assert.equal(symProbs.numNodes, 3);
   symProbs.free();
 
-  const prio = buildGumap12hopPriorityCsr(3, new Uint32Array([0]), new Uint32Array([1]), new Float64Array([1]), new Uint32Array([0, 1]), new Uint32Array([2, 2]), new Float64Array([2, 2]), 1.1);
+  const prio = buildGumap12hopPriorityCsr(3, new Uint32Array([0]), new Uint32Array([1]), new Float64Array([1]), new Uint32Array([0, 1]), new Uint32Array([2, 2]), new Float64Array([2, 2]), { tier2Margin: 1.1 });
   assert.equal(prio.numNodes, 3);
   prio.free();
 
   const d1 = new Float64Array([1e-6, 1.0]);
   const d2 = new Float64Array([2.0]);
   const d3 = new Float64Array([4.0]);
-  const floorVal = applyRelativeDistanceFloor(d1, d2, d3, 1e-3, 0.1);
+  const floorVal = applyRelativeDistanceFloor(d1, d2, d3, { epsDist: 1e-3, minRatio: 0.1 });
   assert(floorVal > 0);
 
   // Quality metrics helpers on karate
@@ -219,13 +219,20 @@ export async function runDatasetAndProgressiveSmoke({ eg, webPkg }) {
   const pd = prismDistortionWithEdges(cmds, cmds, gg);
   assert.equal(pd.sigmaDist, 0);
   pd.free();
-  const karateMetricsReport = evaluateMetrics(karate, cmds, ["sns", "idealEdgeLengths"], 8, 64, 42, 1.0);
+  const karateMetricsReport = evaluateMetrics(karate, cmds, ["sns", "idealEdgeLengths"], {
+    numPivots: 8,
+    numSamples: 64,
+    seed: 42,
+    unitEdgeLength: 1.0,
+  });
   assert(Number.isFinite(karateMetricsReport.idealEdgeLengths));
   karateMetricsReport.free();
 
   // Solver progressive stepping + AbortSignal
-  const tsPartial = TsNetSolver.fromGraphPartialBfs(karate, 8, 6.0, {
-    backend: "fft",
+  const tsPartial = TsNetSolver.fromGraphPartialBfs(karate, {
+    k: 8,
+    uniformPerplexity: 6.0,
+    backend: "fitFft",
     stageIterations: [2, 2, 2],
     intervals: 1,
     interpolationOrder: 1,
@@ -281,13 +288,13 @@ export async function runDatasetAndProgressiveSmoke({ eg, webPkg }) {
   dStats.free();
   sgdDog.free();
 
-  const sgdPairs = SgdSolver.fromPairs(2, [0], [1], [1.0], null, null, null, { iterations: 3 });
+  const sgdPairs = SgdSolver.fromPairs(2, [0], [1], [1.0], { iterations: 3 });
   const lPair = Layout2d.fromCoords([0, 0, 2, 0]);
   assert.equal(sgdPairs.run(lPair), "completed");
   sgdPairs.free();
   lPair.free();
 
-  const gmPos = GuMapSolver.fromGraphDog(karate, null, 4, null, null, null, null, null, null, null, null, 42, null, null, null, null, null, null, null, null, null, null, 1, 8);
+  const gmPos = GuMapSolver.fromGraphDog(karate, { iterations: 4, seed: 42, minDegree: 1, jlDim: 8 });
   assert(gmPos.numEdges > 0);
   gmPos.free();
 
@@ -326,7 +333,7 @@ export async function runDatasetAndProgressiveSmoke({ eg, webPkg }) {
   amgRes.free();
   amg.free();
 
-  const aniso = anisotropicLaplacian(karate, 0.0, 0.0, 0.0, null, false);
+  const aniso = anisotropicLaplacian(karate, { alpha: 0.0, beta: 0.0, degreeReg: 0.0, reweightedDegreeNorm: false });
   assert(aniso instanceof AnisotropicLaplacianResult);
   const anisoMat = aniso.matrix();
   assert(anisoMat instanceof CsrMatrix);
@@ -334,9 +341,18 @@ export async function runDatasetAndProgressiveSmoke({ eg, webPkg }) {
   assert(anisoMat.estimateLambdaMaxLanczos(16, 1.05, 42) > 2.0);
   const heatMat = chebyshevHeatSpmvMatrix(anisoMat, bKarate, 1, 0.25);
   assert.equal(heatMat.length, 34);
-  const jlMat = chebyshevDogJlEmbeddingMatrix(anisoMat, 8, null, 42);
+  const jlMat = chebyshevDogJlEmbeddingMatrix(anisoMat, { jlDim: 8, seed: 42 });
   assert.equal(jlMat.length, 34 * 8);
-  const lmMat = computeRegularizedDogVaradhanLandmarksFromMatrix(karate, anisoMat, null, null, 8, 2, 8, 42, true, 0.5, 1e-4, 0.0);
+  const lmMat = computeRegularizedDogVaradhanLandmarksFromMatrix(karate, anisoMat, {
+    numLandmarks: 8,
+    minDegree: 2,
+    jlDim: 8,
+    seed: 42,
+    degreeNormalize: true,
+    pExp: 0.5,
+    epsPsd: 1e-4,
+    tCoarse: 0.0,
+  });
   assert.equal(lmMat.usedCoarseScaffold, false);
   const regAniso = anisoMat.scaleAndShift(1.0, 1.0);
   const amgMat = AmgPcgSolver.fromCsrMatrix(regAniso);
@@ -367,7 +383,7 @@ export async function runDatasetAndProgressiveSmoke({ eg, webPkg }) {
   const rcfKarate = resistanceCurvatureFlow(karate, { steps: 2, eta: 0.2, seed: 42 });
   assert(rcfKarate instanceof ResistanceCurvatureFlowResult);
   assert.equal(rcfKarate.suggestedGeometry, "hyperbolic");
-  assert.equal(rcfKarate.suggestedManifold, "hyperbolic");
+  assert.equal(rcfKarate.suggestedManifold, "hyperbolicPoincare");
   const rcfSteps = rcfKarate.stepHistory();
   assert.equal(rcfSteps.length, 3);
   assert(rcfSteps[0] instanceof ResistanceCurvatureStep);

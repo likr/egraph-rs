@@ -4,17 +4,17 @@ use egraph::clustering::{LeidenConfig, LeidenObjective, LeidenResult, leiden};
 use wasm_bindgen::prelude::*;
 
 use crate::csr_graph::JsCsrGraph;
-use crate::js_convert::{core_err_to_js, set_f64_prop, set_js_prop};
+use crate::js_convert::{core_err_to_js, invalid_input_err, set_f64_prop, set_js_prop};
 use crate::js_options::{
     check_options_arg, normalize_enum_token, opt_f64_prop, opt_seed_prop, opt_string_prop,
     opt_usize_prop,
 };
 
-fn parse_leiden_objective(raw: &str) -> Result<LeidenObjective, JsError> {
-    match normalize_enum_token(raw).as_str() {
+fn parse_leiden_objective(raw: &str) -> Result<LeidenObjective, JsValue> {
+    match normalize_enum_token(raw)?.as_str() {
         "modularity" | "mod" => Ok(LeidenObjective::Modularity),
         "cpm" | "constantpottsmodel" => Ok(LeidenObjective::Cpm),
-        _ => Err(JsError::new(&format!(
+        _ => Err(invalid_input_err(format!(
             "unknown LeidenObjective {raw:?}; expected 'modularity' or 'cpm'"
         ))),
     }
@@ -72,7 +72,7 @@ impl JsLeidenResult {
 
     /// Converts this result into a plain JavaScript object without requiring `serde`.
     #[wasm_bindgen(js_name = toRecord)]
-    pub fn to_record(&self) -> Result<js_sys::Object, JsError> {
+    pub fn to_record(&self) -> Result<js_sys::Object, JsValue> {
         let obj = js_sys::Object::new();
         set_js_prop(
             &obj,
@@ -92,7 +92,7 @@ impl JsLeidenResult {
 pub fn js_leiden_communities(
     graph: &JsCsrGraph,
     options: &JsValue,
-) -> Result<JsLeidenResult, JsError> {
+) -> Result<JsLeidenResult, JsValue> {
     let mut cfg = LeidenConfig::default();
     if check_options_arg(options, "leidenCommunities")? {
         if let Some(obj_str) = opt_string_prop(options, "objective")? {

@@ -91,10 +91,10 @@ export async function runLinalgAndNeighborhoodSmoke({ eg, webPkg }) {
   }
   const grid = CsrGraph.fromEdgeList(16, new Uint32Array(gridEdges));
 
-  const pivots = selectMaxminSpPivots(grid, 6);
+  const pivots = selectMaxminSpPivots(grid, { numPivots: 6 });
   assert(pivots instanceof Uint32Array);
   assert.equal(pivots.length, 6);
-  assert.deepEqual(Array.from(pivots), Array.from(selectMaxminSpPivots(grid, 6, 42, 2)));
+  assert.deepEqual(Array.from(pivots), Array.from(selectMaxminSpPivots(grid, { numPivots: 6, seed: 42, minDegree: 2 })));
 
   const mdsDef = pivotMdsInit(grid);
   assert.equal(mdsDef.len(), 16);
@@ -116,7 +116,7 @@ export async function runLinalgAndNeighborhoodSmoke({ eg, webPkg }) {
   }
   assert(Math.abs(Math.sqrt(sumSq / 32) - 1.0) < 1e-4);
 
-  const mdsUnnorm = pivotMdsInit(grid, 6, 42, 2, null);
+  const mdsUnnorm = pivotMdsInit(grid, { numPivots: 6, seed: 42, minDegree: 2, targetStd: null });
   assert.equal(mdsUnnorm.len(), 16);
   assert.equal(mdsUnnorm.isAllFinite(), true);
   mdsDef.free();
@@ -125,12 +125,12 @@ export async function runLinalgAndNeighborhoodSmoke({ eg, webPkg }) {
   const korenDef = korenSpectralInit(grid);
   assert.equal(korenDef.len(), 16);
   assert.equal(korenDef.isAllFinite(), true);
-  const korenUnnorm = korenSpectralInit(grid, null);
+  const korenUnnorm = korenSpectralInit(grid, { targetStd: null });
   assert.equal(korenUnnorm.len(), 16);
   korenDef.free();
   korenUnnorm.free();
 
-  const eig = smallestLaplacianEigenpairs(grid, 4);
+  const eig = smallestLaplacianEigenpairs(grid, { nModes: 4 });
   assert(eig instanceof EigenResult);
   assert.equal(eig.numNodes, 16);
   assert.equal(eig.numModes, 4);
@@ -143,7 +143,7 @@ export async function runLinalgAndNeighborhoodSmoke({ eg, webPkg }) {
   assert.equal(eig.invSqrtDeg().length, 16);
 
   const jacobiMat = new Float64Array([2, -1, 0, -1, 2, -1, 0, -1, 2]);
-  const jacRes = symmetricEigenJacobi(jacobiMat, 3, 2);
+  const jacRes = symmetricEigenJacobi(jacobiMat, 3, { nModes: 2 });
   assert(jacRes instanceof EigenResult);
   assert.equal(jacRes.numNodes, 3);
   assert.equal(jacRes.numModes, 2);
@@ -170,7 +170,7 @@ export async function runLinalgAndNeighborhoodSmoke({ eg, webPkg }) {
   }
   eig.free();
 
-  const jlEmb = chebyshevDogJlEmbedding(grid, 8);
+  const jlEmb = chebyshevDogJlEmbedding(grid, { jlDim: 8 });
   assert(jlEmb instanceof Float64Array);
   assert.equal(jlEmb.length, 16 * 8);
 
@@ -257,12 +257,12 @@ export async function runLinalgAndNeighborhoodSmoke({ eg, webPkg }) {
   assert(alt instanceof Float64Array);
   assert(Math.abs(alt[0] - alt[1]) < 1e-12);
 
-  // Adversarial linalg/neighborhood JS inputs must throw Error (never RuntimeError)
-  assertJsError(() => selectMaxminSpPivots(grid, 4, 1.5), "linalg seed fractional");
-  assertJsError(() => pivotMdsInit(grid, 4, 42, 2, -1), "linalg negative targetStd");
-  assertJsError(() => chebyshevHeatSpmv(grid, new Float64Array([Number.NaN]), 1, 1.0), "linalg NaN vec");
-  assertJsError(() => KnnGraph.fromCsr(2, new Uint32Array([0, 1, 1]), new Uint32Array([1]), new Float64Array([-1.0])), "linalg neg dist");
-  assertJsError(() => lm.altDistances(new Uint32Array([0]), new Uint32Array([99])), "linalg alt OOB");
+  // Adversarial linalg/neighborhood JS inputs must throw Error with .code (never RuntimeError)
+  assertJsError(() => selectMaxminSpPivots(grid, { numPivots: 4, seed: 1.5 }), "linalg seed fractional", "InvalidInput");
+  assertJsError(() => pivotMdsInit(grid, { numPivots: 4, seed: 42, minDegree: 2, targetStd: -1 }), "linalg negative targetStd", "InvalidInput");
+  assertJsError(() => chebyshevHeatSpmv(grid, new Float64Array([Number.NaN]), 1, 1.0), "linalg NaN vec", "NonFiniteValue");
+  assertJsError(() => KnnGraph.fromCsr(2, new Uint32Array([0, 1, 1]), new Uint32Array([1]), new Float64Array([-1.0])), "linalg neg dist", "InvalidInput");
+  assertJsError(() => lm.altDistances(new Uint32Array([0]), new Uint32Array([99])), "linalg alt OOB", "IndexOutOfBounds");
 
   lm.free();
   fuzzy.free();
@@ -272,9 +272,9 @@ export async function runLinalgAndNeighborhoodSmoke({ eg, webPkg }) {
   hybridRes.free();
   grid.free();
 
-  // Verify index.d.ts carries clean optional camelCase linalg/neighborhood signatures
+  // Verify index.d.ts carries clean optional camelCase linalg/neighborhood options signatures
   const dtsText = await readPkgText("index.d.ts");
-  assert(dtsText.includes("pivotMdsInit(graph: CsrGraph, numPivots?: number | null, seed?: number | null, minDegree?: number | null, targetStd?: number | null): Layout2d;"));
-  assert(dtsText.includes("korenSpectralInit(graph: CsrGraph, targetStd?: number | null, tol?: number | null, maxIterations?: number | null, seed?: number | null): Layout2d;"));
+  assert(dtsText.includes("pivotMdsInit(graph: CsrGraph, options?: PivotMdsGeneratorOptions | null): Layout2d;"));
+  assert(dtsText.includes("korenSpectralInit(graph: CsrGraph, options?: KorenSpectralGeneratorOptions | null): Layout2d;"));
   assert(!dtsText.includes("target_std: any"));
 }

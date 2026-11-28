@@ -20,7 +20,9 @@ fn solvers_fft_stats_dog_and_ab_getters() {
 
     // TsNetSolver.fromGraphPartialBfs + lastFftStats + short FFT options
     let ts_opts = make_opts(&[
-        ("backend", JsValue::from_str("fit")),
+        ("k", JsValue::from_f64(8.0)),
+        ("uniformPerplexity", JsValue::from_f64(6.0)),
+        ("backend", JsValue::from_str("fitFft")),
         (
             "stageIterations",
             js_sys::Array::of3(
@@ -36,32 +38,7 @@ fn solvers_fft_stats_dog_and_ab_getters() {
         ("maxGridDim", JsValue::from_f64(64.0)),
         ("seed", JsValue::from_f64(42.0)),
     ]);
-    let mut ts = JsTsNetSolver::from_graph_partial_bfs(
-        &grid,
-        Some(8.0),
-        Some(6.0),
-        &ts_opts,
-        &JsValue::UNDEFINED,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        &JsValue::UNDEFINED,
-        None,
-        None,
-    )
-    .unwrap();
+    let mut ts = JsTsNetSolver::from_graph_partial_bfs(&grid, &ts_opts).unwrap();
     let mut l_ts = init.clone();
     assert!(ts.last_fft_stats().is_none());
     ts.run_2d(&mut l_ts).unwrap();
@@ -84,7 +61,7 @@ fn solvers_fft_stats_dog_and_ab_getters() {
     )
     .unwrap();
     let mut l_tfdp = init.clone();
-    tfdp.run(&mut l_tfdp).unwrap();
+    tfdp.run_2d(&mut l_tfdp).unwrap();
     assert!(l_tfdp.is_all_finite());
 
     // SgdSolver.dogStats + optional fromPairs args
@@ -94,35 +71,6 @@ fn solvers_fft_stats_dog_and_ab_getters() {
             ("iterations", JsValue::from_f64(5.0)),
             ("seed", JsValue::from_f64(42.0)),
         ]),
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
     )
     .unwrap();
     let d_stats = sgd.dog_stats().expect("dogStats from sparseBarrierDog");
@@ -136,47 +84,23 @@ fn solvers_fft_stats_dog_and_ab_getters() {
         &[0],
         &[1],
         &[1.5],
-        None,
-        None,
-        None,
-        &JsValue::from_f64(4.0),
-        None,
-        None,
-        None,
-        None,
+        &make_opts(&[("iterations", JsValue::from_f64(4.0))]),
     )
     .unwrap();
     let mut l2 = JsLayout2d::from_coords(&[0.0, 0.0, 0.5, 0.0]).unwrap();
     pairs_opt.run_2d(&mut l2).unwrap();
     assert!(l2.is_all_finite());
 
-    // GuMapSolver.fromGraphDog positional minDegree/jlDim + fromFuzzySet sigmaIters/sigmaTolerance
+    // GuMapSolver.fromGraphDog minDegree/jlDim + fromFuzzySet sigmaIters/sigmaTolerance
     let path = make_path_graph(6);
     let gm_pos = JsGuMapSolver::from_graph_dog(
         &path,
-        &JsValue::UNDEFINED,
-        &JsValue::from_f64(5.0),
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        Some(42.0),
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        Some(2.0),
-        Some(8.0),
+        &make_opts(&[
+            ("iterations", JsValue::from_f64(5.0)),
+            ("seed", JsValue::from_f64(42.0)),
+            ("minDegree", JsValue::from_f64(2.0)),
+            ("jlDim", JsValue::from_f64(8.0)),
+        ]),
     )
     .unwrap();
     assert!(gm_pos.num_edges() > 0);
@@ -200,10 +124,7 @@ fn solvers_fft_stats_dog_and_ab_getters() {
     assert!((ib_ab[0] - ib.a()).abs() < 1e-12);
     assert!((ib_ab[1] - ib.b()).abs() < 1e-12);
 
-    // Default degree=None in computeRegularizedDogVaradhanLandmarks matches adaptive degree >= 40
-    let lm_def = js_compute_regularized_dog_varadhan_landmarks(
-        &grid, None, None, None, None, None, None, None, None, None, None, None,
-    )
-    .unwrap();
+    // Default degree in computeRegularizedDogVaradhanLandmarks matches adaptive degree >= 40
+    let lm_def = js_compute_regularized_dog_varadhan_landmarks(&grid, &JsValue::UNDEFINED).unwrap();
     assert_eq!(lm_def.num_nodes(), 16);
 }

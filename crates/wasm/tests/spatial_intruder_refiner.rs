@@ -22,23 +22,7 @@ fn spatial_intruder_refiner_k_cap_separation_and_errors() {
     let mut clean_layout = clean_orig.clone();
     let mut ref_clean = JsSpatialIntruderRefiner::new(
         &small_grid,
-        &JsValue::from_f64(4.0),
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
+        &make_opts(&[("iterations", JsValue::from_f64(4.0))]),
     )
     .unwrap();
     assert_eq!(ref_clean.run(&mut clean_layout).unwrap(), "converged");
@@ -54,48 +38,14 @@ fn spatial_intruder_refiner_k_cap_separation_and_errors() {
     let dist_before = (intr_run.x(0.0).unwrap() - intr_run.x(8.0).unwrap())
         .hypot(intr_run.y(0.0).unwrap() - intr_run.y(8.0).unwrap());
 
-    let mut r_run = JsSpatialIntruderRefiner::new(
-        &small_grid,
-        &JsValue::from_f64(3.0),
-        None,
-        None,
-        None,
-        Some(0.2),
-        None,
-        None,
-        None,
-        None,
-        None,
-        Some(true),
-        Some(42.0),
-        None,
-        None,
-        None,
-        None,
-        None,
-    )
-    .unwrap();
-    let mut r_step = JsSpatialIntruderRefiner::new(
-        &small_grid,
-        &JsValue::from_f64(3.0),
-        None,
-        None,
-        None,
-        Some(0.2),
-        None,
-        None,
-        None,
-        None,
-        None,
-        Some(true),
-        Some(42.0),
-        None,
-        None,
-        None,
-        None,
-        None,
-    )
-    .unwrap();
+    let r_opts = make_opts(&[
+        ("iterations", JsValue::from_f64(3.0)),
+        ("wFp", JsValue::from_f64(0.2)),
+        ("hingeFp", JsValue::from_bool(true)),
+        ("seed", JsValue::from_f64(42.0)),
+    ]);
+    let mut r_run = JsSpatialIntruderRefiner::new(&small_grid, &r_opts).unwrap();
+    let mut r_step = JsSpatialIntruderRefiner::new(&small_grid, &r_opts).unwrap();
     assert!(r_run.run(&mut intr_run).is_ok());
     r_step.step(&mut intr_step).unwrap();
     r_step.run(&mut intr_step).unwrap();
@@ -118,27 +68,7 @@ fn spatial_intruder_refiner_k_cap_separation_and_errors() {
         ("kCapMin", JsValue::from_f64(2.0)),
         ("seed", JsValue::from_f64(42.0)),
     ]);
-    let mut r_dyn = JsSpatialIntruderRefiner::new(
-        &small_grid,
-        &dyn_opts,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-    )
-    .unwrap();
+    let mut r_dyn = JsSpatialIntruderRefiner::new(&small_grid, &dyn_opts).unwrap();
     assert_eq!(r_dyn.current_k_cap(), 8);
     let mut l_dyn = JsLayout2d::from_coords(&intr_coords).unwrap();
     r_dyn.step(&mut l_dyn).unwrap();
@@ -180,27 +110,7 @@ fn spatial_intruder_refiner_k_cap_separation_and_errors() {
         ("wSep", JsValue::from_f64(1.0)),
         ("seed", JsValue::from_f64(42.0)),
     ]);
-    let mut r_sep = JsSpatialIntruderRefiner::new(
-        &twin_graph,
-        &sep_opts,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-    )
-    .unwrap();
+    let mut r_sep = JsSpatialIntruderRefiner::new(&twin_graph, &sep_opts).unwrap();
     r_sep.run(&mut twin_layout).unwrap();
     let sep_stats = r_sep.stats();
     assert!(sep_stats.n_sep_total() > 0);
@@ -213,23 +123,10 @@ fn spatial_intruder_refiner_k_cap_separation_and_errors() {
     assert!(
         JsSpatialIntruderRefiner::new(
             &small_grid,
-            &JsValue::from_f64(2.0),
-            Some(0.0),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
+            &make_opts(&[
+                ("iterations", JsValue::from_f64(2.0)),
+                ("kCap", JsValue::from_f64(0.0)),
+            ]),
         )
         .is_err()
     );

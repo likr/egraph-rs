@@ -7,19 +7,17 @@ use egraph::layout::{
 use wasm_bindgen::prelude::*;
 
 use crate::csr_graph::JsCsrGraph;
-use crate::js_convert::{
-    core_err_to_js, parse_non_negative_usize, parse_optional_usize, parse_seed_u64,
-};
+use crate::js_convert::{core_err_to_js, parse_non_negative_usize};
 use crate::js_options::{
-    is_plain_js_object, opt_bool_prop, opt_f64_prop, opt_seed_prop, opt_usize_prop,
-    reject_extra_args_with_options, solver_status_str,
+    check_options_arg, opt_bool_prop, opt_f64_prop, opt_seed_prop, opt_usize_prop,
+    solver_status_str,
 };
 use crate::layout_buffers::JsLayout2d;
 use crate::solver_runner::{run_layout_in_place, run_steps_layout_in_place, step_layout_in_place};
 
 /// Per-round diagnostics emitted by `SpatialIntruderRefiner`.
 #[wasm_bindgen(js_name = SpatialRefinerRoundStats)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct JsSpatialRefinerRoundStats {
     inner: SpatialRefinerRoundStats,
 }
@@ -156,7 +154,7 @@ impl JsSpatialRefinerStats {
         self.inner
             .round_stats
             .iter()
-            .copied()
+            .cloned()
             .map(|inner| JsSpatialRefinerRoundStats { inner })
             .collect()
     }
@@ -172,88 +170,27 @@ pub struct JsSpatialIntruderRefiner {
 #[wasm_bindgen(js_class = SpatialIntruderRefiner)]
 impl JsSpatialIntruderRefiner {
     /// Precomputes canonical 1-hop topology and hub-safe 2-hop structures for `graph`.
-    #[allow(clippy::too_many_arguments)]
     #[wasm_bindgen(constructor)]
-    pub fn new(
-        graph: &JsCsrGraph,
-        rounds_or_options: &JsValue,
-        k_cap: Option<f64>,
-        margin_scale: Option<f64>,
-        w_anchor: Option<f64>,
-        w_fn: Option<f64>,
-        w_fp: Option<f64>,
-        fn_shrink: Option<f64>,
-        round_decay: Option<f64>,
-        t_max: Option<f64>,
-        eps: Option<f64>,
-        hinge_fp: Option<bool>,
-        seed: Option<f64>,
-        w_anchor2: Option<f64>,
-        k_cap_decay: Option<f64>,
-        k_cap_min: Option<f64>,
-        min_sep_ratio: Option<f64>,
-        w_sep: Option<f64>,
-    ) -> Result<JsSpatialIntruderRefiner, JsError> {
+    pub fn new(graph: &JsCsrGraph, options: &JsValue) -> Result<JsSpatialIntruderRefiner, JsValue> {
         let mut cfg = SpatialRefinerConfig::default();
-        if is_plain_js_object(rounds_or_options) {
-            let has_extra = k_cap.is_some()
-                || margin_scale.is_some()
-                || w_anchor.is_some()
-                || w_fn.is_some()
-                || w_fp.is_some()
-                || fn_shrink.is_some()
-                || round_decay.is_some()
-                || t_max.is_some()
-                || eps.is_some()
-                || hinge_fp.is_some()
-                || seed.is_some()
-                || w_anchor2.is_some()
-                || k_cap_decay.is_some()
-                || k_cap_min.is_some()
-                || min_sep_ratio.is_some()
-                || w_sep.is_some();
-            reject_extra_args_with_options(has_extra)?;
-            cfg.iterations = opt_usize_prop(rounds_or_options, "iterations", cfg.iterations)?;
-            cfg.k_cap = opt_usize_prop(rounds_or_options, "kCap", cfg.k_cap)?;
-            cfg.margin_scale = opt_f64_prop(rounds_or_options, "marginScale", cfg.margin_scale)?;
-            cfg.w_anchor = opt_f64_prop(rounds_or_options, "wAnchor", cfg.w_anchor)?;
-            cfg.w_anchor2 = opt_f64_prop(rounds_or_options, "wAnchor2", cfg.w_anchor2)?;
-            cfg.w_fn = opt_f64_prop(rounds_or_options, "wFn", cfg.w_fn)?;
-            cfg.w_fp = opt_f64_prop(rounds_or_options, "wFp", cfg.w_fp)?;
-            cfg.fn_shrink = opt_f64_prop(rounds_or_options, "fnShrink", cfg.fn_shrink)?;
-            cfg.round_decay = opt_f64_prop(rounds_or_options, "roundDecay", cfg.round_decay)?;
-            cfg.k_cap_decay = opt_f64_prop(rounds_or_options, "kCapDecay", cfg.k_cap_decay)?;
-            cfg.k_cap_min = opt_usize_prop(rounds_or_options, "kCapMin", cfg.k_cap_min)?;
-            cfg.sgd_iterations =
-                opt_usize_prop(rounds_or_options, "sgdIterations", cfg.sgd_iterations)?;
-            cfg.eps = opt_f64_prop(rounds_or_options, "eps", cfg.eps)?;
-            cfg.hinge_fp = opt_bool_prop(rounds_or_options, "hingeFp", cfg.hinge_fp)?;
-            cfg.min_sep_ratio = opt_f64_prop(rounds_or_options, "minSepRatio", cfg.min_sep_ratio)?;
-            cfg.w_sep = opt_f64_prop(rounds_or_options, "wSep", cfg.w_sep)?;
-            cfg.seed = opt_seed_prop(rounds_or_options)?;
-        } else {
-            if !rounds_or_options.is_undefined() && !rounds_or_options.is_null() {
-                let v = rounds_or_options.as_f64().ok_or_else(|| {
-                    JsError::new("iterationsOrOptions must be a non-negative integer, options object, null, or undefined")
-                })?;
-                cfg.iterations = parse_non_negative_usize(v, "iterations")?;
-            }
-            cfg.k_cap = parse_optional_usize(k_cap, cfg.k_cap, "kCap")?;
-            cfg.margin_scale = margin_scale.unwrap_or(cfg.margin_scale);
-            cfg.w_anchor = w_anchor.unwrap_or(cfg.w_anchor);
-            cfg.w_anchor2 = w_anchor2.unwrap_or(cfg.w_anchor2);
-            cfg.w_fn = w_fn.unwrap_or(cfg.w_fn);
-            cfg.w_fp = w_fp.unwrap_or(cfg.w_fp);
-            cfg.fn_shrink = fn_shrink.unwrap_or(cfg.fn_shrink);
-            cfg.round_decay = round_decay.unwrap_or(cfg.round_decay);
-            cfg.k_cap_decay = k_cap_decay.unwrap_or(cfg.k_cap_decay);
-            cfg.k_cap_min = parse_optional_usize(k_cap_min, cfg.k_cap_min, "kCapMin")?;
-            cfg.sgd_iterations = parse_optional_usize(t_max, cfg.sgd_iterations, "sgdIterations")?;
-            cfg.eps = eps.unwrap_or(cfg.eps);
-            cfg.hinge_fp = hinge_fp.unwrap_or(cfg.hinge_fp);
-            cfg.min_sep_ratio = min_sep_ratio.unwrap_or(cfg.min_sep_ratio);
-            cfg.w_sep = w_sep.unwrap_or(cfg.w_sep);
-            cfg.seed = parse_seed_u64(seed)?;
+        if check_options_arg(options, "SpatialIntruderRefiner")? {
+            cfg.iterations = opt_usize_prop(options, "iterations", cfg.iterations)?;
+            cfg.k_cap = opt_usize_prop(options, "kCap", cfg.k_cap)?;
+            cfg.margin_scale = opt_f64_prop(options, "marginScale", cfg.margin_scale)?;
+            cfg.w_anchor = opt_f64_prop(options, "wAnchor", cfg.w_anchor)?;
+            cfg.w_anchor2 = opt_f64_prop(options, "wAnchor2", cfg.w_anchor2)?;
+            cfg.w_fn = opt_f64_prop(options, "wFn", cfg.w_fn)?;
+            cfg.w_fp = opt_f64_prop(options, "wFp", cfg.w_fp)?;
+            cfg.fn_shrink = opt_f64_prop(options, "fnShrink", cfg.fn_shrink)?;
+            cfg.round_decay = opt_f64_prop(options, "roundDecay", cfg.round_decay)?;
+            cfg.k_cap_decay = opt_f64_prop(options, "kCapDecay", cfg.k_cap_decay)?;
+            cfg.k_cap_min = opt_usize_prop(options, "kCapMin", cfg.k_cap_min)?;
+            cfg.sgd_iterations = opt_usize_prop(options, "sgdIterations", cfg.sgd_iterations)?;
+            cfg.eps = opt_f64_prop(options, "eps", cfg.eps)?;
+            cfg.hinge_fp = opt_bool_prop(options, "hingeFp", cfg.hinge_fp)?;
+            cfg.min_sep_ratio = opt_f64_prop(options, "minSepRatio", cfg.min_sep_ratio)?;
+            cfg.w_sep = opt_f64_prop(options, "wSep", cfg.w_sep)?;
+            cfg.seed = opt_seed_prop(options)?;
         }
 
         let inner =
@@ -262,13 +199,13 @@ impl JsSpatialIntruderRefiner {
     }
 
     /// Executes one active-set refinement round on `layout` in place.
-    pub fn step(&mut self, layout: &mut JsLayout2d) -> Result<String, JsError> {
+    pub fn step(&mut self, layout: &mut JsLayout2d) -> Result<String, JsValue> {
         step_layout_in_place(&mut self.inner, layout)
     }
 
     /// Executes up to `steps` refinement rounds on `layout` in place.
     #[wasm_bindgen(js_name = runSteps)]
-    pub fn run_steps(&mut self, layout: &mut JsLayout2d, steps: f64) -> Result<String, JsError> {
+    pub fn run_steps(&mut self, layout: &mut JsLayout2d, steps: f64) -> Result<String, JsValue> {
         run_steps_layout_in_place(
             self.inner.num_nodes(),
             &mut self.inner,
@@ -279,7 +216,7 @@ impl JsSpatialIntruderRefiner {
     }
 
     /// Runs refinement rounds to completion or early convergence on `layout` in place.
-    pub fn run(&mut self, layout: &mut JsLayout2d) -> Result<String, JsError> {
+    pub fn run(&mut self, layout: &mut JsLayout2d) -> Result<String, JsValue> {
         run_layout_in_place(
             self.inner.num_nodes(),
             &mut self.inner,
@@ -309,7 +246,7 @@ impl JsSpatialIntruderRefiner {
 
     /// Returns the maximum scheduled refinement rounds.
     #[wasm_bindgen(getter, js_name = totalIterations)]
-    pub fn total_iterations(&self) -> usize {
+    pub fn total_iterations(&self) -> Option<usize> {
         self.inner.total_iterations()
     }
 
@@ -333,7 +270,7 @@ impl JsSpatialIntruderRefiner {
 
     /// Updates the active-set neighborhood cap `kCap` for subsequent refinement rounds.
     #[wasm_bindgen(js_name = setKCap)]
-    pub fn set_k_cap(&mut self, k_cap: f64) -> Result<(), JsError> {
+    pub fn set_k_cap(&mut self, k_cap: f64) -> Result<(), JsValue> {
         let cap = parse_non_negative_usize(k_cap, "kCap")?;
         self.inner.set_k_cap(cap).map_err(core_err_to_js)
     }

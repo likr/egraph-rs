@@ -6,7 +6,7 @@ use egraph::spatial::{
 };
 use wasm_bindgen::prelude::*;
 
-use crate::js_convert::core_err_to_js;
+use crate::js_convert::{core_err_to_js, invalid_input_err};
 use crate::js_options::{
     check_options_arg, normalize_enum_token, opt_bool_prop, opt_f64_prop, opt_maybe_f64_prop,
     opt_string_prop, opt_usize_prop,
@@ -15,11 +15,11 @@ use crate::layout_buffers::JsLayout2d;
 
 const DEFAULT_GRID_SIZE: usize = 512;
 
-fn parse_density_field_kernel(raw: &str) -> Result<DensityFieldKernel, JsError> {
-    match normalize_enum_token(raw).as_str() {
+fn parse_density_field_kernel(raw: &str) -> Result<DensityFieldKernel, JsValue> {
+    match normalize_enum_token(raw)?.as_str() {
         "screenedpoisson" | "sp" => Ok(DensityFieldKernel::ScreenedPoisson),
         "singlegaussian" | "gaussian" | "sg" => Ok(DensityFieldKernel::SingleGaussian),
-        _ => Err(JsError::new(&format!(
+        _ => Err(invalid_input_err(format!(
             "unknown density field kernel {raw:?}; expected 'screenedPoisson' or 'singleGaussian'"
         ))),
     }
@@ -29,17 +29,16 @@ fn density_field_kernel_js_str(kernel: DensityFieldKernel) -> &'static str {
     match kernel {
         DensityFieldKernel::ScreenedPoisson => "screenedPoisson",
         DensityFieldKernel::SingleGaussian => "singleGaussian",
+        _ => "screenedPoisson",
     }
 }
 
 pub(crate) fn parse_screened_poisson_config(
     options: &JsValue,
     ctx: &str,
-) -> Result<ScreenedPoissonConfig, JsError> {
-    let mut cfg = ScreenedPoissonConfig {
-        grid_size: DEFAULT_GRID_SIZE,
-        ..ScreenedPoissonConfig::default()
-    };
+) -> Result<ScreenedPoissonConfig, JsValue> {
+    let mut cfg = ScreenedPoissonConfig::default();
+    cfg.grid_size = DEFAULT_GRID_SIZE;
     if check_options_arg(options, ctx)? {
         if let Some(k_str) = opt_string_prop(options, "kernel")? {
             cfg.kernel = parse_density_field_kernel(&k_str)?;
@@ -179,14 +178,14 @@ pub struct JsScreenedPoissonField2d {
 impl JsScreenedPoissonField2d {
     /// Allocates a `ScreenedPoissonField2d` evaluator workspace (`f32`-backed, default `gridSize = 512`).
     #[wasm_bindgen(constructor)]
-    pub fn new(options: &JsValue) -> Result<JsScreenedPoissonField2d, JsError> {
+    pub fn new(options: &JsValue) -> Result<JsScreenedPoissonField2d, JsValue> {
         let cfg = parse_screened_poisson_config(options, "ScreenedPoissonField2d")?;
         let inner = ScreenedPoissonField2d::<f32>::new(cfg).map_err(core_err_to_js)?;
         Ok(Self { inner })
     }
 
     /// Evaluates unilateral density energy and descent forces over `layout`'s adaptive bounding box.
-    pub fn evaluate(&mut self, layout: &JsLayout2d) -> Result<JsScreenedPoissonResult, JsError> {
+    pub fn evaluate(&mut self, layout: &JsLayout2d) -> Result<JsScreenedPoissonResult, JsValue> {
         let soa = layout.inner().to_layout2d();
         let mut out = ScreenedPoissonOutput::new();
         self.inner
@@ -205,7 +204,7 @@ impl JsScreenedPoissonField2d {
         min_y: f64,
         max_x: f64,
         max_y: f64,
-    ) -> Result<JsScreenedPoissonResult, JsError> {
+    ) -> Result<JsScreenedPoissonResult, JsValue> {
         let soa = layout.inner().to_layout2d();
         let mut out = ScreenedPoissonOutput::new();
         self.inner
@@ -217,7 +216,7 @@ impl JsScreenedPoissonField2d {
     /// Returns a flat row-major `[densityGridDim * densityGridDim]` copy of the last evaluated
     /// smoothed density grid (`Float32Array`), or an empty `Float32Array` before evaluation.
     #[wasm_bindgen(js_name = densityGrid)]
-    pub fn density_grid(&self) -> Result<Vec<f32>, JsError> {
+    pub fn density_grid(&self) -> Result<Vec<f32>, JsValue> {
         Ok(self
             .inner
             .density_grid()

@@ -43,7 +43,7 @@ impl JsRhghLandmarks {
     }
 }
 
-fn parse_rhgh_config(options: &JsValue, ctx: &str) -> Result<RhghLandmarkConfig, JsError> {
+fn parse_rhgh_config(options: &JsValue, ctx: &str) -> Result<RhghLandmarkConfig, JsValue> {
     let mut cfg = RhghLandmarkConfig::default();
     if check_options_arg(options, ctx)? {
         cfg.gamma = opt_maybe_f64_prop(options, "gamma")?;
@@ -145,7 +145,7 @@ impl JsRhghLandmarksResult {
 pub fn js_compute_pivoted_rhgh_landmarks(
     graph: &JsCsrGraph,
     options: &JsValue,
-) -> Result<JsRhghLandmarksResult, JsError> {
+) -> Result<JsRhghLandmarksResult, JsValue> {
     let cfg = parse_rhgh_config(options, "computePivotedRhghLandmarks")?;
     let (inner, stats) =
         compute_pivoted_rhgh_landmarks(graph.inner(), &cfg).map_err(core_err_to_js)?;
@@ -160,7 +160,7 @@ pub fn js_compute_pivoted_rhgh_landmarks(
 pub fn js_compute_pivoted_rhgh_landmarks_result(
     graph: &JsCsrGraph,
     options: &JsValue,
-) -> Result<JsRhghLandmarks, JsError> {
+) -> Result<JsRhghLandmarks, JsValue> {
     let cfg = parse_rhgh_config(options, "computePivotedRhghLandmarksResult")?;
     let (inner, _stats) =
         compute_pivoted_rhgh_landmarks_result(graph.inner(), &cfg).map_err(core_err_to_js)?;

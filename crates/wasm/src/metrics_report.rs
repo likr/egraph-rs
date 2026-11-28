@@ -49,7 +49,7 @@ impl JsMetricReport {
         self.inner.crossing_edges.as_ref().map(|pairs| {
             pairs
                 .iter()
-                .copied()
+                .cloned()
                 .map(JsCrossingPair::from_inner)
                 .collect()
         })
@@ -85,7 +85,7 @@ impl JsMetricReport {
         self.inner.crossing_edges_torus.as_ref().map(|pairs| {
             pairs
                 .iter()
-                .copied()
+                .cloned()
                 .map(JsTorusCrossing::from_inner)
                 .collect()
         })
@@ -188,123 +188,142 @@ impl JsMetricReport {
 
     #[wasm_bindgen(getter, js_name = distanceConsistency)]
     pub fn distance_consistency(&self) -> Option<f64> {
-        self.inner.distance_consistency
+        self.inner
+            .baseline_metrics()
+            .and_then(|b| b.distance_consistency)
     }
 
     #[wasm_bindgen(getter, js_name = distributionConsistency)]
     pub fn distribution_consistency(&self) -> Option<f64> {
-        self.inner.distribution_consistency
+        self.inner
+            .baseline_metrics()
+            .and_then(|b| b.distribution_consistency)
     }
 
     #[wasm_bindgen(getter, js_name = classDensityMeasure)]
     pub fn class_density_measure(&self) -> Option<f64> {
-        self.inner.class_density_measure
+        self.inner
+            .baseline_metrics()
+            .and_then(|b| b.class_density_measure)
     }
 
     #[wasm_bindgen(getter, js_name = histogramDensityMeasure)]
     pub fn histogram_density_measure(&self) -> Option<f64> {
-        self.inner.histogram_density_measure
+        self.inner
+            .baseline_metrics()
+            .and_then(|b| b.histogram_density_measure)
     }
 
     #[wasm_bindgen(getter, js_name = sepmeKnng)]
     pub fn sepme_knng(&self) -> Option<f64> {
-        self.inner.sepme_knng
+        self.inner.baseline_metrics().and_then(|b| b.sepme_knng)
     }
 
     #[wasm_bindgen(getter, js_name = sepmeRng)]
     pub fn sepme_rng(&self) -> Option<f64> {
-        self.inner.sepme_rng
+        self.inner.baseline_metrics().and_then(|b| b.sepme_rng)
     }
 
     #[wasm_bindgen(getter, js_name = sepmeGab)]
     pub fn sepme_gab(&self) -> Option<f64> {
-        self.inner.sepme_gab
+        self.inner.baseline_metrics().and_then(|b| b.sepme_gab)
     }
 
     #[wasm_bindgen(getter, js_name = sepmeGong)]
     pub fn sepme_gong(&self) -> Option<f64> {
-        self.inner.sepme_gong
+        self.inner.baseline_metrics().and_then(|b| b.sepme_gong)
     }
 
     #[wasm_bindgen(getter, js_name = neighborhoodHit)]
     pub fn neighborhood_hit(&self) -> Option<f64> {
-        self.inner.neighborhood_hit
+        self.inner
+            .baseline_metrics()
+            .and_then(|b| b.neighborhood_hit)
     }
 
     #[wasm_bindgen(getter, js_name = silhouetteScore)]
     pub fn silhouette_score(&self) -> Option<f64> {
-        self.inner.silhouette_score
+        self.inner
+            .baseline_metrics()
+            .and_then(|b| b.silhouette_score)
     }
 
     #[wasm_bindgen(getter, js_name = calinskiHarabaszScore)]
     pub fn calinski_harabasz_score(&self) -> Option<f64> {
-        self.inner.calinski_harabasz_score
+        self.inner
+            .baseline_metrics()
+            .and_then(|b| b.calinski_harabasz_score)
     }
 
     #[wasm_bindgen(getter, js_name = daviesBouldinScore)]
     pub fn davies_bouldin_score(&self) -> Option<f64> {
-        self.inner.davies_bouldin_score
+        self.inner
+            .baseline_metrics()
+            .and_then(|b| b.davies_bouldin_score)
     }
 
     #[wasm_bindgen(getter, js_name = cqKmeansAri)]
     pub fn cq_kmeans_ari(&self) -> Option<f64> {
-        self.inner.cq_kmeans_ari
+        self.inner.baseline_metrics().and_then(|b| b.cq_kmeans_ari)
     }
 
     #[wasm_bindgen(getter, js_name = cqKmeansAmi)]
     pub fn cq_kmeans_ami(&self) -> Option<f64> {
-        self.inner.cq_kmeans_ami
+        self.inner.baseline_metrics().and_then(|b| b.cq_kmeans_ami)
     }
 
     #[wasm_bindgen(getter, js_name = cqHacHom)]
     pub fn cq_hac_hom(&self) -> Option<f64> {
-        self.inner.cq_hac_hom
+        self.inner.baseline_metrics().and_then(|b| b.cq_hac_hom)
     }
 
     #[wasm_bindgen(getter, js_name = cqHacAmi)]
     pub fn cq_hac_ami(&self) -> Option<f64> {
-        self.inner.cq_hac_ami
+        self.inner.baseline_metrics().and_then(|b| b.cq_hac_ami)
     }
 
     #[wasm_bindgen(getter, js_name = pairwiseDistanceOverlapError)]
     pub fn pairwise_distance_overlap_error(&self) -> Option<f64> {
-        self.inner.pairwise_distance_overlap_error
+        self.inner
+            .baseline_metrics()
+            .and_then(|b| b.pairwise_distance_overlap_error)
     }
 
     #[wasm_bindgen(getter, js_name = sprawlterNn)]
     pub fn sprawlter_nn(&self) -> Option<f64> {
-        self.inner.sprawlter_nn
+        self.inner.baseline_metrics().and_then(|b| b.sprawlter_nn)
     }
 
     #[wasm_bindgen(getter, js_name = norOoNni)]
     pub fn nor_oo_nni(&self) -> Option<f64> {
-        self.inner.nor_oo_nni
+        self.inner.baseline_metrics().and_then(|b| b.nor_oo_nni)
     }
 
     #[wasm_bindgen(getter, js_name = norSpChA)]
     pub fn nor_sp_ch_a(&self) -> Option<f64> {
-        self.inner.nor_sp_ch_a
+        self.inner.baseline_metrics().and_then(|b| b.nor_sp_ch_a)
     }
 
     #[wasm_bindgen(getter, js_name = norGsBbIar)]
     pub fn nor_gs_bb_iar(&self) -> Option<f64> {
-        self.inner.nor_gs_bb_iar
+        self.inner.baseline_metrics().and_then(|b| b.nor_gs_bb_iar)
     }
 
     #[wasm_bindgen(getter, js_name = norNmDmImse)]
     pub fn nor_nm_dm_imse(&self) -> Option<f64> {
-        self.inner.nor_nm_dm_imse
+        self.inner.baseline_metrics().and_then(|b| b.nor_nm_dm_imse)
     }
 
     #[wasm_bindgen(getter, js_name = norElRsd)]
     pub fn nor_el_rsd(&self) -> Option<f64> {
-        self.inner.nor_el_rsd
+        self.inner.baseline_metrics().and_then(|b| b.nor_el_rsd)
     }
 
     /// Converts requested metrics into a plain JavaScript object without requiring `serde`.
     #[wasm_bindgen(js_name = toRecord)]
-    pub fn to_record(&self) -> Result<js_sys::Object, JsError> {
+    pub fn to_record(&self) -> Result<js_sys::Object, JsValue> {
         let obj = js_sys::Object::new();
+        let b = self.inner.baseline_metrics();
         let entries: [(&str, Option<f64>); 51] = [
             ("scaleNormalizedStress", self.inner.scale_normalized_stress),
             (
@@ -358,38 +377,47 @@ impl JsMetricReport {
                 self.inner.cluster_area_faithfulness,
             ),
             ("landmarkStratifiedRta", self.inner.landmark_stratified_rta),
-            ("distanceConsistency", self.inner.distance_consistency),
+            (
+                "distanceConsistency",
+                b.and_then(|r| r.distance_consistency),
+            ),
             (
                 "distributionConsistency",
-                self.inner.distribution_consistency,
+                b.and_then(|r| r.distribution_consistency),
             ),
-            ("classDensityMeasure", self.inner.class_density_measure),
+            (
+                "classDensityMeasure",
+                b.and_then(|r| r.class_density_measure),
+            ),
             (
                 "histogramDensityMeasure",
-                self.inner.histogram_density_measure,
+                b.and_then(|r| r.histogram_density_measure),
             ),
-            ("sepmeKnng", self.inner.sepme_knng),
-            ("sepmeRng", self.inner.sepme_rng),
-            ("sepmeGab", self.inner.sepme_gab),
-            ("sepmeGong", self.inner.sepme_gong),
-            ("neighborhoodHit", self.inner.neighborhood_hit),
-            ("silhouetteScore", self.inner.silhouette_score),
-            ("calinskiHarabaszScore", self.inner.calinski_harabasz_score),
-            ("daviesBouldinScore", self.inner.davies_bouldin_score),
-            ("cqKmeansAri", self.inner.cq_kmeans_ari),
-            ("cqKmeansAmi", self.inner.cq_kmeans_ami),
-            ("cqHacHom", self.inner.cq_hac_hom),
-            ("cqHacAmi", self.inner.cq_hac_ami),
+            ("sepmeKnng", b.and_then(|r| r.sepme_knng)),
+            ("sepmeRng", b.and_then(|r| r.sepme_rng)),
+            ("sepmeGab", b.and_then(|r| r.sepme_gab)),
+            ("sepmeGong", b.and_then(|r| r.sepme_gong)),
+            ("neighborhoodHit", b.and_then(|r| r.neighborhood_hit)),
+            ("silhouetteScore", b.and_then(|r| r.silhouette_score)),
+            (
+                "calinskiHarabaszScore",
+                b.and_then(|r| r.calinski_harabasz_score),
+            ),
+            ("daviesBouldinScore", b.and_then(|r| r.davies_bouldin_score)),
+            ("cqKmeansAri", b.and_then(|r| r.cq_kmeans_ari)),
+            ("cqKmeansAmi", b.and_then(|r| r.cq_kmeans_ami)),
+            ("cqHacHom", b.and_then(|r| r.cq_hac_hom)),
+            ("cqHacAmi", b.and_then(|r| r.cq_hac_ami)),
             (
                 "pairwiseDistanceOverlapError",
-                self.inner.pairwise_distance_overlap_error,
+                b.and_then(|r| r.pairwise_distance_overlap_error),
             ),
-            ("sprawlterNn", self.inner.sprawlter_nn),
-            ("norOoNni", self.inner.nor_oo_nni),
-            ("norSpChA", self.inner.nor_sp_ch_a),
-            ("norGsBbIar", self.inner.nor_gs_bb_iar),
-            ("norNmDmImse", self.inner.nor_nm_dm_imse),
-            ("norElRsd", self.inner.nor_el_rsd),
+            ("sprawlterNn", b.and_then(|r| r.sprawlter_nn)),
+            ("norOoNni", b.and_then(|r| r.nor_oo_nni)),
+            ("norSpChA", b.and_then(|r| r.nor_sp_ch_a)),
+            ("norGsBbIar", b.and_then(|r| r.nor_gs_bb_iar)),
+            ("norNmDmImse", b.and_then(|r| r.nor_nm_dm_imse)),
+            ("norElRsd", b.and_then(|r| r.nor_el_rsd)),
         ];
         for (key, maybe_val) in entries {
             if let Some(val) = maybe_val {
@@ -401,7 +429,7 @@ impl JsMetricReport {
             for (idx, p) in pairs.iter().enumerate() {
                 arr.set(
                     idx as u32,
-                    JsCrossingPair::from_inner(*p).to_record()?.into(),
+                    JsCrossingPair::from_inner(p.clone()).to_record()?.into(),
                 );
             }
             set_js_prop(&obj, "crossingEdges", &arr.into())?;
@@ -411,7 +439,7 @@ impl JsMetricReport {
             for (idx, p) in pairs.iter().enumerate() {
                 arr.set(
                     idx as u32,
-                    JsTorusCrossing::from_inner(*p).to_record()?.into(),
+                    JsTorusCrossing::from_inner(p.clone()).to_record()?.into(),
                 );
             }
             set_js_prop(&obj, "crossingEdgesTorus", &arr.into())?;

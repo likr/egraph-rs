@@ -22,13 +22,22 @@ fn linalg_pivots_mds_koren_eigen_and_moments() {
     let grid = make_grid(4, 4);
 
     // 1. selectMaxminSpPivots
-    let p1 = js_select_maxmin_sp_pivots(&grid, Some(6.0), None, None).expect("pivots default");
-    let p2 =
-        js_select_maxmin_sp_pivots(&grid, Some(6.0), Some(42.0), Some(2.0)).expect("pivots seeded");
+    let p1 =
+        js_select_maxmin_sp_pivots(&grid, &make_opts(&[("numPivots", JsValue::from_f64(6.0))]))
+            .expect("pivots default");
+    let p2 = js_select_maxmin_sp_pivots(
+        &grid,
+        &make_opts(&[
+            ("numPivots", JsValue::from_f64(6.0)),
+            ("seed", JsValue::from_f64(42.0)),
+            ("minDegree", JsValue::from_f64(2.0)),
+        ]),
+    )
+    .expect("pivots seeded");
     assert_eq!(p1, p2);
     assert_eq!(p1.len(), 6);
     assert_eq!(
-        js_select_maxmin_sp_pivots(&grid, Some(0.0), None, None)
+        js_select_maxmin_sp_pivots(&grid, &make_opts(&[("numPivots", JsValue::from_f64(0.0))]))
             .unwrap()
             .len(),
         0
@@ -36,41 +45,59 @@ fn linalg_pivots_mds_koren_eigen_and_moments() {
 
     // 2. pivotMdsInit: default targetStd=1.0 vs explicit vs null (unnormalized)
     let mds_default =
-        js_pivot_mds_init(&grid, Some(8.0), None, None, &JsValue::UNDEFINED).expect("mds default");
+        js_pivot_mds_init(&grid, &make_opts(&[("numPivots", JsValue::from_f64(8.0))]))
+            .expect("mds default");
     assert_eq!(mds_default.len(), 16);
     assert!(mds_default.is_all_finite());
     assert!((layout_global_std(&mds_default) - 1.0).abs() < 1e-4);
 
     let mds_scaled = js_pivot_mds_init(
         &grid,
-        Some(8.0),
-        Some(42.0),
-        Some(2.0),
-        &JsValue::from_f64(2.5),
+        &make_opts(&[
+            ("numPivots", JsValue::from_f64(8.0)),
+            ("seed", JsValue::from_f64(42.0)),
+            ("minDegree", JsValue::from_f64(2.0)),
+            ("targetStd", JsValue::from_f64(2.5)),
+        ]),
     )
     .expect("mds 2.5");
     assert!((layout_global_std(&mds_scaled) - 2.5).abs() < 1e-4);
 
-    let mds_unnorm = js_pivot_mds_init(&grid, Some(8.0), Some(42.0), Some(2.0), &JsValue::NULL)
-        .expect("mds unnormalized");
+    let mds_unnorm = js_pivot_mds_init(
+        &grid,
+        &make_opts(&[
+            ("numPivots", JsValue::from_f64(8.0)),
+            ("seed", JsValue::from_f64(42.0)),
+            ("minDegree", JsValue::from_f64(2.0)),
+            ("targetStd", JsValue::NULL),
+        ]),
+    )
+    .expect("mds unnormalized");
     assert!(mds_unnorm.is_all_finite());
     assert!((layout_global_std(&mds_unnorm) - 1.0).abs() > 0.05);
 
     // 3. korenSpectralInit: default targetStd=1.0 vs null
-    let koren_default =
-        js_koren_spectral_init(&grid, &JsValue::UNDEFINED, None, None, None).expect("koren");
+    let koren_default = js_koren_spectral_init(&grid, &JsValue::UNDEFINED).expect("koren");
     assert_eq!(koren_default.len(), 16);
     assert!(koren_default.is_all_finite());
     assert!((layout_global_std(&koren_default) - 1.0).abs() < 1e-4);
 
-    let koren_unnorm =
-        js_koren_spectral_init(&grid, &JsValue::NULL, Some(1e-5), Some(300.0), Some(42.0))
-            .expect("koren unnorm");
+    let koren_unnorm = js_koren_spectral_init(
+        &grid,
+        &make_opts(&[
+            ("targetStd", JsValue::NULL),
+            ("tol", JsValue::from_f64(1e-5)),
+            ("maxIterations", JsValue::from_f64(300.0)),
+            ("seed", JsValue::from_f64(42.0)),
+        ]),
+    )
+    .expect("koren unnorm");
     assert!(koren_unnorm.is_all_finite());
 
     // 4. smallestLaplacianEigenpairs: dense fallback (16 nodes) and Lanczos (60 nodes)
     let eig_small =
-        js_smallest_laplacian_eigenpairs(&grid, Some(6.0), None, None, None).expect("eig small");
+        js_smallest_laplacian_eigenpairs(&grid, &make_opts(&[("nModes", JsValue::from_f64(6.0))]))
+            .expect("eig small");
     assert_eq!(eig_small.num_nodes(), 16);
     assert_eq!(eig_small.num_modes(), 6);
     assert!(eig_small.used_dense_fallback());
@@ -84,8 +111,11 @@ fn linalg_pivots_mds_koren_eigen_and_moments() {
     assert!(lams[0] > 0.0);
 
     let grid_large = make_grid(6, 10);
-    let eig_large = js_smallest_laplacian_eigenpairs(&grid_large, Some(4.0), None, None, None)
-        .expect("eig lanczos");
+    let eig_large = js_smallest_laplacian_eigenpairs(
+        &grid_large,
+        &make_opts(&[("nModes", JsValue::from_f64(4.0))]),
+    )
+    .expect("eig lanczos");
     assert_eq!(eig_large.num_nodes(), 60);
     assert_eq!(eig_large.num_modes(), 4);
     assert!(!eig_large.used_dense_fallback());
@@ -104,7 +134,9 @@ fn linalg_pivots_mds_koren_eigen_and_moments() {
 #[wasm_bindgen_test]
 fn chebyshev_heat_spmv_and_dog_jl_embedding() {
     let grid = make_grid(4, 4);
-    let eig = js_smallest_laplacian_eigenpairs(&grid, Some(2.0), None, None, None).unwrap();
+    let eig =
+        js_smallest_laplacian_eigenpairs(&grid, &make_opts(&[("nModes", JsValue::from_f64(2.0))]))
+            .unwrap();
     let inv_d = eig.inv_sqrt_deg();
 
     // Stationary vector v = D^{1/2} * 1 is in nullspace of L_sym => exp(-t L_sym) v == v
@@ -115,7 +147,8 @@ fn chebyshev_heat_spmv_and_dog_jl_embedding() {
         vecs.push(1.0);
     }
 
-    let diffused = js_chebyshev_heat_spmv(&grid, &vecs, 2.0, 2.0, None, None).expect("heat spmv");
+    let diffused =
+        js_chebyshev_heat_spmv(&grid, &vecs, 2.0, 2.0, &JsValue::UNDEFINED).expect("heat spmv");
     assert_eq!(diffused.len(), 32);
     for i in 0..16 {
         let deg_sqrt = vecs[i * 2];
@@ -123,26 +156,34 @@ fn chebyshev_heat_spmv_and_dog_jl_embedding() {
     }
 
     // t = 0.0 acts as identity
-    let ident =
-        js_chebyshev_heat_spmv(&grid, &vecs, 2.0, 0.0, Some(10.0), Some(2.0)).expect("heat t=0");
+    let ident = js_chebyshev_heat_spmv(
+        &grid,
+        &vecs,
+        2.0,
+        0.0,
+        &make_opts(&[
+            ("degree", JsValue::from_f64(10.0)),
+            ("lambdaMax", JsValue::from_f64(2.0)),
+        ]),
+    )
+    .expect("heat t=0");
     for (&a, &b) in ident.iter().zip(vecs.iter()) {
         assert!((a - b).abs() < 1e-12);
     }
 
     // chebyshevDogJlEmbedding determinism and degreeNormalize difference
     let emb1 =
-        js_chebyshev_dog_jl_embedding(&grid, Some(12.0), None, None, None, None, None, None, None)
+        js_chebyshev_dog_jl_embedding(&grid, &make_opts(&[("jlDim", JsValue::from_f64(12.0))]))
             .expect("jl default");
     let emb2 = js_chebyshev_dog_jl_embedding(
         &grid,
-        Some(12.0),
-        Some(25.0),
-        Some(42.0),
-        Some(true),
-        Some(1e-4),
-        None,
-        None,
-        None,
+        &make_opts(&[
+            ("jlDim", JsValue::from_f64(12.0)),
+            ("degree", JsValue::from_f64(25.0)),
+            ("seed", JsValue::from_f64(42.0)),
+            ("degreeNormalize", JsValue::from_bool(true)),
+            ("epsPsd", JsValue::from_f64(1e-4)),
+        ]),
     )
     .expect("jl explicit");
     assert_eq!(emb1.len(), 16 * 12);
@@ -151,14 +192,16 @@ fn chebyshev_heat_spmv_and_dog_jl_embedding() {
 
     let emb_unnorm = js_chebyshev_dog_jl_embedding(
         &grid,
-        Some(12.0),
-        Some(25.0),
-        Some(42.0),
-        Some(false),
-        Some(1e-4),
-        Some(0.5),
-        Some(2.0),
-        Some(0.4),
+        &make_opts(&[
+            ("jlDim", JsValue::from_f64(12.0)),
+            ("degree", JsValue::from_f64(25.0)),
+            ("seed", JsValue::from_f64(42.0)),
+            ("degreeNormalize", JsValue::from_bool(false)),
+            ("epsPsd", JsValue::from_f64(1e-4)),
+            ("t1", JsValue::from_f64(0.5)),
+            ("t2", JsValue::from_f64(2.0)),
+            ("alpha", JsValue::from_f64(0.4)),
+        ]),
     )
     .expect("jl unnorm");
     assert_ne!(emb1, emb_unnorm);
@@ -210,55 +253,51 @@ fn amg_pcg_solver_hardened_and_cooperative() {
     assert_eq!(batch.x().len(), n * 2);
 
     // Anisotropic Laplacian + dynamic spectrum scaling + fromCsrMatrix
-    let aniso = js_anisotropic_laplacian(&grid, Some(0.0), Some(0.0), None, None, Some(false))
-        .expect("anisotropicLaplacian");
+    let aniso = js_anisotropic_laplacian(
+        &grid,
+        &make_opts(&[
+            ("alpha", JsValue::from_f64(0.0)),
+            ("beta", JsValue::from_f64(0.0)),
+            ("reweightedDegreeNorm", JsValue::from_bool(false)),
+        ]),
+    )
+    .expect("anisotropicLaplacian");
     let l_comb = aniso.matrix();
     assert_eq!(l_comb.num_nodes(), n);
     assert!(l_comb.is_symmetric(None));
     assert!(l_comb.trace() > 0.0);
     assert!(l_comb.gershgorin_spectral_bound() > 2.0);
     let lmax_lanc = l_comb
-        .estimate_lambda_max_lanczos(Some(16.0), Some(1.05), Some(42.0))
+        .estimate_lambda_max_lanczos(Some(16.0), Some(1.05), &JsValue::from_f64(42.0))
         .expect("lanczos");
     assert!(lmax_lanc > 2.0);
-    let heat_mat =
-        js_chebyshev_heat_spmv_matrix(&l_comb, &b, 1.0, 0.25, None, None, None, None, Some(42.0))
-            .expect("heat matrix");
+    let heat_mat = js_chebyshev_heat_spmv_matrix(
+        &l_comb,
+        &b,
+        1.0,
+        0.25,
+        &make_opts(&[("seed", JsValue::from_f64(42.0))]),
+    )
+    .expect("heat matrix");
     assert_eq!(heat_mat.len(), n);
     assert!(heat_mat.iter().all(|v| v.is_finite()));
     let jl_mat = js_chebyshev_dog_jl_embedding_matrix(
         &l_comb,
-        Some(8.0),
-        None,
-        Some(42.0),
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
+        &make_opts(&[
+            ("jlDim", JsValue::from_f64(8.0)),
+            ("seed", JsValue::from_f64(42.0)),
+        ]),
     )
     .expect("dog jl matrix");
     assert_eq!(jl_mat.len(), n * 8);
     let lm_mat = js_compute_regularized_dog_varadhan_landmarks_from_matrix(
         &grid,
         &l_comb,
-        None,
-        None,
-        Some(8.0),
-        None,
-        None,
-        Some(42.0),
-        None,
-        None,
-        None,
-        Some(0.0),
-        None,
-        None,
-        None,
-        None,
+        &make_opts(&[
+            ("numLandmarks", JsValue::from_f64(8.0)),
+            ("seed", JsValue::from_f64(42.0)),
+            ("tCoarse", JsValue::from_f64(0.0)),
+        ]),
     )
     .expect("dog landmarks from matrix");
     assert!(!lm_mat.used_coarse_scaffold());
@@ -326,7 +365,10 @@ fn effective_resistance_and_curvature_flow_wasm() {
     assert!((flow.expected_foster() - 11.0).abs() < 1e-12);
     assert!(flow.foster_rel_err() < 1e-11);
     assert_eq!(flow.suggested_geometry(), "hyperbolic");
-    assert_eq!(flow.suggested_manifold().as_deref(), Some("hyperbolic"));
+    assert_eq!(
+        flow.suggested_manifold().as_deref(),
+        Some("hyperbolicPoincare")
+    );
     assert_eq!(flow.step_history().len(), 3);
     let lg = flow.length_graph().expect("lengthGraph");
     let cg = flow.conductance_graph().expect("conductanceGraph");

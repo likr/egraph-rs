@@ -176,8 +176,42 @@ fn csr_graph_degrees_subgraph_and_lcc() {
 }
 
 #[wasm_bindgen_test]
+fn csr_graph_strict_weight_dtype_and_error_codes() {
+    let opts_f64 = js_sys::Object::new();
+    js_sys::Reflect::set(
+        &opts_f64,
+        &"weightDtype".into(),
+        &JsValue::from_str("float64"),
+    )
+    .unwrap();
+    let err = JsCsrGraph::from_csr(&[0, 1, 2], &[1, 0], None, &opts_f64, None)
+        .expect_err("float64 must fail fast");
+    assert_eq!(
+        js_sys::Reflect::get(&err, &"code".into())
+            .unwrap()
+            .as_string(),
+        Some("InvalidInput".to_owned())
+    );
+
+    let bad_bounds = JsCsrGraph::from_csr(&[0, 1, 1], &[5], None, &JsValue::UNDEFINED, None)
+        .expect_err("out-of-bounds index");
+    let code = js_sys::Reflect::get(&bad_bounds, &"code".into())
+        .unwrap()
+        .as_string()
+        .unwrap();
+    assert!(code == "InvalidCsr" || code == "IndexOutOfBounds");
+}
+
+#[wasm_bindgen_test]
 fn layout_2d_and_nd_lifecycle() {
-    let mut l2 = JsLayout2d::init(8.0, Some(123.0), None).unwrap();
+    let init_opts = js_sys::Object::new();
+    js_sys::Reflect::set(
+        &init_opts,
+        &"seed".into(),
+        &js_sys::BigInt::from(123u64).into(),
+    )
+    .unwrap();
+    let mut l2 = JsLayout2d::init(8.0, &init_opts, None).unwrap();
     assert_eq!(l2.num_nodes(), 8);
     assert!(!l2.is_empty());
     assert!(l2.is_all_finite());

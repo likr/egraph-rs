@@ -1,15 +1,102 @@
 export const csrGraphOptionsDecl = `/**
+ * Strictly single-precision 32-bit float edge weights ("float32").
+ */
+export type WeightDtype = "float32";
+
+/**
+ * Structured error codes attached to \`Error.code\` across WASM API failures.
+ */
+export type EgraphErrorCode =
+    | "InvalidInput"
+    | "DimensionMismatch"
+    | "IndexOutOfBounds"
+    | "InvalidCsr"
+    | "NonFiniteValue"
+    | "UnsupportedOperation"
+    | "NumericalBreakdown";
+
+/**
+ * Canonical target coordinate storage kind accepted by solvers and generators.
+ */
+export type TargetKind = "layout2d" | "layout3d" | "layoutNd" | "manifold2d";
+
+/**
  * Options controlling CSR / edge-list graph construction.
  */
 export interface CsrGraphOptions {
     directed?: boolean;
     sanitize?: boolean;
-    weightDtype?: "f32" | "f64" | string;
+    weightDtype?: WeightDtype;
 }
 
 `;
 
-export const metricsTypeDecls = `export type AnyLayout = Layout2d | LayoutNd | ManifoldLayout2d;
+export const metricsTypeDecls = `export type AnyLayout = Layout2d | Layout3d | LayoutNd | ManifoldLayout2d;
+
+/**
+ * Core linear-memory layout storage interface shared by \`Layout2d\`, \`Layout3d\`,
+ * \`LayoutNd\`, and \`ManifoldLayout2d\`.
+ */
+export interface LayoutStorage {
+    readonly numNodes: number;
+    len(): number;
+    isEmpty(): boolean;
+    isAllFinite(): boolean;
+    coordsPtr(): number;
+    coordsLen(): number;
+    coordsView(): Float32Array;
+}
+
+/**
+ * Cooperative iterative layout solver interface supporting step-by-step execution.
+ */
+export interface IterativeSolver<TTarget = AnyLayout> {
+    readonly status: SolverStatus | string;
+    readonly iteration: number;
+    readonly totalIterations: number | undefined;
+    readonly isFinished: boolean;
+    readonly numNodes: number;
+    step(target: TTarget): string;
+    runSteps(target: TTarget, steps: number): string;
+    run(target: TTarget): string;
+}
+
+/**
+ * One-shot deterministic layout generator interface.
+ */
+export interface LayoutGenerator<TOutput = Layout2d> {
+    generate(graph?: CsrGraph): TOutput;
+}
+
+/**
+ * In-place post-processing layout transform interface.
+ */
+export interface LayoutTransform<TTarget = Layout2d> {
+    apply(target: TTarget): void;
+}
+
+export interface LayoutInitOptions {
+    seed?: number | bigint | null;
+    scale?: number | null;
+}
+
+export interface GenerateWeightedGraphOptions {
+    avgDegree?: number | null;
+    minWeight?: number | null;
+    maxWeight?: number | null;
+    seed?: number | bigint | null;
+}
+
+export interface GenerateLayeredDagOptions {
+    edgeProb?: number | null;
+    seed?: number | bigint | null;
+}
+
+export interface GenerateSbmGraphOptions {
+    pIntra?: number | null;
+    pInter?: number | null;
+    seed?: number | bigint | null;
+}
 
 export interface KdNeighbor {
     index: number;
@@ -33,7 +120,7 @@ export interface TorusCrossingRecord extends CrossingPairRecord {
 }
 
 /**
- * Canonical target identifiers and normalized aliases accepted by \`evaluateMetrics\`.
+ * Canonical camelCase target identifiers accepted by \`evaluateMetrics\`.
  */
 export type MetricTarget =
     | "scaleNormalizedStress"
@@ -51,8 +138,6 @@ export type MetricTarget =
     | "neighborhoodPreservation2Hop"
     | "sampledNp1"
     | "sampledNp2"
-    | "sampled_np1"
-    | "sampled_np2"
     | "sampledNeighborhoodPreservation1Hop"
     | "sampledNeighborhoodPreservation2Hop"
     | "gabrielGraphProperty"
@@ -63,25 +148,17 @@ export type MetricTarget =
     | "angularResolution"
     | "minimumAngle"
     | "minimumAngleA1"
-    | "minimum_angle"
-    | "minimum_angle_a1"
     | "layoutDegeneracy"
-    | "layout_degeneracy"
     | "idealEdgeLengths"
     | "prismDistortion"
     | "adjustedPatchNig"
-    | "adjusted_patch_nig"
     | "clusterAreaFaithfulness"
-    | "cluster_area_faithfulness"
-    | "cluster-area-faithfulness"
     | "clusterArea"
-    | "cluster_area"
     | "gcaf"
     | "landmarkStratifiedRta"
-    | "landmark_stratified_rta"
     | "rta"
     | "sns"
-    | "sampled_sns"
+    | "sampledSns"
     | "np1"
     | "np2"
     | "drng"
@@ -94,45 +171,28 @@ export type MetricTarget =
     | "cdm"
     | "histogramDensityMeasure"
     | "hdm"
-    | "2d-hdm"
     | "sepmeKnng"
-    | "sepme_knng"
-    | "sepme-knng"
     | "sepmeKnng2"
-    | "sepme_knng2"
-    | "sepme-knng2"
     | "sepmeRng"
-    | "sepme_rng"
     | "sepmeGab"
-    | "sepme_gab"
     | "sepmeGong"
-    | "sepme_gong"
     | "neighborhoodHit"
-    | "neighborhood_hit"
-    | "m_nh"
+    | "mnh"
     | "silhouetteScore"
     | "silhouette"
     | "calinskiHarabaszScore"
     | "calinskiHarabasz"
-    | "calinski_harabasz"
     | "ch"
     | "daviesBouldinScore"
     | "daviesBouldin"
-    | "davies_bouldin"
     | "db"
     | "cqKmeansAri"
-    | "cq_kmeans_ari"
     | "cqKmeansAmi"
-    | "cq_kmeans_ami"
     | "cqHacHom"
-    | "cq_hac_hom"
     | "cqHacAmi"
-    | "cq_hac_ami"
     | "pairwiseDistanceOverlapError"
-    | "pairwise_distance_overlap_error"
     | "pdoe"
     | "sprawlterNn"
-    | "sprawlter_nn"
     | "norMetrics"
     | "nor";
 
@@ -195,6 +255,64 @@ export interface MetricReportRecord {
     norElRsd?: number;
 }
 
+export interface SamplingSeedOptions {
+    numSamples?: number | null;
+    seed?: number | bigint | null;
+}
+
+export interface SampledStressOptions {
+    numPivots?: number | null;
+    seed?: number | bigint | null;
+}
+
+export interface RtaOptions {
+    numLandmarks?: number | null;
+    numTriplets?: number | null;
+    minDegree?: number | null;
+    seed?: number | bigint | null;
+}
+
+export interface RtaFromLandmarksOptions {
+    numTriplets?: number | null;
+    seed?: number | bigint | null;
+}
+
+export interface AdjustedPatchNigOptions {
+    patchRadius?: number | null;
+    canvasSize?: number | null;
+    padFrac?: number | null;
+    seed?: number | bigint | null;
+}
+
+export interface AdjustedPatchNigMultiscaleOptions {
+    radii?: Uint32Array | number[] | null;
+    canvasSize?: number | null;
+    padFrac?: number | null;
+    seed?: number | bigint | null;
+}
+
+export interface ClusterAreaFaithfulnessOptions {
+    gMax?: number | null;
+    sigmaCells?: number | null;
+    kappa?: number | null;
+    tauFrac?: number | null;
+    boundaryR95?: number | null;
+    stevensGamma?: number | null;
+    nodeWeights?: Float64Array | Float32Array | number[] | null;
+    clusterWeights?: Float64Array | Float32Array | number[] | null;
+}
+
+export interface CqKmeansOptions {
+    nInit?: number | null;
+    maxIterations?: number | null;
+    seed?: number | bigint | null;
+}
+
+export interface ClassDensityOptions {
+    gridSize?: number | null;
+    bandwidth?: number | null;
+}
+
 /**
  * Configuration parameters for cluster-separation, CVI, and Sprawlter targets in \`evaluateMetrics\`.
  */
@@ -208,7 +326,7 @@ export interface ClusterBaselineOptions {
     gongGamma?: number | null;
     kmeansNInit?: number | null;
     kmeansMaxIterations?: number | null;
-    seed?: number | null;
+    seed?: number | bigint | null;
     sprawlterNodeRadius?: number | null;
 }
 
@@ -218,7 +336,7 @@ export interface ClusterBaselineOptions {
 export interface MetricConfigOptions extends ClusterBaselineOptions {
     numPivots?: number | null;
     numSamples?: number | null;
-    seed?: number | null;
+    seed?: number | bigint | null;
     idealEdgeLength?: number | null;
     labels?: Uint32Array | number[] | null;
     originalLayout?: Layout2d | null;

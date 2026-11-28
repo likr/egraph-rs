@@ -1,31 +1,49 @@
 //! WebAssembly bindings for regularized DoG Varadhan landmark tables.
 
 use crate::csr_graph::JsCsrGraph;
-use crate::js_convert::{
-    core_err_to_js, parse_opt_usize_param, parse_optional_usize, parse_seed_u64,
-};
+use crate::js_convert::core_err_to_js;
+use crate::js_options::{check_options_arg, opt_maybe_f64_prop, parse_dog_config_from_options};
 use crate::linalg_matrix::JsCsrMatrix;
-use egraph::linalg::SpectralMomentStats;
 use egraph::neighborhood::{
-    DogVaradhanConfig, DogVaradhanLandmarks, DogVaradhanStats, RhghLandmarkStats,
+    DogVaradhanLandmarks, DogVaradhanStats, RhghLandmarkStats,
     compute_regularized_dog_varadhan_landmarks,
     compute_regularized_dog_varadhan_landmarks_from_matrix,
 };
 use wasm_bindgen::prelude::*;
 
-const DEFAULT_MIN_DEGREE: usize = 2;
-const DEFAULT_JL_DIM: usize = 64;
-const DEFAULT_EPS_PSD: f64 = 1e-4;
-const DEFAULT_VARADHAN_LANDMARKS: usize = 64;
-const DEFAULT_P_EXP: f64 = 0.5;
-const DEFAULT_T_COARSE: f64 = 48.0;
+#[derive(Debug, Clone, PartialEq)]
+struct DogStatsSummary {
+    t1: f64,
+    t2: f64,
+    alpha: f64,
+    delta_psd: f64,
+    beta_eff: f64,
+    beta_auto: f64,
+    degree: usize,
+    used_coarse_scaffold: bool,
+}
+
+impl From<&DogVaradhanStats> for DogStatsSummary {
+    fn from(s: &DogVaradhanStats) -> Self {
+        Self {
+            t1: s.t1,
+            t2: s.t2,
+            alpha: s.alpha,
+            delta_psd: s.delta_psd,
+            beta_eff: s.beta_eff,
+            beta_auto: s.beta_auto,
+            degree: s.degree,
+            used_coarse_scaffold: s.used_coarse_scaffold,
+        }
+    }
+}
 
 /// Precomputed regularized DoG Varadhan landmark tables and R1/R2 regularization diagnostics.
 #[wasm_bindgen(js_name = DogVaradhanLandmarks)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct JsDogVaradhanLandmarks {
     inner: DogVaradhanLandmarks,
-    stats: DogVaradhanStats,
+    stats: DogStatsSummary,
 }
 
 impl JsDogVaradhanLandmarks {
@@ -35,26 +53,14 @@ impl JsDogVaradhanLandmarks {
     }
 
     pub(crate) fn from_rhgh_parts(inner: DogVaradhanLandmarks, rhgh: &RhghLandmarkStats) -> Self {
-        let stats = DogVaradhanStats {
-            moment_stats: SpectralMomentStats {
-                sigma_lambda_sq: 0.0,
-                sigma_lambda: 0.0,
-                deg_cv: rhgh.deg_cv,
-                mean_degree: rhgh.mean_degree,
-                leaf_fraction: rhgh.leaf_fraction,
-            },
+        let stats = DogStatsSummary {
             t1: rhgh.gamma,
             t2: rhgh.gamma,
             alpha: rhgh.p_exp,
-            degree: 0,
             delta_psd: 0.0,
-            h_min: 0.0,
-            k_min: 0.0,
-            k_med: 0.0,
-            beta_auto: 0.0,
             beta_eff: 0.0,
-            n_landmarks: rhgh.n_landmarks,
-            t_coarse: 0.0,
+            beta_auto: 0.0,
+            degree: 0,
             used_coarse_scaffold: false,
         };
         Self { inner, stats }
@@ -141,95 +147,42 @@ impl JsDogVaradhanLandmarks {
 
     /// Evaluates landmark ALT lower-bound distances for pairs `(u[i], v[i])`.
     #[wasm_bindgen(js_name = altDistances)]
-    pub fn alt_distances(&self, u: &[u32], v: &[u32]) -> Result<Vec<f64>, JsError> {
+    pub fn alt_distances(&self, u: &[u32], v: &[u32]) -> Result<Vec<f64>, JsValue> {
         self.inner.alt_pair_distances(u, v).map_err(core_err_to_js)
     }
 }
 
 /// Computes regularized DoG Varadhan landmark tables and optional coarse heat scaffold.
-#[allow(clippy::too_many_arguments)]
 #[wasm_bindgen(js_name = computeRegularizedDogVaradhanLandmarks)]
 pub fn js_compute_regularized_dog_varadhan_landmarks(
     graph: &JsCsrGraph,
-    degree: Option<f64>,
-    num_landmarks: Option<f64>,
-    seed: Option<f64>,
-    degree_normalize: Option<bool>,
-    p_exp: Option<f64>,
-    eps_psd: Option<f64>,
-    t_coarse: Option<f64>,
-    t1: Option<f64>,
-    t2: Option<f64>,
-    alpha: Option<f64>,
-    beta_floor: Option<f64>,
-) -> Result<JsDogVaradhanLandmarks, JsError> {
-    let deg = parse_opt_usize_param(degree, "degree")?;
-    let n_landmarks =
-        parse_optional_usize(num_landmarks, DEFAULT_VARADHAN_LANDMARKS, "numLandmarks")?;
-    let seed_u64 = parse_seed_u64(seed)?;
-    let cfg = DogVaradhanConfig {
-        t1,
-        t2,
-        alpha,
-        beta_floor,
-        degree: deg,
-        n_landmarks,
-        degree_normalize: degree_normalize.unwrap_or(true),
-        p_exp: p_exp.unwrap_or(DEFAULT_P_EXP),
-        eps_psd: eps_psd.unwrap_or(DEFAULT_EPS_PSD),
-        t_coarse: t_coarse.unwrap_or(DEFAULT_T_COARSE),
-        seed: seed_u64,
-        ..DogVaradhanConfig::default()
-    };
+    options: &JsValue,
+) -> Result<JsDogVaradhanLandmarks, JsValue> {
+    let cfg = parse_dog_config_from_options(options, "computeRegularizedDogVaradhanLandmarks")?;
     let (inner, stats) =
         compute_regularized_dog_varadhan_landmarks(graph.inner(), &cfg).map_err(core_err_to_js)?;
-    Ok(JsDogVaradhanLandmarks { inner, stats })
+    Ok(JsDogVaradhanLandmarks {
+        inner,
+        stats: DogStatsSummary::from(&stats),
+    })
 }
 
 /// Computes regularized DoG Varadhan landmark tables from a custom symmetric PSD `CsrMatrix`
 /// with dynamic `[0, lambdaMax]` spectrum scaling.
-#[allow(clippy::too_many_arguments)]
 #[wasm_bindgen(js_name = computeRegularizedDogVaradhanLandmarksFromMatrix)]
 pub fn js_compute_regularized_dog_varadhan_landmarks_from_matrix(
     graph: &JsCsrGraph,
     matrix: &JsCsrMatrix,
-    lambda_max: Option<f64>,
-    degree: Option<f64>,
-    num_landmarks: Option<f64>,
-    min_degree: Option<f64>,
-    jl_dim: Option<f64>,
-    seed: Option<f64>,
-    degree_normalize: Option<bool>,
-    p_exp: Option<f64>,
-    eps_psd: Option<f64>,
-    t_coarse: Option<f64>,
-    t1: Option<f64>,
-    t2: Option<f64>,
-    alpha: Option<f64>,
-    beta_floor: Option<f64>,
-) -> Result<JsDogVaradhanLandmarks, JsError> {
-    let deg = parse_opt_usize_param(degree, "degree")?;
-    let n_landmarks =
-        parse_optional_usize(num_landmarks, DEFAULT_VARADHAN_LANDMARKS, "numLandmarks")?;
-    let min_deg = parse_optional_usize(min_degree, DEFAULT_MIN_DEGREE, "minDegree")?;
-    let jl_d = parse_optional_usize(jl_dim, DEFAULT_JL_DIM, "jlDim")?;
-    let seed_u64 = parse_seed_u64(seed)?;
-    let cfg = DogVaradhanConfig {
-        t1,
-        t2,
-        alpha,
-        beta_floor,
-        degree: deg,
-        n_landmarks,
-        min_degree: min_deg,
-        jl_dim: jl_d,
-        degree_normalize: degree_normalize.unwrap_or(true),
-        p_exp: p_exp.unwrap_or(DEFAULT_P_EXP),
-        eps_psd: eps_psd.unwrap_or(DEFAULT_EPS_PSD),
-        t_coarse: t_coarse.unwrap_or(DEFAULT_T_COARSE),
-        seed: seed_u64,
-        ..DogVaradhanConfig::default()
-    };
+    options: &JsValue,
+) -> Result<JsDogVaradhanLandmarks, JsValue> {
+    let cfg =
+        parse_dog_config_from_options(options, "computeRegularizedDogVaradhanLandmarksFromMatrix")?;
+    let lambda_max =
+        if check_options_arg(options, "computeRegularizedDogVaradhanLandmarksFromMatrix")? {
+            opt_maybe_f64_prop(options, "lambdaMax")?
+        } else {
+            None
+        };
     let (inner, stats) = compute_regularized_dog_varadhan_landmarks_from_matrix(
         graph.inner(),
         matrix.inner(),
@@ -237,5 +190,8 @@ pub fn js_compute_regularized_dog_varadhan_landmarks_from_matrix(
         &cfg,
     )
     .map_err(core_err_to_js)?;
-    Ok(JsDogVaradhanLandmarks { inner, stats })
+    Ok(JsDogVaradhanLandmarks {
+        inner,
+        stats: DogStatsSummary::from(&stats),
+    })
 }

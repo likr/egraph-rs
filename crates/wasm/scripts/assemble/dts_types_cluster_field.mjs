@@ -9,7 +9,7 @@ export interface CoarseLouvainOptions {
   maxPasses?: number | null;
   minModularityGain?: number | null;
   maxOuterRounds?: number | null;
-  seed?: number | null;
+  seed?: number | bigint | null;
 }
 
 export interface RhghLandmarkOptions {
@@ -21,7 +21,7 @@ export interface RhghLandmarkOptions {
   relTol?: number | null;
   maxIterations?: number | null;
   normalize1hop?: boolean | null;
-  seed?: number | null;
+  seed?: number | bigint | null;
 }
 
 export interface CoarseBackboneOptions extends CoarseLouvainOptions {
@@ -74,20 +74,23 @@ export interface ScreenedPoissonRefinerOptions extends ScreenedPoissonOptions {
   gammaTether?: number | null;
   recenter?: boolean | null;
   energyTol?: number | null;
-  seed?: number | null;
+  seed?: number | bigint | null;
 }
 
 export interface Sgd2Options {
+  target?: TargetKind | string | null;
   iterations?: number | null;
   eps?: number | null;
   stepScale?: number | null;
   maxMu?: number | null;
   batchSize?: number | null;
   damping?: number | null;
-  seed?: number | null;
+  seed?: number | bigint | null;
 }
 
 export interface ForceAtlas2Options {
+  target?: "layout2d" | "layout3d" | "layoutNd" | string | null;
+  backend?: "exact" | "barnesHut" | string | null;
   iterations?: number | null;
   theta?: number | null;
   useBarnesHut?: boolean | null;
@@ -102,7 +105,7 @@ export interface ForceAtlas2Options {
   preventOverlap?: boolean | null;
   defaultNodeRadius?: number | null;
   nodeRadii?: Float64Array | Float32Array | number[] | null;
-  seed?: number | null;
+  seed?: number | bigint | null;
 }
 
 export type LeidenObjective = "modularity" | "cpm";
@@ -113,7 +116,7 @@ export interface LeidenOptions {
   randomness?: number | null;
   maxPasses?: number | null;
   minQualityGain?: number | null;
-  seed?: number | null;
+  seed?: number | bigint | null;
 }
 
 export interface LeidenRecord {
@@ -124,9 +127,11 @@ export interface LeidenRecord {
   passes: number;
 }
 
-export type LinLogRepulsion = "edge_repulsion" | "node_repulsion";
+export type LinLogRepulsion = "edgeRepulsion" | "nodeRepulsion";
 
 export interface LinLogOptions {
+  target?: "layout2d" | "layout3d" | "layoutNd" | string | null;
+  backend?: "exact" | "barnesHut" | string | null;
   iterations?: number | null;
   repulsionModel?: LinLogRepulsion | string | null;
   attractionExponent?: number | null;
@@ -136,12 +141,13 @@ export interface LinLogOptions {
   gravity?: number | null;
   edgeWeightInfluence?: number | null;
   maxDisplacement?: number | null;
-  seed?: number | null;
+  seed?: number | bigint | null;
 }
 
-export type FrBackend = "exact" | "barnes_hut" | "grid";
+export type FrBackend = "exact" | "barnesHut" | "grid";
 
 export interface FruchtermanReingoldOptions {
+  target?: TargetKind | string | null;
   iterations?: number | null;
   backend?: FrBackend | string | null;
   k?: number | null;
@@ -149,10 +155,10 @@ export interface FruchtermanReingoldOptions {
   initialTemperature?: number | null;
   gravity?: number | null;
   theta?: number | null;
-  seed?: number | null;
+  seed?: number | bigint | null;
 }
 
-export type BackboneLayoutMode = "stress" | "stress_majorization" | "sgd";
+export type BackboneLayoutMode = "stressMajorization" | "stress" | "sgd";
 
 export interface BackboneOptions {
   retainRatio?: number | null;
@@ -161,7 +167,7 @@ export interface BackboneOptions {
   useWeights?: boolean | null;
   layoutMode?: BackboneLayoutMode | string | null;
   iterations?: number | null;
-  seed?: number | null;
+  seed?: number | bigint | null;
 }
 
 export interface BackboneRecord {
@@ -180,11 +186,11 @@ export interface ClusterRefineOptions {
   kmeansMaxIterations?: number | null;
   shiftStep?: number | null;
   margin?: number | null;
-  seed?: number | null;
+  seed?: number | bigint | null;
 }
 
-export type GibBoxLayoutMode = "treemap" | "squarified_treemap" | "force_directed";
-export type GibIntraLayoutMode = "fr" | "sgd_full" | "yifan_hu";
+export type GibBoxLayoutMode = "squarifiedTreemap" | "treemap" | "forceDirected";
+export type GibIntraLayoutMode = "fr" | "sgdFull" | "yifanHu";
 
 export interface GroupInABoxOptions {
   boxMode?: GibBoxLayoutMode | string | null;
@@ -196,7 +202,7 @@ export interface GroupInABoxOptions {
   fdIterations?: number | null;
   fitBounds?: boolean | null;
   clusterWeights?: Float64Array | Float32Array | number[] | null;
-  seed?: number | null;
+  seed?: number | bigint | null;
 }
 
 export interface GibBoxRecord {
@@ -213,10 +219,10 @@ export interface GTreeOptions {
   maxIterations?: number | null;
   padding?: number | null;
   compactTMax?: number | null;
-  seed?: number | null;
+  seed?: number | bigint | null;
 }
 
-export type ForbidVariant = "forbid" | "forbid_prime" | "sparse_forbid";
+export type ForbidVariant = "forbid" | "forbidPrime" | "sparseForbid";
 
 export interface ForbidOptions {
   variant?: ForbidVariant | string | null;
@@ -226,7 +232,44 @@ export interface ForbidOptions {
   overlapWeightK?: number | null;
   scaleStep?: number | null;
   padding?: number | null;
-  seed?: number | null;
+  seed?: number | bigint | null;
+}
+
+export interface KMeansOptions {
+  k?: number | null;
+  maxIterations?: number | null;
+  tol?: number | null;
+  nInit?: number | null;
+  seed?: number | bigint | null;
+}
+
+export interface LouvainOptions {
+  maxPasses?: number | null;
+  resolution?: number | null;
+  minModularityGain?: number | null;
+  seed?: number | bigint | null;
+}
+
+export interface SpectralClusteringOptions {
+  k?: number | null;
+  maxEigenIterations?: number | null;
+  eigenTol?: number | null;
+  kmeansMaxIterations?: number | null;
+  kmeansTol?: number | null;
+  seed?: number | bigint | null;
+}
+
+export interface TreemapOptions {
+  width?: number | null;
+  height?: number | null;
+  x?: number | null;
+  y?: number | null;
+}
+
+export interface ProjectClusteredLayoutOptions {
+  spreadRadius?: number | null;
+  jitterScale?: number | null;
+  seed?: number | bigint | null;
 }
 
 export interface PartitionAgreementRecord {

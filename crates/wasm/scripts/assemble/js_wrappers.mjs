@@ -2,16 +2,25 @@ import { polyExportDefinitions, polyWrapperRuntimeHelpers } from "./js_poly_wrap
 
 const WRAPPED_CLASSES = new Set([
   "Layout2d",
+  "Layout3d",
   "LayoutNd",
   "ManifoldLayout2d",
+  "EdgePolylines",
   "LouvainResult",
   "LeidenResult",
   "LabelPropagationResult",
   "SpectralClusteringResult",
   "KMeansResult",
   "SgdSolver",
+  "Sgd2Solver",
+  "PacmapGraphSolver",
+  "LargeVisSolver",
+  "DrGraphSolver",
+  "GraphCneSolver",
+  "SnapTFdpSolver",
   "TsNetSolver",
   "GuMapSolver",
+  "TFdpSolver",
   "StressMajorizationSolver",
   "KamadaKawaiSolver",
   "LinLogSolver",
@@ -19,7 +28,6 @@ const WRAPPED_CLASSES = new Set([
   "ForceAtlas2Solver",
   "YifanHuSolver",
   "MaxentStressSolver",
-  "FdebSolver",
   "ArenaOctree3d",
   "DynamicKdTree",
 ]);
@@ -50,7 +58,8 @@ ${polyWrapperRuntimeHelpers}
  * yielding back to the browser event loop via \`requestAnimationFrame\` (or \`setTimeout\`
  * in Node.js) between batches.
  *
- * Accepts \`Layout2d\`, \`LayoutNd\`, or \`ManifoldLayout2d\` polymorphically.
+ * Accepts \`Layout2d\`, \`Layout3d\`, \`LayoutNd\`, \`ManifoldLayout2d\`, or \`EdgePolylines\`
+ * (for \`FdebSolver\`) polymorphically.
  */
 export function runProgressive(solver, layout, onFrame, options = {}) {
   const {

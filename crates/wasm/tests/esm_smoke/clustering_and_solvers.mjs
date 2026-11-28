@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { makeBarbellGraph, makeCircleCoords, makeGridGraph, readPkgText } from "./helpers.mjs";
+import { assertJsError, makeBarbellGraph, makeCircleCoords, makeGridGraph, readPkgText } from "./helpers.mjs";
 
 // Verify clustering, coarsening, ManifoldLayout2d, and cooperative f32 solvers
 export async function runClusteringAndSolversSmoke({ eg }) {
@@ -59,14 +59,14 @@ export async function runClusteringAndSolversSmoke({ eg }) {
   assert(dtsText.includes("export interface TsNetOptions {"));
   assert(dtsText.includes("jacobiPrecondition?: boolean | null;"));
   assert(dtsText.includes("export interface SparseBarrierDogOptions extends SparseBarrierOptions {"));
-  assert(dtsText.includes("static pure2Hop(graph: CsrGraph, backendOrOptions?: TsNetBackend | TsNetOptions | string | null"));
-  assert(dtsText.includes("static sparseBarrierDog(graph: CsrGraph, max2hopOrOptions?: number | SparseBarrierDogOptions | null"));
-  assert(dtsText.includes("static fromGraphDog(graph: CsrGraph, max2hopOrOptions?: number | GuMapDogOptions | null"));
-  assert(dtsText.includes("constructor(graph: CsrGraph, iterationsOrOptions?: number | SpatialRefinerOptions | null"));
-  assert(dtsText.includes("static fromGraph(graph: CsrGraph, epsilonOrOptions?: number | StressMajorizationOptions | null"));
-  assert(dtsText.includes("static fromGraph(graph: CsrGraph, epsOrOptions?: number | KamadaKawaiOptions | null"));
-  assert(dtsText.includes("export function kmeansPlusPlus(points: Float64Array | number[], numNodes: number, dims: number"));
-  assert(dtsText.includes("export function louvainCommunities(graph: CsrGraph, maxPasses?: number | null"));
+  assert(dtsText.includes("static pure2Hop(graph: CsrGraph, options?: TsNetOptions | null): TsNetSolver;"));
+  assert(dtsText.includes("static sparseBarrierDog(graph: CsrGraph, options?: SparseBarrierDogOptions | null): SgdSolver;"));
+  assert(dtsText.includes("static fromGraphDog(graph: CsrGraph, options?: GuMapDogOptions | null): GuMapSolver;"));
+  assert(dtsText.includes("constructor(graph: CsrGraph, options?: SpatialRefinerOptions | null);"));
+  assert(dtsText.includes("static fromGraph(graph: CsrGraph, options?: StressMajorizationOptions | null): StressMajorizationSolver;"));
+  assert(dtsText.includes("static fromGraph(graph: CsrGraph, options?: KamadaKawaiOptions | null): KamadaKawaiSolver;"));
+  assert(dtsText.includes("export function kmeansPlusPlus(points: Float64Array | number[], numNodes: number, dims: number, options?: KMeansOptions | null): KMeansResult;"));
+  assert(dtsText.includes("export function louvainCommunities(graph: CsrGraph, options?: LouvainOptions | null): LouvainResult;"));
   assert(!dtsText.includes("_or_options: any"));
   assert(!dtsText.includes("n_epochs_or_options"));
   assert(!dtsText.includes("max_2hop_or_options"));
@@ -78,6 +78,11 @@ export async function runClusteringAndSolversSmoke({ eg }) {
   assert(dtsText.includes("static fromGraphRowNormalized("));
   assert(dtsText.includes("static fromLandmarks("));
   assert(dtsText.includes('"sampledNp1"'));
+  assert(dtsText.includes("export type EgraphErrorCode ="));
+  assert(dtsText.includes("export interface LayoutStorage {"));
+  assert(dtsText.includes("export interface IterativeSolver<TTarget"));
+  assert(dtsText.includes("export interface LayoutGenerator<TOutput"));
+  assert(dtsText.includes("export interface LayoutTransform<TTarget"));
 
   // Clustering & coarsening smoke check
   const km = kmeansPlusPlus(
@@ -87,11 +92,7 @@ export async function runClusteringAndSolversSmoke({ eg }) {
     ]),
     6,
     2,
-    2,
-    100,
-    1e-4,
-    2,
-    42,
+    { k: 2, maxIterations: 100, tol: 1e-4, nInit: 2, seed: 42 },
   );
   assert(km instanceof KMeansResult);
   assert.equal(km.k, 2);
@@ -108,7 +109,14 @@ export async function runClusteringAndSolversSmoke({ eg }) {
   km.free();
 
   const barbell = makeBarbellGraph(eg, 6);
-  const specRes = spectralClustering(barbell, 2, 300, 1e-4, 100, 1e-4, 42);
+  const specRes = spectralClustering(barbell, {
+    k: 2,
+    maxEigenIterations: 300,
+    eigenTol: 1e-4,
+    kmeansMaxIterations: 100,
+    kmeansTol: 1e-4,
+    seed: 42,
+  });
   assert(specRes instanceof eg.SpectralClusteringResult);
   const specLabels = specRes.labelsView();
   assert(specLabels instanceof Uint32Array);
@@ -116,7 +124,7 @@ export async function runClusteringAndSolversSmoke({ eg }) {
   assert.notEqual(specLabels[0], specLabels[11]);
   specRes.free();
 
-  const louv = louvainCommunities(barbell, 50, 1.0, 1e-7, 42);
+  const louv = louvainCommunities(barbell, { maxPasses: 50, resolution: 1.0, minModularityGain: 1e-7, seed: 42 });
   assert(louv instanceof LouvainResult);
   assert(louv.numCommunities >= 2);
   assert(louv.modularity > 0.2);
@@ -145,7 +153,7 @@ export async function runClusteringAndSolversSmoke({ eg }) {
   assert.equal(coarse.coarseSizes().reduce((a, b) => a + b, 0), 12);
 
   const coarseLayout = eg.Layout2d.fromCoords(makeCircleCoords(coarse.numClusters, 2.0));
-  const fineProjected = projectClusteredLayout(coarseLayout, coarse.nodeToCoarse(), 0.25, 42);
+  const fineProjected = projectClusteredLayout(coarseLayout, coarse.nodeToCoarse(), { spreadRadius: 0.25, seed: 42 });
   assert.equal(fineProjected.len(), 12);
   assert(fineProjected.isAllFinite());
   coarseLayout.free();
@@ -157,9 +165,9 @@ export async function runClusteringAndSolversSmoke({ eg }) {
   // Layout solvers + in-place buffer mutation + step == run parity
   const grid = makeGridGraph(eg, 4, 4);
 
-  // TsNetSolver.pure2Hop (also verifying totalFft2dCalls on linear_fft)
+  // TsNetSolver.pure2Hop (also verifying totalFft2dCalls on linearFft)
   const tsOpts = {
-    backend: "linear_fft",
+    backend: "linearFft",
     stageIterations: [4, 4, 4],
     theta: 0.5,
     seed: 11,
@@ -187,19 +195,19 @@ export async function runClusteringAndSolversSmoke({ eg }) {
     stageIterations: [2, 2, 2],
     seed: 11,
   });
-  assert.equal(tsRnSolver.samplingMode, "two_step_random_walk");
+  assert.equal(tsRnSolver.samplingMode, "twoStepRandomWalk");
   const tsRnLayout = eg.Layout2d.fromCoords(makeCircleCoords(16, 1.0));
   assert.equal(tsRnSolver.run(tsRnLayout), "completed");
   assert(tsRnLayout.isAllFinite());
   tsRnSolver.free();
   tsRnLayout.free();
 
-  // TsNetSolver jacobiPrecondition option on star graph + non-bool JsError validation
+  // TsNetSolver jacobiPrecondition option on star graph + non-bool error validation
   const starEdges = [];
   for (let v = 1; v < 20; v++) {
     starEdges.push(0, v);
   }
-  const starGraph = eg.CsrGraph.fromEdgeList(20, new Uint32Array(starEdges), null, false, true);
+  const starGraph = eg.CsrGraph.fromEdgeList(20, new Uint32Array(starEdges), null, { directed: false, sanitize: true });
   const starInit = makeCircleCoords(20, 0.5);
   starInit[0] = 1.0;
   starInit[1] = 0.0;
@@ -260,14 +268,15 @@ export async function runClusteringAndSolversSmoke({ eg }) {
   sgdSolver.free();
   sgdLayout.free();
 
-  // ManifoldLayout2d across all 3 manifolds + SgdSolver.run(ml) & coordsView()
-  for (const kind of ["hyperbolic", "spherical", "torus"]) {
+  // ManifoldLayout2d across all 3 manifolds + Policy 1A target: "manifold2d" & coordsView()
+  for (const kind of ["hyperbolicPoincare", "spherical", "torus"]) {
     const ml = ManifoldLayout2d.fromCoords(kind, makeCircleCoords(16, 0.35));
     assert.equal(ml.kind, kind);
     assert.equal(ml.len(), 16);
     assert(ml.isAllFinite());
-    const manifoldSgd = SgdSolver.full(grid, { iterations: 4, seed: 23 });
+    const manifoldSgd = SgdSolver.full(grid, { target: "manifold2d", iterations: 4, seed: 23 });
     assert.equal(manifoldSgd.stats(), undefined);
+    assert.equal(manifoldSgd.target, "manifold2d");
     assert.equal(manifoldSgd.run(ml), "completed");
     assert(ml.isAllFinite());
     assert(ml.coordsView() instanceof Float32Array);
@@ -336,10 +345,15 @@ export async function runClusteringAndSolversSmoke({ eg }) {
   kk.free();
   kkLayout.free();
 
-  // Adversarial error checks raise recoverable JS Errors (no WASM traps)
-  const dirGraph = eg.CsrGraph.fromEdgeList(3, new Uint32Array([0, 1, 1, 2]), null, true, true);
-  assert.throws(() => louvainCommunities(dirGraph), Error);
-  assert.throws(() => ManifoldLayout2d.zeros("hyperbolic_invalid", 4), Error);
+  // Adversarial error checks raise recoverable JS Errors with .code (no WASM traps)
+  const dirGraph = eg.CsrGraph.fromEdgeList(3, new Uint32Array([0, 1, 1, 2]), null, { directed: true, sanitize: true });
+  assertJsError(() => louvainCommunities(dirGraph), "louvain on directed graph", "InvalidInput");
+  assertJsError(() => ManifoldLayout2d.zeros("hyperbolic_invalid", 4), "invalid manifold kind", "InvalidInput");
+  assertJsError(
+    () => TsNetSolver.pure2Hop(grid, { target: "layoutNd", backend: "fitFft" }),
+    "illegal (layoutNd, fitFft) pair",
+    "UnsupportedOperation",
+  );
   dirGraph.free();
   grid.free();
 }
