@@ -1,17 +1,19 @@
 use std::time::Instant;
 
-use egraph::prelude::{
-    CoreError, KMeansConfig, LabelPropagationConfig, LeidenConfig, LeidenObjective, LouvainConfig,
-    ManifoldKind, MetricConfig, MetricTarget, SpectralClusteringConfig, evaluate_metrics,
-    evaluate_metrics_nd, kmeans_plus_plus, label_propagation, leiden, louvain, spectral_clustering,
+use egraph::clustering::{
+    KMeansConfig, LabelPropagationConfig, LeidenConfig, LeidenObjective, LouvainConfig,
+    SpectralClusteringConfig, kmeans_plus_plus, label_propagation, leiden, louvain,
+    spectral_clustering,
 };
+use egraph::core::{CoreError, ManifoldKind};
+use egraph::metrics::{MetricConfig, MetricTarget, evaluate_metrics};
 
 use crate::args::{BenchArgs, ClusterArgs, ClusterMethod, InitMethod, ManifoldArg};
 use crate::io::{CliError, CliResult, resolve_graph};
 use crate::layout_methods::{build_initial_layout, run_layout_method};
 use crate::layout_nd_manifold::{
-    build_initial_manifold_layout, build_initial_nd_layout, run_layout_method_manifold,
-    run_layout_method_nd,
+    build_initial_3d_layout, build_initial_manifold_layout, build_initial_nd_layout,
+    run_layout_method_3d, run_layout_method_manifold, run_layout_method_nd,
 };
 use crate::output::{BenchOutput, ClusterOutput};
 
@@ -34,10 +36,7 @@ pub fn execute_cluster(args: &ClusterArgs) -> CliResult<ClusterOutput> {
     let t0 = Instant::now();
     let stats = match args.method {
         ClusterMethod::Louvain => {
-            let cfg = LouvainConfig {
-                seed: args.seed,
-                ..LouvainConfig::default()
-            };
+            let cfg = LouvainConfig::new().with_seed(args.seed);
             let res = louvain(&graph, &cfg)?;
             ClusterRunStats {
                 labels: res.labels,
@@ -52,13 +51,11 @@ pub fn execute_cluster(args: &ClusterArgs) -> CliResult<ClusterOutput> {
             }
         }
         ClusterMethod::LeidenMod => {
-            let cfg = LeidenConfig {
-                objective: LeidenObjective::Modularity,
-                resolution: args.resolution,
-                randomness: args.randomness,
-                seed: args.seed,
-                ..LeidenConfig::default()
-            };
+            let cfg = LeidenConfig::new()
+                .with_objective(LeidenObjective::Modularity)
+                .with_resolution(args.resolution)
+                .with_randomness(args.randomness)
+                .with_seed(args.seed);
             let res = leiden(&graph, &cfg)?;
             ClusterRunStats {
                 labels: res.labels,
@@ -73,13 +70,11 @@ pub fn execute_cluster(args: &ClusterArgs) -> CliResult<ClusterOutput> {
             }
         }
         ClusterMethod::LeidenCpm => {
-            let cfg = LeidenConfig {
-                objective: LeidenObjective::Cpm,
-                resolution: args.resolution,
-                randomness: args.randomness,
-                seed: args.seed,
-                ..LeidenConfig::default()
-            };
+            let cfg = LeidenConfig::new()
+                .with_objective(LeidenObjective::Cpm)
+                .with_resolution(args.resolution)
+                .with_randomness(args.randomness)
+                .with_seed(args.seed);
             let res = leiden(&graph, &cfg)?;
             ClusterRunStats {
                 labels: res.labels,
@@ -94,11 +89,9 @@ pub fn execute_cluster(args: &ClusterArgs) -> CliResult<ClusterOutput> {
             }
         }
         ClusterMethod::Spectral => {
-            let cfg = SpectralClusteringConfig {
-                k: args.k,
-                seed: args.seed,
-                ..SpectralClusteringConfig::default()
-            };
+            let cfg = SpectralClusteringConfig::new()
+                .with_k(args.k)
+                .with_seed(args.seed);
             let res = spectral_clustering(&graph, &cfg)?;
             ClusterRunStats {
                 labels: res.labels,
@@ -113,10 +106,7 @@ pub fn execute_cluster(args: &ClusterArgs) -> CliResult<ClusterOutput> {
             }
         }
         ClusterMethod::LabelProp => {
-            let cfg = LabelPropagationConfig {
-                seed: args.seed,
-                ..LabelPropagationConfig::default()
-            };
+            let cfg = LabelPropagationConfig::new().with_seed(args.seed);
             let res = label_propagation(&graph, &cfg)?;
             ClusterRunStats {
                 labels: res.labels,
@@ -133,11 +123,7 @@ pub fn execute_cluster(args: &ClusterArgs) -> CliResult<ClusterOutput> {
         ClusterMethod::Kmeans => {
             let layout = build_initial_layout(&graph, InitMethod::PivotMds, args.seed)?;
             let points = layout.to_interleaved();
-            let cfg = KMeansConfig {
-                k: args.k,
-                seed: args.seed,
-                ..KMeansConfig::default()
-            };
+            let cfg = KMeansConfig::new().with_k(args.k).with_seed(args.seed);
             let res = kmeans_plus_plus(&points, graph.num_nodes(), 2, &cfg)?;
             let count = count_distinct_labels(&res.labels);
             ClusterRunStats {
@@ -212,11 +198,54 @@ pub fn execute_bench(args: &BenchArgs) -> CliResult<BenchOutput> {
     let total_t0 = Instant::now();
     let (graph, _, source) = resolve_graph(args.input.as_deref(), args.dataset.as_deref(), None)?;
 
-    let m_cfg = MetricConfig {
-        sns_seed: args.seed,
-        crossing_seed: args.seed,
-        ..MetricConfig::default()
-    };
+    let m_cfg = MetricConfig::new()
+        .with_sns_seed(args.seed)
+        .with_crossing_seed(args.seed)
+        .with_np_seed(args.seed);
+
+    if args.dims == 3 {
+        let init_t0 = Instant::now();
+        let mut layout_3d = build_initial_3d_layout(&graph, args.init, args.seed)?;
+        let init_ms = init_t0.elapsed().as_secs_f64() * 1000.0;
+
+        let layout_t0 = Instant::now();
+        run_layout_method_3d(&graph, &mut layout_3d, args.method, args.seed)?;
+        let layout_ms = layout_t0.elapsed().as_secs_f64() * 1000.0;
+
+        let metrics_t0 = Instant::now();
+        let mut targets = vec![
+            MetricTarget::NeighborhoodPreservation1Hop,
+            MetricTarget::NeighborhoodPreservation2Hop,
+        ];
+        if graph.num_nodes() <= 2000 {
+            targets.push(MetricTarget::ScaleNormalizedStress);
+        } else {
+            targets.push(MetricTarget::SampledScaleNormalizedStress);
+        }
+        let report = evaluate_metrics(&graph, &layout_3d, &targets, &m_cfg)?;
+        let metrics_ms = metrics_t0.elapsed().as_secs_f64() * 1000.0;
+        let total_ms = total_t0.elapsed().as_secs_f64() * 1000.0;
+
+        return Ok(BenchOutput {
+            source,
+            method: args.method,
+            init: args.init,
+            dims: 3,
+            manifold: None,
+            seed: args.seed,
+            num_nodes: graph.num_nodes(),
+            num_edges: graph.num_edges(),
+            init_ms,
+            layout_ms,
+            metrics_ms,
+            total_ms,
+            scale_normalized_stress: report.scale_normalized_stress,
+            sampled_scale_normalized_stress: report.sampled_scale_normalized_stress,
+            crossing_number: None,
+            neighborhood_preservation_1hop: report.neighborhood_preservation_1hop,
+            neighborhood_preservation_2hop: report.neighborhood_preservation_2hop,
+        });
+    }
 
     if args.dims != 2 {
         let init_t0 = Instant::now();
@@ -237,7 +266,7 @@ pub fn execute_bench(args: &BenchArgs) -> CliResult<BenchOutput> {
         } else {
             targets.push(MetricTarget::SampledScaleNormalizedStress);
         }
-        let report = evaluate_metrics_nd(&graph, &nd_layout, &targets, &m_cfg)?;
+        let report = evaluate_metrics(&graph, &nd_layout, &targets, &m_cfg)?;
         let metrics_ms = metrics_t0.elapsed().as_secs_f64() * 1000.0;
         let total_ms = total_t0.elapsed().as_secs_f64() * 1000.0;
 

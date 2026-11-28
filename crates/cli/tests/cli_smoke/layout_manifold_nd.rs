@@ -102,6 +102,11 @@ fn cli_nd_layouts_and_metrics() {
         "stress",
         "fr",
         "hde",
+        "tfdp",
+        "fa2",
+        "yifanhu",
+        "linlog",
+        "maxent",
     ] {
         let out = run_egraph(&[
             "layout",
@@ -166,6 +171,39 @@ fn cli_nd_layouts_and_metrics() {
     assert_eq!(b3["dims"], 3);
     assert!(b3["crossing_number"].is_null());
     assert!(b3["scale_normalized_stress"].as_f64().is_some());
+
+    let out_4d = run_egraph(&[
+        "layout",
+        "--dataset",
+        "karate",
+        "--method",
+        "tfdp",
+        "--dims",
+        "4",
+        "--seed",
+        "42",
+    ]);
+    let v4 = parse_json(&out_4d, "4d tfdp");
+    assert_eq!(v4["dims"], 4);
+    let coords_4d = v4["coords_nd"].as_array().expect("4d coords_nd");
+    assert_eq!(coords_4d.len(), 34);
+    assert_eq!(coords_4d[0].as_array().expect("4d row").len(), 4);
+
+    let nd_4d_path = dir.join("karate_4d.json");
+    fs::write(&nd_4d_path, &out_4d).expect("write 4d layout");
+    let m4_out = run_egraph(&[
+        "metrics",
+        "--dataset",
+        "karate",
+        "--layout",
+        nd_4d_path.to_str().expect("utf8 path"),
+        "--targets",
+        "sns,np1,np2,layout-degeneracy",
+    ]);
+    let m4_val = parse_json(&m4_out, "4d metrics");
+    assert!(m4_val["scale_normalized_stress"].as_f64().is_some());
+    assert!(m4_val["neighborhood_preservation_2hop"].as_f64().is_some());
+    assert!(m4_val["layout_degeneracy"].as_f64().is_some());
 
     let _ = fs::remove_dir_all(&dir);
 }

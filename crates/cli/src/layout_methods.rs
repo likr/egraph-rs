@@ -1,16 +1,25 @@
-use egraph::prelude::{
-    BackboneConfig, BackboneSolver, CsrGraph, DEFAULT_MAX_2HOP_PER_NODE, DeterministicRng,
-    DogVaradhanConfig, DrGraphConfig, FieldLayoutSolver, ForceAtlas2Config, ForceAtlas2Solver,
-    FruchtermanReingoldConfig, FruchtermanReingoldSolver, GemConfig, GemSolver, GraphCneConfig,
-    GripConfig, GripSolver, GroupInABoxConfig, GroupInABoxSolver, GuMapConfig, GuMapSolver,
-    HdeConfig, IbUmapConfig, IterativeSolver, KamadaKawaiConfig, KamadaKawaiSolver, LargeVisConfig,
-    Layout2d, LeidenConfig, LinLogConfig, LinLogSolver, MaxentStressConfig, MaxentStressSolver,
-    OrtmannSparseStressConfig, PacmapGraphConfig, PivotMdsConfig, SelConfig, SelLayoutSolver,
-    SfcConfig, SfcLayoutSolver, SgdScheduleConfig, SgdSolver, SnapTFdpConfig, SparseBarrierConfig,
-    StressMajorizationConfig, StressMajorizationSolver, TFdpConfig, TsNetBackend, TsNetConfig,
-    TsNetSolver, TwoHopSamplingMode, YifanHuConfig, YifanHuSolver, hde, koren_spectral_init,
-    leiden, normalize_layout_2d, pivot_mds,
+use egraph::clustering::{LeidenConfig, leiden};
+use egraph::core::{
+    CsrGraph, DeterministicRng, EuclideanLayout, IterativeSolver, Layout2d, LayoutGenerator,
+    RiemannianLayout,
 };
+use egraph::layout::{
+    BackboneConfig, BackboneSolver, DEFAULT_MAX_2HOP_PER_NODE, DefaultForceBackend,
+    DefaultFrBackend, DefaultMaxentBackend, DefaultStressStrategy, DefaultTFdpBackend,
+    DefaultTsNetBackend, DrGraphConfig, DrGraphSolver, ForceAtlas2Config, ForceAtlas2Solver,
+    ForceRepulsion, FrRepulsion, FruchtermanReingoldConfig, FruchtermanReingoldSolver, GemConfig,
+    GemSolver, GraphCneConfig, GraphCneSolver, GripConfig, GripSolver, GroupInABoxConfig,
+    GroupInABoxSolver, GuMapConfig, GuMapSolver, GuMapTarget, IbUmapConfig, IbUmapSolver,
+    KamadaKawaiConfig, KamadaKawaiSolver, LargeVisConfig, LargeVisSolver, LinLogConfig,
+    LinLogRepulsionBackend, LinLogSolver, MaxentRepulsion, MaxentStressConfig, MaxentStressSolver,
+    OrtmannSparseStressConfig, PacmapGraphConfig, PacmapGraphSolver, SelConfig, SelLayoutSolver,
+    SfcConfig, SfcLayout, SgdScheduleConfig, SgdSolver, SnapTFdpConfig, SnapTFdpSolver,
+    SparseBarrierConfig, StressMajorizationConfig, StressMajorizationSolver,
+    StressMajorizationStrategy, TFdpConfig, TFdpRepulsion, TFdpSolver, TsNetConfig, TsNetRepulsion,
+    TsNetSolver, YifanHuConfig, YifanHuRepulsion, YifanHuSolver,
+};
+use egraph::linalg::{Hde, KorenSpectral, PivotMds, normalize_layout_2d};
+use egraph::neighborhood::{DogVaradhanConfig, TwoHopSamplingMode};
 
 use crate::args::{InitMethod, LayoutMethod};
 use crate::io::{CliError, CliResult};
@@ -23,14 +32,15 @@ pub fn build_initial_layout(
 ) -> CliResult<Layout2d<f64>> {
     let n = graph.num_nodes();
     match init {
-        InitMethod::PivotMds => {
-            let cfg = PivotMdsConfig {
-                seed,
-                ..PivotMdsConfig::default()
-            };
-            Ok(pivot_mds(graph, &cfg)?)
-        }
-        InitMethod::Koren => Ok(koren_spectral_init(graph, Some(1.0), 1e-6, 500, seed)?),
+        InitMethod::PivotMds => Ok(PivotMds::<Layout2d<f64>>::new(graph)
+            .with_seed(seed)
+            .generate()?),
+        InitMethod::Koren => Ok(KorenSpectral::<Layout2d<f64>>::new(graph)
+            .with_target_std(Some(1.0))
+            .with_tol(1e-6)
+            .with_max_iters(500)
+            .with_seed(seed)
+            .generate()?),
         InitMethod::Random => {
             let mut rng = DeterministicRng::from_seed_u64(seed);
             let mut xs = Vec::with_capacity(n);
@@ -47,88 +57,199 @@ pub fn build_initial_layout(
 }
 
 /// Returns `true` when `method` is backed by [`SgdSolver`].
-pub fn is_sgd_method(method: LayoutMethod) -> bool {
+pub fn is_sgd_solver_method(method: LayoutMethod) -> bool {
     matches!(
         method,
-        LayoutMethod::SgdBarrierDog
-            | LayoutMethod::SgdFull
-            | LayoutMethod::SgdSnap
-            | LayoutMethod::SgdPacmap
-            | LayoutMethod::SgdOrtmann
-            | LayoutMethod::Largevis
-            | LayoutMethod::Drgraph
-            | LayoutMethod::GraphCne
+        LayoutMethod::SgdBarrierDog | LayoutMethod::SgdFull | LayoutMethod::SgdOrtmann
     )
 }
 
-/// Constructs an [`SgdSolver`] for any SGD-backed [`LayoutMethod`].
-pub fn build_sgd_solver(
+/// Constructs an [`SgdSolver`] for any [`SgdSolver`]-backed [`LayoutMethod`].
+pub fn build_sgd_solver<L: RiemannianLayout + 'static>(
     graph: &CsrGraph<f64>,
     method: LayoutMethod,
     seed: u64,
-) -> CliResult<SgdSolver<f64>> {
+) -> CliResult<SgdSolver<L>> {
     match method {
         LayoutMethod::SgdBarrierDog => {
-            let dog_cfg = DogVaradhanConfig {
-                seed,
-                ..DogVaradhanConfig::default()
-            };
-            let barrier_cfg = SparseBarrierConfig {
-                seed,
-                ..SparseBarrierConfig::default()
-            };
+            let dog_cfg = DogVaradhanConfig::new().with_seed(seed);
+            let barrier_cfg = SparseBarrierConfig::new().with_seed(seed);
             let (solver, _barrier_stats, _dog_stats) =
                 SgdSolver::sparse_barrier_dog(graph, &dog_cfg, &barrier_cfg)?;
             Ok(solver)
         }
         LayoutMethod::SgdFull => Ok(SgdSolver::full(graph, SgdScheduleConfig::default(), seed)?),
-        LayoutMethod::SgdSnap => {
-            let cfg = SnapTFdpConfig {
-                seed,
-                ..SnapTFdpConfig::default()
-            };
-            Ok(SgdSolver::snap_t_fdp(graph, cfg)?)
-        }
-        LayoutMethod::SgdPacmap => {
-            let cfg = PacmapGraphConfig {
-                seed,
-                ..PacmapGraphConfig::default()
-            };
-            Ok(SgdSolver::pacmap_graph(graph, cfg)?)
-        }
         LayoutMethod::SgdOrtmann => {
-            let cfg = OrtmannSparseStressConfig {
-                seed,
-                ..OrtmannSparseStressConfig::default()
-            };
+            let cfg = OrtmannSparseStressConfig::new().with_seed(seed);
             Ok(SgdSolver::ortmann_sparse_stress(graph, cfg)?)
-        }
-        LayoutMethod::Largevis => {
-            let cfg = LargeVisConfig {
-                seed,
-                ..LargeVisConfig::default()
-            };
-            Ok(SgdSolver::largevis(graph, cfg)?)
-        }
-        LayoutMethod::Drgraph => {
-            let cfg = DrGraphConfig {
-                seed,
-                ..DrGraphConfig::default()
-            };
-            Ok(SgdSolver::drgraph(graph, cfg)?)
-        }
-        LayoutMethod::GraphCne => {
-            let cfg = GraphCneConfig {
-                seed,
-                ..GraphCneConfig::default()
-            };
-            Ok(SgdSolver::graph_cne(graph, cfg)?)
         }
         other => Err(CliError::InvalidInput(format!(
             "method {:?} is not an SgdSolver preset",
             other
         ))),
     }
+}
+
+/// Runs a Riemannian-compatible layout method on `layout`. Returns `Ok(false)` when `method`
+/// requires a Euclidean or 2D-only solver.
+pub fn run_riemannian_method<L>(
+    graph: &CsrGraph<f64>,
+    layout: &mut L,
+    method: LayoutMethod,
+    seed: u64,
+) -> CliResult<bool>
+where
+    L: RiemannianLayout
+        + GuMapTarget
+        + DefaultTsNetBackend
+        + DefaultStressStrategy
+        + DefaultFrBackend
+        + 'static,
+    <L as DefaultTsNetBackend>::Backend: TsNetRepulsion<L> + Default,
+    <L as DefaultStressStrategy>::Strategy: StressMajorizationStrategy<L> + Default,
+    <L as DefaultFrBackend>::Backend: FrRepulsion<L> + Default,
+{
+    if is_sgd_solver_method(method) {
+        let mut solver = build_sgd_solver(graph, method, seed)?;
+        solver.run(layout)?;
+        return Ok(true);
+    }
+    match method {
+        LayoutMethod::SgdSnap => {
+            let cfg = SnapTFdpConfig::new().with_seed(seed);
+            let mut solver = SnapTFdpSolver::new(graph, cfg)?;
+            solver.run(layout)?;
+        }
+        LayoutMethod::SgdPacmap => {
+            let cfg = PacmapGraphConfig::new().with_seed(seed);
+            let mut solver = PacmapGraphSolver::new(graph, cfg)?;
+            solver.run(layout)?;
+        }
+        LayoutMethod::Largevis => {
+            let cfg = LargeVisConfig::new().with_seed(seed);
+            let mut solver = LargeVisSolver::new(graph, cfg)?;
+            solver.run(layout)?;
+        }
+        LayoutMethod::Drgraph => {
+            let cfg = DrGraphConfig::new().with_seed(seed);
+            let mut solver = DrGraphSolver::new(graph, cfg)?;
+            solver.run(layout)?;
+        }
+        LayoutMethod::GraphCne => {
+            let cfg = GraphCneConfig::new().with_seed(seed);
+            let mut solver = GraphCneSolver::new(graph, cfg)?;
+            solver.run(layout)?;
+        }
+        LayoutMethod::TsnetPure2hop => {
+            let cfg = TsNetConfig::pure_2hop().with_seed(seed);
+            let mut solver = TsNetSolver::<L>::from_graph_pure_2hop(graph, cfg)?;
+            solver.run(layout)?;
+        }
+        LayoutMethod::TsnetRn => {
+            let cfg = TsNetConfig::new().with_seed(seed);
+            let mut solver = TsNetSolver::<L>::from_graph_row_normalized_with_options(
+                graph,
+                0.5,
+                Some(DEFAULT_MAX_2HOP_PER_NODE),
+                0.0,
+                TwoHopSamplingMode::TwoStepRandomWalk,
+                None,
+                cfg,
+            )?;
+            solver.run(layout)?;
+        }
+        LayoutMethod::Gumap => {
+            let dog_cfg = DogVaradhanConfig::new().with_seed(seed);
+            let g_cfg = GuMapConfig::new().with_seed(seed);
+            let mut solver = GuMapSolver::from_graph_dog(graph, 32, &dog_cfg, g_cfg)?;
+            solver.run(layout)?;
+        }
+        LayoutMethod::Stress => {
+            let mut solver = StressMajorizationSolver::<L>::from_graph(
+                graph,
+                StressMajorizationConfig::default(),
+            )?;
+            solver.run(layout)?;
+        }
+        LayoutMethod::Kk => {
+            let mut solver = KamadaKawaiSolver::from_graph(graph, KamadaKawaiConfig::default())?;
+            solver.run(layout)?;
+        }
+        LayoutMethod::Fr => {
+            let cfg = FruchtermanReingoldConfig::new().with_seed(seed);
+            let mut solver = FruchtermanReingoldSolver::<L>::new(graph, cfg)?;
+            solver.run(layout)?;
+        }
+        _ => return Ok(false),
+    }
+    Ok(true)
+}
+
+/// Runs a Euclidean-compatible layout method on `layout` (excluding `Hde` and 2D-only presets).
+/// Returns `Ok(false)` when `method` is `Hde` or a 2D-only solver.
+pub fn run_euclidean_method<L>(
+    graph: &CsrGraph<f64>,
+    layout: &mut L,
+    method: LayoutMethod,
+    seed: u64,
+) -> CliResult<bool>
+where
+    L: EuclideanLayout
+        + GuMapTarget
+        + DefaultTsNetBackend
+        + DefaultTFdpBackend
+        + DefaultForceBackend
+        + DefaultFrBackend
+        + DefaultMaxentBackend
+        + DefaultStressStrategy
+        + 'static,
+    <L as DefaultTsNetBackend>::Backend: TsNetRepulsion<L> + Default,
+    <L as DefaultTFdpBackend>::Backend: TFdpRepulsion<L> + Default,
+    <L as DefaultForceBackend>::Backend:
+        ForceRepulsion<L> + LinLogRepulsionBackend<L> + YifanHuRepulsion<L> + Default,
+    <L as DefaultFrBackend>::Backend: FrRepulsion<L> + Default,
+    <L as DefaultMaxentBackend>::Backend: MaxentRepulsion<L> + Default,
+    <L as DefaultStressStrategy>::Strategy: StressMajorizationStrategy<L> + Default,
+{
+    if run_riemannian_method(graph, layout, method, seed)? {
+        return Ok(true);
+    }
+    match method {
+        LayoutMethod::Tfdp => {
+            let cfg = TFdpConfig::new().with_seed(seed);
+            let mut solver = TFdpSolver::<L>::new(graph, cfg)?;
+            solver.run(layout)?;
+        }
+        LayoutMethod::Fa2 => {
+            let cfg = ForceAtlas2Config::new().with_seed(seed);
+            let mut solver = ForceAtlas2Solver::<L>::new(graph, cfg)?;
+            solver.run(layout)?;
+        }
+        LayoutMethod::Fa2Overlap => {
+            let cfg = ForceAtlas2Config::new()
+                .with_prevent_overlap(true)
+                .with_seed(seed);
+            let mut solver = ForceAtlas2Solver::<L>::new(graph, cfg)?;
+            solver.run(layout)?;
+        }
+        LayoutMethod::YifanHu => {
+            let cfg = YifanHuConfig::new().with_seed(seed);
+            let mut solver = YifanHuSolver::<L>::new(graph, cfg)?;
+            solver.run(layout)?;
+        }
+        LayoutMethod::Linlog => {
+            let cfg = LinLogConfig::new().with_seed(seed);
+            let mut solver = LinLogSolver::<L>::new(graph, cfg)?;
+            solver.run(layout)?;
+        }
+        LayoutMethod::Maxent => {
+            let cfg = MaxentStressConfig::new().with_seed(seed);
+            let mut solver = MaxentStressSolver::<L>::new(graph, cfg)?;
+            solver.run(layout)?;
+        }
+        _ => return Ok(false),
+    }
+    Ok(true)
 }
 
 /// Runs the selected layout solver in-place on `layout`.
@@ -150,124 +271,18 @@ pub fn run_layout_method_with_labels(
     labels: Option<&[u32]>,
     seed: u64,
 ) -> CliResult<()> {
-    if is_sgd_method(method) {
-        let mut solver = build_sgd_solver(graph, method, seed)?;
-        solver.run(layout)?;
+    if run_euclidean_method(graph, layout, method, seed)? {
         return Ok(());
     }
     match method {
-        LayoutMethod::TsnetPure2hop => {
-            let cfg = TsNetConfig {
-                seed,
-                ..TsNetConfig::pure_2hop()
-            };
-            let mut solver = TsNetSolver::from_graph_pure_2hop(graph, cfg)?;
-            solver.run(layout)?;
-        }
-        LayoutMethod::TsnetRn => {
-            let cfg = TsNetConfig {
-                backend: TsNetBackend::Auto,
-                seed,
-                ..TsNetConfig::default()
-            };
-            let mut solver = TsNetSolver::from_graph_row_normalized_with_options(
-                graph,
-                0.5,
-                Some(DEFAULT_MAX_2HOP_PER_NODE),
-                0.0,
-                TwoHopSamplingMode::TwoStepRandomWalk,
-                None,
-                cfg,
-            )?;
-            solver.run(layout)?;
-        }
-        LayoutMethod::Gumap => {
-            let dog_cfg = DogVaradhanConfig {
-                seed,
-                ..DogVaradhanConfig::default()
-            };
-            let g_cfg = GuMapConfig {
-                seed,
-                ..GuMapConfig::default()
-            };
-            let mut solver = GuMapSolver::from_graph_dog(graph, 32, &dog_cfg, g_cfg)?;
-            solver.run(layout)?;
-        }
-        LayoutMethod::Tfdp => {
-            let cfg = TFdpConfig {
-                seed,
-                ..TFdpConfig::default()
-            };
-            let mut solver = FieldLayoutSolver::t_fdp(graph, cfg)?;
-            solver.run(layout)?;
-        }
         LayoutMethod::Ibumap => {
-            let dog_cfg = DogVaradhanConfig {
-                seed,
-                ..DogVaradhanConfig::default()
-            };
-            let cfg = IbUmapConfig {
-                seed,
-                ..IbUmapConfig::default()
-            };
-            let mut solver = FieldLayoutSolver::ib_umap(graph, 32, &dog_cfg, cfg)?;
-            solver.run(layout)?;
-        }
-        LayoutMethod::Fa2 => {
-            let cfg = ForceAtlas2Config {
-                seed,
-                ..ForceAtlas2Config::default()
-            };
-            let mut solver = ForceAtlas2Solver::new(graph, cfg)?;
-            solver.run(layout)?;
-        }
-        LayoutMethod::YifanHu => {
-            let cfg = YifanHuConfig {
-                seed,
-                ..YifanHuConfig::default()
-            };
-            let mut solver = YifanHuSolver::new(graph, cfg)?;
-            solver.run(layout)?;
-        }
-        LayoutMethod::Stress => {
-            let mut solver =
-                StressMajorizationSolver::from_graph(graph, StressMajorizationConfig::default())?;
-            solver.run(layout)?;
-        }
-        LayoutMethod::Kk => {
-            let mut solver = KamadaKawaiSolver::from_graph(graph, KamadaKawaiConfig::default())?;
-            solver.run(layout)?;
-        }
-        LayoutMethod::Linlog => {
-            let cfg = LinLogConfig {
-                seed,
-                ..LinLogConfig::default()
-            };
-            let mut solver = LinLogSolver::new(graph, cfg)?;
-            solver.run(layout)?;
-        }
-        LayoutMethod::Fr => {
-            let cfg = FruchtermanReingoldConfig {
-                seed,
-                ..FruchtermanReingoldConfig::default()
-            };
-            let mut solver = FruchtermanReingoldSolver::new(graph, cfg)?;
-            solver.run(layout)?;
-        }
-        LayoutMethod::Fa2Overlap => {
-            let cfg = ForceAtlas2Config {
-                prevent_overlap: true,
-                seed,
-                ..ForceAtlas2Config::default()
-            };
-            let mut solver = ForceAtlas2Solver::new(graph, cfg)?;
+            let dog_cfg = DogVaradhanConfig::new().with_seed(seed);
+            let cfg = IbUmapConfig::new().with_seed(seed);
+            let mut solver = IbUmapSolver::from_graph_dog(graph, 32, &dog_cfg, cfg)?;
             solver.run(layout)?;
         }
         LayoutMethod::Backbone => {
-            let cfg = BackboneConfig {
-                seed,
-                ..BackboneConfig::default()
-            };
+            let cfg = BackboneConfig::new().with_seed(seed);
             let mut solver = BackboneSolver::new(graph, cfg)?;
             solver.run(layout)?;
         }
@@ -275,75 +290,40 @@ pub fn run_layout_method_with_labels(
             let resolved_labels = match labels {
                 Some(lbls) => lbls.to_vec(),
                 None => {
-                    let l_cfg = LeidenConfig {
-                        seed,
-                        ..LeidenConfig::default()
-                    };
+                    let l_cfg = LeidenConfig::new().with_seed(seed);
                     leiden(graph, &l_cfg)?.labels
                 }
             };
-            let cfg = GroupInABoxConfig {
-                seed,
-                ..GroupInABoxConfig::default()
-            };
-            let mut solver = GroupInABoxSolver::new(graph, resolved_labels, cfg)?;
+            let cfg = GroupInABoxConfig::new().with_seed(seed);
+            let mut solver = GroupInABoxSolver::new(graph, &resolved_labels, cfg)?;
             solver.run(layout)?;
         }
         LayoutMethod::Hde => {
-            let cfg = HdeConfig {
-                seed,
-                ..HdeConfig::default()
-            };
-            *layout = hde(graph, &cfg)?;
-        }
-        LayoutMethod::Maxent => {
-            let cfg = MaxentStressConfig {
-                seed,
-                ..MaxentStressConfig::default()
-            };
-            let mut solver = MaxentStressSolver::new(graph, cfg)?;
-            solver.run(layout)?;
+            *layout = Hde::<Layout2d<f64>>::new(graph)
+                .with_seed(seed)
+                .generate()?;
         }
         LayoutMethod::Grip => {
-            let cfg = GripConfig {
-                seed,
-                ..GripConfig::default()
-            };
+            let cfg = GripConfig::new().with_seed(seed);
             let mut solver = GripSolver::new(graph, cfg)?;
             solver.run(layout)?;
         }
         LayoutMethod::Gem => {
-            let cfg = GemConfig {
-                seed,
-                ..GemConfig::default()
-            };
+            let cfg = GemConfig::new().with_seed(seed);
             let mut solver = GemSolver::new(graph, cfg)?;
             solver.run(layout)?;
         }
         LayoutMethod::Sel => {
-            let cfg = SelConfig {
-                seed,
-                ..SelConfig::default()
-            };
+            let cfg = SelConfig::new().with_seed(seed);
             let mut solver = SelLayoutSolver::new(graph, cfg)?;
             solver.run(layout)?;
         }
         LayoutMethod::Sfc => {
-            let cfg = SfcConfig {
-                seed,
-                ..SfcConfig::default()
-            };
-            let mut solver = SfcLayoutSolver::new(graph, cfg)?;
-            solver.run(layout)?;
+            let cfg = SfcConfig::new().with_seed(seed);
+            let mut generator = SfcLayout::<f64, f64>::from_config(graph, cfg);
+            *layout = generator.generate()?;
         }
-        LayoutMethod::SgdBarrierDog
-        | LayoutMethod::SgdFull
-        | LayoutMethod::SgdSnap
-        | LayoutMethod::SgdPacmap
-        | LayoutMethod::SgdOrtmann
-        | LayoutMethod::Largevis
-        | LayoutMethod::Drgraph
-        | LayoutMethod::GraphCne => unreachable!("handled by is_sgd_method branch"),
+        other => unreachable!("unhandled 2D layout method {:?}", other),
     }
     Ok(())
 }

@@ -1,4 +1,4 @@
-use egraph::prelude::{ClusterAreaDetail, ClusterAreaReport, LayoutDegeneracy, MetricReport};
+use egraph::metrics::{ClusterAreaDetail, ClusterAreaReport, LayoutDegeneracy, MetricReport};
 use serde::Serialize;
 
 use crate::args::{
@@ -189,6 +189,7 @@ impl MetricsOutput {
     ) -> Self {
         let crossing_edges_count = report.crossing_edges.as_ref().map(Vec::len);
         let crossing_edges_torus_count = report.crossing_edges_torus.as_ref().map(Vec::len);
+        let baselines = report.baseline_metrics();
         Self {
             source,
             num_nodes,
@@ -218,50 +219,54 @@ impl MetricsOutput {
             minimum_angle: report.minimum_angle,
             minimum_angle_a1: report.minimum_angle_a1,
             layout_degeneracy: report.layout_degeneracy,
-            degeneracy_excess_duplicate_ratio: degeneracy.map(|d| d.excess_duplicate_ratio),
-            degeneracy_near_collision_ratio: degeneracy.map(|d| d.near_collision_ratio),
+            degeneracy_excess_duplicate_ratio: degeneracy
+                .as_ref()
+                .map(|d| d.excess_duplicate_ratio),
+            degeneracy_near_collision_ratio: degeneracy.as_ref().map(|d| d.near_collision_ratio),
             ideal_edge_lengths: report.ideal_edge_lengths,
             prism_sigma_dist: report.prism_sigma_dist,
             prism_sigma_disp: report.prism_sigma_disp,
             adjusted_patch_nig: report.adjusted_patch_nig,
             cluster_area_faithfulness: gcaf_report
+                .as_ref()
                 .map(|r| r.caf)
                 .or(report.cluster_area_faithfulness),
-            gcaf_purity_adj: gcaf_report.map(|r| r.purity_adj),
-            gcaf_prop_vis: gcaf_report.map(|r| r.prop_vis),
-            gcaf_res_density: gcaf_report.map(|r| r.res_density),
-            gcaf_res_deconv: gcaf_report.map(|r| r.res_deconv),
-            gcaf_res_combined: gcaf_report.map(|r| r.res_combined),
-            gcaf_spatial_coherence: gcaf_report.map(|r| r.spatial_coherence),
-            gcaf_in_frac: gcaf_report.map(|r| r.in_frac),
-            gcaf_num_clusters: gcaf_report.map(|r| r.num_clusters),
-            effective_boundary_r95: gcaf_report.map(|r| r.effective_boundary_r95),
-            g_eff: gcaf_report.map(|r| r.g_eff),
+            gcaf_purity_adj: gcaf_report.as_ref().map(|r| r.purity_adj),
+            gcaf_prop_vis: gcaf_report.as_ref().map(|r| r.prop_vis),
+            gcaf_res_density: gcaf_report.as_ref().map(|r| r.res_density),
+            gcaf_res_deconv: gcaf_report.as_ref().map(|r| r.res_deconv),
+            gcaf_res_combined: gcaf_report.as_ref().map(|r| r.res_combined),
+            gcaf_spatial_coherence: gcaf_report.as_ref().map(|r| r.spatial_coherence),
+            gcaf_in_frac: gcaf_report.as_ref().map(|r| r.in_frac),
+            gcaf_num_clusters: gcaf_report.as_ref().map(|r| r.num_clusters),
+            effective_boundary_r95: gcaf_report.as_ref().map(|r| r.effective_boundary_r95),
+            g_eff: gcaf_report.as_ref().map(|r| r.g_eff),
             gcaf_detail: gcaf_detail.map(GcafDetailOutput::from),
             landmark_stratified_rta: report.landmark_stratified_rta,
-            distance_consistency: report.distance_consistency,
-            distribution_consistency: report.distribution_consistency,
-            class_density_measure: report.class_density_measure,
-            histogram_density_measure: report.histogram_density_measure,
-            sepme_knng: report.sepme_knng,
-            sepme_rng: report.sepme_rng,
-            sepme_gab: report.sepme_gab,
-            sepme_gong: report.sepme_gong,
-            neighborhood_hit: report.neighborhood_hit,
-            silhouette_score: report.silhouette_score,
-            calinski_harabasz_score: report.calinski_harabasz_score,
-            davies_bouldin_score: report.davies_bouldin_score,
-            cq_kmeans_ari: report.cq_kmeans_ari,
-            cq_kmeans_ami: report.cq_kmeans_ami,
-            cq_hac_hom: report.cq_hac_hom,
-            cq_hac_ami: report.cq_hac_ami,
-            pairwise_distance_overlap_error: report.pairwise_distance_overlap_error,
-            sprawlter_nn: report.sprawlter_nn,
-            nor_oo_nni: report.nor_oo_nni,
-            nor_sp_ch_a: report.nor_sp_ch_a,
-            nor_gs_bb_iar: report.nor_gs_bb_iar,
-            nor_nm_dm_imse: report.nor_nm_dm_imse,
-            nor_el_rsd: report.nor_el_rsd,
+            distance_consistency: baselines.and_then(|b| b.distance_consistency),
+            distribution_consistency: baselines.and_then(|b| b.distribution_consistency),
+            class_density_measure: baselines.and_then(|b| b.class_density_measure),
+            histogram_density_measure: baselines.and_then(|b| b.histogram_density_measure),
+            sepme_knng: baselines.and_then(|b| b.sepme_knng),
+            sepme_rng: baselines.and_then(|b| b.sepme_rng),
+            sepme_gab: baselines.and_then(|b| b.sepme_gab),
+            sepme_gong: baselines.and_then(|b| b.sepme_gong),
+            neighborhood_hit: baselines.and_then(|b| b.neighborhood_hit),
+            silhouette_score: baselines.and_then(|b| b.silhouette_score),
+            calinski_harabasz_score: baselines.and_then(|b| b.calinski_harabasz_score),
+            davies_bouldin_score: baselines.and_then(|b| b.davies_bouldin_score),
+            cq_kmeans_ari: baselines.and_then(|b| b.cq_kmeans_ari),
+            cq_kmeans_ami: baselines.and_then(|b| b.cq_kmeans_ami),
+            cq_hac_hom: baselines.and_then(|b| b.cq_hac_hom),
+            cq_hac_ami: baselines.and_then(|b| b.cq_hac_ami),
+            pairwise_distance_overlap_error: baselines
+                .and_then(|b| b.pairwise_distance_overlap_error),
+            sprawlter_nn: baselines.and_then(|b| b.sprawlter_nn),
+            nor_oo_nni: baselines.and_then(|b| b.nor_oo_nni),
+            nor_sp_ch_a: baselines.and_then(|b| b.nor_sp_ch_a),
+            nor_gs_bb_iar: baselines.and_then(|b| b.nor_gs_bb_iar),
+            nor_nm_dm_imse: baselines.and_then(|b| b.nor_nm_dm_imse),
+            nor_el_rsd: baselines.and_then(|b| b.nor_el_rsd),
         }
     }
 }

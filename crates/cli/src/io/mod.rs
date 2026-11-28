@@ -8,7 +8,8 @@ use std::fs::{self, File};
 use std::io::{self, BufWriter, Write};
 use std::path::Path;
 
-use egraph::prelude::{CoreError, CsrGraph, Layout2d, parse_csr_csv};
+use egraph::dataset::parse_csr_csv;
+use egraph::prelude::{CoreError, CsrGraph, Layout2d};
 use serde::Serialize;
 
 mod formats;
@@ -80,15 +81,15 @@ pub type CliResult<T> = Result<T, CliError>;
 pub fn load_dataset(name: &str) -> CliResult<CsrGraph<f64>> {
     let key = name.trim().to_ascii_lowercase();
     match key.as_str() {
-        "1138_bus" => Ok(egraph::dataset::dataset_1138_bus_csr()),
-        "3_elt" | "3elt" => Ok(egraph::dataset::dataset_3_elt_csr()),
-        "dwt_1005" => Ok(egraph::dataset::dataset_dwt_1005_csr()),
-        "dwt_2680" => Ok(egraph::dataset::dataset_dwt_2680_csr()),
-        "poli" => Ok(egraph::dataset::dataset_poli_csr()),
-        "qh882" => Ok(egraph::dataset::dataset_qh882_csr()),
-        "uspower_grid" | "uspowergrid" => Ok(egraph::dataset::dataset_uspower_grid_csr()),
-        "karate" => Ok(egraph::dataset::dataset_karate_csr()),
-        "lesmis" => Ok(egraph::dataset::dataset_lesmis_csr()),
+        "1138_bus" => Ok(egraph::dataset::dataset_1138_bus()),
+        "3_elt" | "3elt" => Ok(egraph::dataset::dataset_3_elt()),
+        "dwt_1005" => Ok(egraph::dataset::dataset_dwt_1005()),
+        "dwt_2680" => Ok(egraph::dataset::dataset_dwt_2680()),
+        "poli" => Ok(egraph::dataset::dataset_poli()),
+        "qh882" => Ok(egraph::dataset::dataset_qh882()),
+        "uspower_grid" | "uspowergrid" => Ok(egraph::dataset::dataset_uspower_grid()),
+        "karate" => Ok(egraph::dataset::dataset_karate()),
+        "lesmis" => Ok(egraph::dataset::dataset_lesmis()),
         _ => Err(CliError::InvalidInput(format!(
             "unknown dataset '{name}'; expected one of: 1138_bus, 3_elt, dwt_1005, dwt_2680, poli, qh882, uspower_grid, karate, lesmis"
         ))),

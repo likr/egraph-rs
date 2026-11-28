@@ -1,16 +1,44 @@
-use egraph::prelude::{
-    BfsWorkspace, CoreError, CsrGraph, DEFAULT_MAX_2HOP_PER_NODE, DijkstraWorkspace,
-    DogVaradhanConfig, ForceAtlas2Config, ForceAtlas2Solver, FrBackend, FruchtermanReingoldConfig,
-    FruchtermanReingoldSolver, GuMapConfig, GuMapSolver, HdeConfig, IterativeSolver,
-    KamadaKawaiConfig, KamadaKawaiSolver, Layout2d, LayoutNd, LinLogConfig, LinLogSolver,
-    ManifoldKind, ManifoldLayout2d, MaxentStressConfig, MaxentStressSolver, SgdScheduleConfig,
-    StressMajorizationConfig, StressMajorizationSolver, TsNetBackend, TsNetConfig, TsNetSolver,
-    TwoHopSamplingMode, hde_nd, rd_mds, representative_mds, select_maxmin_sp_pivots,
+use egraph::core::{
+    CoreError, CsrGraph, IterativeSolver, Layout2d, Layout3d, LayoutGenerator, LayoutNd,
+    ManifoldKind, ManifoldLayout2d,
 };
+use egraph::layout::SgdScheduleConfig;
+use egraph::linalg::{Hde, PivotMds, RdMds, normalize_euclidean_layout};
 
 use crate::args::{InitMethod, LayoutMethod};
 use crate::io::{CliError, CliResult};
-use crate::layout_methods::{build_initial_layout, build_sgd_solver, is_sgd_method};
+use crate::layout_methods::{
+    build_initial_layout, build_sgd_solver, is_sgd_solver_method, run_euclidean_method,
+    run_riemannian_method,
+};
+
+/// Builds an initial 3D [`Layout3d<f64>`] using the requested [`InitMethod`].
+pub fn build_initial_3d_layout(
+    graph: &CsrGraph<f64>,
+    init: InitMethod,
+    seed: u64,
+) -> CliResult<Layout3d<f64>> {
+    let n = graph.num_nodes();
+    match init {
+        InitMethod::PivotMds => Ok(PivotMds::<Layout3d<f64>>::new(graph)
+            .with_seed(seed)
+            .generate()?),
+        InitMethod::Koren => Ok(RdMds::<Layout3d<f64>>::new(graph)
+            .with_eig_eps(1e-10)
+            .with_tol(1e-6)
+            .with_max_iters(500)
+            .with_seed(seed)
+            .with_target_std(Some(1.0))
+            .generate()?),
+        InitMethod::Random => {
+            let mut layout = Layout3d::init(n, seed, 2.0)?;
+            if n > 1 {
+                normalize_euclidean_layout(&mut layout, 1.0, seed)?;
+            }
+            Ok(layout)
+        }
+    }
+}
 
 /// Builds an initial `dims`-dimensional [`LayoutNd<f64>`] using the requested [`InitMethod`].
 pub fn build_initial_nd_layout(
@@ -25,72 +53,54 @@ pub fn build_initial_nd_layout(
         )));
     }
     let n = graph.num_nodes();
-    if n <= 1 {
-        return Ok(LayoutNd::zeros(n, dims)?);
-    }
     match init {
-        InitMethod::PivotMds => {
-            let pivots = select_maxmin_sp_pivots(graph, 50, seed, 2)?;
-            let k = pivots.len();
-            if k < 2 {
-                let mut layout = LayoutNd::init(n, dims, seed, 2.0)?;
-                layout.center_and_normalize_std()?;
-                return Ok(layout);
-            }
-            let total = n
-                .checked_mul(k)
-                .ok_or_else(|| CoreError::invalid_input("pivot_mds distance matrix overflow"))?;
-            let mut distances_nk = vec![f64::INFINITY; total];
-            if graph.is_weighted() {
-                let mut dist_col = vec![f64::INFINITY; n];
-                let mut ws = DijkstraWorkspace::new(n);
-                for (col, &p) in pivots.iter().enumerate() {
-                    ws.dijkstra_from(graph, p as usize, &mut dist_col)?;
-                    for i in 0..n {
-                        distances_nk[i * k + col] = dist_col[i];
-                    }
-                }
-            } else {
-                let mut dist_col = vec![u32::MAX; n];
-                let mut ws = BfsWorkspace::new(n);
-                for (col, &p) in pivots.iter().enumerate() {
-                    ws.bfs_from_u32(graph, p as usize, &mut dist_col)?;
-                    for i in 0..n {
-                        let d = dist_col[i];
-                        distances_nk[i * k + col] = if d == u32::MAX {
-                            f64::INFINITY
-                        } else {
-                            d as f64
-                        };
-                    }
-                }
-            }
-            let mut layout = representative_mds(&distances_nk, n, k, dims)?;
-            layout.center_and_normalize_std()?;
-            if layout.coords().iter().all(|&v| v == 0.0) {
-                layout = LayoutNd::init(n, dims, seed, 2.0)?;
-                layout.center_and_normalize_std()?;
-            }
-            Ok(layout)
-        }
-        InitMethod::Koren => {
-            let mut layout = rd_mds(graph, dims, 1e-10, 1e-6, 500, seed)?;
-            layout.center_and_normalize_std()?;
-            if layout.coords().iter().all(|&v| v == 0.0) {
-                layout = LayoutNd::init(n, dims, seed, 2.0)?;
-                layout.center_and_normalize_std()?;
-            }
-            Ok(layout)
-        }
+        InitMethod::PivotMds => Ok(PivotMds::<LayoutNd<f64>>::new(graph)
+            .with_dims(dims)
+            .with_seed(seed)
+            .generate()?),
+        InitMethod::Koren => Ok(RdMds::<LayoutNd<f64>>::new(graph)
+            .with_dims(dims)
+            .with_eig_eps(1e-10)
+            .with_tol(1e-6)
+            .with_max_iters(500)
+            .with_seed(seed)
+            .with_target_std(Some(1.0))
+            .generate()?),
         InitMethod::Random => {
             let mut layout = LayoutNd::init(n, dims, seed, 2.0)?;
-            layout.center_and_normalize_std()?;
+            if n > 1 {
+                normalize_euclidean_layout(&mut layout, 1.0, seed)?;
+            }
             Ok(layout)
         }
     }
 }
 
-/// Runs an N-D-compatible layout solver in-place on `layout`.
+/// Runs a 3D-compatible layout solver in-place on [`Layout3d<f64>`].
+pub fn run_layout_method_3d(
+    graph: &CsrGraph<f64>,
+    layout: &mut Layout3d<f64>,
+    method: LayoutMethod,
+    seed: u64,
+) -> CliResult<()> {
+    if run_euclidean_method(graph, layout, method, seed)? {
+        return Ok(());
+    }
+    match method {
+        LayoutMethod::Hde => {
+            *layout = Hde::<Layout3d<f64>>::new(graph)
+                .with_seed(seed)
+                .generate()?;
+            Ok(())
+        }
+        other => Err(CliError::Core(CoreError::unsupported(format!(
+            "layout method {:?} does not support 3D Layout3d",
+            other
+        )))),
+    }
+}
+
+/// Runs an N-D-compatible layout solver in-place on [`LayoutNd<f64>`].
 pub fn run_layout_method_nd(
     graph: &CsrGraph<f64>,
     layout: &mut LayoutNd<f64>,
@@ -98,122 +108,22 @@ pub fn run_layout_method_nd(
     seed: u64,
 ) -> CliResult<()> {
     let dims = layout.dims();
-    if is_sgd_method(method) {
-        let mut solver = build_sgd_solver(graph, method, seed)?;
-        solver.run(layout)?;
+    if run_euclidean_method(graph, layout, method, seed)? {
         return Ok(());
     }
     match method {
-        LayoutMethod::TsnetPure2hop => {
-            let cfg = TsNetConfig {
-                backend: TsNetBackend::Auto,
-                seed,
-                ..TsNetConfig::pure_2hop()
-            };
-            let mut solver = TsNetSolver::from_graph_pure_2hop(graph, cfg)?;
-            solver.run(layout)?;
-        }
-        LayoutMethod::TsnetRn => {
-            let cfg = TsNetConfig {
-                backend: TsNetBackend::Auto,
-                seed,
-                ..TsNetConfig::default()
-            };
-            let mut solver = TsNetSolver::from_graph_row_normalized_with_options(
-                graph,
-                0.5,
-                Some(DEFAULT_MAX_2HOP_PER_NODE),
-                0.0,
-                TwoHopSamplingMode::TwoStepRandomWalk,
-                None,
-                cfg,
-            )?;
-            solver.run(layout)?;
-        }
-        LayoutMethod::Gumap => {
-            let dog_cfg = DogVaradhanConfig {
-                seed,
-                ..DogVaradhanConfig::default()
-            };
-            let g_cfg = GuMapConfig {
-                seed,
-                ..GuMapConfig::default()
-            };
-            let mut solver = GuMapSolver::from_graph_dog(graph, 32, &dog_cfg, g_cfg)?;
-            solver.run(layout)?;
-        }
-        LayoutMethod::Stress => {
-            let mut solver =
-                StressMajorizationSolver::from_graph(graph, StressMajorizationConfig::default())?;
-            solver.run(layout)?;
-        }
-        LayoutMethod::Kk => {
-            let mut solver = KamadaKawaiSolver::from_graph(graph, KamadaKawaiConfig::default())?;
-            solver.run(layout)?;
-        }
-        LayoutMethod::Maxent => {
-            let cfg = MaxentStressConfig {
-                use_barnes_hut: dims == 2 || dims == 3,
-                seed,
-                ..MaxentStressConfig::default()
-            };
-            let mut solver = MaxentStressSolver::new(graph, cfg)?;
-            solver.run(layout)?;
-        }
-        LayoutMethod::Fr => {
-            let mut cfg = FruchtermanReingoldConfig {
-                seed,
-                ..FruchtermanReingoldConfig::default()
-            };
-            if dims != 2 && dims != 3 {
-                cfg.backend = FrBackend::Exact;
-            }
-            let mut solver = FruchtermanReingoldSolver::new(graph, cfg)?;
-            solver.run(layout)?;
-        }
-        LayoutMethod::Linlog => {
-            let cfg = LinLogConfig {
-                use_barnes_hut: dims == 2 || dims == 3,
-                seed,
-                ..LinLogConfig::default()
-            };
-            let mut solver = LinLogSolver::new(graph, cfg)?;
-            solver.run(layout)?;
-        }
-        LayoutMethod::Fa2 | LayoutMethod::Fa2Overlap => {
-            let cfg = ForceAtlas2Config {
-                use_barnes_hut: dims == 2 || dims == 3,
-                prevent_overlap: method == LayoutMethod::Fa2Overlap,
-                seed,
-                ..ForceAtlas2Config::default()
-            };
-            let mut solver = ForceAtlas2Solver::new(graph, cfg)?;
-            solver.run(layout)?;
-        }
-        LayoutMethod::YifanHu => {
-            let cfg = egraph::prelude::YifanHuConfig {
-                seed,
-                ..egraph::prelude::YifanHuConfig::default()
-            };
-            let mut solver = egraph::prelude::YifanHuSolver::new(graph, cfg)?;
-            solver.run(layout)?;
-        }
         LayoutMethod::Hde => {
-            let cfg = HdeConfig {
-                output_dims: dims,
-                seed,
-                ..HdeConfig::default()
-            };
-            *layout = hde_nd(graph, &cfg)?;
+            *layout = Hde::<LayoutNd<f64>>::new(graph)
+                .with_dims(dims)
+                .with_seed(seed)
+                .generate()?;
+            Ok(())
         }
-        other => {
-            return Err(CliError::Core(CoreError::unsupported(format!(
-                "layout method {:?} does not support N-D LayoutNd (dims={dims})",
-                other
-            ))));
-        }
+        other => Err(CliError::Core(CoreError::unsupported(format!(
+            "layout method {:?} does not support N-D LayoutNd (dims={dims})",
+            other
+        )))),
     }
-    Ok(())
 }
 
 /// Builds an initial [`ManifoldLayout2d<f64>`] with the requested manifold geometry and metric.
@@ -272,7 +182,7 @@ pub fn run_sgd_with_windows_2d(
         return Ok(());
     }
     let windows = schedule_windows.unwrap_or(1);
-    let default_iters = solver.total_iterations().max(1);
+    let default_iters = solver.total_iterations().unwrap_or(1).max(1);
     let window_iters = schedule_window_iters.unwrap_or(default_iters);
     for w in 0..windows {
         if w > 0 || schedule_window_iters.is_some() {
@@ -285,7 +195,7 @@ pub fn run_sgd_with_windows_2d(
 }
 
 /// Runs a manifold-compatible layout solver in-place on `layout`, optionally applying schedule
-/// windows (`reset_schedule` + `run_schedule_window_manifold`) and final geodesic rescaling.
+/// windows (`reset_schedule` + `run_schedule_window`) and final geodesic rescaling.
 #[allow(clippy::too_many_arguments)]
 pub fn run_layout_method_manifold(
     graph: &CsrGraph<f64>,
@@ -297,20 +207,20 @@ pub fn run_layout_method_manifold(
     manifold_scale: f64,
     rescale_final: Option<f64>,
 ) -> CliResult<()> {
-    if is_sgd_method(method) {
+    if is_sgd_solver_method(method) {
         let mut solver = build_sgd_solver(graph, method, seed)?;
         if schedule_windows.is_none() && schedule_window_iters.is_none() {
             solver.run(layout)?;
         } else {
             let windows = schedule_windows.unwrap_or(1);
-            let default_iters = solver.total_iterations().max(1);
+            let default_iters = solver.total_iterations().unwrap_or(1).max(1);
             let window_iters = schedule_window_iters.unwrap_or(default_iters);
             for w in 0..windows {
                 if w > 0 || schedule_window_iters.is_some() {
                     let cfg = SgdScheduleConfig::new(window_iters);
                     solver.reset_schedule(cfg, seed.wrapping_add(w as u64))?;
                 }
-                solver.run_schedule_window_manifold(layout, 0, window_iters)?;
+                solver.run_schedule_window(layout, 0, window_iters)?;
                 if let Some(final_scale) = rescale_final
                     && w + 1 < windows
                 {
@@ -333,68 +243,11 @@ pub fn run_layout_method_manifold(
         )));
     }
 
-    match method {
-        LayoutMethod::TsnetPure2hop => {
-            let cfg = TsNetConfig {
-                backend: TsNetBackend::Auto,
-                seed,
-                ..TsNetConfig::pure_2hop()
-            };
-            let mut solver = TsNetSolver::from_graph_pure_2hop(graph, cfg)?;
-            solver.run(layout)?;
-        }
-        LayoutMethod::TsnetRn => {
-            let cfg = TsNetConfig {
-                backend: TsNetBackend::Auto,
-                seed,
-                ..TsNetConfig::default()
-            };
-            let mut solver = TsNetSolver::from_graph_row_normalized_with_options(
-                graph,
-                0.5,
-                Some(DEFAULT_MAX_2HOP_PER_NODE),
-                0.0,
-                TwoHopSamplingMode::TwoStepRandomWalk,
-                None,
-                cfg,
-            )?;
-            solver.run(layout)?;
-        }
-        LayoutMethod::Gumap => {
-            let dog_cfg = DogVaradhanConfig {
-                seed,
-                ..DogVaradhanConfig::default()
-            };
-            let g_cfg = GuMapConfig {
-                seed,
-                ..GuMapConfig::default()
-            };
-            let mut solver = GuMapSolver::from_graph_dog(graph, 32, &dog_cfg, g_cfg)?;
-            solver.run(layout)?;
-        }
-        LayoutMethod::Stress => {
-            let mut solver =
-                StressMajorizationSolver::from_graph(graph, StressMajorizationConfig::default())?;
-            solver.run(layout)?;
-        }
-        LayoutMethod::Kk => {
-            let mut solver = KamadaKawaiSolver::from_graph(graph, KamadaKawaiConfig::default())?;
-            solver.run(layout)?;
-        }
-        LayoutMethod::Fr => {
-            let cfg = FruchtermanReingoldConfig {
-                seed,
-                ..FruchtermanReingoldConfig::default()
-            };
-            let mut solver = FruchtermanReingoldSolver::new(graph, cfg)?;
-            solver.run(layout)?;
-        }
-        other => {
-            return Err(CliError::Core(CoreError::unsupported(format!(
-                "layout method {:?} does not support ManifoldLayout2d",
-                other
-            ))));
-        }
+    if !run_riemannian_method(graph, layout, method, seed)? {
+        return Err(CliError::Core(CoreError::unsupported(format!(
+            "layout method {:?} does not support ManifoldLayout2d",
+            method
+        ))));
     }
 
     if let Some(final_scale) = rescale_final {

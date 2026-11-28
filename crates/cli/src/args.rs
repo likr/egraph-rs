@@ -46,19 +46,19 @@ pub enum LayoutMethod {
     /// Full all-pairs shortest-path SGD (`SgdSolver::full`); `egraph-cli` exposes single-criteria SGD presets (`sgd-full`, `sgd-ortmann`, `sgd-barrier-dog`, etc.) and does not expose multi-criteria `(SGD)^2` (`sgd2`).
     #[value(name = "sgd-full")]
     SgdFull,
-    /// SNAP-tFDP streaming edge-attached negative SGD (`SgdSolver::snap_t_fdp`).
+    /// SNAP-tFDP streaming edge-attached negative SGD (`SnapTFdpSolver`).
     #[value(name = "sgd-snap")]
     SgdSnap,
-    /// 3-tier PaCMAP-Graph SGD (`SgdSolver::pacmap_graph`).
+    /// 3-tier PaCMAP-Graph SGD (`PacmapGraphSolver`).
     #[value(name = "sgd-pacmap")]
     SgdPacmap,
     /// Graph UMAP (`GuMapSolver::from_graph_dog`).
     #[value(name = "gumap")]
     Gumap,
-    /// Interpolation-FFT bounded Student-t FDP (`FieldLayoutSolver::t_fdp`).
+    /// Interpolation-FFT bounded Student-t FDP (`TFdpSolver`).
     #[value(name = "tfdp")]
     Tfdp,
-    /// Interpolation-FFT batch Graph UMAP (`FieldLayoutSolver::ib_umap`).
+    /// Interpolation-FFT batch Graph UMAP (`IbUmapSolver`).
     #[value(name = "ibumap")]
     Ibumap,
     /// Barnes-Hut ForceAtlas2 (`ForceAtlas2Solver`; its `linlog_mode` follows Jacomy et al. 2014 and differs from Noack `LinLogSolver`).
@@ -88,7 +88,7 @@ pub enum LayoutMethod {
     /// Group-in-a-Box clustered layout (`GroupInABoxSolver`).
     #[value(name = "gib")]
     Gib,
-    /// High-Dimensional Embedding (`hde`, Harel & Koren 2004).
+    /// High-Dimensional Embedding (`Hde`, Harel & Koren 2004).
     #[value(name = "hde")]
     Hde,
     /// Ortmann et al. (2016) sparse stress SGD (`SgdSolver::ortmann_sparse_stress`).
@@ -97,13 +97,13 @@ pub enum LayoutMethod {
     /// Maxent-Stress layout with Barnes-Hut repulsion (`MaxentStressSolver`).
     #[value(name = "maxent")]
     Maxent,
-    /// LargeVis negative-sampling SGD layout (`SgdSolver::largevis`).
+    /// LargeVis negative-sampling SGD layout (`LargeVisSolver`).
     #[value(name = "largevis")]
     Largevis,
-    /// DRGraph multilevel negative-sampling SGD layout (`SgdSolver::drgraph`).
+    /// DRGraph multilevel negative-sampling SGD layout (`DrGraphSolver`).
     #[value(name = "drgraph")]
     Drgraph,
-    /// Graph-CNE InfoNCE / Neg-tSNE contrastive SGD layout (`SgdSolver::graph_cne`).
+    /// Graph-CNE InfoNCE / Neg-tSNE contrastive SGD layout (`GraphCneSolver`).
     #[value(name = "graph-cne")]
     GraphCne,
     /// Multilevel GRIP graph drawing (`GripSolver`, Gajer & Kobourov 2002).
@@ -115,7 +115,7 @@ pub enum LayoutMethod {
     /// Structural Entropy Layout with adaptive edge-weight modulation (`SelLayoutSolver`, Xue et al. 2025).
     #[value(name = "sel")]
     Sel,
-    /// Canonical community-ordered Hilbert/Morton space-filling curve baseline (`SfcLayoutSolver`; `muelder2008_space_filling` PDF pending/`MISSING_PDF`, guarantees zero co-location).
+    /// Canonical community-ordered Hilbert/Morton space-filling curve baseline (`SfcLayout`; `muelder2008_space_filling` PDF pending/`MISSING_PDF`, guarantees zero co-location).
     #[value(name = "sfc")]
     Sfc,
 }
@@ -124,10 +124,10 @@ pub enum LayoutMethod {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum InitMethod {
-    /// Normalized Core-First MaxMin PivotMDS (`pivot_mds`).
+    /// Normalized Core-First MaxMin PivotMDS (`PivotMds`).
     #[value(name = "pivot-mds")]
     PivotMds,
-    /// Koren degree-normalized spectral initialization (`koren_spectral_init`).
+    /// Koren degree-normalized spectral initialization (`KorenSpectral`).
     #[value(name = "koren")]
     Koren,
     /// Deterministic uniform/Gaussian random initialization (`DeterministicRng`).
@@ -256,7 +256,7 @@ pub struct LayoutArgs {
     /// Initial layout placement strategy.
     #[arg(long, value_enum, default_value_t = InitMethod::PivotMds)]
     pub init: InitMethod,
-    /// Embedding dimensionality (`2` for standard 2D `Layout2d`; `!= 2` runs N-D `LayoutNd`).
+    /// Embedding dimensionality (`2` for `Layout2d`, `3` for `Layout3d`, otherwise `LayoutNd`).
     #[arg(long, default_value_t = 2)]
     pub dims: usize,
     /// Non-Euclidean manifold geometry (`none`, `hyperbolic`, `hyperbolic-lorentz`, `spherical`, `torus`).
@@ -418,7 +418,7 @@ pub struct BenchArgs {
     /// Initial layout placement strategy.
     #[arg(long, value_enum, default_value_t = InitMethod::PivotMds)]
     pub init: InitMethod,
-    /// Embedding dimensionality (`2` for standard 2D `Layout2d`; `!= 2` runs N-D `LayoutNd`).
+    /// Embedding dimensionality (`2` for `Layout2d`, `3` for `Layout3d`, otherwise `LayoutNd`).
     #[arg(long, default_value_t = 2)]
     pub dims: usize,
     /// Non-Euclidean manifold geometry (`none`, `hyperbolic`, `hyperbolic-lorentz`, `spherical`, `torus`).

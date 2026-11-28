@@ -1,13 +1,11 @@
-//! Modernized single-threaded command-line interface library for `egraph`.
+//! Single-threaded command-line interface binary crate for `egraph`.
 //!
-//! Exposes [`Cli`], [`Commands`], and execution entrypoints for `layout`,
-//! `metrics`, `cluster`, and `bench` subcommands backed exclusively by the
-//! `egraph` facade crate.
-
-pub mod io;
+//! Parses process arguments and executes `layout`, `metrics`, `cluster`, and
+//! `bench` subcommands backed by the `egraph` facade crate.
 
 mod args;
 mod cluster_bench;
+mod io;
 mod layout_exec;
 mod layout_methods;
 mod layout_nd_manifold;
@@ -20,21 +18,13 @@ mod tests;
 
 use clap::Parser;
 
+use crate::args::{Cli, Commands};
+use crate::cluster_bench::{execute_bench, execute_cluster};
 use crate::io::{CliResult, write_json_output};
+use crate::layout_exec::execute_layout;
+use crate::metrics_exec::execute_metrics;
 
-pub use args::{
-    BenchArgs, Cli, ClusterArgs, ClusterMethod, ClusterRefineArg, Commands, InitMethod, LayoutArgs,
-    LayoutMethod, ManifoldArg, MetricsArgs, OverlapRemovalArg,
-};
-pub use cluster_bench::{execute_bench, execute_cluster};
-pub use layout_exec::execute_layout;
-pub use layout_methods::{build_initial_layout, run_layout_method, run_layout_method_with_labels};
-pub use metrics_exec::execute_metrics;
-pub use metrics_targets::{load_labels_from_path, parse_metric_targets};
-pub use output::{BenchOutput, ClusterOutput, GcafDetailOutput, LayoutOutput, MetricsOutput};
-
-/// Parses and executes the CLI from process arguments.
-pub fn run_cli() -> CliResult<()> {
+fn run_cli_inner() -> CliResult<()> {
     let cli = Cli::parse();
     match cli.command {
         Commands::Layout(args) => {
@@ -54,4 +44,9 @@ pub fn run_cli() -> CliResult<()> {
             write_json_output(&out, args.output.as_deref())
         }
     }
+}
+
+/// Parses and executes the `egraph` CLI from process arguments.
+pub fn run_cli() -> Result<(), String> {
+    run_cli_inner().map_err(|err| err.to_string())
 }

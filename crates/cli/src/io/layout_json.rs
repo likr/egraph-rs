@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use egraph::prelude::{CoreError, Layout2d, LayoutNd, ManifoldKind, ManifoldLayout2d};
+use egraph::prelude::{CoreError, Layout2d, Layout3d, LayoutNd, ManifoldKind, ManifoldLayout2d};
 use serde::Deserialize;
 
 use super::{CliError, CliResult};
@@ -10,6 +10,8 @@ use super::{CliError, CliResult};
 pub enum LoadedLayout {
     /// Standard Euclidean 2D layout.
     Euclidean2d(Layout2d<f64>),
+    /// Standard Euclidean 3D layout.
+    Euclidean3d(Layout3d<f64>),
     /// Arbitrary-dimension Euclidean N-D layout.
     Nd(LayoutNd<f64>),
     /// Non-Euclidean 2D manifold layout with physical metric parameters.
@@ -107,11 +109,11 @@ pub(super) fn parse_2d_layout_value(
     Ok(layout)
 }
 
-fn parse_nd_layout_value(
+fn parse_nd_or_3d_layout_value(
     val: &serde_json::Value,
     path: &Path,
     expected_nodes: usize,
-) -> CliResult<LayoutNd<f64>> {
+) -> CliResult<LoadedLayout> {
     let rows_val = val
         .get("coords_nd")
         .or_else(|| val.get("coords"))
@@ -165,6 +167,27 @@ fn parse_nd_layout_value(
             })?,
     };
 
+    if dims == 3 {
+        let mut xs = Vec::with_capacity(expected_nodes);
+        let mut ys = Vec::with_capacity(expected_nodes);
+        let mut zs = Vec::with_capacity(expected_nodes);
+        for (idx, row) in rows.iter().enumerate() {
+            if row.len() != 3 {
+                return Err(CliError::InvalidInput(format!(
+                    "3D coordinate row {idx} in '{}' has length {}, expected 3",
+                    path.display(),
+                    row.len()
+                )));
+            }
+            xs.push(row[0]);
+            ys.push(row[1]);
+            zs.push(row[2]);
+        }
+        let layout3d = Layout3d::from_xyz(xs, ys, zs)?;
+        layout3d.validate_finite()?;
+        return Ok(LoadedLayout::Euclidean3d(layout3d));
+    }
+
     let mut flat = Vec::with_capacity(expected_nodes * dims);
     for (idx, row) in rows.iter().enumerate() {
         if row.len() != dims {
@@ -177,9 +200,9 @@ fn parse_nd_layout_value(
         flat.extend_from_slice(row);
     }
 
-    let nd = LayoutNd::from_flat(expected_nodes, dims, flat)?;
+    let nd = LayoutNd::from_flat(expected_nodes, dims, &flat)?;
     nd.validate_finite()?;
-    Ok(nd)
+    Ok(LoadedLayout::Nd(nd))
 }
 
 pub(super) fn parse_any_layout_value(
@@ -237,11 +260,7 @@ pub(super) fn parse_any_layout_value(
             .and_then(|d| d.as_u64())
             .is_some_and(|d| d != 2);
     if is_nd {
-        return Ok(LoadedLayout::Nd(parse_nd_layout_value(
-            val,
-            path,
-            expected_nodes,
-        )?));
+        return parse_nd_or_3d_layout_value(val, path, expected_nodes);
     }
 
     Ok(LoadedLayout::Euclidean2d(parse_2d_layout_value(

@@ -1,13 +1,15 @@
 use std::path::PathBuf;
 
 use clap::Parser;
-use egraph::prelude::MetricTarget;
+use egraph::metrics::MetricTarget;
 
-use crate::io::CliError;
-use crate::{
+use crate::args::{
     Cli, ClusterMethod, ClusterRefineArg, Commands, InitMethod, LayoutArgs, LayoutMethod,
-    ManifoldArg, OverlapRemovalArg, execute_layout, parse_metric_targets,
+    ManifoldArg, OverlapRemovalArg,
 };
+use crate::io::CliError;
+use crate::layout_exec::execute_layout;
+use crate::metrics_targets::parse_metric_targets;
 
 #[test]
 fn parse_metric_targets_expands_all_with_dedup_and_validation() {

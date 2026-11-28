@@ -1,19 +1,23 @@
 use std::time::Instant;
 
-use egraph::prelude::{
-    ClusterRefineConfig, ClusterRefineMethod, ClusterRefineSolver, CoreError, ForbidConfig,
-    ForbidOverlapRemoval, ForbidVariant, GTreeConfig, GTreeOverlapRemoval, IterativeSolver,
-    LeidenConfig, ManifoldKind, PfsPrimeConfig, PfsPrimeOverlapRemoval, PrismConfig,
-    PrismOverlapRemoval, SpatialIntruderRefiner, SpatialRefinerConfig, TwinDeclutterConfig,
-    TwinDeclutterer, leiden,
+use egraph::clustering::{LeidenConfig, leiden};
+use egraph::core::{CoreError, IterativeSolver, LayoutTransform, ManifoldKind};
+use egraph::layout::{
+    ClusterRefineConfig, ClusterRefineMethod, ClusterRefineSolver, ForbidConfig,
+    ForbidOverlapRemoval, ForbidVariant, GTreeConfig, GTreeOverlapRemoval, PfsPrimeConfig,
+    PfsPrimeOverlapRemoval, PrismConfig, PrismOverlapRemoval, SpatialIntruderRefiner,
+    SpatialRefinerConfig, TwinDeclutterConfig, TwinDeclutterer,
 };
 
 use crate::args::{ClusterRefineArg, LayoutArgs, LayoutMethod, ManifoldArg, OverlapRemovalArg};
 use crate::io::{CliError, CliResult, resolve_graph};
-use crate::layout_methods::{build_initial_layout, is_sgd_method, run_layout_method_with_labels};
+use crate::layout_methods::{
+    build_initial_layout, is_sgd_solver_method, run_layout_method_with_labels,
+};
 use crate::layout_nd_manifold::{
-    build_initial_manifold_layout, build_initial_nd_layout, run_layout_method_manifold,
-    run_layout_method_nd, run_sgd_with_windows_2d,
+    build_initial_3d_layout, build_initial_manifold_layout, build_initial_nd_layout,
+    run_layout_method_3d, run_layout_method_manifold, run_layout_method_nd,
+    run_sgd_with_windows_2d,
 };
 use crate::metrics_targets::load_labels_from_path;
 use crate::output::LayoutOutput;
@@ -67,7 +71,7 @@ fn validate_layout_args(args: &LayoutArgs, effective_overlap: OverlapRemovalArg)
         ));
     }
     if (args.schedule_windows.is_some() || args.schedule_window_iters.is_some())
-        && (args.dims != 2 || !is_sgd_method(args.method))
+        && (args.dims != 2 || !is_sgd_solver_method(args.method))
     {
         return Err(CliError::InvalidInput(
             "--schedule-windows / --schedule-window-iters require --dims 2 and an SGD method"
@@ -116,6 +120,45 @@ pub fn execute_layout(args: &LayoutArgs) -> CliResult<LayoutOutput> {
     let t0 = Instant::now();
     let (graph, embedded_layout, source) =
         resolve_graph(args.input.as_deref(), args.dataset.as_deref(), None)?;
+
+    if args.dims == 3 {
+        let mut layout_3d = build_initial_3d_layout(&graph, args.init, args.seed)?;
+        run_layout_method_3d(&graph, &mut layout_3d, args.method, args.seed)?;
+        let elapsed_ms = t0.elapsed().as_secs_f64() * 1000.0;
+        let n = graph.num_nodes();
+        let x = layout_3d.x().to_vec();
+        let y = layout_3d.y().to_vec();
+        let z = layout_3d.z();
+        let mut coords = Vec::with_capacity(n);
+        let mut coords_nd = Vec::with_capacity(n);
+        for i in 0..n {
+            coords.push([x[i], y[i]]);
+            coords_nd.push(vec![x[i], y[i], z[i]]);
+        }
+        return Ok(LayoutOutput {
+            source,
+            method: args.method,
+            init: args.init,
+            dims: 3,
+            manifold: None,
+            manifold_scale: None,
+            torus_aspect: None,
+            seed: args.seed,
+            num_nodes: n,
+            num_edges: graph.num_edges(),
+            refined: false,
+            cluster_refine: ClusterRefineArg::None,
+            prism_applied: false,
+            prism_overlaps_remaining: None,
+            overlap_removal: OverlapRemovalArg::None,
+            overlaps_remaining: None,
+            elapsed_ms,
+            x,
+            y,
+            coords,
+            coords_nd: Some(coords_nd),
+        });
+    }
 
     if args.dims != 2 {
         let mut nd_layout = build_initial_nd_layout(&graph, args.init, args.dims, args.seed)?;
@@ -224,10 +267,7 @@ pub fn execute_layout(args: &LayoutArgs) -> CliResult<LayoutOutput> {
     if labels.is_none()
         && (args.method == LayoutMethod::Gib || args.cluster_refine != ClusterRefineArg::None)
     {
-        let l_cfg = LeidenConfig {
-            seed: args.seed,
-            ..LeidenConfig::default()
-        };
+        let l_cfg = LeidenConfig::new().with_seed(args.seed);
         labels = Some(leiden(&graph, &l_cfg)?.labels);
     }
 
@@ -256,10 +296,7 @@ pub fn execute_layout(args: &LayoutArgs) -> CliResult<LayoutOutput> {
     }
 
     if args.refine {
-        let ref_cfg = SpatialRefinerConfig {
-            seed: args.seed,
-            ..SpatialRefinerConfig::default()
-        };
+        let ref_cfg = SpatialRefinerConfig::new().with_seed(args.seed);
         let mut refiner = SpatialIntruderRefiner::new(&graph, ref_cfg)?;
         refiner.run(&mut layout)?;
     }
@@ -271,35 +308,27 @@ pub fn execute_layout(args: &LayoutArgs) -> CliResult<LayoutOutput> {
             ClusterRefineArg::Hac => ClusterRefineMethod::Hac,
         };
         let cr_labels = labels.clone().unwrap_or_default();
-        let cr_cfg = ClusterRefineConfig {
-            method,
-            seed: args.seed,
-            ..ClusterRefineConfig::default()
-        };
-        let mut refiner = ClusterRefineSolver::from_graph(&graph, cr_labels, cr_cfg)?;
+        let cr_cfg = ClusterRefineConfig::new()
+            .with_method(method)
+            .with_seed(args.seed);
+        let mut refiner = ClusterRefineSolver::from_graph(&graph, &cr_labels, cr_cfg)?;
         refiner.run(&mut layout)?;
     }
 
     let (prism_overlaps_remaining, overlaps_remaining) = match effective_overlap {
         OverlapRemovalArg::None => (None, None),
         OverlapRemovalArg::Prism => {
-            let prism_cfg = PrismConfig {
-                seed: args.seed,
-                ..PrismConfig::default()
-            };
+            let prism_cfg = PrismConfig::new().with_seed(args.seed);
             let radii = vec![args.prism_radius; graph.num_nodes()];
-            let mut prism = PrismOverlapRemoval::from_radii(radii, prism_cfg)?;
+            let mut prism = PrismOverlapRemoval::from_radii(&radii, prism_cfg)?;
             prism.run(&mut layout)?;
             let rem = Some(prism.last_overlap_count());
             (rem, rem)
         }
         OverlapRemovalArg::Gtree => {
-            let gtree_cfg = GTreeConfig {
-                seed: args.seed,
-                ..GTreeConfig::default()
-            };
+            let gtree_cfg = GTreeConfig::new().with_seed(args.seed);
             let radii = vec![args.prism_radius; graph.num_nodes()];
-            let mut gtree = GTreeOverlapRemoval::from_radii(radii, gtree_cfg)?;
+            let mut gtree = GTreeOverlapRemoval::from_radii(&radii, gtree_cfg)?;
             gtree.run(&mut layout)?;
             (None, Some(gtree.last_overlap_count()))
         }
@@ -312,29 +341,24 @@ pub fn execute_layout(args: &LayoutArgs) -> CliResult<LayoutOutput> {
                 OverlapRemovalArg::SparseForbid => ForbidVariant::SparseForbid,
                 _ => unreachable!(),
             };
-            let forbid_cfg = ForbidConfig {
-                variant,
-                seed: args.seed,
-                ..ForbidConfig::default()
-            };
+            let forbid_cfg = ForbidConfig::new()
+                .with_variant(variant)
+                .with_seed(args.seed);
             let radii = vec![args.prism_radius; graph.num_nodes()];
-            let mut forbid = ForbidOverlapRemoval::from_radii(radii, forbid_cfg)?;
+            let mut forbid = ForbidOverlapRemoval::from_radii(&radii, forbid_cfg)?;
             forbid.run(&mut layout)?;
             (None, Some(forbid.last_overlap_count()))
         }
         OverlapRemovalArg::PfsPrime => {
-            let pfs_cfg = PfsPrimeConfig {
-                seed: args.seed,
-                ..PfsPrimeConfig::default()
-            };
+            let pfs_cfg = PfsPrimeConfig::new().with_seed(args.seed);
             let radii = vec![args.prism_radius; graph.num_nodes()];
-            let mut pfs = PfsPrimeOverlapRemoval::from_radii(radii, pfs_cfg)?;
-            pfs.run(&mut layout)?;
+            let mut pfs = PfsPrimeOverlapRemoval::from_radii(&radii, pfs_cfg)?;
+            pfs.apply(&mut layout)?;
             (None, Some(pfs.last_overlap_count()))
         }
         OverlapRemovalArg::TwinDeclutter => {
             let mut declutterer = TwinDeclutterer::new(TwinDeclutterConfig::default())?;
-            declutterer.run(&mut layout)?;
+            declutterer.apply(&mut layout)?;
             (None, None)
         }
     };

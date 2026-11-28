@@ -1,10 +1,10 @@
 use std::time::Instant;
 
-use egraph::prelude::{
-    ClusterAreaConfig, ClusterBaselineConfig, CoreError, MetricConfig, MetricInputs, MetricTarget,
-    cluster_area_faithfulness, cluster_area_faithfulness_detail, evaluate_metrics_nd_with_inputs,
-    evaluate_metrics_with_inputs, layout_degeneracy, layout_degeneracy_manifold,
-    layout_degeneracy_nd,
+use egraph::core::{CoreError, NodeExtents2d};
+use egraph::metrics::{
+    ClusterAreaConfig, ClusterBaselineConfig, MetricConfig, MetricInputs, MetricTarget,
+    cluster_area_faithfulness, cluster_area_faithfulness_detail, evaluate_metrics_with_inputs,
+    layout_degeneracy,
 };
 
 use crate::args::MetricsArgs;
@@ -69,42 +69,42 @@ pub fn execute_metrics(args: &MetricsArgs) -> CliResult<MetricsOutput> {
         push_unique_target(&mut targets, MetricTarget::ClusterAreaFaithfulness);
     }
 
-    let cfg = MetricConfig {
-        sns_num_pivots: args.num_pivots,
-        sns_seed: args.seed,
-        crossing_num_samples: args.num_samples,
-        crossing_seed: args.seed,
-        ideal_edge_length: args.ideal_edge_length,
-        cluster_area: ClusterAreaConfig {
-            g_max: args.gcaf_g_max,
-            sigma_cells: args.gcaf_sigma_cells,
-            kappa: args.gcaf_kappa,
-            tau_frac: args.gcaf_tau_frac,
-            boundary_r95: args.gcaf_boundary_r95,
-            stevens_gamma: args.gcaf_stevens_gamma,
-        },
-        cluster_baselines: ClusterBaselineConfig {
-            seed: args.seed,
-            sprawlter_node_radius: args.overlap_radius,
-            ..ClusterBaselineConfig::default()
-        },
-        ..MetricConfig::default()
-    };
+    let cluster_area = ClusterAreaConfig::new()
+        .with_g_max(args.gcaf_g_max)
+        .with_sigma_cells(args.gcaf_sigma_cells)
+        .with_kappa(args.gcaf_kappa)
+        .with_tau_frac(args.gcaf_tau_frac)
+        .with_boundary_r95(args.gcaf_boundary_r95)
+        .with_stevens_gamma(args.gcaf_stevens_gamma);
+    let cluster_baselines = ClusterBaselineConfig::new()
+        .with_seed(args.seed)
+        .with_sprawlter_node_radius(args.overlap_radius);
+    let cfg = MetricConfig::new()
+        .with_sns_num_pivots(args.num_pivots)
+        .with_sns_seed(args.seed)
+        .with_crossing_num_samples(args.num_samples)
+        .with_crossing_seed(args.seed)
+        .with_np_num_samples(args.num_samples)
+        .with_np_seed(args.seed)
+        .with_ideal_edge_length(args.ideal_edge_length)
+        .with_cluster_area(cluster_area)
+        .with_baseline_config(cluster_baselines);
     cfg.validate()?;
 
-    let inputs = MetricInputs {
-        labels: labels.as_deref(),
-        node_weights: None,
-        cluster_weights: None,
-        original_layout: original_layout.as_ref(),
-        sprawlter_half_widths: half_widths.as_deref(),
-        sprawlter_half_heights: half_heights.as_deref(),
+    let sprawlter_extents = match (half_widths.as_deref(), half_heights.as_deref()) {
+        (Some(hw), Some(hh)) => Some(NodeExtents2d::new(hw, hh)?),
+        (None, None) => None,
+        _ => unreachable!("validated half_widths.is_some() == half_heights.is_some()"),
     };
 
     let want_degeneracy = targets.contains(&MetricTarget::LayoutDegeneracy);
     let t0 = Instant::now();
     let (report, degeneracy, gcaf_report, gcaf_detail) = match &loaded_layout {
         LoadedLayout::Euclidean2d(layout) => {
+            let inputs = MetricInputs::new()
+                .with_labels(labels.as_deref())
+                .with_original_layout(original_layout.as_ref())
+                .with_sprawlter_extents(sprawlter_extents);
             let want_gcaf = targets.contains(&MetricTarget::ClusterAreaFaithfulness);
             let non_gcaf_targets: Vec<MetricTarget> = targets
                 .iter()
@@ -124,7 +124,7 @@ pub fn execute_metrics(args: &MetricsArgs) -> CliResult<MetricsOutput> {
                 })?;
                 if args.gcaf_detail {
                     let det = cluster_area_faithfulness_detail(layout, lbls, &cfg.cluster_area)?;
-                    (Some(det.report), Some(det))
+                    (Some(det.report.clone()), Some(det))
                 } else {
                     let rep = cluster_area_faithfulness(layout, lbls, &cfg.cluster_area)?;
                     (Some(rep), None)
@@ -134,20 +134,52 @@ pub fn execute_metrics(args: &MetricsArgs) -> CliResult<MetricsOutput> {
             };
             (report, deg, gcaf_report, gcaf_detail)
         }
-        LoadedLayout::Nd(nd_layout) => {
-            let report =
-                evaluate_metrics_nd_with_inputs(&graph, nd_layout, &targets, &cfg, &inputs)?;
+        LoadedLayout::Euclidean3d(layout_3d) => {
+            if original_layout.is_some() {
+                return Err(CliError::Core(CoreError::unsupported(
+                    "--original-layout is only supported for 2D Euclidean layouts",
+                )));
+            }
+            let inputs = MetricInputs::new()
+                .with_labels(labels.as_deref())
+                .with_sprawlter_extents(sprawlter_extents);
+            let report = evaluate_metrics_with_inputs(&graph, layout_3d, &targets, &cfg, &inputs)?;
             let deg = if want_degeneracy {
-                Some(layout_degeneracy_nd(&graph, nd_layout)?)
+                Some(layout_degeneracy(&graph, layout_3d)?)
+            } else {
+                None
+            };
+            (report, deg, None, None)
+        }
+        LoadedLayout::Nd(nd_layout) => {
+            if original_layout.is_some() {
+                return Err(CliError::Core(CoreError::unsupported(
+                    "--original-layout is only supported for 2D Euclidean layouts",
+                )));
+            }
+            let inputs = MetricInputs::new()
+                .with_labels(labels.as_deref())
+                .with_sprawlter_extents(sprawlter_extents);
+            let report = evaluate_metrics_with_inputs(&graph, nd_layout, &targets, &cfg, &inputs)?;
+            let deg = if want_degeneracy {
+                Some(layout_degeneracy(&graph, nd_layout)?)
             } else {
                 None
             };
             (report, deg, None, None)
         }
         LoadedLayout::Manifold(m_layout) => {
+            if original_layout.is_some() {
+                return Err(CliError::Core(CoreError::unsupported(
+                    "--original-layout is only supported for 2D Euclidean layouts",
+                )));
+            }
+            let inputs = MetricInputs::new()
+                .with_labels(labels.as_deref())
+                .with_sprawlter_extents(sprawlter_extents);
             let report = evaluate_metrics_with_inputs(&graph, m_layout, &targets, &cfg, &inputs)?;
             let deg = if want_degeneracy {
-                Some(layout_degeneracy_manifold(&graph, m_layout)?)
+                Some(layout_degeneracy(&graph, m_layout)?)
             } else {
                 None
             };

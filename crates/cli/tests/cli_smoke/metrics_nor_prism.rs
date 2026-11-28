@@ -137,9 +137,27 @@ fn cli_nor_prism_cluster_diagnostics_and_guards() {
             "--dataset",
             "karate",
             "--method",
-            "tfdp",
+            "ibumap",
             "--dims",
             "3",
+        ],
+        vec![
+            "layout",
+            "--dataset",
+            "karate",
+            "--method",
+            "tfdp",
+            "--manifold",
+            "torus",
+        ],
+        vec![
+            "layout",
+            "--dataset",
+            "karate",
+            "--method",
+            "fa2",
+            "--manifold",
+            "spherical",
         ],
     ] {
         let res = Command::new(bin)
