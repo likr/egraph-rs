@@ -1,15 +1,57 @@
-pub mod catalog;
-pub mod synthetic;
+mod catalog;
+mod synthetic;
 
 use egraph_core::{CoreError, CoreResult, CsrGraph, Scalar};
-#[cfg(feature = "petgraph")]
-use petgraph::{EdgeType, graph::IndexType, prelude::*};
 
 pub use catalog::{DatasetInfo, dataset_catalog, dataset_info, list_datasets};
 pub use synthetic::{
     generate_hyperbolic_tree, generate_layered_dag, generate_sbm_graph, generate_spherical_grid,
     generate_spherical_icosphere, generate_torus_grid, generate_weighted_graph,
 };
+
+/// Parses a 2-column unweighted edge-list CSV string into a [`CsrGraph<W>`] (including
+/// [`CsrGraph<()>`]).
+///
+/// Expected format is a header line `num_nodes,num_edges` followed by `num_edges` lines of `u,v`.
+/// Rejects 3-column weighted rows with [`CoreError::InvalidInput`].
+pub fn parse_unweighted_csr_csv<W>(
+    input: &str,
+    directed: bool,
+    sanitize: bool,
+) -> CoreResult<CsrGraph<W>> {
+    let mut rows = input.lines().map(str::trim).filter(|line| !line.is_empty());
+    let header = rows
+        .next()
+        .ok_or_else(|| CoreError::invalid_input("dataset CSV is empty"))?;
+    let (num_nodes, expected_edges) = parse_usize_pair(header, "CSV header")?;
+
+    let mut edges = Vec::with_capacity(expected_edges);
+    for (row_idx, row) in rows.enumerate() {
+        let context = format!("CSV edge row {row_idx}");
+        let (u_usize, v_usize) = parse_usize_pair(row, &context)?;
+        let u = u32::try_from(u_usize).map_err(|_| {
+            CoreError::invalid_input(format!(
+                "vertex index {u_usize} overflows u32 at row {row_idx}"
+            ))
+        })?;
+        let v = u32::try_from(v_usize).map_err(|_| {
+            CoreError::invalid_input(format!(
+                "vertex index {v_usize} overflows u32 at row {row_idx}"
+            ))
+        })?;
+        edges.push((u, v));
+    }
+
+    if edges.len() != expected_edges {
+        return Err(CoreError::dimension_mismatch(
+            expected_edges,
+            edges.len(),
+            "egraph_dataset::parse_unweighted_csr_csv",
+        ));
+    }
+
+    CsrGraph::from_unweighted_edges(num_nodes, &edges, directed, sanitize)
+}
 
 /// Parses an edge-list CSV string into a [`CsrGraph<W>`].
 ///
@@ -150,184 +192,88 @@ fn parse_edge_row<W: Scalar>(row: &str, row_idx: usize) -> CoreResult<(usize, us
     Ok((u, v, w_opt))
 }
 
-#[cfg(feature = "petgraph")]
 #[allow(dead_code)]
-fn parse<N: Default, E: Default, Ty: EdgeType, Ix: IndexType>(input: &str) -> Graph<N, E, Ty, Ix> {
-    let rows = input
-        .split_ascii_whitespace()
-        .map(|row| {
-            row.split(',')
-                .map(|v| v.parse::<usize>().unwrap())
-                .collect::<Vec<_>>()
-        })
-        .collect::<Vec<_>>();
-    let n = rows[0][0];
-    let m = rows[0][1];
-    let mut graph = Graph::with_capacity(n, m);
-    let mut indices = Vec::with_capacity(n);
-    for _ in 0..n {
-        indices.push(graph.add_node(N::default()));
-    }
-    for row in &rows[1..] {
-        let u = row[0];
-        let v = row[1];
-        graph.add_edge(indices[u], indices[v], E::default());
-    }
-    graph
+fn parse_embedded_csr<W>(input: &str) -> CsrGraph<W> {
+    parse_unweighted_csr_csv(input, false, false).expect("embedded dataset CSV must be valid")
 }
 
-#[allow(dead_code)]
-fn parse_embedded_csr(input: &str) -> CsrGraph<f64> {
-    parse_csr_csv(input, false, false).expect("embedded dataset CSV must be valid")
-}
-
-/// Loads the "1138_bus" graph dataset from the SuiteSparse Matrix Collection.
-///
-/// Requires the `1138_bus` and `petgraph` feature flags to be enabled.
-#[cfg(all(feature = "petgraph", feature = "1138_bus"))]
-pub fn dataset_1138_bus<N: Default, E: Default, Ty: EdgeType, Ix: IndexType>() -> Graph<N, E, Ty, Ix>
-{
-    parse(include_str!("data/1138_bus.csv"))
-}
-
-/// Loads the "1138_bus" graph dataset as an undirected [`CsrGraph<f64>`].
+/// Loads the "1138_bus" graph dataset from the SuiteSparse Matrix Collection as an undirected
+/// [`CsrGraph<f64>`].
 ///
 /// Requires the `1138_bus` feature flag to be enabled.
 #[cfg(feature = "1138_bus")]
-pub fn dataset_1138_bus_csr() -> CsrGraph<f64> {
+pub fn dataset_1138_bus() -> CsrGraph<f64> {
     parse_embedded_csr(include_str!("data/1138_bus.csv"))
 }
 
-/// Loads the "3elt" graph dataset from the SuiteSparse Matrix Collection.
-///
-/// Requires the `3elt` and `petgraph` feature flags to be enabled.
-#[cfg(all(feature = "petgraph", feature = "3elt"))]
-pub fn dataset_3_elt<N: Default, E: Default, Ty: EdgeType, Ix: IndexType>() -> Graph<N, E, Ty, Ix> {
-    parse(include_str!("data/3elt.csv"))
-}
-
-/// Loads the "3elt" graph dataset as an undirected [`CsrGraph<f64>`].
+/// Loads the "3elt" graph dataset from the SuiteSparse Matrix Collection as an undirected
+/// [`CsrGraph<f64>`].
 ///
 /// Requires the `3elt` feature flag to be enabled.
 #[cfg(feature = "3elt")]
-pub fn dataset_3_elt_csr() -> CsrGraph<f64> {
+pub fn dataset_3_elt() -> CsrGraph<f64> {
     parse_embedded_csr(include_str!("data/3elt.csv"))
 }
 
-/// Loads the "dwt_1005" graph dataset from the SuiteSparse Matrix Collection.
-///
-/// Requires the `dwt_1005` and `petgraph` feature flags to be enabled.
-#[cfg(all(feature = "petgraph", feature = "dwt_1005"))]
-pub fn dataset_dwt_1005<N: Default, E: Default, Ty: EdgeType, Ix: IndexType>() -> Graph<N, E, Ty, Ix>
-{
-    parse(include_str!("data/dwt_1005.csv"))
-}
-
-/// Loads the "dwt_1005" graph dataset as an undirected [`CsrGraph<f64>`].
+/// Loads the "dwt_1005" graph dataset from the SuiteSparse Matrix Collection as an undirected
+/// [`CsrGraph<f64>`].
 ///
 /// Requires the `dwt_1005` feature flag to be enabled.
 #[cfg(feature = "dwt_1005")]
-pub fn dataset_dwt_1005_csr() -> CsrGraph<f64> {
+pub fn dataset_dwt_1005() -> CsrGraph<f64> {
     parse_embedded_csr(include_str!("data/dwt_1005.csv"))
 }
 
-/// Loads the "dwt_2680" graph dataset from the SuiteSparse Matrix Collection.
-///
-/// Requires the `dwt_2680` and `petgraph` feature flags to be enabled.
-#[cfg(all(feature = "petgraph", feature = "dwt_2680"))]
-pub fn dataset_dwt_2680<N: Default, E: Default, Ty: EdgeType, Ix: IndexType>() -> Graph<N, E, Ty, Ix>
-{
-    parse(include_str!("data/dwt_2680.csv"))
-}
-
-/// Loads the "dwt_2680" graph dataset as an undirected [`CsrGraph<f64>`].
+/// Loads the "dwt_2680" graph dataset from the SuiteSparse Matrix Collection as an undirected
+/// [`CsrGraph<f64>`].
 ///
 /// Requires the `dwt_2680` feature flag to be enabled.
 #[cfg(feature = "dwt_2680")]
-pub fn dataset_dwt_2680_csr() -> CsrGraph<f64> {
+pub fn dataset_dwt_2680() -> CsrGraph<f64> {
     parse_embedded_csr(include_str!("data/dwt_2680.csv"))
 }
 
-/// Loads the "poli" graph dataset from the SuiteSparse Matrix Collection.
-///
-/// Requires the `poli` and `petgraph` feature flags to be enabled.
-#[cfg(all(feature = "petgraph", feature = "poli"))]
-pub fn dataset_poli<N: Default, E: Default, Ty: EdgeType, Ix: IndexType>() -> Graph<N, E, Ty, Ix> {
-    parse(include_str!("data/poli.csv"))
-}
-
-/// Loads the "poli" graph dataset as an undirected [`CsrGraph<f64>`].
+/// Loads the "poli" graph dataset from the SuiteSparse Matrix Collection as an undirected
+/// [`CsrGraph<f64>`].
 ///
 /// Requires the `poli` feature flag to be enabled.
 #[cfg(feature = "poli")]
-pub fn dataset_poli_csr() -> CsrGraph<f64> {
+pub fn dataset_poli() -> CsrGraph<f64> {
     parse_embedded_csr(include_str!("data/poli.csv"))
 }
 
-/// Loads the "qh882" graph dataset from the SuiteSparse Matrix Collection.
-///
-/// Requires the `qh882` and `petgraph` feature flags to be enabled.
-#[cfg(all(feature = "petgraph", feature = "qh882"))]
-pub fn dataset_qh882<N: Default, E: Default, Ty: EdgeType, Ix: IndexType>() -> Graph<N, E, Ty, Ix> {
-    parse(include_str!("data/qh882.csv"))
-}
-
-/// Loads the "qh882" graph dataset as an undirected [`CsrGraph<f64>`].
+/// Loads the "qh882" graph dataset from the SuiteSparse Matrix Collection as an undirected
+/// [`CsrGraph<f64>`].
 ///
 /// Requires the `qh882` feature flag to be enabled.
 #[cfg(feature = "qh882")]
-pub fn dataset_qh882_csr() -> CsrGraph<f64> {
+pub fn dataset_qh882() -> CsrGraph<f64> {
     parse_embedded_csr(include_str!("data/qh882.csv"))
 }
 
-/// Loads the "USpowerGrid" graph dataset from the SuiteSparse Matrix Collection.
-///
-/// Requires the `USpowerGrid` and `petgraph` feature flags to be enabled.
-#[cfg(all(feature = "petgraph", feature = "USpowerGrid"))]
-pub fn dataset_uspower_grid<N: Default, E: Default, Ty: EdgeType, Ix: IndexType>()
--> Graph<N, E, Ty, Ix> {
-    parse(include_str!("data/USpowerGrid.csv"))
-}
-
-/// Loads the "USpowerGrid" graph dataset as an undirected [`CsrGraph<f64>`].
+/// Loads the "USpowerGrid" graph dataset from the SuiteSparse Matrix Collection as an undirected
+/// [`CsrGraph<f64>`].
 ///
 /// Requires the `USpowerGrid` feature flag to be enabled.
 #[cfg(feature = "USpowerGrid")]
-pub fn dataset_uspower_grid_csr() -> CsrGraph<f64> {
+pub fn dataset_uspower_grid() -> CsrGraph<f64> {
     parse_embedded_csr(include_str!("data/USpowerGrid.csv"))
-}
-
-/// Loads the "karate" graph dataset (Zachary's Karate Club).
-///
-/// Requires the `karate` and `petgraph` feature flags to be enabled.
-#[cfg(all(feature = "petgraph", feature = "karate"))]
-pub fn dataset_karate<N: Default, E: Default, Ty: EdgeType, Ix: IndexType>() -> Graph<N, E, Ty, Ix>
-{
-    parse(include_str!("data/karate.csv"))
 }
 
 /// Loads the "karate" graph dataset (Zachary's Karate Club) as an undirected [`CsrGraph<f64>`].
 ///
 /// Requires the `karate` feature flag to be enabled.
 #[cfg(feature = "karate")]
-pub fn dataset_karate_csr() -> CsrGraph<f64> {
+pub fn dataset_karate() -> CsrGraph<f64> {
     parse_embedded_csr(include_str!("data/karate.csv"))
 }
 
-/// Loads the "lesmis" graph dataset (Les Misérables character co-occurrence network).
-///
-/// Requires the `lesmis` and `petgraph` feature flags to be enabled.
-#[cfg(all(feature = "petgraph", feature = "lesmis"))]
-pub fn dataset_lesmis<N: Default, E: Default, Ty: EdgeType, Ix: IndexType>() -> Graph<N, E, Ty, Ix>
-{
-    parse(include_str!("data/lesmis.csv"))
-}
-
-/// Loads the "lesmis" graph dataset (Les Misérables) as an undirected [`CsrGraph<f64>`].
+/// Loads the "lesmis" graph dataset (Les Misérables character co-occurrence network) as an
+/// undirected [`CsrGraph<f64>`].
 ///
 /// Requires the `lesmis` feature flag to be enabled.
 #[cfg(feature = "lesmis")]
-pub fn dataset_lesmis_csr() -> CsrGraph<f64> {
+pub fn dataset_lesmis() -> CsrGraph<f64> {
     parse_embedded_csr(include_str!("data/lesmis.csv"))
 }
 

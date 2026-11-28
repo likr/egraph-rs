@@ -1,7 +1,8 @@
 //! Built-in dataset catalog and metadata lookup for `egraph-dataset`.
 
 /// Static metadata describing a built-in embedded dataset.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DatasetInfo {
     /// Canonical dataset identifier returned by [`list_datasets`].
     pub name: &'static str,

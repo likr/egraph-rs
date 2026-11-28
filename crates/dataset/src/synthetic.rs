@@ -50,7 +50,7 @@ pub fn generate_weighted_graph(
         )));
     }
     if num_nodes <= 1 || avg_degree == 0 {
-        return CsrGraph::from_edges(num_nodes, &[], None, false, false);
+        return CsrGraph::from_unweighted_edges(num_nodes, &[], false, false);
     }
 
     let mut rng = DeterministicRng::from_seed_u64(seed);
@@ -107,7 +107,7 @@ pub fn generate_layered_dag(
         return Err(CoreError::invalid_csr("num_nodes exceeds u32::MAX"));
     }
     if num_layers <= 1 || nodes_per_layer == 0 {
-        return CsrGraph::from_edges(num_nodes, &[], None, true, false);
+        return CsrGraph::from_unweighted_edges(num_nodes, &[], true, false);
     }
 
     let mut rng = DeterministicRng::from_seed_u64(seed);
@@ -126,7 +126,7 @@ pub fn generate_layered_dag(
             }
         }
     }
-    CsrGraph::from_edges(num_nodes, &edges, None, true, false)
+    CsrGraph::from_unweighted_edges(num_nodes, &edges, true, false)
 }
 
 /// Generates a deterministic Stochastic Block Model (SBM) undirected graph alongside its
@@ -157,7 +157,7 @@ pub fn generate_sbm_graph(
         labels.resize(labels.len() + sz, bid);
     }
     if num_nodes <= 1 {
-        let g = CsrGraph::from_edges(num_nodes, &[], None, false, false)?;
+        let g = CsrGraph::from_unweighted_edges(num_nodes, &[], false, false)?;
         return Ok((g, labels));
     }
 
@@ -173,7 +173,7 @@ pub fn generate_sbm_graph(
             }
         }
     }
-    let graph = CsrGraph::from_edges(num_nodes, &edges, None, false, false)?;
+    let graph = CsrGraph::from_unweighted_edges(num_nodes, &edges, false, false)?;
     Ok((graph, labels))
 }
 
@@ -212,7 +212,7 @@ pub fn generate_torus_grid(
     }
     edges.sort_unstable();
     edges.dedup();
-    CsrGraph::from_edges(num_nodes, &edges, None, false, false)
+    CsrGraph::from_unweighted_edges(num_nodes, &edges, false, false)
 }
 
 /// Generates a closed genus-0 triangulated spherical icosphere by subdividing a regular
@@ -293,7 +293,7 @@ pub fn generate_spherical_icosphere(subdivisions: usize) -> CoreResult<CsrGraph<
     }
     edges.sort_unstable();
     edges.dedup();
-    CsrGraph::from_edges(num_nodes as usize, &edges, None, false, false)
+    CsrGraph::from_unweighted_edges(num_nodes as usize, &edges, false, false)
 }
 
 /// Generates a closed UV spherical grid mesh with north/south poles and `latitudes` intermediate
@@ -338,7 +338,7 @@ pub fn generate_spherical_grid(latitudes: usize, longitudes: usize) -> CoreResul
     }
     edges.sort_unstable();
     edges.dedup();
-    CsrGraph::from_edges(num_nodes, &edges, None, false, false)
+    CsrGraph::from_unweighted_edges(num_nodes, &edges, false, false)
 }
 
 /// Generates a deterministic regular hyperbolic branching tree with `branching_factor` children
@@ -366,7 +366,7 @@ pub fn generate_hyperbolic_tree(
         return Err(CoreError::invalid_csr("num_nodes exceeds u32::MAX"));
     }
     if total == 1 {
-        return CsrGraph::from_edges(1, &[], None, false, false);
+        return CsrGraph::from_unweighted_edges(1, &[], false, false);
     }
 
     let mut edges = Vec::with_capacity(total - 1);
@@ -379,5 +379,5 @@ pub fn generate_hyperbolic_tree(
             next_child += 1;
         }
     }
-    CsrGraph::from_edges(total, &edges, None, false, false)
+    CsrGraph::from_unweighted_edges(total, &edges, false, false)
 }

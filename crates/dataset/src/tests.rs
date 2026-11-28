@@ -215,8 +215,117 @@ fn test_generate_weighted_graph_canonical_wrap_edge_and_seeds() {
     }
 }
 
+#[test]
+fn test_parse_unweighted_csr_csv_unit_and_errors() {
+    let csv = "4,3\n0,1\r\n1,2\n2,3\n";
+    let g: CsrGraph<()> = parse_unweighted_csr_csv(csv, false, false).unwrap();
+    assert_eq!(g.num_nodes(), 4);
+    assert_eq!(g.num_edges(), 3);
+    assert!(!g.is_directed());
+    assert!(!g.is_weighted());
+    assert!(g.weights().is_none());
+    assert_eq!(g.neighbors(1), &[0, 2]);
+
+    let empty = parse_unweighted_csr_csv::<()>("0,0\n", false, false).unwrap();
+    assert_eq!(empty.num_nodes(), 0);
+    assert_eq!(empty.num_edges(), 0);
+
+    let dg: CsrGraph<()> = parse_unweighted_csr_csv("3,2\n0,1\n1,0\n", true, false).unwrap();
+    assert!(dg.is_directed());
+    assert_eq!(dg.num_edges(), 2);
+
+    let dirty = "3,3\n0,1\n1,0\n0,0\n";
+    let clean: CsrGraph<()> = parse_unweighted_csr_csv(dirty, false, true).unwrap();
+    assert_eq!(clean.num_nodes(), 3);
+    assert_eq!(clean.num_edges(), 1);
+    assert_eq!(clean.neighbors(0), &[1]);
+
+    assert!(matches!(
+        parse_unweighted_csr_csv::<()>("", false, false),
+        Err(CoreError::InvalidInput(_))
+    ));
+    assert!(matches!(
+        parse_unweighted_csr_csv::<()>("3,2\n0,1\n", false, false),
+        Err(CoreError::DimensionMismatch { .. })
+    ));
+    assert!(matches!(
+        parse_unweighted_csr_csv::<()>("3,1\n0,1,2.0\n", false, false),
+        Err(CoreError::InvalidInput(_))
+    ));
+    assert!(matches!(
+        parse_unweighted_csr_csv::<()>("3,1\n0\n", false, false),
+        Err(CoreError::InvalidInput(_))
+    ));
+    assert!(matches!(
+        parse_unweighted_csr_csv::<()>("3,1\n0,abc\n", false, false),
+        Err(CoreError::InvalidInput(_))
+    ));
+    assert!(matches!(
+        parse_unweighted_csr_csv::<()>("3,1\n0,4294967296\n", false, false),
+        Err(CoreError::InvalidInput(_))
+    ));
+    assert!(matches!(
+        parse_unweighted_csr_csv::<()>("3,1\n0,5\n", false, false),
+        Err(CoreError::IndexOutOfBounds { .. })
+    ));
+    assert!(matches!(
+        parse_unweighted_csr_csv::<()>("3,1\n0,0\n", false, false),
+        Err(CoreError::InvalidCsr(_))
+    ));
+}
+
+#[test]
+fn test_dataset_info_clone_and_catalog_consistency() {
+    let info = dataset_info("karate").unwrap().clone();
+    assert_eq!(info.name, "karate");
+    assert_eq!(info.num_nodes, 34);
+    assert_eq!(info.num_edges, 78);
+    assert_eq!(dataset_catalog().len(), list_datasets().len());
+    for entry in dataset_catalog() {
+        assert!(list_datasets().contains(&entry.name));
+        assert_eq!(dataset_info(entry.name), Some(entry));
+    }
+}
+
+#[test]
+fn test_unweighted_synthetic_generators_have_no_weights() {
+    let dag = generate_layered_dag(3, 4, 0.4, 11).unwrap();
+    assert!(!dag.is_weighted());
+    assert!(dag.weights().is_none());
+    let empty_dag = generate_layered_dag(0, 3, 0.5, 11).unwrap();
+    assert_eq!(empty_dag.num_nodes(), 0);
+    assert_eq!(empty_dag.num_edges(), 0);
+
+    let (sbm, labels) = generate_sbm_graph(&[6, 7], 0.7, 0.1, 13).unwrap();
+    assert!(!sbm.is_weighted());
+    assert!(sbm.weights().is_none());
+    assert_eq!(labels.len(), 13);
+    let (empty_sbm, empty_labels) = generate_sbm_graph(&[], 0.5, 0.1, 13).unwrap();
+    assert_eq!(empty_sbm.num_nodes(), 0);
+    assert!(empty_labels.is_empty());
+
+    let torus = generate_torus_grid(4, 5, false).unwrap();
+    assert!(!torus.is_weighted());
+    assert!(torus.weights().is_none());
+
+    let ico = generate_spherical_icosphere(1).unwrap();
+    assert!(!ico.is_weighted());
+    assert!(ico.weights().is_none());
+    assert_eq!(ico.num_nodes(), 42);
+    assert_eq!(ico.num_edges(), 120);
+
+    let grid = generate_spherical_grid(3, 6).unwrap();
+    assert!(!grid.is_weighted());
+    assert!(grid.weights().is_none());
+
+    let htree = generate_hyperbolic_tree(2, 3).unwrap();
+    assert!(!htree.is_weighted());
+    assert!(htree.weights().is_none());
+    assert_eq!(htree.num_nodes(), 15);
+    assert_eq!(htree.num_edges(), 14);
+}
+
 #[cfg(all(
-    feature = "petgraph",
     feature = "1138_bus",
     feature = "3elt",
     feature = "dwt_1005",
@@ -228,25 +337,35 @@ fn test_generate_weighted_graph_canonical_wrap_edge_and_seeds() {
     feature = "lesmis"
 ))]
 #[test]
-fn test_all_embedded_datasets_match_petgraph_counts() {
-    let cases: Vec<(UnGraph<(), ()>, CsrGraph<f64>)> = vec![
-        (dataset_1138_bus(), dataset_1138_bus_csr()),
-        (dataset_3_elt(), dataset_3_elt_csr()),
-        (dataset_dwt_1005(), dataset_dwt_1005_csr()),
-        (dataset_dwt_2680(), dataset_dwt_2680_csr()),
-        (dataset_poli(), dataset_poli_csr()),
-        (dataset_qh882(), dataset_qh882_csr()),
-        (dataset_uspower_grid(), dataset_uspower_grid_csr()),
-        (dataset_karate(), dataset_karate_csr()),
-        (dataset_lesmis(), dataset_lesmis_csr()),
+fn test_all_embedded_datasets_match_catalog_counts() {
+    let cases: [(&str, CsrGraph<f64>); 9] = [
+        ("1138_bus", dataset_1138_bus()),
+        ("3elt", dataset_3_elt()),
+        ("dwt_1005", dataset_dwt_1005()),
+        ("dwt_2680", dataset_dwt_2680()),
+        ("poli", dataset_poli()),
+        ("qh882", dataset_qh882()),
+        ("USpowerGrid", dataset_uspower_grid()),
+        ("karate", dataset_karate()),
+        ("lesmis", dataset_lesmis()),
     ];
 
-    for (pg, csr) in cases {
-        assert_eq!(csr.num_nodes(), pg.node_count());
-        assert_eq!(csr.num_edges(), pg.edge_count());
-        assert!(!csr.is_directed());
-        for u in 0..csr.num_nodes() {
-            assert_eq!(csr.degree(u), pg.neighbors(NodeIndex::new(u)).count());
-        }
+    for (name, csr) in cases {
+        let info = dataset_info(name).expect("embedded dataset must appear in catalog");
+        assert_eq!(csr.num_nodes(), info.num_nodes, "{name} num_nodes");
+        assert_eq!(csr.num_edges(), info.num_edges, "{name} num_edges");
+        assert!(!csr.is_directed(), "{name} must be undirected");
+        assert!(!csr.is_weighted(), "{name} must be unweighted");
+        assert!(csr.weights().is_none(), "{name} must have no weights");
+        let degree_sum: usize = (0..csr.num_nodes()).map(|u| csr.degree(u)).sum();
+        assert_eq!(
+            degree_sum,
+            2 * csr.num_edges(),
+            "{name} handshaking invariant"
+        );
     }
+
+    let karate = dataset_karate();
+    assert_eq!(karate.degree(0), 16);
+    assert_eq!(karate.degree(33), 17);
 }
