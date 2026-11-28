@@ -164,10 +164,14 @@ fn test_pacmap_graph_so2_tangent_frame_invariance_and_exp_map_and_transport() {
             n * cfg.total_iterations(),
             "{kind:?}: expected exp_map_and_transport to be called for every vertex/step"
         );
+        // Multi-step SO(2) tangent-frame rotation (20 steps) amplifies 1-2 ULP `sin_cos` +
+        // 2x2 rotation rounding to ~1e-10 on Torus2d (`lr=0.5` on unit period `[0, 1)^2`),
+        // differing slightly between FMA (`aarch64`) and non-FMA/glibc `libm` (`x86_64`).
+        // Genuine non-invariance produces O(1e-2..1e0) drift, so `1e-8` gives ~100x FMA headroom.
         for i in 0..n {
             assert!(
-                (ref_layout.x()[i] - rot_layout.inner.x()[i]).abs() < 1e-10
-                    && (ref_layout.y()[i] - rot_layout.inner.y()[i]).abs() < 1e-10,
+                (ref_layout.x()[i] - rot_layout.inner.x()[i]).abs() < 1e-8
+                    && (ref_layout.y()[i] - rot_layout.inner.y()[i]).abs() < 1e-8,
                 "{kind:?} tangent-frame SO(2) invariance failed at node {i}: {:?} vs {:?}",
                 (ref_layout.x()[i], ref_layout.y()[i]),
                 (rot_layout.inner.x()[i], rot_layout.inner.y()[i]),
