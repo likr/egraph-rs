@@ -24,8 +24,10 @@ labels:
 
 ## Tag & Publish
 - [ ] Commit (`chore(release): bump version to ...`), push `origin/master`, and wait for `.github/workflows/ci.yml` (`6/6` jobs including `cargo publish --workspace --dry-run --locked`) green.
+- [ ] Confirm `>= 30` minutes have elapsed since any previous 24-crate release tag (so crates.io's 30-crate existing-version burst bucket has refilled inside the 30-minute OIDC token window).
 - [ ] Create and push annotated tag: `git tag -a v6.X.Y... -m "Release v6.X.Y..." && git push origin v6.X.Y...` (never force-move failed tags; bump to next patch/prerelease instead).
-- [ ] Monitor `.github/workflows/release.yml` (`gh run watch <id> --exit-status`) through all 12 jobs (`verify-tag-and-version`, `build-wheels`, `build-sdist`, `build-wasm`, `publish-crates`, `publish-pypi`, `publish-npm`, `github-release`).
+- [ ] Monitor `.github/workflows/release.yml` (`gh run watch <id> --exit-status`) through all 12 jobs (`verify-tag-and-version`, `build-wheels`, `build-sdist`, `build-wasm`, `publish-crates`, `publish-pypi`, `publish-npm`, `github-release`). On partial `publish-crates` failure inside the 30-min window, retry via `gh run rerun <id> --failed` (resumes idempotently).
+- [ ] If yanking a superseded prerelease version, run `cargo yank --version <ver> <crate>` (no `--crate` flag) in reverse topological order (`egraph-rs` -> ... -> `egraph-core`) with `>= 1s` spacing.
 
 ## Live Registry Clean-Env Smoke Tests
 - [ ] Verify crates.io install in a fresh binary crate (`cargo new` + `egraph-rs = "=..."`, `use egraph::prelude::*;`, `cargo run --release`).

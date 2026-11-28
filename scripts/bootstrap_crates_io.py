@@ -14,13 +14,16 @@ import subprocess
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
 USER_AGENT_PREFIX = "egraph-rs-bootstrap"
 CRATES_IO_API = "https://crates.io/api/v1/crates"
 SPARSE_INDEX_BASE = "https://index.crates.io"
+API_MIN_INTERVAL_SECONDS = 1.0
 NEW_CRATE_BURST = 5
 EXISTING_CRATE_BURST = 30
 
@@ -33,6 +36,73 @@ class PublishUnit:
     version: str
     tier: int
     deps: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class SparseIndexEntry:
+    """One version record parsed from a crates.io sparse index JSONL document."""
+
+    vers: str
+    yanked: bool
+
+
+class RateLimiter:
+    """Enforces a minimum elapsed interval between calls to rate-limited endpoints."""
+
+    def __init__(
+        self,
+        min_interval_sec: float = API_MIN_INTERVAL_SECONDS,
+        clock: Callable[[], float] = time.monotonic,
+        sleeper: Callable[[float], None] = time.sleep,
+    ) -> None:
+        if min_interval_sec < 0.0:
+            raise ValueError("min_interval_sec must be >= 0.0")
+        self.min_interval_sec = float(min_interval_sec)
+        self._clock = clock
+        self._sleeper = sleeper
+        self._last_call_ts: float | None = None
+
+    def wait(self) -> float:
+        """Sleep if needed so consecutive calls are spaced by >= min_interval_sec."""
+        slept = 0.0
+        now = self._clock()
+        if self._last_call_ts is not None:
+            remaining = self.min_interval_sec - (now - self._last_call_ts)
+            if remaining > 0.0:
+                self._sleeper(remaining)
+                slept = remaining
+                now = self._clock()
+        self._last_call_ts = now
+        return slept
+
+
+_API_RATE_LIMITER = RateLimiter()
+
+
+def _is_crates_io_api_url(url: str) -> bool:
+    parsed = urllib.parse.urlparse(url)
+    return parsed.netloc.lower() == "crates.io" and parsed.path.startswith("/api/")
+
+
+def parse_sparse_index_entries(body: str) -> list[SparseIndexEntry]:
+    """Parse JSONL version entries from a Cargo sparse index response body."""
+    entries: list[SparseIndexEntry] = []
+    for line in body.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        try:
+            raw = json.loads(stripped)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(raw, dict) and isinstance(raw.get("vers"), str):
+            entries.append(
+                SparseIndexEntry(
+                    vers=raw["vers"],
+                    yanked=bool(raw.get("yanked", False)),
+                )
+            )
+    return entries
 
 
 def _is_publishable(pkg: dict[str, Any]) -> bool:
@@ -107,6 +177,10 @@ def sparse_index_url(crate_name: str) -> str:
 
 
 def _http_get_status(url: str, user_agent: str, timeout: float = 15.0) -> tuple[int, str, dict[str, str]]:
+    if not user_agent or not user_agent.strip():
+        raise ValueError("user_agent must be non-empty when querying crates.io")
+    if _is_crates_io_api_url(url):
+        _API_RATE_LIMITER.wait()
     req = urllib.request.Request(url, headers={"User-Agent": user_agent})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
@@ -144,21 +218,18 @@ def _http_get_with_retry(
 
 
 def query_crates_io_state(unit: PublishUnit, user_agent: str, max_retries: int = 3) -> tuple[bool, bool]:
-    """Return (version_published, crate_exists) from crates.io API."""
-    ver_url = f"{CRATES_IO_API}/{unit.name}/{unit.version}"
-    status, _, _ = _http_get_with_retry(ver_url, user_agent, max_retries=max_retries)
-    if status == 200:
-        return True, True
-    if status != 404:
-        raise RuntimeError(f"Unexpected HTTP {status} querying {ver_url}")
-
-    crate_url = f"{CRATES_IO_API}/{unit.name}"
-    c_status, _, _ = _http_get_with_retry(crate_url, user_agent, max_retries=max_retries)
-    if c_status == 200:
-        return False, True
-    if c_status == 404:
+    """Return (version_published, crate_exists) using the CDN sparse index."""
+    index_url = sparse_index_url(unit.name)
+    status, body, _ = _http_get_with_retry(index_url, user_agent, max_retries=max_retries)
+    if status == 404:
         return False, False
-    raise RuntimeError(f"Unexpected HTTP {c_status} querying {crate_url}")
+    if status == 200:
+        entries = parse_sparse_index_entries(body)
+        crate_exists = len(entries) > 0
+        # Even yanked versions occupy their (crate, version) slot permanently on crates.io.
+        version_published = any(entry.vers == unit.version for entry in entries)
+        return version_published, crate_exists
+    raise RuntimeError(f"Unexpected HTTP {status} querying {index_url}")
 
 
 def wait_for_sparse_index(unit: PublishUnit, user_agent: str, timeout_sec: int) -> None:
@@ -167,16 +238,8 @@ def wait_for_sparse_index(unit: PublishUnit, user_agent: str, timeout_sec: int) 
     deadline = time.monotonic() + timeout_sec
     while True:
         status, body, _ = _http_get_status(url, user_agent, timeout=15.0)
-        if status == 200:
-            for line in body.splitlines():
-                if not line.strip():
-                    continue
-                try:
-                    entry = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if entry.get("vers") == unit.version:
-                    return
+        if status == 200 and any(entry.vers == unit.version for entry in parse_sparse_index_entries(body)):
+            return
         if time.monotonic() >= deadline:
             raise TimeoutError(
                 f"Timed out after {timeout_sec}s waiting for {unit.name}=={unit.version} in {url}"
@@ -382,7 +445,8 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"[ok] {unit.name}=={unit.version} already exists on crates.io", flush=True)
                 break
             if ("429" in out or "too many" in lower_out or "rate limit" in lower_out) and attempt < 4:
-                delay = _parse_retry_delay(out, args.sleep_seconds)
+                default_delay = args.existing_sleep_seconds if crate_exists else args.sleep_seconds
+                delay = _parse_retry_delay(out, default_delay)
                 _sleep_with_progress(delay, f"HTTP 429 rate-limit retry {attempt}/3")
                 continue
             print(out, file=sys.stderr)

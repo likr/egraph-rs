@@ -13,7 +13,7 @@ Use this skill whenever preparing, bumping, tagging, publishing, or verifying a 
 
 Update every file below atomically when bumping `X.Y.Z-alpha.N` / `X.Y.Z-beta.N` / `X.Y.Z-rc.N` / `X.Y.Z` (PEP 440 PyPI equivalent: `X.Y.ZaN` / `X.Y.ZbN` / `X.Y.ZrcN` / `X.Y.Z`):
 
-1. `Cargo.toml` (`[workspace.package].version` AND all 24 internal publishable `egraph*` version pins under `[workspace.dependencies]`, including `egraph-rs`, enforced by `scripts/verify_helpers.py` / `scripts/packaging_checks.py`)
+1. `Cargo.toml` (`[workspace.package].version` AND all 24 internal publishable `egraph*` version pins under `[workspace.dependencies]`, including `egraph-rs`, enforced by `scripts/verify_helpers.py` / `scripts/packaging_checks.py`; **prereleases containing `-` MUST use exact `=X.Y.Z-pre.N` pins** so Cargo never resolves across prerelease boundaries via caret semantics)
 2. `crates/python/Cargo.toml` (`package.version`)
 3. `crates/wasm/Cargo.toml` (`package.version`)
 4. `crates/wasm/package.json` (`"version"`)
@@ -37,10 +37,11 @@ For `beta`, `rc`, or GA tags (`pre_kind != "alpha"`), also replace `"Development
 
 Run single-threaded before committing or tagging:
 
-1. Refresh local `Cargo.lock`: `cargo generate-lockfile`
+1. Refresh local `Cargo.lock` (gitignored): `cargo generate-lockfile` (`Cargo.lock` is intentionally excluded from git so CI and `release.yml` regenerate a fresh lockfile immediately before `cargo publish --workspace --locked`).
 2. Verify all 24 publishable crates metadata & tarballs:
    - `python3 scripts/verify_helpers.py check-packaging . --strict-metadata`
    - `rm -rf target/package && cargo generate-lockfile && cargo publish --workspace --dry-run --locked`
+   - Confirm `crates/egraph-clustering` packaged tests are self-contained (via `[dev-dependencies] egraph-dataset`, zero cross-crate `include_str!("../../../../...")`).
 3. Simulate `.github/workflows/release.yml`'s `verify-tag-and-version` parser with `GITHUB_REF_NAME=v<tag_version>` against `Cargo.toml`, all workspace member `Cargo.toml` files, `crates/wasm/package.json`, and `crates/python/pyproject.toml`.
 4. Run:
    ```bash
@@ -56,12 +57,30 @@ Run single-threaded before committing or tagging:
 - **Why Bootstrap Precedes OIDC**: crates.io Trusted Publishing (`rust-lang/crates-io-auth-action@v1`) cannot register brand-new crates. Every one of the 24 publishable crates (`egraph-core` -> ... -> `egraph-rs`) must first be published once with a personal `CARGO_REGISTRY_TOKEN`, and then configured on crates.io under **Settings -> Trusted Publishing** with owner `likr`, repository `egraph-rs`, workflow `release.yml`, and environment `crates-release`.
 - **Rate-Limit-Aware 24-Crate Bootstrapper (`scripts/bootstrap_crates_io.py`)**:
   - Brand-new crates are rate-limited by crates.io to a burst of **5** creations followed by **1 every 10 minutes** (~190 minutes total for 24 new crates). Existing crates allow a burst of **30** versions followed by **1/minute**.
+  - `query_crates_io_state` queries the rate-limit-free CDN sparse index (`https://index.crates.io/<prefix>/<crate>`) exclusively; any fallback `https://crates.io/api/v1/...` HTTP request enforces an explicit `User-Agent` and `>= 1.0s` (`1 req/s`) spacing.
+  - **24-Crate Lockstep Cooldown & OIDC 30-Min Window**: `publish-crates` has `timeout-minutes: 30` matching the `rust-lang/crates-io-auth-action@v1` OIDC token lifetime. Because a 24-crate release consumes 24 of the 30 existing-crate burst slots, wait **at least 30 minutes** between consecutive `v6.*` release tags so the burst bucket refills before the next run.
+  - On partial failure in `publish-crates`, recover safely via `gh run rerun <run_id> --failed` (resumes via `bootstrap_crates_io.py --locked --existing-sleep-seconds 65`, skipping published versions).
   - Preview the 7-tier topological plan with `python3 scripts/bootstrap_crates_io.py --dry-run`.
   - Run the resumable, sparse-index-polling bootstrapper once per new crate family:
     ```bash
     CARGO_REGISTRY_TOKEN="<crates-io-token>" python3 scripts/bootstrap_crates_io.py --locked
     ```
   - It skips already-published `<name>/<version>` pairs automatically and retries `429` responses safely.
+- **Reverse-Topological Yank Procedure (`cargo yank --version <ver> <crate>`)**:
+  - Note that `cargo yank` takes the crate name positionally (never `--crate`). Yank in reverse topological order (tier 6 down to tier 0) with `>= 1s` spacing if API tokens are used:
+    ```bash
+    for crate in \
+      egraph-rs \
+      egraph-layout-refine egraph-layout-composite \
+      egraph-metrics egraph-layout-sgd egraph-layout-neighbor egraph-layout-multilevel egraph-layout-embedding \
+      egraph-neighborhood egraph-metrics-cluster egraph-layout-stress \
+      egraph-metrics-geometry egraph-linalg-mds egraph-linalg-amg egraph-layout-force egraph-layout-constraints egraph-clustering \
+      egraph-spatial-trees egraph-spatial-fft egraph-spatial-crossings egraph-linalg egraph-edge-routing egraph-dataset \
+      egraph-core; do
+      cargo yank --version <version> "$crate"
+      sleep 1
+    done
+    ```
 - **Trusted Publishing Environments (No Long-Lived API Tokens in CI)**: `.github/workflows/release.yml` publishes via OIDC using GitHub Environments `crates-release`, `pypi-release`, and `npm-release` (deployment tag rule `v6.*`) and matching Trusted Publishers configured on crates.io, PyPI, and npmjs.com with workflow filename `release.yml`.
 - **Permission Boundary**: Standard developer PATs typically return HTTP 403 on repository Environments APIs. Never attempt to bypass permission checks; if `crates-release` / `pypi-release` / `npm-release` or Trusted Publishers are missing, stop and ask the repository owner to provision them in GitHub / crates.io / PyPI / npm web settings.
 - **Failed Tag Policy (`docs/archive/V6_RELEASE_PLAN.md` §8.2)**: Never force-move (`git tag -f` / `git push --force`) an already-pushed release tag after a workflow failure. Fix `master`, verify green remote CI, bump to the next version (e.g., `v6.0.0-beta.3`), and push a new annotated tag (`git tag -a v<version> -m "Release v<version>" && git push origin v<version>`).
@@ -87,7 +106,7 @@ After `release.yml` completes `success` across all 12 jobs:
 ### PyPI (`pip install --pre`)
 - Install into a fresh `python3 -m venv` with `PIP_NO_CACHE_DIR=1 pip install --pre "egraph==<pep440>"` (add `--only-binary=:all:` when testing wheel-only installs without Rust).
 - **Important v6 Python API facts**:
-  - Check installed version with `import importlib.metadata as md, egraph as eg; assert eg.__version__ == md.version("egraph") == "<pep440>"` (`egraph.__version__` is exported in PEP 440 form, e.g. `6.0.0b2`, matching `CARGO_PKG_VERSION`, and intentionally omitted from `egraph.__all__`).
+  - Check installed version with `import importlib.metadata as md, egraph as eg; assert eg.__version__ == md.version("egraph") == "<pep440>"` (`egraph.__version__` is exported in PEP 440 form, e.g. `6.0.0b3`, matching `CARGO_PKG_VERSION`, and intentionally omitted from `egraph.__all__`).
   - `eg.SgdSolver.sparse_barrier_dog(...)` returns `SgdSolver` directly (not a tuple).
   - `report = eg.evaluate_metrics(g, lay, ["sns", "np2", "crossing_number"])` accepts short aliases as input and returns a frozen `MetricReport` supporting typed properties (`report.scale_normalized_stress`, `report.neighborhood_preservation_2hop`, `report.crossing_number`), mapping lookup (`report["scale_normalized_stress"]`), and `report.to_dict()`.
   - Smoke-test `Layout3d` (`target="layout3d"` on `ForceAtlas2Solver` / `TsNetSolver`), `EdgePolylines.straight_line_from_graph(g, lay)` + `FdebSolver(polylines)`, and fail-fast `UnsupportedOperationError` on illegal `(target, backend)` pairs (e.g. `TsNetSolver(g, target="layout3d", backend="fit_fft")`).

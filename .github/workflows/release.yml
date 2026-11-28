@@ -324,6 +324,7 @@ jobs:
     name: Publish to crates.io (OIDC)
     needs: [verify-tag-and-version, build-wheels, build-sdist, build-wasm]
     runs-on: ubuntu-latest
+    timeout-minutes: 30 # Matches crates.io OIDC token lifetime; wait >= 30 min between consecutive tags (30-crate existing burst)
     environment:
       name: crates-release
       url: https://crates.io/crates/egraph-rs
@@ -356,6 +357,7 @@ jobs:
           plan = bc.compute_publish_plan(".")
           tag_ver = os.environ["TAG_VERSION"]
           ua = f"egraph-rs-release/{tag_ver} (https://github.com/likr/egraph-rs)"
+          # Queries CDN sparse index (index.crates.io); on partial failure rerun failed jobs (gh run rerun <id> --failed)
           already = [u.name for u in plan if bc.query_crates_io_state(u, ua)[0]]
           if len(already) == len(plan):
               print(f"All {len(plan)} workspace crates are already published at {tag_ver}; skipping.")

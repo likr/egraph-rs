@@ -9,6 +9,12 @@ import re
 import tomllib
 from typing import Any
 
+from readme_checks import (
+    check_crate_doc_cfg,
+    check_crate_include_exclude,
+    check_crate_readme,
+)
+
 NON_PUBLISHABLE_CRATES: frozenset[str] = frozenset(
     {"egraph-ffi", "egraph-python", "egraph-wasm", "egraph-cli"}
 )
@@ -164,10 +170,10 @@ def _check_wasm_packaging(
 
 
 def _check_publishable_crates_io_fields(
-    root: pathlib.Path,
     member_dir: pathlib.Path,
     rel_dir: str,
     pkg_name: str,
+    member_data: dict[str, Any],
     pkg_dict: dict[str, Any],
     ws_pkg_dict: dict[str, Any],
     root_license_bytes: bytes | None,
@@ -209,16 +215,9 @@ def _check_publishable_crates_io_fields(
     elif root_license_bytes is not None and crate_license.read_bytes() != root_license_bytes:
         issues.append(f"{rel_dir}/LICENSE differs from root LICENSE")
 
-    readme_raw = pkg_dict.get("readme")
-    if isinstance(readme_raw, dict) and readme_raw.get("workspace") is True:
-        ws_readme = _ws_str(ws_pkg_dict, "readme")
-        readme_path = root / ws_readme if ws_readme else None
-    elif isinstance(readme_raw, str) and readme_raw.strip():
-        readme_path = member_dir / readme_raw
-    else:
-        readme_path = None
-    if readme_path is None or not readme_path.exists():
-        issues.append(f"{rel_dir}/Cargo.toml ({pkg_name}) readme target is missing or unset")
+    check_crate_readme(member_dir, rel_dir, pkg_name, pkg_dict, FACADE_CRATE_NAME, issues)
+    check_crate_include_exclude(member_dir, rel_dir, pkg_name, pkg_dict, issues)
+    check_crate_doc_cfg(member_dir, rel_dir, pkg_name, member_data, issues)
 
     keywords = pkg_dict.get("keywords")
     if not isinstance(keywords, list) or not (1 <= len(keywords) <= 5):
@@ -253,10 +252,48 @@ def _check_publishable_crates_io_fields(
             )
 
 
+def _iter_member_internal_deps(member_data: dict[str, Any]) -> list[tuple[str, str, Any]]:
+    """Collect (section, dep_name, spec) for all internal egraph* dependencies in a member."""
+    found: list[tuple[str, str, Any]] = []
+    for section in ("dependencies", "dev-dependencies", "build-dependencies"):
+        table = member_data.get(section)
+        if isinstance(table, dict):
+            for dep_name, spec in table.items():
+                if dep_name == FACADE_CRATE_NAME or dep_name.startswith("egraph-"):
+                    found.append((section, dep_name, spec))
+    target_table = member_data.get("target")
+    if isinstance(target_table, dict):
+        for cfg_key, cfg_val in target_table.items():
+            if not isinstance(cfg_val, dict):
+                continue
+            for section in ("dependencies", "dev-dependencies", "build-dependencies"):
+                table = cfg_val.get(section)
+                if isinstance(table, dict):
+                    for dep_name, spec in table.items():
+                        if dep_name == FACADE_CRATE_NAME or dep_name.startswith("egraph-"):
+                            found.append((f"target.{cfg_key}.{section}", dep_name, spec))
+    return found
+
+
+def _check_internal_dep_pin(
+    location: str,
+    dep_ver: Any,
+    ws_version: str,
+    is_prerelease: bool,
+    issues: list[str],
+) -> None:
+    if is_prerelease:
+        expected = f"={ws_version}"
+        if not isinstance(dep_ver, str) or dep_ver != expected:
+            issues.append(f"{location} version ({dep_ver!r}) must be exact {expected!r} for prerelease")
+    elif not isinstance(dep_ver, str) or dep_ver.startswith("==") or dep_ver.lstrip("=") != ws_version:
+        issues.append(f"{location} version ({dep_ver!r}) != {ws_version}")
+
+
 def _check_member_metadata(
-    root: pathlib.Path,
     member_dir: pathlib.Path,
     rel_dir: str,
+    member_data: dict[str, Any],
     pkg_dict: dict[str, Any],
     ws_pkg_dict: dict[str, Any],
     ws_deps: dict[str, Any],
@@ -271,6 +308,7 @@ def _check_member_metadata(
         return None, False
 
     ws_version = _ws_str(ws_pkg_dict, "version")
+    is_prerelease = ws_version is not None and "-" in ws_version
     ws_rust_version = _ws_str(ws_pkg_dict, "rust-version")
     if ws_version is not None:
         pkg_ver = resolve_workspace_field(pkg_dict, "version", ws_pkg_dict)
@@ -291,12 +329,41 @@ def _check_member_metadata(
     dep_spec = ws_deps.get(pkg_name)
     if isinstance(dep_spec, dict) and "path" in dep_spec and ws_version is not None:
         dep_ver = dep_spec.get("version")
-        if dep_ver is not None and (not isinstance(dep_ver, str) or dep_ver.lstrip("=") != ws_version):
-            issues.append(
-                f"[workspace.dependencies].{pkg_name} version ({dep_ver!r}) != {ws_version}"
+        if dep_ver is not None:
+            _check_internal_dep_pin(
+                f"[workspace.dependencies].{pkg_name}",
+                dep_ver,
+                ws_version,
+                is_prerelease,
+                issues,
             )
-        elif dep_ver is None and strict_pub and not is_non_pub:
-            issues.append(f"[workspace.dependencies].{pkg_name} must declare version {ws_version}")
+        elif strict_pub and not is_non_pub:
+            expected_msg = f"={ws_version}" if is_prerelease else ws_version
+            issues.append(f"[workspace.dependencies].{pkg_name} must declare version {expected_msg}")
+
+    if ws_version is not None and not is_non_pub:
+        for section, dep_name, spec in _iter_member_internal_deps(member_data):
+            if isinstance(spec, str):
+                _check_internal_dep_pin(
+                    f"{rel_dir}/Cargo.toml [{section}].{dep_name}",
+                    spec,
+                    ws_version,
+                    is_prerelease,
+                    issues,
+                )
+            elif isinstance(spec, dict):
+                if "version" in spec:
+                    _check_internal_dep_pin(
+                        f"{rel_dir}/Cargo.toml [{section}].{dep_name}",
+                        spec.get("version"),
+                        ws_version,
+                        is_prerelease,
+                        issues,
+                    )
+                elif "path" in spec and spec.get("workspace") is not True:
+                    issues.append(
+                        f"{rel_dir}/Cargo.toml [{section}].{dep_name} cannot use path-only internal dependency"
+                    )
 
     if (strict_all or (strict_pub and not is_non_pub)) and (
         ws_rust_version is not None and "rust-version" not in pkg_dict
@@ -307,7 +374,7 @@ def _check_member_metadata(
 
     if strict_pub and not is_non_pub:
         _check_publishable_crates_io_fields(
-            root, member_dir, rel_dir, pkg_name, pkg_dict, ws_pkg_dict, root_license_bytes, issues
+            member_dir, rel_dir, pkg_name, member_data, pkg_dict, ws_pkg_dict, root_license_bytes, issues
         )
 
     return pkg_name, not is_non_pub
@@ -363,9 +430,9 @@ def collect_packaging_issues(
             issues.append(f"{rel_dir}/Cargo.toml is missing [package] table")
             continue
         pkg_name, is_pub = _check_member_metadata(
-            root,
             member_dir,
             rel_dir,
+            member_data,
             pkg_dict,
             ws_pkg_dict,
             ws_deps,

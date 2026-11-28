@@ -132,6 +132,8 @@ if [[ -n "$TARGET_CRATE" ]]; then
       check_cargo_tree_crate "egraph-rs (--all-features)" "hard" -p egraph-rs --all-features
       check_cargo_tree_crate "egraph-rs (--no-default-features)" "hard" -p egraph-rs --no-default-features
       check_cargo_tree_crate "egraph-rs (--no-default-features --features dataset)" "hard" -p egraph-rs --no-default-features --features dataset
+      check_cargo_tree_crate "egraph-rs (--features dataset-embedded)" "hard" -p egraph-rs --features dataset-embedded
+      check_cargo_tree_crate "egraph-rs (--features full)" "hard" -p egraph-rs --features full
       check_cargo_tree_crate "egraph-rs (--no-default-features --features edge-routing)" "hard" -p egraph-rs --no-default-features --features edge-routing
       ;;
     egraph-layout-constraints|egraph-layout-multilevel|egraph-layout-stress|egraph-layout-force|egraph-layout-refine|egraph-layout-composite)
@@ -168,6 +170,8 @@ else
   fi
   if has_workspace_pkg "egraph-rs"; then
     check_cargo_tree_crate "egraph-rs (--no-default-features --features dataset)" "hard" -p egraph-rs --no-default-features --features dataset
+    check_cargo_tree_crate "egraph-rs (--features dataset-embedded)" "hard" -p egraph-rs --features dataset-embedded
+    check_cargo_tree_crate "egraph-rs (--features full)" "hard" -p egraph-rs --features full
     check_cargo_tree_crate "egraph-rs (--no-default-features --features edge-routing)" "hard" -p egraph-rs --no-default-features --features edge-routing
   fi
   for crate in egraph-layout-constraints egraph-layout-stress egraph-layout-force egraph-layout-multilevel egraph-layout-refine egraph-layout-composite; do
@@ -238,6 +242,8 @@ check_wasm32_target() {
   fi
   if [[ "$crate" == "egraph-rs" ]]; then
     check_wasm32_variant "$crate" " (--no-default-features --features dataset)" --no-default-features --features dataset
+    check_wasm32_variant "$crate" " (--features dataset-embedded)" --features dataset-embedded
+    check_wasm32_variant "$crate" " (--features full)" --features full
     check_wasm32_variant "$crate" " (--no-default-features --features edge-routing)" --no-default-features --features edge-routing
   fi
   case "$crate" in
@@ -348,6 +354,8 @@ else
     egraph-layout-composite
   check_wasm32_batch "egraph-dataset --features embedded" --features embedded -- egraph-dataset
   check_wasm32_batch "egraph-rs --no-default-features --features dataset" --no-default-features --features dataset -- egraph-rs
+  check_wasm32_batch "egraph-rs --features dataset-embedded" --features dataset-embedded -- egraph-rs
+  check_wasm32_batch "egraph-rs --features full" --features full -- egraph-rs
   check_wasm32_batch "egraph-rs --no-default-features --features edge-routing" --no-default-features --features edge-routing -- egraph-rs
 fi
 
@@ -387,6 +395,14 @@ if [[ -n "$PKG_ISSUES" ]]; then
   done <<< "$PKG_ISSUES"
 else
   pass "Cross-target packaging metadata is aligned"
+fi
+
+# 6. Python packaging/bootstrap script unit tests
+if python3 -m unittest discover -s "$REPO_ROOT/scripts" -p "test_*.py" >/dev/null 2>&1; then
+  pass "Python packaging/bootstrap script unit tests pass"
+else
+  fail_hard "Python packaging/bootstrap script unit tests failed:"
+  python3 -m unittest discover -s "$REPO_ROOT/scripts" -p "test_*.py" -v || true
 fi
 
 echo "=== Invariant Summary (mode=$MODE): hard_fails=$HARD_FAILS ==="
