@@ -10,6 +10,8 @@ description = "Single-threaded sampling-based neighborhood graph embedding layou
 [dependencies]
 egraph-core.workspace = true
 egraph-linalg.workspace = true
-egraph-linalg-mds.workspace = true
 egraph-neighborhood.workspace = true
 egraph-clustering.workspace = true
+
+[dev-dependencies]
+egraph-linalg-mds.workspace = true
