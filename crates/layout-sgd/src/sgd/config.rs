@@ -1,6 +1,7 @@
 use egraph_core::{CoreError, CoreResult};
 
 /// Learning rate decay schedule family for [`super::SgdSolver`].
+#[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum SgdScheduleKind {
     /// Exponential decay $\eta(t) = \eta_{\max} \exp(-b t)$.
@@ -20,7 +21,7 @@ pub enum SgdScheduleKind {
 
 /// Learning rate schedule parameters for [`super::SgdSolver`].
 #[non_exhaustive]
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SgdScheduleConfig {
     /// Total number of scheduled SGD iterations (`default: 60`).
     pub iterations: usize,
@@ -56,6 +57,13 @@ impl SgdScheduleConfig {
         }
     }
 
+    /// Sets the total iteration count `iterations`.
+    #[inline]
+    pub fn with_iterations(mut self, iterations: usize) -> Self {
+        self.iterations = iterations;
+        self
+    }
+
     /// Sets the minimum learning rate ratio `eps`.
     #[inline]
     pub fn with_eps(mut self, eps: f64) -> Self {
@@ -83,9 +91,43 @@ impl SgdScheduleConfig {
         self.max_mu = max_mu;
         self
     }
+
+    /// Validates all schedule hyperparameters.
+    pub fn validate(&self) -> CoreResult<()> {
+        if !self.eps.is_finite() {
+            return Err(CoreError::non_finite("SgdScheduleConfig::eps"));
+        }
+        if self.eps <= 0.0 {
+            return Err(CoreError::invalid_input(format!(
+                "SgdScheduleConfig::eps must be > 0, got {}",
+                self.eps
+            )));
+        }
+        if !self.step_scale.is_finite() {
+            return Err(CoreError::non_finite("SgdScheduleConfig::step_scale"));
+        }
+        if self.step_scale <= 0.0 {
+            return Err(CoreError::invalid_input(format!(
+                "SgdScheduleConfig::step_scale must be > 0, got {}",
+                self.step_scale
+            )));
+        }
+        if let Some(max_mu) = self.max_mu {
+            if !max_mu.is_finite() {
+                return Err(CoreError::non_finite("SgdScheduleConfig::max_mu"));
+            }
+            if max_mu <= 0.0 {
+                return Err(CoreError::invalid_input(format!(
+                    "SgdScheduleConfig::max_mu must be > 0, got {max_mu}"
+                )));
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Symmetrization rule used for the 2-hop barrier radius $R_{\mathrm{pair}}(u, v)$.
+#[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum BarrierSymmetry {
     /// Use $\max(R_2(u), R_2(v))$.
@@ -95,8 +137,9 @@ pub enum BarrierSymmetry {
     SymAvg,
 }
 
-/// Configuration for Track B 3-tier Sparse Barrier SGD construction.
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// Configuration for 3-tier Sparse Barrier SGD construction.
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SparseBarrierConfig {
     /// Hub-safe per-node cap on registered 2-hop pairs (`default: 32`).
     pub max_2hop_per_node: usize,
@@ -112,7 +155,7 @@ pub struct SparseBarrierConfig {
     pub omega_2: f64,
     /// Tier 3 (non-2-hop) weight multiplier (`default: 1.0`).
     pub gamma_non2: f64,
-    /// Whether R3 Horvitz-Thompson scaling $\sqrt{N / k_{\mathrm{neg}}}$ is applied (`default: true`).
+    /// Whether Horvitz-Thompson scaling $\sqrt{N / k_{\mathrm{neg}}}$ is applied (`default: true`).
     pub ht_repulsion: bool,
     /// Relative distance floor multiplier $\mathrm{min\_ratio} \cdot \mathrm{median}(d_1 > 0)$ (`default: 0.5`).
     pub min_ratio: f64,
@@ -125,7 +168,7 @@ pub struct SparseBarrierConfig {
     /// Prioritizes `degree >= 2` core vertices during MaxMin pivot selection (`default: true`).
     pub core_pivots: bool,
     /// Degree-normalization exponent $\beta \ge 0$ scaling Tier 1/2 spring weights by
-    /// $(d_u d_v)^{-\beta}$ (`default: 0.0`, disabled; recommended `0.25..=0.5` for hubs).
+    /// $(d_u d_v)^{-\beta}$ (`default: 0.0`, disabled).
     pub degree_weight_beta: f64,
     /// SGD iteration schedule (`default: SgdScheduleConfig::default()`).
     pub schedule: SgdScheduleConfig,
@@ -156,9 +199,114 @@ impl Default for SparseBarrierConfig {
     }
 }
 
+impl SparseBarrierConfig {
+    /// Creates a new [`SparseBarrierConfig`] with default parameters.
+    #[inline]
+    pub fn new() -> Self {
+        Self::default()
+    }
+    /// Sets `max_2hop_per_node`.
+    #[inline]
+    pub fn with_max_2hop_per_node(mut self, max_2hop_per_node: usize) -> Self {
+        self.max_2hop_per_node = max_2hop_per_node;
+        self
+    }
+    /// Sets `hinge_repulsion`.
+    #[inline]
+    pub fn with_hinge_repulsion(mut self, hinge_repulsion: bool) -> Self {
+        self.hinge_repulsion = hinge_repulsion;
+        self
+    }
+    /// Sets `delta_rel`.
+    #[inline]
+    pub fn with_delta_rel(mut self, delta_rel: f64) -> Self {
+        self.delta_rel = delta_rel;
+        self
+    }
+    /// Sets `barrier_sym`.
+    #[inline]
+    pub fn with_barrier_sym(mut self, barrier_sym: BarrierSymmetry) -> Self {
+        self.barrier_sym = barrier_sym;
+        self
+    }
+    /// Sets `omega_1`.
+    #[inline]
+    pub fn with_omega_1(mut self, omega_1: f64) -> Self {
+        self.omega_1 = omega_1;
+        self
+    }
+    /// Sets `omega_2`.
+    #[inline]
+    pub fn with_omega_2(mut self, omega_2: f64) -> Self {
+        self.omega_2 = omega_2;
+        self
+    }
+    /// Sets `gamma_non2`.
+    #[inline]
+    pub fn with_gamma_non2(mut self, gamma_non2: f64) -> Self {
+        self.gamma_non2 = gamma_non2;
+        self
+    }
+    /// Sets `ht_repulsion`.
+    #[inline]
+    pub fn with_ht_repulsion(mut self, ht_repulsion: bool) -> Self {
+        self.ht_repulsion = ht_repulsion;
+        self
+    }
+    /// Sets `min_ratio`.
+    #[inline]
+    pub fn with_min_ratio(mut self, min_ratio: f64) -> Self {
+        self.min_ratio = min_ratio;
+        self
+    }
+    /// Sets `eps_dist`.
+    #[inline]
+    pub fn with_eps_dist(mut self, eps_dist: f64) -> Self {
+        self.eps_dist = eps_dist;
+        self
+    }
+    /// Sets `neg_per_node`.
+    #[inline]
+    pub fn with_neg_per_node(mut self, neg_per_node: Option<usize>) -> Self {
+        self.neg_per_node = neg_per_node;
+        self
+    }
+    /// Sets `num_pivots`.
+    #[inline]
+    pub fn with_num_pivots(mut self, num_pivots: usize) -> Self {
+        self.num_pivots = num_pivots;
+        self
+    }
+    /// Sets `core_pivots`.
+    #[inline]
+    pub fn with_core_pivots(mut self, core_pivots: bool) -> Self {
+        self.core_pivots = core_pivots;
+        self
+    }
+    /// Sets `degree_weight_beta`.
+    #[inline]
+    pub fn with_degree_weight_beta(mut self, degree_weight_beta: f64) -> Self {
+        self.degree_weight_beta = degree_weight_beta;
+        self
+    }
+    /// Sets `schedule`.
+    #[inline]
+    pub fn with_schedule(mut self, schedule: SgdScheduleConfig) -> Self {
+        self.schedule = schedule;
+        self
+    }
+    /// Sets `seed`.
+    #[inline]
+    pub fn with_seed(mut self, seed: u64) -> Self {
+        self.seed = seed;
+        self
+    }
+}
+
 /// Summary diagnostics emitted by [`super::SgdSolver::sparse_barrier_from_landmarks`] and
 /// [`super::SgdSolver::sparse_barrier_dog`].
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SparseBarrierStats {
     pub n_pairs_1hop: usize,
     pub n_pairs_2hop: usize,
@@ -173,7 +321,8 @@ pub struct SparseBarrierStats {
 }
 
 /// Configuration for minimal-RAM on-the-fly streaming non-edge negative sampling SGD.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq)]
 pub struct StreamingNegativeConfig {
     /// Number of non-edge negatives sampled per vertex on each step (`default: 5`).
     pub negatives_per_node: usize,
@@ -196,282 +345,38 @@ impl Default for StreamingNegativeConfig {
     }
 }
 
-/// Configuration for compact-memory edge-incident negative sampling `SNAP-tFDP`.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct SnapTFdpConfig {
-    /// Total optimization iterations (`default: 200`).
-    pub iterations: usize,
-    /// Uniform random negative samples drawn per undirected edge per iteration (`default: 3`).
-    pub negatives_per_edge: usize,
-    /// Initial learning rate (`default: 1.0`).
-    pub learning_rate: f64,
-    /// Bounded $t$-FDP edge attraction scale (`default: 1.0`).
-    pub alpha: f64,
-    /// Student-$t$ repulsion multiplier (`default: 1.0`).
-    pub repulsion_scale: f64,
-    /// Initial repulsion annealing weight $\rho(0)$ (`default: 1.0`).
-    pub rho_start: f64,
-    /// Final repulsion annealing weight $\rho(1)$ (`default: 0.1`).
-    pub rho_end: f64,
-    /// Exponent $p > 0$ for $\rho(t) = \rho_{\mathrm{start}} + (\rho_{\mathrm{end}} - \rho_{\mathrm{start}}) t^p$ (`default: 1.0`).
-    pub rho_power: f64,
-    /// Degree-attenuation exponent $\beta \ge 0$ scaling edge attraction by $(d_u d_v)^{-\beta}$ (`default: 0.0`).
-    pub degree_beta: f64,
-    /// Whether edge attraction uses bounded $8/(1+d^2)$ (`true`) or legacy unbounded $1 + 8/(1+d^2)$ (`false`) (`default: true`).
-    pub bounded_attraction: bool,
-    /// Explicit deterministic RNG seed (`default: 42`).
-    pub seed: u64,
-}
-
-impl Default for SnapTFdpConfig {
-    fn default() -> Self {
-        Self {
-            iterations: 200,
-            negatives_per_edge: 3,
-            learning_rate: 1.0,
-            alpha: 1.0,
-            repulsion_scale: 1.0,
-            rho_start: 1.0,
-            rho_end: 0.1,
-            rho_power: 1.0,
-            degree_beta: 0.0,
-            bounded_attraction: true,
-            seed: 42,
-        }
-    }
-}
-
-impl SnapTFdpConfig {
-    /// Validates all `SNAP-tFDP` hyperparameters.
-    pub fn validate(&self) -> CoreResult<()> {
-        if !self.learning_rate.is_finite() {
-            return Err(CoreError::non_finite("SnapTFdpConfig::learning_rate"));
-        }
-        if self.learning_rate <= 0.0 {
-            return Err(CoreError::invalid_input(format!(
-                "SnapTFdpConfig::learning_rate must be > 0, got {}",
-                self.learning_rate
-            )));
-        }
-        for (ctx, val) in [
-            ("SnapTFdpConfig::alpha", self.alpha),
-            ("SnapTFdpConfig::repulsion_scale", self.repulsion_scale),
-            ("SnapTFdpConfig::rho_start", self.rho_start),
-            ("SnapTFdpConfig::rho_end", self.rho_end),
-        ] {
-            if !val.is_finite() {
-                return Err(CoreError::non_finite(ctx));
-            }
-            if val < 0.0 {
-                return Err(CoreError::invalid_input(format!(
-                    "{ctx} must be >= 0, got {val}"
-                )));
-            }
-        }
-        if !self.rho_power.is_finite() {
-            return Err(CoreError::non_finite("SnapTFdpConfig::rho_power"));
-        }
-        if self.rho_power <= 0.0 {
-            return Err(CoreError::invalid_input(format!(
-                "SnapTFdpConfig::rho_power must be > 0, got {}",
-                self.rho_power
-            )));
-        }
-        if !self.degree_beta.is_finite() {
-            return Err(CoreError::non_finite("SnapTFdpConfig::degree_beta"));
-        }
-        if self.degree_beta < 0.0 {
-            return Err(CoreError::invalid_input(format!(
-                "SnapTFdpConfig::degree_beta must be >= 0, got {}",
-                self.degree_beta
-            )));
-        }
-        Ok(())
-    }
-}
-
-/// Configuration for 3-tier `PaCMAP-Graph` layout optimization.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct PacmapGraphConfig {
-    /// Target number of Near (`NB`) 1+2-hop neighbors per vertex (`default: 10`).
-    pub n_neighbors: usize,
-    /// Ratio of Mid-Near (`MN`) pairs relative to `n_neighbors` (`default: 0.5`).
-    pub mn_ratio: f64,
-    /// Ratio of Further (`FP`) repulsive pairs relative to `n_neighbors` (`default: 2.0`).
-    pub fp_ratio: f64,
-    /// Phase iteration counts `[phase1, phase2, phase3]` (`default: [100, 100, 250]`).
-    ///
-    /// - Phase 1: global unfolding, $w_{\mathrm{MN}}: 1000 \to 3$.
-    /// - Phase 2: scaffold locking, $w = (3, 3, 1)$.
-    /// - Phase 3: local refinement, $w = (1, 0, 1)$.
-    pub phase_iterations: [usize; 3],
-    /// Adam optimizer learning rate (`default: 1.0`).
-    pub learning_rate: f64,
-    /// Explicit deterministic RNG seed (`default: 42`).
-    pub seed: u64,
-    /// Retain all 1-hop edges even on vertices with degree > `n_neighbors` (`default: false`).
-    pub keep_all_1hop: bool,
-    /// Optional per-node cap on selected 1-hop neighbors (`None` = uncapped when `keep_all_1hop`,
-    /// `Some(k)` = at most `k` 1-hop neighbors per vertex). Must be `>= 1` when `Some` (`default: None`).
-    pub max_1hop_per_node: Option<usize>,
-    /// Degree-attenuation exponent $\beta \ge 0$ scaling `NB` attraction by $(d_u d_v)^{-\beta}$
-    /// (`default: 0.0`, disabled).
-    pub degree_weight_beta: f64,
-    /// Number of internal BFS landmarks when external landmarks are omitted (`default: 16`, must be `>= 1`).
-    pub num_landmarks: usize,
-}
-
-impl Default for PacmapGraphConfig {
-    fn default() -> Self {
-        Self {
-            n_neighbors: 10,
-            mn_ratio: 0.5,
-            fp_ratio: 2.0,
-            phase_iterations: [100, 100, 250],
-            learning_rate: 1.0,
-            seed: 42,
-            keep_all_1hop: false,
-            max_1hop_per_node: None,
-            degree_weight_beta: 0.0,
-            num_landmarks: 16,
-        }
-    }
-}
-
-impl PacmapGraphConfig {
-    /// Validates all `PaCMAP-Graph` hyperparameters.
-    pub fn validate(&self) -> CoreResult<()> {
-        if self.n_neighbors == 0 {
-            return Err(CoreError::invalid_input(
-                "PacmapGraphConfig::n_neighbors must be >= 1",
-            ));
-        }
-        if self.num_landmarks == 0 {
-            return Err(CoreError::invalid_input(
-                "PacmapGraphConfig::num_landmarks must be >= 1",
-            ));
-        }
-        if self.max_1hop_per_node == Some(0) {
-            return Err(CoreError::invalid_input(
-                "PacmapGraphConfig::max_1hop_per_node must be >= 1",
-            ));
-        }
-        if !self.degree_weight_beta.is_finite() {
-            return Err(CoreError::non_finite(
-                "PacmapGraphConfig::degree_weight_beta",
-            ));
-        }
-        if self.degree_weight_beta < 0.0 {
-            return Err(CoreError::invalid_input(format!(
-                "PacmapGraphConfig::degree_weight_beta must be >= 0, got {}",
-                self.degree_weight_beta
-            )));
-        }
-        for (ctx, val) in [
-            ("PacmapGraphConfig::mn_ratio", self.mn_ratio),
-            ("PacmapGraphConfig::fp_ratio", self.fp_ratio),
-        ] {
-            if !val.is_finite() {
-                return Err(CoreError::non_finite(ctx));
-            }
-            if val < 0.0 {
-                return Err(CoreError::invalid_input(format!(
-                    "{ctx} must be >= 0, got {val}"
-                )));
-            }
-        }
-        if !self.learning_rate.is_finite() {
-            return Err(CoreError::non_finite("PacmapGraphConfig::learning_rate"));
-        }
-        if self.learning_rate <= 0.0 {
-            return Err(CoreError::invalid_input(format!(
-                "PacmapGraphConfig::learning_rate must be > 0, got {}",
-                self.learning_rate
-            )));
-        }
-        let _ = self.phase_iterations[0]
-            .checked_add(self.phase_iterations[1])
-            .and_then(|s| s.checked_add(self.phase_iterations[2]))
-            .ok_or_else(|| {
-                CoreError::invalid_input("PacmapGraphConfig total iterations overflow")
-            })?;
-        Ok(())
-    }
-
+impl StreamingNegativeConfig {
+    /// Creates a new [`StreamingNegativeConfig`] with default parameters.
     #[inline]
-    pub(super) fn total_iterations(&self) -> usize {
-        self.phase_iterations[0] + self.phase_iterations[1] + self.phase_iterations[2]
+    pub fn new() -> Self {
+        Self::default()
     }
-}
 
-/// Configuration for doubly-stochastic mini-batch diagonal-preconditioned stress SGD.
-///
-/// Note: This diagonal-preconditioned stress SGD preset (using [`SgdScheduleKind::Squared`])
-/// is distinct from Ahmed et al. (2021) multi-criteria `(SGD)^2`.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Sgd2Config {
-    /// Total optimization iterations (`default: 60`).
-    pub iterations: usize,
-    /// Minimum learning rate ratio $\varepsilon > 0$ (`default: 0.01`).
-    pub eps: f64,
-    /// Multiplicative step scale (`default: 1.0`).
-    pub step_scale: f64,
-    /// Mini-batch pair count per preconditioned update (`default: 4096`).
-    pub batch_size: usize,
-    /// Diagonal curvature damping denominator floor $> 0$ (`default: 1e-4`).
-    pub damping: f64,
-    /// Explicit deterministic RNG seed (`default: 42`).
-    pub seed: u64,
-}
-
-impl Default for Sgd2Config {
-    fn default() -> Self {
-        Self {
-            iterations: 60,
-            eps: 0.01,
-            step_scale: 1.0,
-            batch_size: 4096,
-            damping: 1e-4,
-            seed: 42,
-        }
+    /// Sets `negatives_per_node`.
+    #[inline]
+    pub fn with_negatives_per_node(mut self, negatives_per_node: usize) -> Self {
+        self.negatives_per_node = negatives_per_node;
+        self
     }
-}
 
-impl Sgd2Config {
-    /// Validates all diagonal-preconditioned stress SGD (`Sgd2Config`) hyperparameters.
-    pub fn validate(&self) -> CoreResult<()> {
-        if !self.eps.is_finite() {
-            return Err(CoreError::non_finite("Sgd2Config::eps"));
-        }
-        if self.eps <= 0.0 {
-            return Err(CoreError::invalid_input(format!(
-                "Sgd2Config::eps must be > 0, got {}",
-                self.eps
-            )));
-        }
-        if !self.step_scale.is_finite() {
-            return Err(CoreError::non_finite("Sgd2Config::step_scale"));
-        }
-        if self.step_scale <= 0.0 {
-            return Err(CoreError::invalid_input(format!(
-                "Sgd2Config::step_scale must be > 0, got {}",
-                self.step_scale
-            )));
-        }
-        if self.batch_size == 0 {
-            return Err(CoreError::invalid_input(
-                "Sgd2Config::batch_size must be >= 1",
-            ));
-        }
-        if !self.damping.is_finite() {
-            return Err(CoreError::non_finite("Sgd2Config::damping"));
-        }
-        if self.damping <= 0.0 {
-            return Err(CoreError::invalid_input(format!(
-                "Sgd2Config::damping must be > 0, got {}",
-                self.damping
-            )));
-        }
-        Ok(())
+    /// Sets `target_distance`.
+    #[inline]
+    pub fn with_target_distance(mut self, target_distance: f64) -> Self {
+        self.target_distance = target_distance;
+        self
+    }
+
+    /// Sets `weight`.
+    #[inline]
+    pub fn with_weight(mut self, weight: f64) -> Self {
+        self.weight = weight;
+        self
+    }
+
+    /// Sets `hinge_only`.
+    #[inline]
+    pub fn with_hinge_only(mut self, hinge_only: bool) -> Self {
+        self.hinge_only = hinge_only;
+        self
     }
 }

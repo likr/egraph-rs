@@ -9,41 +9,24 @@ pub(super) const BLOCK_SIZE: usize = 16_384;
 pub(super) const BLOCK_SHUFFLE_THRESHOLD: usize = 65_536;
 
 /// Packed symmetric SGD pair encoding endpoints, hinge flag, target distance, and weight.
-#[doc(hidden)]
 #[derive(Debug, Clone, Copy)]
-pub struct PackedSymPair<S: Scalar> {
+pub(crate) struct PackedSymPair<S: Scalar> {
     pub(super) i: u32,
     pub(super) j_hinge: u32,
     pub(super) d: S,
-    /// Spring or hinge pair weight used for weight conditioning in spatial refiners.
-    #[doc(hidden)]
-    pub w: S,
+    pub(super) w: S,
 }
 
 impl<S: Scalar> PackedSymPair<S> {
     /// Creates a packed symmetric pair `(i, j)` with optional one-sided hinge mode.
-    #[doc(hidden)]
     #[inline]
-    pub fn new(i: u32, j: u32, is_hinge: bool, d: S, w: S) -> Self {
+    pub(crate) fn new(i: u32, j: u32, is_hinge: bool, d: S, w: S) -> Self {
         debug_assert!(j <= INDEX_MASK);
         Self {
             i,
             j_hinge: if is_hinge { j | HINGE_BIT } else { j },
             d,
             w,
-        }
-    }
-
-    #[inline]
-    pub(super) fn to_pair_spec(self) -> PairSpec<S> {
-        PairSpec {
-            i: self.i as usize,
-            j: (self.j_hinge & INDEX_MASK) as usize,
-            dij: self.d,
-            dji: self.d,
-            wij: self.w,
-            wji: self.w,
-            is_hinge: (self.j_hinge & HINGE_BIT) != 0,
         }
     }
 }
@@ -69,19 +52,6 @@ impl<S: Scalar> PackedGenPair<S> {
             dji,
             wij,
             wji,
-        }
-    }
-
-    #[inline]
-    pub(super) fn to_pair_spec(self) -> PairSpec<S> {
-        PairSpec {
-            i: self.i as usize,
-            j: (self.j_hinge & INDEX_MASK) as usize,
-            dij: self.dij,
-            dji: self.dji,
-            wij: self.wij,
-            wji: self.wji,
-            is_hinge: (self.j_hinge & HINGE_BIT) != 0,
         }
     }
 }
@@ -159,47 +129,8 @@ impl<S: Scalar> DirectedPairAccumulator<S> {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub(super) struct PairSpec<S: Scalar> {
-    pub(super) i: usize,
-    pub(super) j: usize,
-    pub(super) dij: S,
-    pub(super) dji: S,
-    pub(super) wij: S,
-    pub(super) wji: S,
-    pub(super) is_hinge: bool,
-}
-
 pub(super) fn validate_schedule_config(cfg: &SgdScheduleConfig) -> CoreResult<()> {
-    if !cfg.eps.is_finite() {
-        return Err(CoreError::non_finite("SgdScheduleConfig::eps"));
-    }
-    if cfg.eps <= 0.0 {
-        return Err(CoreError::invalid_input(format!(
-            "SgdScheduleConfig::eps must be > 0, got {}",
-            cfg.eps
-        )));
-    }
-    if !cfg.step_scale.is_finite() {
-        return Err(CoreError::non_finite("SgdScheduleConfig::step_scale"));
-    }
-    if cfg.step_scale <= 0.0 {
-        return Err(CoreError::invalid_input(format!(
-            "SgdScheduleConfig::step_scale must be > 0, got {}",
-            cfg.step_scale
-        )));
-    }
-    if let Some(max_mu) = cfg.max_mu {
-        if !max_mu.is_finite() {
-            return Err(CoreError::non_finite("SgdScheduleConfig::max_mu"));
-        }
-        if max_mu <= 0.0 {
-            return Err(CoreError::invalid_input(format!(
-                "SgdScheduleConfig::max_mu must be > 0, got {max_mu}"
-            )));
-        }
-    }
-    Ok(())
+    cfg.validate()
 }
 
 pub(super) fn validate_barrier_config(

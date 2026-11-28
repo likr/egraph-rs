@@ -2,18 +2,19 @@
 name = "egraph-layout-sgd"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+description = "Single-threaded stochastic gradient descent stress and sparse barrier layout solvers for egraph-rs"
 
 [features]
-default = []
+# Temporary empty stub for Batch 1 workspace resolution while layout-multilevel still forwards delaunay.
 delaunay = []
 
 [dependencies]
 egraph-core.workspace = true
-egraph-spatial-trees.workspace = true
 egraph-linalg.workspace = true
-egraph-linalg-mds.workspace = true
-egraph-linalg-amg.workspace = true
 egraph-neighborhood.workspace = true
-egraph-clustering.workspace = true
+
+[dev-dependencies]
+egraph-linalg-mds.workspace = true

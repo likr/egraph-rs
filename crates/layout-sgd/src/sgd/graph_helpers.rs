@@ -2,80 +2,6 @@ use egraph_core::{CoreResult, CsrGraph, DeterministicRng, Scalar, VisitStamp};
 use egraph_linalg::{BfsWorkspace, DijkstraWorkspace};
 use egraph_neighborhood::Sparse12HopPairs;
 
-#[derive(Debug, Clone)]
-pub(super) struct AliasTable {
-    prob: Vec<f64>,
-    alias: Vec<u32>,
-}
-
-impl AliasTable {
-    pub(super) fn from_weights(weights: &[f64]) -> Option<Self> {
-        let k = weights.len();
-        if k == 0 {
-            return None;
-        }
-        let mut total = 0.0_f64;
-        for &w in weights {
-            if w.is_finite() && w > 0.0 {
-                total += w;
-            }
-        }
-        if !total.is_finite() || total <= 0.0 {
-            return None;
-        }
-        let scale = (k as f64) / total;
-        let mut scaled = vec![0.0_f64; k];
-        let mut small = Vec::with_capacity(k);
-        let mut large = Vec::with_capacity(k);
-        for (i, &w) in weights.iter().enumerate() {
-            let p = if w.is_finite() && w > 0.0 {
-                w * scale
-            } else {
-                0.0
-            };
-            scaled[i] = p;
-            if p < 1.0 {
-                small.push(i as u32);
-            } else {
-                large.push(i as u32);
-            }
-        }
-        let mut prob = vec![1.0_f64; k];
-        let mut alias: Vec<u32> = (0..k as u32).collect();
-        while let (Some(s_idx), Some(l_idx)) = (small.pop(), large.pop()) {
-            let s = s_idx as usize;
-            let l = l_idx as usize;
-            prob[s] = scaled[s].clamp(0.0, 1.0);
-            alias[s] = l_idx;
-            scaled[l] = ((scaled[l] + scaled[s]) - 1.0).max(0.0);
-            if scaled[l] < 1.0 {
-                small.push(l_idx);
-            } else {
-                large.push(l_idx);
-            }
-        }
-        while let Some(l_idx) = large.pop() {
-            prob[l_idx as usize] = 1.0;
-        }
-        while let Some(s_idx) = small.pop() {
-            prob[s_idx as usize] = 1.0;
-        }
-        Some(Self { prob, alias })
-    }
-
-    #[inline]
-    pub(super) fn sample(&self, rng: &mut DeterministicRng) -> usize {
-        let k = self.prob.len();
-        let col = rng.gen_range_usize(k);
-        let coin = rng.next_f64();
-        if coin < self.prob[col] {
-            col
-        } else {
-            self.alias[col] as usize
-        }
-    }
-}
-
 /// Builds canonical sorted simple symmetric unweighted CSR `(indptr, indices)` from sorted
 /// deduplicated upper-triangular pairs `(u1[k], v1[k])` (`u1[k] < v1[k]`) in $O(N + |E|)$.
 pub(super) fn build_symmetric_csr_from_sorted_pairs(
@@ -113,6 +39,59 @@ pub(super) fn build_symmetric_csr_from_sorted_pairs(
         }
     }
     (indptr, indices)
+}
+
+/// Extracts canonical deduplicated undirected 1-hop edge pairs `(u, v)` (`u < v`) from `graph`
+/// without requiring `W: Scalar`.
+pub(super) fn extract_canonical_undirected_edge_pairs<W>(graph: &CsrGraph<W>) -> Vec<(u32, u32)> {
+    let n = graph.num_nodes();
+    if n <= 1 || graph.nnz() == 0 {
+        return Vec::new();
+    }
+    if !graph.is_directed() {
+        let mut edges = Vec::with_capacity(graph.num_edges());
+        let mut is_sorted = true;
+        for u in 0..n {
+            let u32_u = u as u32;
+            let start = graph.indptr()[u] as usize;
+            let end = graph.indptr()[u + 1] as usize;
+            let mut prev_v: Option<u32> = None;
+            for pos in start..end {
+                let v = graph.indices()[pos];
+                if let Some(pv) = prev_v
+                    && v <= pv
+                {
+                    is_sorted = false;
+                }
+                prev_v = Some(v);
+                if u32_u < v {
+                    edges.push((u32_u, v));
+                }
+            }
+        }
+        if !is_sorted {
+            edges.sort_unstable();
+            edges.dedup();
+        }
+        return edges;
+    }
+
+    let mut raw = Vec::with_capacity(graph.nnz());
+    for u in 0..n {
+        let u32_u = u as u32;
+        let start = graph.indptr()[u] as usize;
+        let end = graph.indptr()[u + 1] as usize;
+        for pos in start..end {
+            let v = graph.indices()[pos];
+            if u32_u == v {
+                continue;
+            }
+            raw.push(if u32_u < v { (u32_u, v) } else { (v, u32_u) });
+        }
+    }
+    raw.sort_unstable();
+    raw.dedup();
+    raw
 }
 
 /// Extracts canonical deduplicated undirected 1-hop edges `(u, v, weight)` (`u < v`) from `graph`.
@@ -184,17 +163,15 @@ pub(super) fn extract_canonical_undirected_edges<W: Scalar>(
 
 /// Collects sorted deduplicated pairs `(u, v)` (`u < v`) combining all 1-hop edges and
 /// `k` deterministically sampled random partners per node.
-pub(super) fn sample_edges_and_random_pairs<W: Scalar>(
+pub(super) fn sample_edges_and_random_pairs<W>(
     graph: &CsrGraph<W>,
     k: usize,
     seed: u64,
 ) -> Vec<(u32, u32)> {
     let n = graph.num_nodes();
-    let base_edges = extract_canonical_undirected_edges(graph);
+    let base_edges = extract_canonical_undirected_edge_pairs(graph);
     let mut raw_pairs: Vec<(u32, u32)> = Vec::with_capacity(base_edges.len() + n.saturating_mul(k));
-    for &(u, v, _) in &base_edges {
-        raw_pairs.push((u, v));
-    }
+    raw_pairs.extend(base_edges);
     if k > 0 && n > 1 {
         let mut sample_rng = DeterministicRng::from_seed_u64(seed);
         for i in 0..n {
@@ -225,7 +202,7 @@ pub(super) fn compute_adaptive_perplexity_from_pairs(
     }
     let lower = 8.0_f64.min(upper);
     let mut deg2_counts = vec![0u32; n_nodes];
-    for slice in [&pairs.u1, &pairs.v1, &pairs.u2, &pairs.v2] {
+    for slice in [pairs.u1(), pairs.v1(), pairs.u2(), pairs.v2()] {
         for &node in slice {
             deg2_counts[node as usize] += 1;
         }
@@ -249,31 +226,6 @@ pub(super) fn has_common_neighbor(n1_u: &[u32], n1_v: &[u32], stamp: &VisitStamp
         return n1_v.iter().any(|&x| stamp.is_visited(x as usize));
     }
     n1_u.iter().any(|x| n1_v.binary_search(x).is_ok())
-}
-
-#[inline]
-pub(super) fn has_common_neighbor_non_hub(
-    n1_u: &[u32],
-    n1_v: &[u32],
-    stamp: &VisitStamp,
-    adj_indptr: &[u32],
-    non_hub_thresh: usize,
-) -> bool {
-    if n1_u.is_empty() || n1_v.is_empty() {
-        return false;
-    }
-    if n1_v.len() <= n1_u.len() || n1_v.len() <= 64 {
-        return n1_v.iter().any(|&x| {
-            let xi = x as usize;
-            stamp.is_visited(xi)
-                && ((adj_indptr[xi + 1] - adj_indptr[xi]) as usize) <= non_hub_thresh
-        });
-    }
-    n1_u.iter().any(|&x| {
-        let xi = x as usize;
-        ((adj_indptr[xi + 1] - adj_indptr[xi]) as usize) <= non_hub_thresh
-            && n1_v.binary_search(&x).is_ok()
-    })
 }
 
 pub(super) fn sample_non2hop_pairs(
@@ -363,21 +315,25 @@ pub(super) fn sample_non2hop_pairs(
     raw_non2.dedup();
 
     // Linear two-pointer disjointness check against sorted 1-hop and 2-hop pair slices.
+    let u1 = pairs.u1();
+    let v1 = pairs.v1();
+    let u2 = pairs.u2();
+    let v2 = pairs.v2();
     let mut i1 = 0usize;
     let mut i2 = 0usize;
     let mut u3 = Vec::with_capacity(raw_non2.len());
     let mut v3 = Vec::with_capacity(raw_non2.len());
     for pair in raw_non2 {
-        while i1 < pairs.u1.len() && (pairs.u1[i1], pairs.v1[i1]) < pair {
+        while i1 < u1.len() && (u1[i1], v1[i1]) < pair {
             i1 += 1;
         }
-        if i1 < pairs.u1.len() && (pairs.u1[i1], pairs.v1[i1]) == pair {
+        if i1 < u1.len() && (u1[i1], v1[i1]) == pair {
             continue;
         }
-        while i2 < pairs.u2.len() && (pairs.u2[i2], pairs.v2[i2]) < pair {
+        while i2 < u2.len() && (u2[i2], v2[i2]) < pair {
             i2 += 1;
         }
-        if i2 < pairs.u2.len() && (pairs.u2[i2], pairs.v2[i2]) == pair {
+        if i2 < u2.len() && (u2[i2], v2[i2]) == pair {
             continue;
         }
         u3.push(pair.0);

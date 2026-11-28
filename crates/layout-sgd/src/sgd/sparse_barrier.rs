@@ -7,7 +7,7 @@ use egraph_neighborhood::{
 };
 
 use super::config::{BarrierSymmetry, SparseBarrierConfig, SparseBarrierStats};
-use super::graph_sampling::{
+use super::graph_helpers::{
     build_symmetric_csr_from_sorted_pairs, compute_adaptive_perplexity_from_pairs,
     sample_non2hop_pairs,
 };
@@ -20,7 +20,7 @@ pub(super) struct BuiltSparseBarrier<S: Scalar> {
     pub(super) stats: SparseBarrierStats,
 }
 
-pub(super) fn build_sparse_barrier_from_landmarks<W: Scalar, S: Scalar>(
+pub(super) fn build_sparse_barrier_from_landmarks<W, S: Scalar>(
     graph: &CsrGraph<W>,
     landmarks: &DogVaradhanLandmarks,
     pivots: Option<&[u32]>,
@@ -147,7 +147,7 @@ pub(super) fn build_sparse_barrier_from_landmarks<W: Scalar, S: Scalar>(
 
     let (u3, v3) = if n > 2 && per_node_neg_used > 0 {
         let (adj_indptr, adj_indices) =
-            build_symmetric_csr_from_sorted_pairs(n, &pairs.u1, &pairs.v1);
+            build_symmetric_csr_from_sorted_pairs(n, pairs.u1(), pairs.v1());
         sample_non2hop_pairs(
             n,
             &adj_indptr,
@@ -161,8 +161,8 @@ pub(super) fn build_sparse_barrier_from_landmarks<W: Scalar, S: Scalar>(
         (Vec::new(), Vec::new())
     };
 
-    let mut d1 = landmarks.alt_pair_distances(&pairs.u1, &pairs.v1)?;
-    let mut d2 = landmarks.alt_pair_distances(&pairs.u2, &pairs.v2)?;
+    let mut d1 = landmarks.alt_pair_distances(pairs.u1(), pairs.v1())?;
+    let mut d2 = landmarks.alt_pair_distances(pairs.u2(), pairs.v2())?;
     let mut d3 = landmarks.alt_pair_distances(&u3, &v3)?;
     let d_floor = apply_relative_distance_floor(
         &mut d1,
@@ -180,7 +180,7 @@ pub(super) fn build_sparse_barrier_from_landmarks<W: Scalar, S: Scalar>(
 
     let deg_scale: Vec<f64> = if config.degree_weight_beta > 0.0 {
         let mut degs = vec![0usize; n];
-        for (&u, &v) in pairs.u1.iter().zip(pairs.v1.iter()) {
+        for (&u, &v) in pairs.u1().iter().zip(pairs.v1().iter()) {
             degs[u as usize] += 1;
             degs[v as usize] += 1;
         }
@@ -193,13 +193,13 @@ pub(super) fn build_sparse_barrier_from_landmarks<W: Scalar, S: Scalar>(
     };
 
     let mut r2 = vec![0.0_f64; n];
-    let mut packed_pairs = Vec::with_capacity(pairs.u1.len() + pairs.u2.len() + u3.len());
+    let mut packed_pairs = Vec::with_capacity(pairs.num_1hop() + pairs.num_2hop() + u3.len());
     let mut n_pairs_two_sided = 0usize;
     let mut n_pairs_hinge = 0usize;
 
     for (pairs_u, pairs_v, dists, omega) in [
-        (&pairs.u1, &pairs.v1, &d1, config.omega_1),
-        (&pairs.u2, &pairs.v2, &d2, config.omega_2),
+        (pairs.u1(), pairs.v1(), &d1, config.omega_1),
+        (pairs.u2(), pairs.v2(), &d2, config.omega_2),
     ] {
         for idx in 0..pairs_u.len() {
             let u = pairs_u[idx];
@@ -247,8 +247,8 @@ pub(super) fn build_sparse_barrier_from_landmarks<W: Scalar, S: Scalar>(
     }
 
     let stats = SparseBarrierStats {
-        n_pairs_1hop: pairs.u1.len(),
-        n_pairs_2hop: pairs.u2.len(),
+        n_pairs_1hop: pairs.num_1hop(),
+        n_pairs_2hop: pairs.num_2hop(),
         n_pairs_non2: u3.len(),
         n_pairs_hinge,
         n_pairs_two_sided,

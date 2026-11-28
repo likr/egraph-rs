@@ -1,7 +1,7 @@
 use egraph_core::{CoreError, CoreResult, CsrGraph, DeterministicRng};
 use egraph_linalg::{BfsWorkspace, DijkstraWorkspace};
 
-use super::graph_sampling::compute_mssp_dists;
+use super::graph_helpers::compute_mssp_dists;
 
 pub(super) fn select_weighted_maxmin_sp_pivots(
     graph: &CsrGraph<f64>,

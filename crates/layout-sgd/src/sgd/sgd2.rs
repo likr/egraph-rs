@@ -1,76 +1,263 @@
-use egraph_core::{CoreResult, DeterministicRng, Layout2d, LayoutNd, Scalar, VisitStamp};
+use std::marker::PhantomData;
 
-use super::config::Sgd2Config;
-use super::nd_variants::{Sgd2NdScratch, nd_norm_f64};
-use super::pairs::{
-    HINGE_BIT, INDEX_MASK, PackedGenPair, PackedSymPair, PairStorage, try_for_each_shuffled_pair,
+use egraph_core::{
+    CoreError, CoreResult, CsrGraph, DeterministicRng, IterativeSolver, Layout2d, ManifoldKind,
+    RiemannianLayout, Scalar, SolverStatus, VisitStamp,
 };
 
+use super::config::{SgdScheduleConfig, SgdScheduleKind};
+use super::pair_constructors::{build_full_pair_storage, build_random_pair_storage};
+use super::pairs::{
+    MAX_PACKED_NODES, PairStorage, compute_eta_bounds, init_pair_blocking,
+    try_for_each_shuffled_pair, validate_graph_weights, validate_schedule_config,
+};
+use super::sgd2_kernels::{ScratchAccum, accumulate_gen, accumulate_sym, flush_batch};
+use super::solver::eval_schedule_eta;
+use super::stepping::{lock_target_layout, validate_target_layout};
+use super::variant_config::Sgd2Config;
+
+/// Doubly-stochastic mini-batch preconditioned stress SGD solver parameterized over any
+/// [`RiemannianLayout`] target (`Layout2d`, `Layout3d`, `LayoutNd`, `ManifoldLayout2d`).
+///
+/// Uses an $\mathrm{SO}(2)$-invariant full $2 \times 2$ Gauss-Newton tangent Hessian
+/// preconditioner $(H + \lambda I)^{-1} g$ on 2D tangent spaces (and $\mathrm{SO}(d)$-invariant
+/// isotropic trace curvature preconditioning for $d \ne 2$).
+///
+/// Note: This single-criterion preconditioned stress SGD solver (using
+/// [`SgdScheduleKind::Squared`]) is distinct from Ahmed et al. (2021) multi-criteria `(SGD)^2`.
 #[derive(Debug, Clone)]
-pub(super) struct Sgd2State {
-    pub(super) batch_size: usize,
-    pub(super) damping: f64,
-    pub(super) grad_x: Vec<f64>,
-    pub(super) grad_y: Vec<f64>,
-    pub(super) h_x: Vec<f64>,
-    pub(super) h_y: Vec<f64>,
-    pub(super) touched_stamp: VisitStamp,
-    pub(super) touched_nodes: Vec<u32>,
-    pub(super) nd_scratch: Option<Sgd2NdScratch>,
-}
-
-pub(super) fn build_sgd2_state(num_nodes: usize, config: Sgd2Config) -> Sgd2State {
-    let touched_cap = (config.batch_size.saturating_mul(2)).min(num_nodes);
-    Sgd2State {
-        batch_size: config.batch_size,
-        damping: config.damping,
-        grad_x: vec![0.0; num_nodes],
-        grad_y: vec![0.0; num_nodes],
-        h_x: vec![0.0; num_nodes],
-        h_y: vec![0.0; num_nodes],
-        touched_stamp: VisitStamp::new(num_nodes),
-        touched_nodes: Vec::with_capacity(touched_cap),
-        nd_scratch: None,
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-pub(super) fn step_sgd2_state<S: Scalar>(
-    st: &mut Sgd2State,
-    pairs: &mut PairStorage<S>,
-    block_order: &mut [u32],
-    rng: &mut DeterministicRng,
+pub struct Sgd2Solver<L: RiemannianLayout = Layout2d<f64>> {
     num_nodes: usize,
-    eta_f64: f64,
+    pairs: PairStorage<L::Scalar>,
+    num_springs: usize,
+    block_order: Vec<u32>,
+    batch_size: usize,
+    damping: f64,
+    schedule_cfg: SgdScheduleConfig,
+    eta_min: f64,
     eta_max: f64,
-    step_scale: f64,
-    layout: &mut Layout2d<S>,
-) -> CoreResult<()> {
-    if num_nodes > 1 && eta_f64.is_finite() && eta_f64 > 0.0 && eta_max > 0.0 {
-        let alpha_t = (eta_f64 / eta_max).clamp(0.0, step_scale.max(1.0));
-        let batch_size = st.batch_size;
-        let damping = st.damping;
-        let (xs, ys) = layout.xy_mut();
+    iter: usize,
+    status: SolverStatus,
+    locked_dim: Option<usize>,
+    locked_manifold: Option<ManifoldKind>,
+    rng: DeterministicRng,
+    grad: Vec<f64>,
+    hess_diag: Vec<f64>,
+    hess_yy: Vec<f64>,
+    hess_xy: Vec<f64>,
+    tangent_scratch: Vec<f64>,
+    touched_stamp: VisitStamp,
+    touched_nodes: Vec<u32>,
+    _layout: PhantomData<fn() -> L>,
+}
+
+impl<L: RiemannianLayout + 'static> Sgd2Solver<L> {
+    /// Constructs a preconditioned mini-batch stress SGD solver from `graph` and `config`.
+    pub fn new<W: Scalar>(graph: &CsrGraph<W>, config: Sgd2Config) -> CoreResult<Self> {
+        config.validate()?;
+        validate_graph_weights(graph, "Sgd2Solver::new")?;
+        let n = graph.num_nodes();
+        if n > MAX_PACKED_NODES {
+            return Err(CoreError::invalid_input(format!(
+                "num_nodes ({n}) exceeds packed u32 index limit {MAX_PACKED_NODES}"
+            )));
+        }
+
+        let schedule_cfg = SgdScheduleConfig::new(config.iterations)
+            .with_eps(config.eps)
+            .with_kind(SgdScheduleKind::Squared)
+            .with_step_scale(config.step_scale);
+        let mut pairs = if n <= 256 {
+            build_full_pair_storage(graph)?
+        } else {
+            build_random_pair_storage(graph, 16, config.seed)?
+        };
+        let num_springs = pairs.len();
+        let (eta_min, eta_max) = compute_eta_bounds(&pairs, None, schedule_cfg.eps);
+        let mut rng = DeterministicRng::from_seed_u64(config.seed);
+        let block_order = match &mut pairs {
+            PairStorage::Symmetric(v) => init_pair_blocking(v, &mut rng),
+            PairStorage::General(v) => init_pair_blocking(v, &mut rng),
+        };
+        let status = if config.iterations == 0 {
+            SolverStatus::Completed
+        } else {
+            SolverStatus::Initialized
+        };
+        let touched_cap = (config.batch_size.saturating_mul(2)).min(n);
+
+        Ok(Self {
+            num_nodes: n,
+            pairs,
+            num_springs,
+            block_order,
+            batch_size: config.batch_size,
+            damping: config.damping,
+            schedule_cfg,
+            eta_min,
+            eta_max,
+            iter: 0,
+            status,
+            locked_dim: None,
+            locked_manifold: None,
+            rng,
+            grad: Vec::new(),
+            hess_diag: Vec::new(),
+            hess_yy: Vec::new(),
+            hess_xy: Vec::new(),
+            tangent_scratch: Vec::new(),
+            touched_stamp: VisitStamp::new(n),
+            touched_nodes: Vec::with_capacity(touched_cap),
+            _layout: PhantomData,
+        })
+    }
+
+    /// Returns the expected number of vertices in the layout.
+    #[inline]
+    pub fn num_nodes(&self) -> usize {
+        self.num_nodes
+    }
+
+    /// Returns the number of two-sided spring pairs stored.
+    #[inline]
+    pub fn num_springs(&self) -> usize {
+        self.num_springs
+    }
+
+    /// Returns the current solver execution status.
+    #[inline]
+    pub fn status(&self) -> SolverStatus {
+        self.status
+    }
+
+    /// Returns the number of completed iterations.
+    #[inline]
+    pub fn iteration(&self) -> usize {
+        self.iter
+    }
+
+    /// Returns the total scheduled iteration count.
+    #[inline]
+    pub fn total_iterations(&self) -> Option<usize> {
+        Some(self.schedule_cfg.iterations)
+    }
+
+    /// Returns the learning rate $\eta$ for the upcoming iteration (`0.0` if finished).
+    #[inline]
+    pub fn current_eta(&self) -> f64 {
+        self.eta_at(self.iter)
+    }
+
+    fn eta_at(&self, t: usize) -> f64 {
+        let t_max = self.schedule_cfg.iterations;
+        if t_max == 0 || t >= t_max {
+            return 0.0;
+        }
+        eval_schedule_eta(t, t_max, self.eta_min, self.eta_max, &self.schedule_cfg)
+    }
+
+    /// Resets the iteration schedule and deterministic RNG without reallocating stored pair buffers.
+    pub fn reset_schedule(&mut self, schedule_cfg: SgdScheduleConfig, seed: u64) -> CoreResult<()> {
+        validate_schedule_config(&schedule_cfg)?;
+        let (eta_min, eta_max) = compute_eta_bounds(&self.pairs, None, schedule_cfg.eps);
+        self.eta_min = eta_min;
+        self.eta_max = eta_max;
+        self.schedule_cfg = schedule_cfg;
+        self.rng = DeterministicRng::from_seed_u64(seed);
+        self.iter = 0;
+        self.locked_dim = None;
+        self.locked_manifold = None;
+        self.grad.fill(0.0);
+        self.hess_diag.fill(0.0);
+        self.hess_yy.fill(0.0);
+        self.hess_xy.fill(0.0);
+        self.touched_nodes.clear();
+        self.touched_stamp.clear();
+        self.status = if self.schedule_cfg.iterations == 0 {
+            SolverStatus::Completed
+        } else {
+            SolverStatus::Initialized
+        };
+        Ok(())
+    }
+
+    fn ensure_scratch(&mut self, dim: usize) {
+        let total = self.num_nodes * dim;
+        if self.grad.len() != total {
+            self.grad.resize(total, 0.0);
+        } else {
+            self.grad.fill(0.0);
+        }
+        if self.hess_diag.len() != self.num_nodes {
+            self.hess_diag.resize(self.num_nodes, 0.0);
+        } else {
+            self.hess_diag.fill(0.0);
+        }
+        if dim == 2 {
+            if self.hess_yy.len() != self.num_nodes {
+                self.hess_yy.resize(self.num_nodes, 0.0);
+            } else {
+                self.hess_yy.fill(0.0);
+            }
+            if self.hess_xy.len() != self.num_nodes {
+                self.hess_xy.resize(self.num_nodes, 0.0);
+            } else {
+                self.hess_xy.fill(0.0);
+            }
+        }
+        if self.tangent_scratch.len() < dim {
+            self.tangent_scratch.resize(dim, 0.0);
+        }
+        self.touched_nodes.clear();
+        self.touched_stamp.clear();
+    }
+
+    fn step_inner(&mut self, layout: &mut L) -> CoreResult<()> {
+        let dim = layout.tangent_dim();
+        self.ensure_scratch(dim);
+        let eta_f64 = self.eta_at(self.iter);
+        if self.num_nodes <= 1 || !eta_f64.is_finite() || eta_f64 <= 0.0 || self.eta_max <= 0.0 {
+            return Ok(());
+        }
+        let alpha_t = (eta_f64 / self.eta_max).clamp(0.0, self.schedule_cfg.step_scale.max(1.0));
+        let batch_size = self.batch_size;
+        let damping = self.damping;
         let mut batch_count = 0usize;
 
-        match pairs {
+        let mut scratch = ScratchAccum {
+            dim,
+            grad: &mut self.grad,
+            hess_diag: &mut self.hess_diag,
+            hess_yy: &mut self.hess_yy,
+            hess_xy: &mut self.hess_xy,
+            tan_buf: &mut self.tangent_scratch,
+            touched_stamp: &mut self.touched_stamp,
+            touched_nodes: &mut self.touched_nodes,
+        };
+
+        match &mut self.pairs {
             PairStorage::Symmetric(sym_pairs) => {
-                try_for_each_shuffled_pair(sym_pairs, block_order, rng, |&p| {
-                    accumulate_sgd2_sym_pair(xs, ys, st, p);
-                    batch_count += 1;
-                    if batch_count >= batch_size {
-                        flush_sgd2_batch(xs, ys, st, alpha_t, damping);
-                        batch_count = 0;
-                    }
-                    Ok(())
-                })?;
+                try_for_each_shuffled_pair(
+                    sym_pairs,
+                    &mut self.block_order,
+                    &mut self.rng,
+                    |&p| {
+                        accumulate_sym(layout, &mut scratch, p)?;
+                        batch_count += 1;
+                        if batch_count >= batch_size {
+                            flush_batch(layout, &mut scratch, alpha_t, damping)?;
+                            batch_count = 0;
+                        }
+                        Ok(())
+                    },
+                )?;
             }
             PairStorage::General(gen_pairs) => {
-                try_for_each_shuffled_pair(gen_pairs, block_order, rng, |p| {
-                    accumulate_sgd2_gen_pair(xs, ys, st, p);
+                try_for_each_shuffled_pair(gen_pairs, &mut self.block_order, &mut self.rng, |p| {
+                    accumulate_gen(layout, &mut scratch, p)?;
                     batch_count += 1;
                     if batch_count >= batch_size {
-                        flush_sgd2_batch(xs, ys, st, alpha_t, damping);
+                        flush_batch(layout, &mut scratch, alpha_t, damping)?;
                         batch_count = 0;
                     }
                     Ok(())
@@ -78,415 +265,98 @@ pub(super) fn step_sgd2_state<S: Scalar>(
             }
         }
         if batch_count > 0 {
-            flush_sgd2_batch(xs, ys, st, alpha_t, damping);
+            flush_batch(layout, &mut scratch, alpha_t, damping)?;
         }
+        Ok(())
     }
-    Ok(())
-}
 
-#[inline]
-fn record_sgd2_touch(st: &mut Sgd2State, idx: usize) {
-    if st.touched_stamp.visit(idx) {
-        st.touched_nodes.push(idx as u32);
-    }
-}
-
-#[inline]
-fn accumulate_sgd2_sym_pair<S: Scalar>(
-    xs: &[S],
-    ys: &[S],
-    st: &mut Sgd2State,
-    p: PackedSymPair<S>,
-) {
-    let d = p.d.to_f64();
-    let w = p.w.to_f64();
-    if !d.is_finite() || d <= 0.0 || !w.is_finite() || w <= 0.0 {
-        return;
-    }
-    let i = p.i as usize;
-    let j = (p.j_hinge & INDEX_MASK) as usize;
-    let is_hinge = (p.j_hinge & HINGE_BIT) != 0;
-    let dx = xs[i].to_f64() - xs[j].to_f64();
-    let dy = ys[i].to_f64() - ys[j].to_f64();
-    let norm = dx.hypot(dy);
-    if !norm.is_finite() || norm <= 0.0 {
-        return;
-    }
-    if is_hinge && norm >= d {
-        return;
-    }
-    let err = (norm - d) / norm;
-    let gx = w * err * dx;
-    let gy = w * err * dy;
-    let inv_n2 = 1.0 / (norm * norm);
-    let cx = 2.0 * w * (0.5 + 0.5 * (dx * dx) * inv_n2);
-    let cy = 2.0 * w * (0.5 + 0.5 * (dy * dy) * inv_n2);
-    if !gx.is_finite() || !gy.is_finite() || !cx.is_finite() || !cy.is_finite() {
-        return;
-    }
-    st.grad_x[i] += gx;
-    st.grad_y[i] += gy;
-    st.h_x[i] += cx;
-    st.h_y[i] += cy;
-    st.grad_x[j] -= gx;
-    st.grad_y[j] -= gy;
-    st.h_x[j] += cx;
-    st.h_y[j] += cy;
-    record_sgd2_touch(st, i);
-    record_sgd2_touch(st, j);
-}
-
-#[inline]
-fn accumulate_sgd2_gen_pair<S: Scalar>(
-    xs: &[S],
-    ys: &[S],
-    st: &mut Sgd2State,
-    p: &PackedGenPair<S>,
-) {
-    let dij = p.dij.to_f64();
-    let dji = p.dji.to_f64();
-    let wij = p.wij.to_f64();
-    let wji = p.wji.to_f64();
-    if !dij.is_finite() || dij <= 0.0 || !dji.is_finite() || dji <= 0.0 {
-        return;
-    }
-    let i = p.i as usize;
-    let j = (p.j_hinge & INDEX_MASK) as usize;
-    let is_hinge = (p.j_hinge & HINGE_BIT) != 0;
-    let dx = xs[i].to_f64() - xs[j].to_f64();
-    let dy = ys[i].to_f64() - ys[j].to_f64();
-    let norm = dx.hypot(dy);
-    if !norm.is_finite() || norm <= 0.0 {
-        return;
-    }
-    let inv_n2 = 1.0 / (norm * norm);
-    let dir_x = 0.5 + 0.5 * (dx * dx) * inv_n2;
-    let dir_y = 0.5 + 0.5 * (dy * dy) * inv_n2;
-
-    if wij.is_finite() && wij > 0.0 && (!is_hinge || norm < dij) {
-        let err_i = (norm - dij) / norm;
-        let gx = wij * err_i * dx;
-        let gy = wij * err_i * dy;
-        let cx = 2.0 * wij * dir_x;
-        let cy = 2.0 * wij * dir_y;
-        if gx.is_finite() && gy.is_finite() && cx.is_finite() && cy.is_finite() {
-            st.grad_x[i] += gx;
-            st.grad_y[i] += gy;
-            st.h_x[i] += cx;
-            st.h_y[i] += cy;
-            record_sgd2_touch(st, i);
+    /// Executes `count` SGD2 iterations over schedule indices `start_iter..start_iter + count`
+    /// on `layout` (stopping early if `schedule.iterations` is reached).
+    pub fn run_schedule_window(
+        &mut self,
+        layout: &mut L,
+        start_iter: usize,
+        count: usize,
+    ) -> CoreResult<SolverStatus> {
+        self.validate_target(layout)?;
+        if count == 0 {
+            return Ok(self.status);
         }
-    }
-    if wji.is_finite() && wji > 0.0 && (!is_hinge || norm < dji) {
-        let err_j = (norm - dji) / norm;
-        let gx = wji * err_j * dx;
-        let gy = wji * err_j * dy;
-        let cx = 2.0 * wji * dir_x;
-        let cy = 2.0 * wji * dir_y;
-        if gx.is_finite() && gy.is_finite() && cx.is_finite() && cy.is_finite() {
-            st.grad_x[j] -= gx;
-            st.grad_y[j] -= gy;
-            st.h_x[j] += cx;
-            st.h_y[j] += cy;
-            record_sgd2_touch(st, j);
+        let total = self.schedule_cfg.iterations;
+        if start_iter >= total {
+            self.iter = total;
+            self.status = SolverStatus::Completed;
+            return Ok(self.status);
         }
-    }
-}
-
-#[inline]
-fn flush_sgd2_batch<S: Scalar>(
-    xs: &mut [S],
-    ys: &mut [S],
-    st: &mut Sgd2State,
-    alpha_t: f64,
-    damping: f64,
-) {
-    for &u_u32 in &st.touched_nodes {
-        let u = u_u32 as usize;
-        let sx = alpha_t * st.grad_x[u] / (st.h_x[u] + damping);
-        let sy = alpha_t * st.grad_y[u] / (st.h_y[u] + damping);
-        if sx.is_finite() {
-            let nx = xs[u] - S::from_f64(sx);
-            if nx.is_finite() {
-                xs[u] = nx;
+        self.iter = start_iter;
+        self.status = if start_iter == 0 {
+            SolverStatus::Initialized
+        } else {
+            SolverStatus::Running
+        };
+        for _ in 0..count {
+            if self.status.is_finished() {
+                break;
+            }
+            let st = self.step(layout)?;
+            if st.is_finished() {
+                break;
             }
         }
-        if sy.is_finite() {
-            let ny = ys[u] - S::from_f64(sy);
-            if ny.is_finite() {
-                ys[u] = ny;
-            }
+        Ok(self.status)
+    }
+}
+
+impl<L: RiemannianLayout + 'static> IterativeSolver for Sgd2Solver<L> {
+    type Target = L;
+
+    fn validate_target(&self, target: &Self::Target) -> CoreResult<()> {
+        validate_target_layout(
+            self.num_nodes,
+            self.locked_dim,
+            self.locked_manifold,
+            target,
+            "Sgd2Solver::validate_target",
+        )
+    }
+
+    fn step(&mut self, target: &mut Self::Target) -> CoreResult<SolverStatus> {
+        self.validate_target(target)?;
+        if self.status.is_finished() {
+            return Ok(self.status);
         }
-        st.grad_x[u] = 0.0;
-        st.grad_y[u] = 0.0;
-        st.h_x[u] = 0.0;
-        st.h_y[u] = 0.0;
-    }
-    st.touched_nodes.clear();
-    st.touched_stamp.clear();
-}
+        lock_target_layout(&mut self.locked_dim, &mut self.locked_manifold, target);
 
-#[allow(clippy::too_many_arguments)]
-pub(super) fn step_sgd2_state_nd<S: Scalar>(
-    st: &mut Sgd2State,
-    pairs: &mut PairStorage<S>,
-    block_order: &mut [u32],
-    rng: &mut DeterministicRng,
-    num_nodes: usize,
-    eta_f64: f64,
-    eta_max: f64,
-    step_scale: f64,
-    layout: &mut LayoutNd<S>,
-) -> CoreResult<()> {
-    let dims = layout.dims();
-    let total_len = num_nodes * dims;
-    let sc = st
-        .nd_scratch
-        .get_or_insert_with(|| Sgd2NdScratch::new(total_len));
-    if num_nodes <= 1 || !eta_f64.is_finite() || eta_f64 <= 0.0 || eta_max <= 0.0 {
-        return Ok(());
-    }
-    let alpha_t = (eta_f64 / eta_max).clamp(0.0, step_scale.max(1.0));
-    let batch_size = st.batch_size;
-    let damping = st.damping;
-    let touched_stamp = &mut st.touched_stamp;
-    let touched_nodes = &mut st.touched_nodes;
-    let coords = layout.coords_mut();
-    let mut batch_count = 0usize;
-
-    match pairs {
-        PairStorage::Symmetric(sym_pairs) => {
-            try_for_each_shuffled_pair(sym_pairs, block_order, rng, |&p| {
-                accumulate_sgd2_sym_nd(coords, dims, sc, touched_stamp, touched_nodes, p);
-                batch_count += 1;
-                if batch_count >= batch_size {
-                    flush_sgd2_nd(
-                        coords,
-                        dims,
-                        sc,
-                        touched_stamp,
-                        touched_nodes,
-                        alpha_t,
-                        damping,
-                    );
-                    batch_count = 0;
-                }
-                Ok(())
-            })?;
+        if let Err(err) = self.step_inner(target) {
+            self.status = SolverStatus::Failed;
+            return Err(err);
         }
-        PairStorage::General(gen_pairs) => {
-            try_for_each_shuffled_pair(gen_pairs, block_order, rng, |p| {
-                accumulate_sgd2_gen_nd(coords, dims, sc, touched_stamp, touched_nodes, p);
-                batch_count += 1;
-                if batch_count >= batch_size {
-                    flush_sgd2_nd(
-                        coords,
-                        dims,
-                        sc,
-                        touched_stamp,
-                        touched_nodes,
-                        alpha_t,
-                        damping,
-                    );
-                    batch_count = 0;
-                }
-                Ok(())
-            })?;
+        if let Err(err) = target.validate_finite() {
+            self.status = SolverStatus::Failed;
+            return Err(err);
         }
-    }
-    if batch_count > 0 {
-        flush_sgd2_nd(
-            coords,
-            dims,
-            sc,
-            touched_stamp,
-            touched_nodes,
-            alpha_t,
-            damping,
-        );
-    }
-    Ok(())
-}
 
-struct Sgd2DirUpdate {
-    bi: usize,
-    bj: usize,
-    w: f64,
-    err: f64,
-    inv_n2: f64,
-    sign: f64,
-    target_node: usize,
-}
+        self.iter += 1;
+        self.status = if self.iter >= self.schedule_cfg.iterations {
+            SolverStatus::Completed
+        } else {
+            SolverStatus::Running
+        };
+        Ok(self.status)
+    }
 
-#[inline]
-fn try_accum_sgd2_endpoint_nd<S: Scalar>(
-    coords: &[S],
-    dims: usize,
-    upd: Sgd2DirUpdate,
-    sc: &mut Sgd2NdScratch,
-    touched_stamp: &mut VisitStamp,
-    touched_nodes: &mut Vec<u32>,
-) {
-    let ok = (0..dims).all(|a| {
-        let da = coords[upd.bi + a].to_f64() - coords[upd.bj + a].to_f64();
-        let ga = upd.w * upd.err * da;
-        let ca = 2.0 * upd.w * (0.5 + 0.5 * (da * da) * upd.inv_n2);
-        ga.is_finite() && ca.is_finite()
-    });
-    if !ok {
-        return;
+    #[inline]
+    fn status(&self) -> SolverStatus {
+        self.status
     }
-    let bt = upd.target_node * dims;
-    for a in 0..dims {
-        let da = coords[upd.bi + a].to_f64() - coords[upd.bj + a].to_f64();
-        sc.grad[bt + a] += upd.sign * upd.w * upd.err * da;
-        sc.h[bt + a] += 2.0 * upd.w * (0.5 + 0.5 * (da * da) * upd.inv_n2);
-    }
-    if touched_stamp.visit(upd.target_node) {
-        touched_nodes.push(upd.target_node as u32);
-    }
-}
 
-#[inline]
-fn accumulate_sgd2_sym_nd<S: Scalar>(
-    coords: &[S],
-    dims: usize,
-    sc: &mut Sgd2NdScratch,
-    touched_stamp: &mut VisitStamp,
-    touched_nodes: &mut Vec<u32>,
-    p: PackedSymPair<S>,
-) {
-    let d = p.d.to_f64();
-    let w = p.w.to_f64();
-    if !d.is_finite() || d <= 0.0 || !w.is_finite() || w <= 0.0 {
-        return;
+    #[inline]
+    fn iteration(&self) -> usize {
+        self.iter
     }
-    let i = p.i as usize;
-    let j = (p.j_hinge & INDEX_MASK) as usize;
-    let is_hinge = (p.j_hinge & HINGE_BIT) != 0;
-    let bi = i * dims;
-    let bj = j * dims;
-    let norm = nd_norm_f64(coords, bi, bj, dims);
-    if !norm.is_finite() || norm <= 0.0 || (is_hinge && norm >= d) {
-        return;
-    }
-    let err = (norm - d) / norm;
-    let inv_n2 = 1.0 / (norm * norm);
-    let ok = (0..dims).all(|a| {
-        let da = coords[bi + a].to_f64() - coords[bj + a].to_f64();
-        (w * err * da).is_finite() && (2.0 * w * (0.5 + 0.5 * (da * da) * inv_n2)).is_finite()
-    });
-    if !ok {
-        return;
-    }
-    for a in 0..dims {
-        let da = coords[bi + a].to_f64() - coords[bj + a].to_f64();
-        let ga = w * err * da;
-        let ca = 2.0 * w * (0.5 + 0.5 * (da * da) * inv_n2);
-        sc.grad[bi + a] += ga;
-        sc.h[bi + a] += ca;
-        sc.grad[bj + a] -= ga;
-        sc.h[bj + a] += ca;
-    }
-    if touched_stamp.visit(i) {
-        touched_nodes.push(i as u32);
-    }
-    if touched_stamp.visit(j) {
-        touched_nodes.push(j as u32);
-    }
-}
 
-#[inline]
-fn accumulate_sgd2_gen_nd<S: Scalar>(
-    coords: &[S],
-    dims: usize,
-    sc: &mut Sgd2NdScratch,
-    touched_stamp: &mut VisitStamp,
-    touched_nodes: &mut Vec<u32>,
-    p: &PackedGenPair<S>,
-) {
-    let dij = p.dij.to_f64();
-    let dji = p.dji.to_f64();
-    let wij = p.wij.to_f64();
-    let wji = p.wji.to_f64();
-    if !dij.is_finite() || dij <= 0.0 || !dji.is_finite() || dji <= 0.0 {
-        return;
+    #[inline]
+    fn total_iterations(&self) -> Option<usize> {
+        Some(self.schedule_cfg.iterations)
     }
-    let i = p.i as usize;
-    let j = (p.j_hinge & INDEX_MASK) as usize;
-    let is_hinge = (p.j_hinge & HINGE_BIT) != 0;
-    let bi = i * dims;
-    let bj = j * dims;
-    let norm = nd_norm_f64(coords, bi, bj, dims);
-    if !norm.is_finite() || norm <= 0.0 {
-        return;
-    }
-    let inv_n2 = 1.0 / (norm * norm);
-    if wij.is_finite() && wij > 0.0 && (!is_hinge || norm < dij) {
-        let err_i = (norm - dij) / norm;
-        try_accum_sgd2_endpoint_nd(
-            coords,
-            dims,
-            Sgd2DirUpdate {
-                bi,
-                bj,
-                w: wij,
-                err: err_i,
-                inv_n2,
-                sign: 1.0,
-                target_node: i,
-            },
-            sc,
-            touched_stamp,
-            touched_nodes,
-        );
-    }
-    if wji.is_finite() && wji > 0.0 && (!is_hinge || norm < dji) {
-        let err_j = (norm - dji) / norm;
-        try_accum_sgd2_endpoint_nd(
-            coords,
-            dims,
-            Sgd2DirUpdate {
-                bi,
-                bj,
-                w: wji,
-                err: err_j,
-                inv_n2,
-                sign: -1.0,
-                target_node: j,
-            },
-            sc,
-            touched_stamp,
-            touched_nodes,
-        );
-    }
-}
-
-#[inline]
-fn flush_sgd2_nd<S: Scalar>(
-    coords: &mut [S],
-    dims: usize,
-    sc: &mut Sgd2NdScratch,
-    touched_stamp: &mut VisitStamp,
-    touched_nodes: &mut Vec<u32>,
-    alpha_t: f64,
-    damping: f64,
-) {
-    for &u_u32 in touched_nodes.iter() {
-        let base = (u_u32 as usize) * dims;
-        for a in 0..dims {
-            let idx = base + a;
-            let step = alpha_t * sc.grad[idx] / (sc.h[idx] + damping);
-            if step.is_finite() {
-                let next_c = coords[idx] - S::from_f64(step);
-                if next_c.is_finite() {
-                    coords[idx] = next_c;
-                }
-            }
-            sc.grad[idx] = 0.0;
-            sc.h[idx] = 0.0;
-        }
-    }
-    touched_nodes.clear();
-    touched_stamp.clear();
 }

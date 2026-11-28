@@ -1,28 +1,16 @@
-use egraph_core::{CoreError, CoreResult, DeterministicRng, ManifoldKind, Scalar, SolverStatus};
+use std::marker::PhantomData;
 
-#[allow(unused_imports)]
-use egraph_core::{IterativeSolver, Layout2d, ManifoldLayout2d};
+use egraph_core::{
+    CoreError, CoreResult, DeterministicRng, Layout2d, ManifoldKind, RiemannianLayout, Scalar,
+    SolverStatus,
+};
 
 use super::config::{SgdScheduleConfig, SgdScheduleKind};
-use super::drgraph_coarsen::DrGraphState;
-use super::graph_cne::GraphCneState;
-use super::largevis::LargeVisState;
-use super::manifold_sampling_variants::{reset_drgraph_schedule, scale_pacmap_phase_iterations};
-use super::pacmap::PacmapState;
+use super::pair_buffer::SgdPairBuffer;
 use super::pairs::{
     INDEX_MASK, MAX_PACKED_NODES, PackedSymPair, PairStorage, compute_eta_bounds,
     eta_bounds_from_extrema, init_pair_blocking, validate_pair_endpoints, validate_schedule_config,
 };
-use super::sgd2::Sgd2State;
-use super::snap_t_fdp::SnapTFdpState;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum ActiveLayoutKind {
-    Unset,
-    Euclidean2d,
-    Nd(usize),
-    Manifold(ManifoldKind),
-}
 
 #[derive(Debug, Clone)]
 pub(super) struct StreamingState<S: Scalar> {
@@ -35,43 +23,55 @@ pub(super) struct StreamingState<S: Scalar> {
     pub(super) node_order: Vec<u32>,
 }
 
-/// Contiguous packed Stochastic Gradient Descent (SGD) layout solver.
+/// Contiguous packed Stochastic Gradient Descent (SGD) layout solver parameterized over any
+/// [`RiemannianLayout`] target (`Layout2d`, `Layout3d`, `LayoutNd`, `ManifoldLayout2d`).
 ///
 /// Supports symmetric and general two-sided spring pairs, one-sided hinge repulsion pairs,
-/// Ortmann (2016) sparse stress (`ortmann_sparse_stress`), Track B 3-tier sparse barrier
-/// schedules, cache-blocked L2-resident shuffling, streaming negative sampling, compact-memory
-/// `SNAP-tFDP`, 3-tier `PaCMAP-Graph`, `LargeVis`, `DRGraph`, `Graph-CNE`, doubly-stochastic
-/// diagonal-preconditioned stress SGD (`sgd2`, distinct from Ahmed et al. 2021 multi-criteria
-/// `(SGD)^2`), Euclidean [`Layout2d<S>`] via [`IterativeSolver<S>`], and non-Euclidean
-/// [`ManifoldLayout2d<S>`] stepping.
+/// Ortmann (2016) sparse stress (`ortmann_sparse_stress`), 3-tier sparse barrier schedules
+/// (`sparse_barrier_dog`, `sparse_barrier_from_landmarks`), cache-blocked L2-resident shuffling,
+/// streaming negative sampling, and zero-copy [`SgdPairBuffer`] construction.
 #[derive(Debug, Clone)]
-pub struct SgdSolver<S: Scalar = f64> {
+pub struct SgdSolver<L: RiemannianLayout = Layout2d<f64>> {
     pub(super) num_nodes: usize,
-    pub(super) pairs: PairStorage<S>,
+    pub(super) pairs: PairStorage<L::Scalar>,
     pub(super) num_springs: usize,
     pub(super) num_hinges: usize,
     pub(super) block_order: Vec<u32>,
-    pub(super) streaming: Option<StreamingState<S>>,
-    pub(super) snap_t_fdp: Option<SnapTFdpState>,
-    pub(super) pacmap: Option<PacmapState>,
-    pub(super) sgd2: Option<Sgd2State>,
-    pub(super) largevis: Option<LargeVisState>,
-    pub(super) drgraph: Option<DrGraphState>,
-    pub(super) graph_cne: Option<GraphCneState>,
+    pub(super) streaming: Option<StreamingState<L::Scalar>>,
     pub(super) schedule_cfg: SgdScheduleConfig,
     pub(super) eta_min: f64,
     pub(super) eta_max: f64,
     pub(super) iter: usize,
     pub(super) status: SolverStatus,
-    pub(super) active_layout: ActiveLayoutKind,
+    pub(super) locked_dim: Option<usize>,
+    pub(super) locked_manifold: Option<ManifoldKind>,
     pub(super) rng: DeterministicRng,
+    pub(super) _layout: PhantomData<fn() -> L>,
 }
 
-impl<S: Scalar> SgdSolver<S> {
-    /// Constructs an [`SgdSolver`] directly from pre-packed symmetric spring/hinge pairs.
-    pub fn from_packed_symmetric(
+impl<L: RiemannianLayout> SgdSolver<L> {
+    /// Constructs an [`SgdSolver`] directly from a pre-populated [`SgdPairBuffer`] without
+    /// intermediate pair allocations.
+    pub fn from_pair_buffer(
         num_nodes: usize,
-        mut pairs: Vec<PackedSymPair<S>>,
+        buffer: SgdPairBuffer<L::Scalar>,
+        schedule_cfg: SgdScheduleConfig,
+        seed: u64,
+    ) -> CoreResult<Self> {
+        let (pairs, num_springs, num_hinges) = buffer.into_parts();
+        Self::from_packed_symmetric(
+            num_nodes,
+            pairs,
+            num_springs,
+            num_hinges,
+            schedule_cfg,
+            seed,
+        )
+    }
+
+    pub(super) fn from_packed_symmetric(
+        num_nodes: usize,
+        mut pairs: Vec<PackedSymPair<L::Scalar>>,
         num_springs: usize,
         num_hinges: usize,
         schedule_cfg: SgdScheduleConfig,
@@ -100,7 +100,7 @@ impl<S: Scalar> SgdSolver<S> {
             if !p.d.is_finite() {
                 return Err(CoreError::non_finite("SgdSolver::from_packed_symmetric::d"));
             }
-            if p.d <= S::ZERO {
+            if p.d <= L::Scalar::ZERO {
                 return Err(CoreError::invalid_input(format!(
                     "SgdSolver::from_packed_symmetric: target distances must be > 0 at index {idx}"
                 )));
@@ -108,7 +108,7 @@ impl<S: Scalar> SgdSolver<S> {
             if !p.w.is_finite() {
                 return Err(CoreError::non_finite("SgdSolver::from_packed_symmetric::w"));
             }
-            if p.w < S::ZERO {
+            if p.w < L::Scalar::ZERO {
                 return Err(CoreError::invalid_input(format!(
                     "SgdSolver::from_packed_symmetric: weights must be >= 0 at index {idx}"
                 )));
@@ -136,25 +136,21 @@ impl<S: Scalar> SgdSolver<S> {
             num_hinges,
             block_order,
             streaming: None,
-            snap_t_fdp: None,
-            pacmap: None,
-            sgd2: None,
-            largevis: None,
-            drgraph: None,
-            graph_cne: None,
             schedule_cfg,
             eta_min,
             eta_max,
             iter: 0,
             status,
-            active_layout: ActiveLayoutKind::Unset,
+            locked_dim: None,
+            locked_manifold: None,
             rng,
+            _layout: PhantomData,
         })
     }
 
     pub(super) fn from_pair_storage(
         num_nodes: usize,
-        mut pairs: PairStorage<S>,
+        mut pairs: PairStorage<L::Scalar>,
         num_springs: usize,
         num_hinges: usize,
         schedule_cfg: SgdScheduleConfig,
@@ -184,19 +180,15 @@ impl<S: Scalar> SgdSolver<S> {
             num_hinges,
             block_order,
             streaming: None,
-            snap_t_fdp: None,
-            pacmap: None,
-            sgd2: None,
-            largevis: None,
-            drgraph: None,
-            graph_cne: None,
             schedule_cfg,
             eta_min,
             eta_max,
             iter: 0,
             status,
-            active_layout: ActiveLayoutKind::Unset,
+            locked_dim: None,
+            locked_manifold: None,
             rng,
+            _layout: PhantomData,
         })
     }
 
@@ -240,86 +232,28 @@ impl<S: Scalar> SgdSolver<S> {
 
     /// Returns the total scheduled iteration count.
     #[inline]
-    pub fn total_iterations(&self) -> usize {
-        self.schedule_cfg.iterations
-    }
-
-    /// Returns `true` since all [`SgdSolver`] modes support [`ManifoldLayout2d<S>`].
-    #[inline]
-    pub fn supports_manifold(&self) -> bool {
-        true
+    pub fn total_iterations(&self) -> Option<usize> {
+        Some(self.schedule_cfg.iterations)
     }
 
     #[inline]
-    pub(super) fn max_mu_scalar(&self) -> S {
-        match self.schedule_cfg.max_mu {
-            Some(m) => S::from_f64(m),
-            None => S::ONE,
-        }
+    pub(super) fn max_mu_f64(&self) -> f64 {
+        self.schedule_cfg.max_mu.unwrap_or(1.0)
     }
 
     /// Resets the iteration schedule and deterministic RNG without reallocating stored pair buffers.
     pub fn reset_schedule(&mut self, schedule_cfg: SgdScheduleConfig, seed: u64) -> CoreResult<()> {
         validate_schedule_config(&schedule_cfg)?;
-        if let Some(st) = self.snap_t_fdp.as_mut() {
-            st.config.iterations = schedule_cfg.iterations;
-            st.config.learning_rate = schedule_cfg.step_scale;
-            st.config.seed = seed;
-            self.eta_min = 0.0;
-            self.eta_max = schedule_cfg.step_scale;
-        } else if let Some(st) = self.pacmap.as_mut() {
-            st.config.phase_iterations =
-                scale_pacmap_phase_iterations(st.config.phase_iterations, schedule_cfg.iterations);
-            st.config.learning_rate = schedule_cfg.step_scale;
-            st.config.seed = seed;
-            st.grad_x.fill(0.0);
-            st.grad_y.fill(0.0);
-            st.m_x.fill(0.0);
-            st.m_y.fill(0.0);
-            st.v_x.fill(0.0);
-            st.v_y.fill(0.0);
-            st.nd_scratch = None;
-            self.eta_min = schedule_cfg.step_scale;
-            self.eta_max = schedule_cfg.step_scale;
-        } else if let Some(st) = self.sgd2.as_mut() {
-            st.grad_x.fill(0.0);
-            st.grad_y.fill(0.0);
-            st.h_x.fill(0.0);
-            st.h_y.fill(0.0);
-            st.touched_nodes.clear();
-            st.touched_stamp.clear();
-            st.nd_scratch = None;
-            let (eta_min, eta_max) = compute_eta_bounds(&self.pairs, None, schedule_cfg.eps);
-            self.eta_min = eta_min;
-            self.eta_max = eta_max;
-        } else if let Some(st) = self.largevis.as_mut() {
-            st.config.iterations = schedule_cfg.iterations;
-            st.config.initial_lr = schedule_cfg.step_scale;
-            st.config.min_lr = (schedule_cfg.step_scale * schedule_cfg.eps).max(0.0);
-            st.config.seed = seed;
-            self.eta_min = st.config.min_lr;
-            self.eta_max = st.config.initial_lr;
-        } else if let Some(st) = self.drgraph.as_mut() {
-            reset_drgraph_schedule(st, &schedule_cfg, seed);
-            self.eta_min = st.config.min_lr;
-            self.eta_max = st.config.initial_lr;
-        } else if let Some(st) = self.graph_cne.as_mut() {
-            st.config.iterations = schedule_cfg.iterations;
-            st.config.initial_lr = schedule_cfg.step_scale;
-            st.config.min_lr = (schedule_cfg.step_scale * schedule_cfg.eps).max(0.0);
-            st.config.seed = seed;
-            self.eta_min = st.config.min_lr;
-            self.eta_max = st.config.initial_lr;
-        } else {
-            let extra = self.streaming.as_ref().map(|s| s.weight);
-            let (eta_min, eta_max) = compute_eta_bounds(&self.pairs, extra, schedule_cfg.eps);
-            self.eta_min = eta_min;
-            self.eta_max = eta_max;
-        }
+        let extra = self.streaming.as_ref().map(|s| s.weight);
+        let (eta_min, eta_max) = compute_eta_bounds(&self.pairs, extra, schedule_cfg.eps);
+        self.eta_min = eta_min;
+        self.eta_max = eta_max;
         self.schedule_cfg = schedule_cfg;
         self.rng = DeterministicRng::from_seed_u64(seed);
         self.iter = 0;
-        self.status = if schedule_cfg.iterations == 0 {
+        self.locked_dim = None;
+        self.locked_manifold = None;
+        self.status = if self.schedule_cfg.iterations == 0 {
             SolverStatus::Completed
         } else {
             SolverStatus::Initialized
@@ -333,118 +267,20 @@ impl<S: Scalar> SgdSolver<S> {
     }
 
     pub(super) fn eta_at(&self, t: usize) -> f64 {
-        if let Some(st) = &self.snap_t_fdp {
-            let total = st.config.iterations;
-            if total == 0 || t >= total {
-                return 0.0;
-            }
-            return st.config.learning_rate * (1.0 - (t as f64) / (total as f64));
-        }
-        if let Some(st) = &self.pacmap {
-            let total = st.config.total_iterations();
-            if total == 0 || t >= total {
-                return 0.0;
-            }
-            return st.config.learning_rate;
-        }
-        if let Some(st) = &self.largevis {
-            let total = st.config.iterations;
-            if total == 0 || t >= total {
-                return 0.0;
-            }
-            return (st.config.initial_lr * (1.0 - (t as f64) / (total as f64)))
-                .max(st.config.min_lr);
-        }
-        if let Some(st) = &self.drgraph {
-            let total = st.config.iterations;
-            if total == 0 || t >= total {
-                return 0.0;
-            }
-            return (st.config.initial_lr * (1.0 - (t as f64) / (total as f64)))
-                .max(st.config.min_lr);
-        }
-        if let Some(st) = &self.graph_cne {
-            let total = st.config.iterations;
-            if total == 0 || t >= total {
-                return 0.0;
-            }
-            return (st.config.initial_lr * (1.0 - (t as f64) / (total as f64)))
-                .max(st.config.min_lr);
-        }
         let t_max = self.schedule_cfg.iterations;
         if t_max == 0 || t >= t_max {
             return 0.0;
         }
-        let scale = self.schedule_cfg.step_scale;
-        match self.schedule_cfg.kind {
-            SgdScheduleKind::Constant => scale,
-            SgdScheduleKind::Linear => {
-                if self.eta_max <= 0.0 {
-                    return 0.0;
-                }
-                let b = if t_max <= 1 {
-                    0.0
-                } else {
-                    (self.eta_max - self.eta_min) / ((t_max - 1) as f64)
-                };
-                scale * (self.eta_max - b * (t as f64)).max(0.0)
-            }
-            SgdScheduleKind::Quadratic => {
-                if self.eta_min <= 0.0 || self.eta_max <= 0.0 {
-                    return 0.0;
-                }
-                let b = if t_max <= 1 {
-                    0.0
-                } else {
-                    (1.0 - (self.eta_min / self.eta_max).sqrt()) / ((t_max - 1) as f64)
-                };
-                let factor = 1.0 - b * (t as f64);
-                scale * self.eta_max * factor * factor
-            }
-            SgdScheduleKind::Exponential => {
-                if self.eta_min <= 0.0 || self.eta_max <= 0.0 {
-                    return 0.0;
-                }
-                let b = if t_max <= 1 {
-                    0.0
-                } else {
-                    (self.eta_max / self.eta_min).ln() / ((t_max - 1) as f64)
-                };
-                scale * self.eta_max * (-b * (t as f64)).exp()
-            }
-            SgdScheduleKind::Reciprocal => {
-                if self.eta_min <= 0.0 || self.eta_max <= 0.0 {
-                    return 0.0;
-                }
-                let b = if t_max <= 1 {
-                    0.0
-                } else {
-                    (self.eta_max / self.eta_min - 1.0) / ((t_max - 1) as f64)
-                };
-                scale * self.eta_max / (1.0 + b * (t as f64))
-            }
-            SgdScheduleKind::Squared => {
-                if self.eta_max <= 0.0 {
-                    return 0.0;
-                }
-                let progress = if t_max <= 1 {
-                    0.0
-                } else {
-                    (t as f64) / ((t_max - 1) as f64)
-                };
-                let factor = 1.0 - progress;
-                scale * (self.eta_max * factor * factor).max(self.eta_min)
-            }
-        }
+        eval_schedule_eta(t, t_max, self.eta_min, self.eta_max, &self.schedule_cfg)
     }
 
-    pub(super) fn run_streaming_negatives<F>(&mut self, eta: S, mut apply_sym: F) -> CoreResult<()>
+    pub(super) fn run_streaming_negatives<F>(&mut self, mut apply_sym: F) -> CoreResult<()>
     where
-        F: FnMut(S, PackedSymPair<S>) -> CoreResult<()>,
+        F: FnMut(PackedSymPair<L::Scalar>) -> CoreResult<()>,
     {
         if let Some(stream) = &mut self.streaming
             && stream.negatives_per_node > 0
-            && stream.weight > S::ZERO
+            && stream.weight > L::Scalar::ZERO
         {
             self.rng.shuffle(&mut stream.node_order);
             let max_trials = stream.negatives_per_node.saturating_mul(4).max(8);
@@ -463,16 +299,13 @@ impl<S: Scalar> SgdSolver<S> {
                     if v_u32 == u_u32 || adj_u.binary_search(&v_u32).is_ok() {
                         continue;
                     }
-                    apply_sym(
-                        eta,
-                        PackedSymPair::new(
-                            u_u32,
-                            v_u32,
-                            stream.hinge_only,
-                            stream.target_distance,
-                            stream.weight,
-                        ),
-                    )?;
+                    apply_sym(PackedSymPair::new(
+                        u_u32,
+                        v_u32,
+                        stream.hinge_only,
+                        stream.target_distance,
+                        stream.weight,
+                    ))?;
                     accepted += 1;
                 }
             }
@@ -488,5 +321,75 @@ impl<S: Scalar> SgdSolver<S> {
             SolverStatus::Running
         };
         self.status
+    }
+}
+
+pub(super) fn eval_schedule_eta(
+    t: usize,
+    t_max: usize,
+    eta_min: f64,
+    eta_max: f64,
+    cfg: &SgdScheduleConfig,
+) -> f64 {
+    let scale = cfg.step_scale;
+    match cfg.kind {
+        SgdScheduleKind::Constant => scale,
+        SgdScheduleKind::Linear => {
+            if eta_max <= 0.0 {
+                return 0.0;
+            }
+            let b = if t_max <= 1 {
+                0.0
+            } else {
+                (eta_max - eta_min) / ((t_max - 1) as f64)
+            };
+            scale * (eta_max - b * (t as f64)).max(0.0)
+        }
+        SgdScheduleKind::Quadratic => {
+            if eta_min <= 0.0 || eta_max <= 0.0 {
+                return 0.0;
+            }
+            let b = if t_max <= 1 {
+                0.0
+            } else {
+                (1.0 - (eta_min / eta_max).sqrt()) / ((t_max - 1) as f64)
+            };
+            let factor = 1.0 - b * (t as f64);
+            scale * eta_max * factor * factor
+        }
+        SgdScheduleKind::Exponential => {
+            if eta_min <= 0.0 || eta_max <= 0.0 {
+                return 0.0;
+            }
+            let b = if t_max <= 1 {
+                0.0
+            } else {
+                (eta_max / eta_min).ln() / ((t_max - 1) as f64)
+            };
+            scale * eta_max * (-b * (t as f64)).exp()
+        }
+        SgdScheduleKind::Reciprocal => {
+            if eta_min <= 0.0 || eta_max <= 0.0 {
+                return 0.0;
+            }
+            let b = if t_max <= 1 {
+                0.0
+            } else {
+                (eta_max / eta_min - 1.0) / ((t_max - 1) as f64)
+            };
+            scale * eta_max / (1.0 + b * (t as f64))
+        }
+        SgdScheduleKind::Squared => {
+            if eta_max <= 0.0 {
+                return 0.0;
+            }
+            let progress = if t_max <= 1 {
+                0.0
+            } else {
+                (t as f64) / ((t_max - 1) as f64)
+            };
+            let factor = 1.0 - progress;
+            scale * (eta_max * factor * factor).max(eta_min)
+        }
     }
 }

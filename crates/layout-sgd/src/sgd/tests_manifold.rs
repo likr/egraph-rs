@@ -1,11 +1,10 @@
 use std::f64::consts::PI;
 
 use egraph_core::{
-    CoreError, CsrGraph, IterativeSolver, Layout2d, LayoutNd, ManifoldKind, ManifoldLayout2d,
-    SolverStatus,
+    CoreError, CsrGraph, IterativeSolver, ManifoldKind, ManifoldLayout2d, SolverStatus,
 };
 
-use super::super::sgd::{SgdScheduleConfig, SgdScheduleKind, SgdSolver};
+use super::super::sgd::{Sgd2Config, Sgd2Solver, SgdScheduleConfig, SgdScheduleKind, SgdSolver};
 use super::test_support::{grid_graph, manifold_pair_stress};
 
 fn subdivided_icosahedron_csr() -> CsrGraph<f64> {
@@ -104,29 +103,35 @@ fn test_spherical_mu_1_icosahedral_convergence_and_max_mu_guard() {
 
     let default_sched = SgdScheduleConfig::new(20);
     assert_eq!(default_sched.max_mu, None);
-    let sched_with_mu = default_sched.with_max_mu(Some(0.5));
+    let sched_with_mu = default_sched.clone().with_max_mu(Some(0.5));
     assert_eq!(sched_with_mu.max_mu, Some(0.5));
 
-    // Reject non-finite or non-positive max_mu.
     assert!(matches!(
-        SgdSolver::<f64>::full(&g, default_sched.with_max_mu(Some(f64::NAN)), 42),
+        SgdSolver::<ManifoldLayout2d<f64>>::full(
+            &g,
+            default_sched.clone().with_max_mu(Some(f64::NAN)),
+            42
+        ),
         Err(CoreError::NonFiniteValue { .. })
     ));
     assert!(matches!(
-        SgdSolver::<f64>::full(&g, default_sched.with_max_mu(Some(0.0)), 42),
+        SgdSolver::<ManifoldLayout2d<f64>>::full(
+            &g,
+            default_sched.clone().with_max_mu(Some(0.0)),
+            42
+        ),
         Err(CoreError::InvalidInput(_))
     ));
     assert!(matches!(
-        SgdSolver::<f64>::full(&g, default_sched.with_max_mu(Some(-0.2)), 42),
+        SgdSolver::<ManifoldLayout2d<f64>>::full(&g, default_sched.with_max_mu(Some(-0.2)), 42),
         Err(CoreError::InvalidInput(_))
     ));
 
-    // Initialize in a small polar cap (r = 0.30): un-clamped Spherical mu=1.0 unfolds rapidly
-    // within a few iterations while artificial max_mu=0.1 lags severely.
     let fast_sched = SgdScheduleConfig::new(2);
-    let mut s_full = SgdSolver::<f64>::full(&g, fast_sched, 42).unwrap();
-    let mut s_clamped = SgdSolver::<f64>::full(&g, fast_sched.with_max_mu(Some(0.1)), 42).unwrap();
-    assert!(s_full.supports_manifold());
+    let mut s_full = SgdSolver::<ManifoldLayout2d<f64>>::full(&g, fast_sched.clone(), 42).unwrap();
+    let mut s_clamped =
+        SgdSolver::<ManifoldLayout2d<f64>>::full(&g, fast_sched.with_max_mu(Some(0.1)), 42)
+            .unwrap();
     assert!(s_full.current_eta() >= 1.0);
 
     let lons: Vec<f64> = (0..n)
@@ -139,8 +144,8 @@ fn test_spherical_mu_1_icosahedral_convergence_and_max_mu_guard() {
         ManifoldLayout2d::<f64>::from_xy(ManifoldKind::Spherical, lons, colats).unwrap();
     l_full.set_scale(6.0 / PI).unwrap();
     let mut l_clamped = l_full.clone();
-    IterativeSolver::<f64, ManifoldLayout2d<f64>>::run(&mut s_full, &mut l_full).unwrap();
-    IterativeSolver::<f64, ManifoldLayout2d<f64>>::run(&mut s_clamped, &mut l_clamped).unwrap();
+    s_full.run(&mut l_full).unwrap();
+    s_clamped.run(&mut l_clamped).unwrap();
 
     let mut pairs = Vec::new();
     let mut bfs = egraph_linalg::BfsWorkspace::new(n);
@@ -168,22 +173,21 @@ fn test_hyperbolic_lorentz_large_radii_without_disk_clamp() {
     )
     .unwrap();
     let sched = SgdScheduleConfig::new(15).with_kind(SgdScheduleKind::Constant);
-    let mut solver = SgdSolver::<f64>::from_pairs(
+    let mut solver = SgdSolver::<ManifoldLayout2d<f64>>::from_pairs(
         2,
-        vec![0],
-        vec![1],
-        vec![14.0],
-        vec![14.0],
-        vec![1.0],
-        vec![1.0],
+        &[0],
+        &[1],
+        &[14.0],
+        &[14.0],
+        &[1.0],
+        &[1.0],
         sched,
         42,
     )
     .unwrap();
-    let st = IterativeSolver::<f64, ManifoldLayout2d<f64>>::run(&mut solver, &mut lorentz).unwrap();
+    let st = solver.run(&mut lorentz).unwrap();
     assert_eq!(st, SolverStatus::Completed);
     assert!(lorentz.as_layout().is_all_finite());
-    // Radius stays well beyond Poincare disk unit boundary (< 1) without clamping.
     let d_lorentz = lorentz.geodesic_distance(0, 1).unwrap();
     assert!(
         (d_lorentz - 14.0).abs() < 1e-2,
@@ -194,17 +198,16 @@ fn test_hyperbolic_lorentz_large_radii_without_disk_clamp() {
 
 #[test]
 fn test_manifold_metric_scaling_and_torus_rectangular_aspect_clamping() {
-    // 1. Conformal scale=4.0 vs scale=1.0 on HyperbolicLorentz and Spherical.
     let sched = SgdScheduleConfig::new(1).with_kind(SgdScheduleKind::Constant);
-    let mut s1 = SgdSolver::<f64>::from_pairs(
+    let mut s1 = SgdSolver::<ManifoldLayout2d<f64>>::from_pairs(
         2,
-        vec![0],
-        vec![1],
-        vec![100.0],
-        vec![100.0],
-        vec![1.0],
-        vec![1.0],
-        sched,
+        &[0],
+        &[1],
+        &[2000.0],
+        &[2000.0],
+        &[1.0],
+        &[1.0],
+        sched.clone(),
         42,
     )
     .unwrap();
@@ -217,59 +220,55 @@ fn test_manifold_metric_scaling_and_torus_rectangular_aspect_clamping() {
     .unwrap();
     let mut ml_s4 = ml_s1.clone();
     ml_s4.set_scale(4.0).unwrap();
-    IterativeSolver::<f64, ManifoldLayout2d<f64>>::run(&mut s1, &mut ml_s1).unwrap();
-    IterativeSolver::<f64, ManifoldLayout2d<f64>>::run(&mut s4, &mut ml_s4).unwrap();
+    s1.run(&mut ml_s1).unwrap();
+    s4.run(&mut ml_s4).unwrap();
     let d_s1 = ml_s1.geodesic_distance(0, 1).unwrap();
     let d_s4 = ml_s4.geodesic_distance(0, 1).unwrap();
-    // Physical clamp 8.0 * scale allows larger single-step geodesic separation when scale=4.0.
     assert!(
         d_s4 > d_s1,
         "expected scaled step d_s4 ({d_s4}) > d_s1 ({d_s1})"
     );
 
-    // 2. Spherical step clamp scales with metric.scale * PI.
     let mut sp_s1 =
         ManifoldLayout2d::<f64>::from_xy(ManifoldKind::Spherical, vec![0.0, 0.2], vec![1.5, 1.5])
             .unwrap();
     let mut sp_s3 = sp_s1.clone();
     sp_s3.set_scale(3.0).unwrap();
-    let mut sp_a = SgdSolver::<f64>::from_pairs(
+    let mut sp_a = SgdSolver::<ManifoldLayout2d<f64>>::from_pairs(
         2,
-        vec![0],
-        vec![1],
-        vec![100.0],
-        vec![100.0],
-        vec![1.0],
-        vec![1.0],
+        &[0],
+        &[1],
+        &[100.0],
+        &[100.0],
+        &[1.0],
+        &[1.0],
         sched,
         42,
     )
     .unwrap();
     let mut sp_b = sp_a.clone();
-    sp_a.step_manifold(&mut sp_s1).unwrap();
-    sp_b.step_manifold(&mut sp_s3).unwrap();
+    sp_a.step(&mut sp_s1).unwrap();
+    sp_b.step(&mut sp_s3).unwrap();
     assert!(sp_s1.as_layout().is_all_finite() && sp_s3.as_layout().is_all_finite());
     assert!(sp_s3.geodesic_distance(0, 1).unwrap() <= 3.0 * PI + 1e-9);
 
-    // 3. Rectangular Torus2d per-axis clamping (0.5 * Lx, 0.5 * Ly) avoids clipping along Lx when aspect != 1.
     let mut torus =
         ManifoldLayout2d::<f64>::from_xy(ManifoldKind::Torus2d, vec![0.1, 0.2], vec![0.1, 0.1])
             .unwrap();
     torus.set_torus_extents(4.0, 1.0).unwrap();
-    // dx_norm = 0.1 -> physical d = 0.4; target d = 1.8 -> |vx| = 0.7 (> 0.5 * scale = 0.5, < 0.5 * Lx = 2.0).
-    let mut tor_solver = SgdSolver::<f64>::from_pairs(
+    let mut tor_solver = SgdSolver::<ManifoldLayout2d<f64>>::from_pairs(
         2,
-        vec![0],
-        vec![1],
-        vec![1.8],
-        vec![1.8],
-        vec![1.0],
-        vec![1.0],
+        &[0],
+        &[1],
+        &[1.8],
+        &[1.8],
+        &[1.0],
+        &[1.0],
         SgdScheduleConfig::new(1).with_kind(SgdScheduleKind::Constant),
         42,
     )
     .unwrap();
-    tor_solver.step_manifold(&mut torus).unwrap();
+    tor_solver.step(&mut torus).unwrap();
     let d_tor = torus.geodesic_distance(0, 1).unwrap();
     assert!(
         (d_tor - 1.8).abs() < 1e-10,
@@ -278,68 +277,48 @@ fn test_manifold_metric_scaling_and_torus_rectangular_aspect_clamping() {
 }
 
 #[test]
-fn test_active_layout_kind_cross_layout_lock_enforcement() {
+fn test_manifold_kind_lock_enforcement() {
     let g = grid_graph(2, 2);
     let sched = SgdScheduleConfig::new(5);
 
-    // 1. Manifold -> Euclidean2d, Nd, and different ManifoldKind rejected.
-    let mut s_m = SgdSolver::<f64>::full(&g, sched, 42).unwrap();
+    let mut s_m = SgdSolver::<ManifoldLayout2d<f64>>::full(&g, sched, 42).unwrap();
     let mut ml_tor = ManifoldLayout2d::<f64>::init(ManifoldKind::Torus2d, 4, 42, 1.0).unwrap();
     let mut ml_sph = ManifoldLayout2d::<f64>::init(ManifoldKind::Spherical, 4, 42, 1.0).unwrap();
-    let mut l_2d = Layout2d::<f64>::zeros(4);
-    let mut l_nd = LayoutNd::<f64>::zeros(4, 3).unwrap();
 
-    s_m.step_manifold(&mut ml_tor).unwrap();
+    s_m.step(&mut ml_tor).unwrap();
     assert!(matches!(
-        IterativeSolver::<f64, Layout2d<f64>>::step(&mut s_m, &mut l_2d),
+        s_m.step(&mut ml_sph),
         Err(CoreError::InvalidInput(_))
     ));
     assert!(matches!(
-        IterativeSolver::<f64, LayoutNd<f64>>::step(&mut s_m, &mut l_nd),
+        s_m.run_steps(&mut ml_sph, 0),
         Err(CoreError::InvalidInput(_))
     ));
     assert!(matches!(
-        s_m.step_manifold(&mut ml_sph),
-        Err(CoreError::InvalidInput(_))
-    ));
-    assert!(matches!(
-        s_m.run_schedule_window(&mut l_2d, 0, 1),
-        Err(CoreError::InvalidInput(_))
-    ));
-    assert!(matches!(
-        s_m.run_schedule_window_manifold(&mut ml_sph, 0, 1),
+        s_m.run_schedule_window(&mut ml_sph, 0, 1),
         Err(CoreError::InvalidInput(_))
     ));
 
-    // 2. Euclidean2d -> Manifold rejected (via step_manifold & run_schedule_window).
-    let mut s_e = SgdSolver::<f64>::full(&g, sched, 42).unwrap();
-    IterativeSolver::<f64, Layout2d<f64>>::step(&mut s_e, &mut l_2d).unwrap();
+    let mut s2_m =
+        Sgd2Solver::<ManifoldLayout2d<f64>>::new(&g, Sgd2Config::new().with_iterations(5)).unwrap();
+    s2_m.step(&mut ml_tor).unwrap();
     assert!(matches!(
-        s_e.step_manifold(&mut ml_tor),
+        s2_m.step(&mut ml_sph),
         Err(CoreError::InvalidInput(_))
     ));
     assert!(matches!(
-        s_e.run_schedule_window(&mut ml_tor, 0, 1),
-        Err(CoreError::InvalidInput(_))
-    ));
-
-    // 3. Nd -> Manifold rejected.
-    let mut s_nd = SgdSolver::<f64>::full(&g, sched, 42).unwrap();
-    IterativeSolver::<f64, LayoutNd<f64>>::step(&mut s_nd, &mut l_nd).unwrap();
-    assert!(matches!(
-        s_nd.step_manifold(&mut ml_tor),
+        s2_m.run_steps(&mut ml_sph, 0),
         Err(CoreError::InvalidInput(_))
     ));
 }
 
 #[test]
-fn test_run_schedule_window_inferred_and_manifold_determinism() {
+fn test_run_schedule_window_manifold_determinism() {
     let g = grid_graph(3, 3);
     let cfg = SgdScheduleConfig::new(10);
-    let mut s1 = SgdSolver::<f64>::full(&g, cfg, 42).unwrap();
-    let mut s2 = SgdSolver::<f64>::full(&g, cfg, 42).unwrap();
+    let mut s1 = SgdSolver::<ManifoldLayout2d<f64>>::full(&g, cfg.clone(), 42).unwrap();
+    let mut s2 = SgdSolver::<ManifoldLayout2d<f64>>::full(&g, cfg.clone(), 42).unwrap();
 
-    // Direct call on &mut ManifoldLayout2d with zero type annotations.
     let mut ml1 = ManifoldLayout2d::<f64>::init(ManifoldKind::Torus2d, 9, 42, 1.0).unwrap();
     let mut ml2 = ml1.clone();
     s1.run_schedule_window(&mut ml1, 0, 0).unwrap();
@@ -347,10 +326,10 @@ fn test_run_schedule_window_inferred_and_manifold_determinism() {
     s1.run_schedule_window(&mut ml1, 20, 5).unwrap();
     assert_eq!(ml1, ml2);
 
-    s1.reset_schedule(cfg, 99).unwrap();
+    s1.reset_schedule(cfg.clone(), 99).unwrap();
     s2.reset_schedule(cfg, 99).unwrap();
     s1.run_schedule_window(&mut ml1, 0, 4).unwrap();
     s1.run_schedule_window(&mut ml1, 4, 6).unwrap();
-    s2.run_schedule_window_manifold(&mut ml2, 0, 10).unwrap();
+    s2.run_schedule_window(&mut ml2, 0, 10).unwrap();
     assert_eq!(ml1, ml2);
 }

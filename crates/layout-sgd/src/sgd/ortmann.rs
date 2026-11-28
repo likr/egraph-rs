@@ -2,7 +2,7 @@ use egraph_core::{CoreError, CoreResult, CsrGraph, Scalar};
 use egraph_linalg::select_maxmin_sp_pivots;
 
 use super::config::{SgdScheduleConfig, SgdScheduleKind};
-use super::graph_sampling::{build_positive_canonical_csr, compute_mssp_dists};
+use super::graph_helpers::{build_positive_canonical_csr, compute_mssp_dists};
 use super::ortmann_pivots::{select_maxmin_random_sp_pivots, select_weighted_maxmin_sp_pivots};
 use super::pairs::{
     DirectedPairAccumulator, MAX_PACKED_NODES, PairStorage, validate_graph_weights,
@@ -196,13 +196,10 @@ pub(super) fn build_ortmann_storage<W: Scalar, S: Scalar>(
         )));
     }
 
-    let schedule_cfg = SgdScheduleConfig {
-        iterations: config.iterations,
-        eps: config.eps,
-        kind: SgdScheduleKind::Exponential,
-        step_scale: 1.0,
-        max_mu: None,
-    };
+    let schedule_cfg = SgdScheduleConfig::new(config.iterations)
+        .with_eps(config.eps)
+        .with_kind(SgdScheduleKind::Exponential)
+        .with_step_scale(1.0);
     if n <= 1 {
         return Ok(BuiltOrtmann {
             num_nodes: n,
@@ -232,7 +229,6 @@ pub(super) fn build_ortmann_storage<W: Scalar, S: Scalar>(
         let w_uv = 1.0 / (d_uv * d_uv);
         acc.push_f64(u, v, d_uv, d_uv, w_uv, w_uv);
     }
-    // `extract_canonical_undirected_edges` may emit unsorted entries if input rows are unsorted.
     if !edges_1hop.windows(2).all(|w| w[0] < w[1]) {
         edges_1hop.sort_unstable();
     }

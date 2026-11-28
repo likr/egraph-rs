@@ -1,253 +1,238 @@
+use std::any::Any;
+
 use egraph_core::{
-    CoreError, CoreResult, IterativeSolver, Layout2d, ManifoldLayout2d, Scalar, SolverStatus,
+    CoreError, CoreResult, IterativeSolver, ManifoldKind, ManifoldLayout2d, RiemannianLayout,
+    Scalar, SolverStatus,
 };
 
-use super::drgraph::step_drgraph_state;
-use super::graph_cne::step_graph_cne_state;
-use super::largevis::step_largevis_state;
-use super::manifold_drgraph::{step_drgraph_state_manifold, sync_drgraph_schedule_iter};
-use super::manifold_sampling_variants::{
-    step_graph_cne_state_manifold, step_largevis_state_manifold, step_pacmap_state_manifold,
+use super::pairs::{
+    HINGE_BIT, INDEX_MASK, PackedGenPair, PackedSymPair, PairStorage, try_for_each_shuffled_pair,
 };
-use super::manifold_variants::{step_sgd2_state_manifold, step_snap_t_fdp_state_manifold};
-use super::pacmap::step_pacmap_state;
-use super::pairs::{PairStorage, try_for_each_shuffled_pair};
-use super::sgd2::step_sgd2_state;
-use super::snap_t_fdp::step_snap_t_fdp_state;
-use super::solver::{ActiveLayoutKind, SgdSolver};
-use super::update::{apply_euclidean_gen_pair, apply_euclidean_sym_pair, apply_manifold_pair};
+use super::solver::SgdSolver;
 
-mod sealed {
-    use super::*;
-
-    pub trait Sealed<S: Scalar> {
-        fn validate_window_input(
-            &self,
-            solver: &mut SgdSolver<S>,
-            ctx: &'static str,
-        ) -> CoreResult<()>;
-
-        fn step_window(&mut self, solver: &mut SgdSolver<S>) -> CoreResult<SolverStatus>;
-    }
-}
-
-/// Layout types accepted by [`SgdSolver::run_schedule_window`]: [`Layout2d<S>`] and [`ManifoldLayout2d<S>`].
-pub trait SgdScheduleWindowLayout<S: Scalar>: sealed::Sealed<S> {}
-
-impl<S: Scalar> sealed::Sealed<S> for Layout2d<S> {
-    fn validate_window_input(
-        &self,
-        solver: &mut SgdSolver<S>,
-        ctx: &'static str,
-    ) -> CoreResult<()> {
-        validate_euclidean_step_preconditions(solver, self, ctx)
-    }
-
-    fn step_window(&mut self, solver: &mut SgdSolver<S>) -> CoreResult<SolverStatus> {
-        IterativeSolver::<S, Layout2d<S>>::step(solver, self)
-    }
-}
-
-impl<S: Scalar> SgdScheduleWindowLayout<S> for Layout2d<S> {}
-
-impl<S: Scalar> sealed::Sealed<S> for ManifoldLayout2d<S> {
-    fn validate_window_input(
-        &self,
-        solver: &mut SgdSolver<S>,
-        ctx: &'static str,
-    ) -> CoreResult<()> {
-        validate_manifold_step_preconditions(solver, self, ctx)
-    }
-
-    fn step_window(&mut self, solver: &mut SgdSolver<S>) -> CoreResult<SolverStatus> {
-        solver.step_manifold(self)
-    }
-}
-
-impl<S: Scalar> SgdScheduleWindowLayout<S> for ManifoldLayout2d<S> {}
-
-fn validate_euclidean_step_preconditions<S: Scalar>(
-    solver: &mut SgdSolver<S>,
-    layout: &Layout2d<S>,
+pub(super) fn validate_target_layout<L: RiemannianLayout + 'static>(
+    expected_nodes: usize,
+    locked_dim: Option<usize>,
+    locked_manifold: Option<ManifoldKind>,
+    target: &L,
     ctx: &'static str,
 ) -> CoreResult<()> {
-    if layout.len() != solver.num_nodes {
+    if target.len() != expected_nodes {
         return Err(CoreError::dimension_mismatch(
-            solver.num_nodes,
-            layout.len(),
+            expected_nodes,
+            target.len(),
             ctx,
         ));
     }
-    layout.validate_finite()?;
-    match solver.active_layout {
-        ActiveLayoutKind::Unset => solver.active_layout = ActiveLayoutKind::Euclidean2d,
-        ActiveLayoutKind::Euclidean2d => {}
-        ActiveLayoutKind::Nd(_) => {
-            return Err(CoreError::invalid_input(format!(
-                "{ctx}: cannot switch from LayoutNd to Layout2d on stateful solver"
-            )));
-        }
-        ActiveLayoutKind::Manifold(_) => {
-            return Err(CoreError::invalid_input(format!(
-                "{ctx}: cannot switch from ManifoldLayout2d to Layout2d on stateful solver"
-            )));
-        }
+    let dim = target.tangent_dim();
+    if dim == 0 {
+        return Err(CoreError::invalid_input(format!(
+            "{ctx}: tangent_dim must be >= 1"
+        )));
     }
-    Ok(())
+    if let Some(prev_dim) = locked_dim
+        && dim != prev_dim
+    {
+        return Err(CoreError::dimension_mismatch(prev_dim, dim, ctx));
+    }
+    if let Some(prev_kind) = locked_manifold
+        && let Some(manifold) = (target as &dyn Any).downcast_ref::<ManifoldLayout2d<L::Scalar>>()
+        && manifold.kind() != prev_kind
+    {
+        return Err(CoreError::invalid_input(format!(
+            "{ctx}: cannot switch ManifoldKind on stateful solver"
+        )));
+    }
+    target.validate_finite()
 }
 
-fn validate_manifold_step_preconditions<S: Scalar>(
-    solver: &mut SgdSolver<S>,
-    layout: &ManifoldLayout2d<S>,
-    ctx: &'static str,
+pub(super) fn lock_target_layout<L: RiemannianLayout + 'static>(
+    locked_dim: &mut Option<usize>,
+    locked_manifold: &mut Option<ManifoldKind>,
+    target: &L,
+) {
+    if locked_dim.is_none() {
+        *locked_dim = Some(target.tangent_dim());
+    }
+    if locked_manifold.is_none()
+        && let Some(manifold) = (target as &dyn Any).downcast_ref::<ManifoldLayout2d<L::Scalar>>()
+    {
+        *locked_manifold = Some(manifold.kind());
+    }
+}
+
+#[inline]
+fn capped_mu(eta: f64, w: f64, max_mu: f64) -> f64 {
+    if w.is_finite() && w > 0.0 {
+        let raw = eta * w;
+        if max_mu.is_finite() {
+            raw.min(max_mu)
+        } else {
+            raw
+        }
+    } else {
+        0.0
+    }
+}
+
+#[inline]
+fn apply_riemannian_sym_pair<L: RiemannianLayout>(
+    layout: &mut L,
+    eta: f64,
+    max_mu: f64,
+    p: PackedSymPair<L::Scalar>,
 ) -> CoreResult<()> {
-    if layout.len() != solver.num_nodes {
-        return Err(CoreError::dimension_mismatch(
-            solver.num_nodes,
-            layout.len(),
-            ctx,
-        ));
+    let d = p.d.to_f64();
+    let mu = capped_mu(eta, p.w.to_f64(), max_mu);
+    if !d.is_finite() || d <= 0.0 || !mu.is_finite() || mu <= 0.0 {
+        return Ok(());
     }
-    layout.as_layout().validate_finite()?;
-    let kind = layout.kind();
-    match solver.active_layout {
-        ActiveLayoutKind::Unset => solver.active_layout = ActiveLayoutKind::Manifold(kind),
-        ActiveLayoutKind::Manifold(prev) if prev == kind => {}
-        ActiveLayoutKind::Manifold(_) => {
-            return Err(CoreError::invalid_input(format!(
-                "{ctx}: cannot switch ManifoldKind on stateful solver"
-            )));
+    let i = p.i as usize;
+    let j = (p.j_hinge & INDEX_MASK) as usize;
+    let is_hinge = (p.j_hinge & HINGE_BIT) != 0;
+    if is_hinge {
+        let dist = layout.distance(i, j);
+        if !dist.is_finite() {
+            return Err(CoreError::numerical_breakdown(
+                "non-finite distance during SGD step",
+            ));
         }
-        ActiveLayoutKind::Euclidean2d => {
-            return Err(CoreError::invalid_input(format!(
-                "{ctx}: cannot switch from Layout2d to ManifoldLayout2d on stateful solver"
-            )));
-        }
-        ActiveLayoutKind::Nd(_) => {
-            return Err(CoreError::invalid_input(format!(
-                "{ctx}: cannot switch from LayoutNd to ManifoldLayout2d on stateful solver"
-            )));
+        if dist >= d {
+            return Ok(());
         }
     }
-    Ok(())
+    let half_mu = 0.5 * mu;
+    layout.move_pair_toward(i, j, d, half_mu, half_mu)
 }
 
-impl<S: Scalar> SgdSolver<S> {
-    /// Executes one SGD iteration on a non-Euclidean [`ManifoldLayout2d<S>`] across all
-    /// [`ManifoldLayout2d<S>`] geometries (`HyperbolicPoincare`, `HyperbolicLorentz`,
-    /// `Spherical`, and `Torus2d`).
-    pub fn step_manifold(&mut self, layout: &mut ManifoldLayout2d<S>) -> CoreResult<SolverStatus> {
-        validate_manifold_step_preconditions(self, layout, "SgdSolver::step_manifold")?;
-        if self.status.is_finished() {
-            return Ok(self.status);
-        }
+#[inline]
+fn apply_riemannian_gen_pair<L: RiemannianLayout>(
+    layout: &mut L,
+    eta: f64,
+    max_mu: f64,
+    p: &PackedGenPair<L::Scalar>,
+    tan_buf: &mut Vec<f64>,
+) -> CoreResult<()> {
+    let dij = p.dij.to_f64();
+    let dji = p.dji.to_f64();
+    if !dij.is_finite() || !dji.is_finite() || dij <= 0.0 || dji <= 0.0 {
+        return Ok(());
+    }
+    let mu_i = capped_mu(eta, p.wij.to_f64(), max_mu);
+    let mu_j = capped_mu(eta, p.wji.to_f64(), max_mu);
+    if mu_i <= 0.0 && mu_j <= 0.0 {
+        return Ok(());
+    }
+    let i = p.i as usize;
+    let j = (p.j_hinge & INDEX_MASK) as usize;
+    let is_hinge = (p.j_hinge & HINGE_BIT) != 0;
 
-        if let Some(st) = self.snap_t_fdp.as_mut() {
-            step_snap_t_fdp_state_manifold(
-                st,
-                &mut self.block_order,
-                &mut self.rng,
-                self.num_nodes,
-                self.iter,
-                layout,
-            )?;
-            return Ok(self.finish_iteration());
-        }
-        if let Some(st) = self.pacmap.as_mut() {
-            step_pacmap_state_manifold(st, self.num_nodes, self.iter, layout)?;
-            return Ok(self.finish_iteration());
-        }
-        if self.sgd2.is_some() {
-            let eta_f64 = self.eta_at(self.iter);
-            if let Some(st) = self.sgd2.as_mut() {
-                step_sgd2_state_manifold(
-                    st,
-                    &mut self.pairs,
-                    &mut self.block_order,
-                    &mut self.rng,
-                    self.num_nodes,
-                    eta_f64,
-                    self.eta_max,
-                    self.schedule_cfg.step_scale,
-                    layout,
-                )?;
+    if dij == dji {
+        let dist = if is_hinge {
+            let d = layout.distance(i, j);
+            if !d.is_finite() {
+                return Err(CoreError::numerical_breakdown(
+                    "non-finite distance during SGD step",
+                ));
             }
-            return Ok(self.finish_iteration());
+            d
+        } else {
+            0.0
+        };
+        let wi = if mu_i > 0.0 && (!is_hinge || dist < dij) {
+            0.5 * mu_i
+        } else {
+            0.0
+        };
+        let wj = if mu_j > 0.0 && (!is_hinge || dist < dji) {
+            0.5 * mu_j
+        } else {
+            0.0
+        };
+        if wi == 0.0 && wj == 0.0 {
+            return Ok(());
         }
-        if let Some(st) = self.largevis.as_ref() {
-            step_largevis_state_manifold(st, &mut self.rng, self.num_nodes, self.iter, layout)?;
-            return Ok(self.finish_iteration());
-        }
-        if let Some(st) = self.drgraph.as_mut() {
-            step_drgraph_state_manifold(st, &mut self.rng, self.num_nodes, self.iter, layout)?;
-            return Ok(self.finish_iteration());
-        }
-        if let Some(st) = self.graph_cne.as_mut() {
-            step_graph_cne_state_manifold(st, &mut self.rng, self.num_nodes, self.iter, layout)?;
-            return Ok(self.finish_iteration());
-        }
+        return layout.move_pair_toward(i, j, dij, wi, wj);
+    }
 
-        let eta_f64 = self.eta_at(self.iter);
-        if self.num_nodes > 1 && eta_f64.is_finite() && eta_f64 > 0.0 {
-            let eta = S::from_f64(eta_f64);
-            let max_mu = self.max_mu_scalar();
+    let dist = layout.distance(i, j);
+    if !dist.is_finite() {
+        return Err(CoreError::numerical_breakdown(
+            "non-finite distance during SGD step",
+        ));
+    }
+    if dist <= 1e-15 {
+        return Ok(());
+    }
+    let update_i = mu_i > 0.0 && (!is_hinge || dist < dij);
+    let update_j = mu_j > 0.0 && (!is_hinge || dist < dji);
+    if !update_i && !update_j {
+        return Ok(());
+    }
+
+    let dim = layout.tangent_dim();
+    if tan_buf.len() < 2 * dim {
+        tan_buf.resize(2 * dim, 0.0);
+    }
+    let (ti, tj) = tan_buf.split_at_mut(dim);
+    if update_i {
+        layout.log_map_into(i, j, &mut ti[..dim])?;
+    }
+    if update_j {
+        layout.log_map_into(j, i, &mut tj[..dim])?;
+    }
+    if update_i {
+        let si = 0.5 * mu_i * (dist - dij) / dist;
+        for v in &mut ti[..dim] {
+            *v *= si;
+        }
+        layout.exp_map(i, &ti[..dim])?;
+    }
+    if update_j {
+        let sj = 0.5 * mu_j * (dist - dji) / dist;
+        for v in &mut tj[..dim] {
+            *v *= sj;
+        }
+        layout.exp_map(j, &tj[..dim])?;
+    }
+    Ok(())
+}
+
+impl<L: RiemannianLayout + 'static> SgdSolver<L> {
+    fn step_pairs_inner(&mut self, layout: &mut L) -> CoreResult<()> {
+        let eta = self.eta_at(self.iter);
+        if self.num_nodes > 1 && eta.is_finite() && eta > 0.0 {
+            let max_mu = self.max_mu_f64();
             match &mut self.pairs {
                 PairStorage::Symmetric(pairs) => {
-                    try_for_each_shuffled_pair(pairs, &mut self.block_order, &mut self.rng, |p| {
-                        apply_manifold_pair(layout, eta, max_mu, p.to_pair_spec())
-                    })?;
+                    try_for_each_shuffled_pair(
+                        pairs,
+                        &mut self.block_order,
+                        &mut self.rng,
+                        |&p| apply_riemannian_sym_pair(layout, eta, max_mu, p),
+                    )?;
                 }
                 PairStorage::General(pairs) => {
+                    let mut tan_buf = Vec::new();
                     try_for_each_shuffled_pair(pairs, &mut self.block_order, &mut self.rng, |p| {
-                        apply_manifold_pair(layout, eta, max_mu, p.to_pair_spec())
+                        apply_riemannian_gen_pair(layout, eta, max_mu, p, &mut tan_buf)
                     })?;
                 }
             }
-            self.run_streaming_negatives(eta, |e, p| {
-                apply_manifold_pair(layout, e, max_mu, p.to_pair_spec())
-            })?;
+            self.run_streaming_negatives(|p| apply_riemannian_sym_pair(layout, eta, max_mu, p))?;
         }
-
-        Ok(self.finish_iteration())
+        Ok(())
     }
 
-    /// Executes up to `steps` manifold SGD iterations or stops when finished.
-    pub fn run_steps_manifold(
-        &mut self,
-        layout: &mut ManifoldLayout2d<S>,
-        steps: usize,
-    ) -> CoreResult<SolverStatus> {
-        for _ in 0..steps {
-            if self.status.is_finished() {
-                break;
-            }
-            let status = self.step_manifold(layout)?;
-            if status.is_finished() {
-                break;
-            }
-        }
-        Ok(self.status)
-    }
-
-    /// Runs manifold SGD optimization to completion.
-    pub fn run_manifold(&mut self, layout: &mut ManifoldLayout2d<S>) -> CoreResult<SolverStatus> {
-        while !self.status.is_finished() {
-            let status = self.step_manifold(layout)?;
-            if status.is_finished() {
-                break;
-            }
-        }
-        Ok(self.status)
-    }
-
-    fn run_schedule_window_inner<L: SgdScheduleWindowLayout<S> + ?Sized>(
+    /// Executes `count` SGD iterations over schedule indices `start_iter..start_iter + count`
+    /// on `layout` (stopping early if `schedule.iterations` is reached).
+    pub fn run_schedule_window(
         &mut self,
         layout: &mut L,
         start_iter: usize,
         count: usize,
-        ctx: &'static str,
     ) -> CoreResult<SolverStatus> {
-        layout.validate_window_input(self, ctx)?;
+        self.validate_target(layout)?;
         if count == 0 {
             return Ok(self.status);
         }
@@ -256,11 +241,6 @@ impl<S: Scalar> SgdSolver<S> {
             self.iter = total;
             self.status = SolverStatus::Completed;
             return Ok(self.status);
-        }
-        if start_iter != self.iter
-            && let Some(st) = self.drgraph.as_mut()
-        {
-            sync_drgraph_schedule_iter(st, start_iter);
         }
         self.iter = start_iter;
         self.status = if start_iter == 0 {
@@ -272,168 +252,59 @@ impl<S: Scalar> SgdSolver<S> {
             if self.status.is_finished() {
                 break;
             }
-            let st = layout.step_window(self)?;
+            let st = self.step(layout)?;
             if st.is_finished() {
                 break;
             }
         }
         Ok(self.status)
     }
-
-    /// Executes `count` SGD iterations over schedule indices `start_iter..start_iter + count`
-    /// on either [`Layout2d<S>`] or [`ManifoldLayout2d<S>`] (stopping early if `schedule.iterations`
-    /// is reached).
-    pub fn run_schedule_window<L: SgdScheduleWindowLayout<S> + ?Sized>(
-        &mut self,
-        layout: &mut L,
-        start_iter: usize,
-        count: usize,
-    ) -> CoreResult<SolverStatus> {
-        self.run_schedule_window_inner(layout, start_iter, count, "SgdSolver::run_schedule_window")
-    }
-
-    /// Executes `count` non-Euclidean manifold SGD iterations over schedule indices
-    /// `start_iter..start_iter + count` (stopping early if `schedule.iterations` is reached).
-    pub fn run_schedule_window_manifold(
-        &mut self,
-        layout: &mut ManifoldLayout2d<S>,
-        start_iter: usize,
-        count: usize,
-    ) -> CoreResult<SolverStatus> {
-        self.run_schedule_window_inner(
-            layout,
-            start_iter,
-            count,
-            "SgdSolver::run_schedule_window_manifold",
-        )
-    }
 }
 
-impl<S: Scalar> IterativeSolver<S> for SgdSolver<S> {
-    fn step(&mut self, layout: &mut Layout2d<S>) -> CoreResult<SolverStatus> {
-        validate_euclidean_step_preconditions(self, layout, "SgdSolver::step")?;
+impl<L: RiemannianLayout + 'static> IterativeSolver for SgdSolver<L> {
+    type Target = L;
+
+    fn validate_target(&self, target: &Self::Target) -> CoreResult<()> {
+        validate_target_layout(
+            self.num_nodes,
+            self.locked_dim,
+            self.locked_manifold,
+            target,
+            "SgdSolver::validate_target",
+        )
+    }
+
+    fn step(&mut self, target: &mut Self::Target) -> CoreResult<SolverStatus> {
+        self.validate_target(target)?;
         if self.status.is_finished() {
             return Ok(self.status);
         }
+        lock_target_layout(&mut self.locked_dim, &mut self.locked_manifold, target);
 
-        if let Some(st) = self.snap_t_fdp.as_mut() {
-            step_snap_t_fdp_state(
-                st,
-                &mut self.block_order,
-                &mut self.rng,
-                self.num_nodes,
-                self.iter,
-                layout,
-            );
-            return Ok(self.finish_iteration());
+        if let Err(err) = self.step_pairs_inner(target) {
+            self.status = SolverStatus::Failed;
+            return Err(err);
         }
-        if let Some(st) = self.pacmap.as_mut() {
-            step_pacmap_state(st, self.num_nodes, self.iter, layout);
-            return Ok(self.finish_iteration());
-        }
-        if self.sgd2.is_some() {
-            let eta_f64 = self.eta_at(self.iter);
-            if let Some(st) = self.sgd2.as_mut() {
-                step_sgd2_state(
-                    st,
-                    &mut self.pairs,
-                    &mut self.block_order,
-                    &mut self.rng,
-                    self.num_nodes,
-                    eta_f64,
-                    self.eta_max,
-                    self.schedule_cfg.step_scale,
-                    layout,
-                )?;
-            }
-            return Ok(self.finish_iteration());
-        }
-        if let Some(st) = self.largevis.as_ref() {
-            step_largevis_state(st, &mut self.rng, self.num_nodes, self.iter, layout);
-            return Ok(self.finish_iteration());
-        }
-        if let Some(st) = self.drgraph.as_mut() {
-            step_drgraph_state(st, &mut self.rng, self.num_nodes, self.iter, layout);
-            return Ok(self.finish_iteration());
-        }
-        if let Some(st) = self.graph_cne.as_mut() {
-            step_graph_cne_state(st, &mut self.rng, self.num_nodes, self.iter, layout);
-            return Ok(self.finish_iteration());
-        }
-
-        let eta_f64 = self.eta_at(self.iter);
-        if self.num_nodes > 1 && eta_f64.is_finite() && eta_f64 > 0.0 {
-            let eta = S::from_f64(eta_f64);
-            let max_mu = self.max_mu_scalar();
-            let (xs, ys) = layout.xy_mut();
-            match &mut self.pairs {
-                PairStorage::Symmetric(pairs) => {
-                    try_for_each_shuffled_pair(
-                        pairs,
-                        &mut self.block_order,
-                        &mut self.rng,
-                        |&p| {
-                            apply_euclidean_sym_pair(xs, ys, eta, max_mu, p);
-                            Ok(())
-                        },
-                    )?;
-                }
-                PairStorage::General(pairs) => {
-                    try_for_each_shuffled_pair(pairs, &mut self.block_order, &mut self.rng, |p| {
-                        apply_euclidean_gen_pair(xs, ys, eta, max_mu, p);
-                        Ok(())
-                    })?;
-                }
-            }
-            let (xs, ys) = layout.xy_mut();
-            self.run_streaming_negatives(eta, |e, p| {
-                apply_euclidean_sym_pair(xs, ys, e, max_mu, p);
-                Ok(())
-            })?;
+        if let Err(err) = target.validate_finite() {
+            self.status = SolverStatus::Failed;
+            return Err(err);
         }
 
         Ok(self.finish_iteration())
     }
 
+    #[inline]
     fn status(&self) -> SolverStatus {
         self.status
     }
 
+    #[inline]
     fn iteration(&self) -> usize {
         self.iter
     }
 
-    fn total_iterations(&self) -> usize {
-        self.schedule_cfg.iterations
-    }
-}
-
-impl<S: Scalar> IterativeSolver<S, ManifoldLayout2d<S>> for SgdSolver<S> {
-    fn step(&mut self, layout: &mut ManifoldLayout2d<S>) -> CoreResult<SolverStatus> {
-        self.step_manifold(layout)
-    }
-
-    fn run_steps(
-        &mut self,
-        layout: &mut ManifoldLayout2d<S>,
-        steps: usize,
-    ) -> CoreResult<SolverStatus> {
-        self.run_steps_manifold(layout, steps)
-    }
-
-    fn run(&mut self, layout: &mut ManifoldLayout2d<S>) -> CoreResult<SolverStatus> {
-        self.run_manifold(layout)
-    }
-
-    fn status(&self) -> SolverStatus {
-        self.status
-    }
-
-    fn iteration(&self) -> usize {
-        self.iter
-    }
-
-    fn total_iterations(&self) -> usize {
-        self.schedule_cfg.iterations
+    #[inline]
+    fn total_iterations(&self) -> Option<usize> {
+        self.total_iterations()
     }
 }
