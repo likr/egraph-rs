@@ -7,14 +7,15 @@
 //! with $a > r$ (where exponent $-1$ yields $\ln \|p_u - p_v\|$), supporting both
 //! [`LinLogRepulsion::EdgeRepulsion`] ($m_u = \deg_w(u)$) and
 //! [`LinLogRepulsion::NodeRepulsion`] ($m_u = 1$), mass-barycenter gravity, and
-//! $O(N \log N)$ Barnes-Hut acceleration via [`ArenaQuadtree2d`] (`Layout2d`) and
-//! [`ArenaOctree3d`](egraph_spatial_trees::ArenaOctree3d) (`Layout3d`).
+//! $O(N \log N)$ [`BarnesHut`](crate::BarnesHut) acceleration on [`Layout2d`](egraph_core::Layout2d)
+//! and [`Layout3d`](egraph_core::Layout3d).
 
 mod config;
 mod dim3;
 mod energy;
 mod nd;
 mod quadtree;
+mod repulsion;
 mod solver;
 mod step2d;
 
@@ -23,10 +24,8 @@ mod tests;
 #[cfg(test)]
 mod tests_nd;
 
-#[cfg(doc)]
-use egraph_spatial_trees::ArenaQuadtree2d;
-
 pub use config::{LinLogConfig, LinLogRepulsion};
+pub use repulsion::LinLogRepulsionBackend;
 pub use solver::LinLogSolver;
 
 pub(super) const ISOLATED_NODE_MASS: f64 = 1e-3;

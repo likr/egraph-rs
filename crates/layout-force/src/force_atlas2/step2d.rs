@@ -1,140 +1,88 @@
-use egraph_core::{CoreError, CoreResult, DeterministicRng, Layout2d, Scalar};
+use egraph_core::{
+    CoreError, CoreResult, DeterministicRng, EuclideanLayout, EuclideanStorageMut, Scalar,
+};
 
-use super::overlap_quadtree::overlap_repulsion_pair;
+use super::repulsion::{ForceRepulsion, ForceRepulsionParams};
 use super::solver::{COULOMB_EPS_SQ, ForceAtlas2State, MIN_FA2_SPEED};
 
-pub(super) fn step_2d<S: Scalar>(
+#[derive(Debug, Clone)]
+pub(super) struct Fa2Buf2d {
+    forces: Vec<f64>,
+    prev_forces: Vec<f64>,
+}
+
+impl Fa2Buf2d {
+    pub(super) fn new(num_nodes: usize) -> Self {
+        let len = num_nodes * 2;
+        Self {
+            forces: vec![0.0; len],
+            prev_forces: vec![0.0; len],
+        }
+    }
+}
+
+pub(super) fn step_2d<L: EuclideanLayout, B: ForceRepulsion<L>>(
     state: &mut ForceAtlas2State,
-    layout: &mut Layout2d<S>,
+    buf: &mut Fa2Buf2d,
+    backend: &B,
+    rep_state: &mut B::State,
+    layout: &mut L,
 ) -> CoreResult<()> {
     let n = state.num_nodes;
+    if state.iter == 0
+        && let EuclideanStorageMut::Soa2d { x, y } = layout.as_euclidean_storage_mut()
     {
-        let xs = layout.x();
-        let ys = layout.y();
         let mut min_x = f64::INFINITY;
         let mut max_x = f64::NEG_INFINITY;
         let mut min_y = f64::INFINITY;
         let mut max_y = f64::NEG_INFINITY;
         for i in 0..n {
-            let x = xs[i].to_f64();
-            let y = ys[i].to_f64();
-            state.x_buf[i] = x;
-            state.y_buf[i] = y;
-            min_x = min_x.min(x);
-            max_x = max_x.max(x);
-            min_y = min_y.min(y);
-            max_y = max_y.max(y);
+            let xf = x[i].to_f64();
+            let yf = y[i].to_f64();
+            min_x = min_x.min(xf);
+            max_x = max_x.max(xf);
+            min_y = min_y.min(yf);
+            max_y = max_y.max(yf);
         }
-
-        // Break completely collapsed initial layouts deterministically so forces are non-zero.
-        if state.iter == 0 && (max_x - min_x) < 1e-12 && (max_y - min_y) < 1e-12 {
+        if (max_x - min_x) < 1e-12 && (max_y - min_y) < 1e-12 {
             let mut rng = DeterministicRng::from_seed_u64(state.config.seed);
             for i in 0..n {
-                state.x_buf[i] += 1e-4 * (rng.next_f64() - 0.5);
-                state.y_buf[i] += 1e-4 * (rng.next_f64() - 0.5);
-            }
-        }
-    }
-
-    // 1. Repulsion: Jacomy (2014) border-to-border `d' = d - r1 - r2` when `prevent_overlap`,
-    //    otherwise standard O(N log N) weighted Barnes-Hut or O(N^2) exact.
-    let prevent_overlap = state.config.prevent_overlap;
-    if prevent_overlap {
-        if state.config.use_barnes_hut {
-            state
-                .overlap_tree
-                .build(&state.x_buf, &state.y_buf, &state.masses, &state.node_radii);
-            state.overlap_tree.compute_repulsion(
-                &state.x_buf,
-                &state.y_buf,
-                &state.masses,
-                &state.node_radii,
-                state.config.theta,
-                state.config.scaling_ratio,
-                state.config.seed,
-                state.iter,
-                &mut state.fx,
-                &mut state.fy,
-            );
-        } else {
-            state.fx.fill(0.0);
-            state.fy.fill(0.0);
-            let sr = state.config.scaling_ratio;
-            let seed = state.config.seed;
-            let iter = state.iter;
-            for i in 0..n {
-                let xi = state.x_buf[i];
-                let yi = state.y_buf[i];
-                let mi = state.masses[i];
-                let ri = state.node_radii[i];
-                let mut acc_x = 0.0_f64;
-                let mut acc_y = 0.0_f64;
-                for j in (i + 1)..n {
-                    let (fx_ij, fy_ij) = overlap_repulsion_pair(
-                        xi - state.x_buf[j],
-                        yi - state.y_buf[j],
-                        mi,
-                        state.masses[j],
-                        ri + state.node_radii[j],
-                        sr,
-                        seed,
-                        iter,
-                        i,
-                        j,
-                    );
-                    acc_x += fx_ij;
-                    acc_y += fy_ij;
-                    state.fx[j] -= fx_ij;
-                    state.fy[j] -= fy_ij;
+                let nx = L::Scalar::from_f64(x[i].to_f64() + 1e-4 * (rng.next_f64() - 0.5));
+                let ny = L::Scalar::from_f64(y[i].to_f64() + 1e-4 * (rng.next_f64() - 0.5));
+                if !nx.is_finite() || !ny.is_finite() {
+                    return Err(CoreError::numerical_breakdown(
+                        "ForceAtlas2Solver 2D scatter coordinates became non-finite",
+                    ));
                 }
-                state.fx[i] += acc_x;
-                state.fy[i] += acc_y;
+                x[i] = nx;
+                y[i] = ny;
             }
-        }
-    } else if state.config.use_barnes_hut {
-        state
-            .quadtree
-            .build_weighted_xy(&state.x_buf, &state.y_buf, &state.masses)?;
-        state.quadtree.compute_coulomb_repulsion(
-            state.config.theta,
-            COULOMB_EPS_SQ,
-            &mut state.rep_x,
-            &mut state.rep_y,
-        )?;
-        let sr = state.config.scaling_ratio;
-        for i in 0..n {
-            let scale = sr * state.masses[i];
-            state.fx[i] = scale * state.rep_x[i];
-            state.fy[i] = scale * state.rep_y[i];
-        }
-    } else {
-        state.fx.fill(0.0);
-        state.fy.fill(0.0);
-        let sr = state.config.scaling_ratio;
-        for i in 0..n {
-            let xi = state.x_buf[i];
-            let yi = state.y_buf[i];
-            let mi_sr = sr * state.masses[i];
-            let mut acc_x = 0.0_f64;
-            let mut acc_y = 0.0_f64;
-            for j in (i + 1)..n {
-                let dx = xi - state.x_buf[j];
-                let dy = yi - state.y_buf[j];
-                let denom = dx * dx + dy * dy + COULOMB_EPS_SQ;
-                let mult = (mi_sr * state.masses[j]) / denom;
-                let fx_ij = mult * dx;
-                let fy_ij = mult * dy;
-                acc_x += fx_ij;
-                acc_y += fy_ij;
-                state.fx[j] -= fx_ij;
-                state.fy[j] -= fy_ij;
-            }
-            state.fx[i] += acc_x;
-            state.fy[i] += acc_y;
         }
     }
 
-    // 2. Attraction: linear or LinLog along canonical undirected edges.
+    buf.forces.fill(0.0);
+    let params = ForceRepulsionParams::new(
+        &state.masses,
+        &state.node_radii,
+        state.config.scaling_ratio,
+        COULOMB_EPS_SQ,
+        state.config.prevent_overlap,
+        state.config.seed,
+        state.iter,
+    );
+    backend.accumulate_repulsion(rep_state, layout, &params, &mut buf.forces)?;
+
+    let EuclideanStorageMut::Soa2d {
+        x: xs_mut,
+        y: ys_mut,
+    } = layout.as_euclidean_storage_mut()
+    else {
+        return Err(CoreError::numerical_breakdown(
+            "ForceAtlas2Solver 2D storage mismatch",
+        ));
+    };
+
+    let prevent_overlap = state.config.prevent_overlap;
     let linlog = state.config.linlog_mode;
     for idx in 0..state.edges_u.len() {
         let u = state.edges_u[idx] as usize;
@@ -143,8 +91,8 @@ pub(super) fn step_2d<S: Scalar>(
         if w == 0.0 {
             continue;
         }
-        let dx = state.x_buf[v] - state.x_buf[u];
-        let dy = state.y_buf[v] - state.y_buf[u];
+        let dx = xs_mut[v].to_f64() - xs_mut[u].to_f64();
+        let dy = ys_mut[v].to_f64() - ys_mut[u].to_f64();
         let factor = if prevent_overlap {
             let d = dx.hypot(dy);
             let d_prime = d - (state.node_radii[u] + state.node_radii[v]);
@@ -173,52 +121,54 @@ pub(super) fn step_2d<S: Scalar>(
         }
         let ax = factor * dx;
         let ay = factor * dy;
-        state.fx[u] += ax;
-        state.fy[u] += ay;
-        state.fx[v] -= ax;
-        state.fy[v] -= ay;
+        buf.forces[2 * u] += ax;
+        buf.forces[2 * u + 1] += ay;
+        buf.forces[2 * v] -= ax;
+        buf.forces[2 * v + 1] -= ay;
     }
 
-    // 3. Gravity: standard (constant pull m_i * g) or strong (m_i * g * d).
     if state.config.gravity > 0.0 {
         let g = state.config.gravity;
         if state.config.strong_gravity {
             for i in 0..n {
                 let gf = g * state.masses[i];
-                state.fx[i] -= gf * state.x_buf[i];
-                state.fy[i] -= gf * state.y_buf[i];
+                buf.forces[2 * i] -= gf * xs_mut[i].to_f64();
+                buf.forces[2 * i + 1] -= gf * ys_mut[i].to_f64();
             }
         } else {
             for i in 0..n {
-                let d = state.x_buf[i].hypot(state.y_buf[i]);
+                let xi = xs_mut[i].to_f64();
+                let yi = ys_mut[i].to_f64();
+                let d = xi.hypot(yi);
                 if d > 1e-12 {
                     let gf = (g * state.masses[i]) / d;
-                    state.fx[i] -= gf * state.x_buf[i];
-                    state.fy[i] -= gf * state.y_buf[i];
+                    buf.forces[2 * i] -= gf * xi;
+                    buf.forces[2 * i + 1] -= gf * yi;
                 }
             }
         }
     }
 
-    // 4. Adaptive speed from per-node swing and traction.
     let mut total_swing = 0.0_f64;
     let mut total_traction = 0.0_f64;
     for i in 0..n {
-        let fxi = if state.fx[i].is_finite() {
-            state.fx[i]
+        let fxi = if buf.forces[2 * i].is_finite() {
+            buf.forces[2 * i]
         } else {
             0.0
         };
-        let fyi = if state.fy[i].is_finite() {
-            state.fy[i]
+        let fyi = if buf.forces[2 * i + 1].is_finite() {
+            buf.forces[2 * i + 1]
         } else {
             0.0
         };
-        state.fx[i] = fxi;
-        state.fy[i] = fyi;
+        buf.forces[2 * i] = fxi;
+        buf.forces[2 * i + 1] = fyi;
 
-        let swg = (fxi - state.prev_fx[i]).hypot(fyi - state.prev_fy[i]);
-        let tra = 0.5 * (fxi + state.prev_fx[i]).hypot(fyi + state.prev_fy[i]);
+        let pfx = buf.prev_forces[2 * i];
+        let pfy = buf.prev_forces[2 * i + 1];
+        let swg = (fxi - pfx).hypot(fyi - pfy);
+        let tra = 0.5 * (fxi + pfx).hypot(fyi + pfy);
         state.swing_buf[i] = swg;
         let m = state.masses[i];
         total_swing += m * swg;
@@ -240,14 +190,12 @@ pub(super) fn step_2d<S: Scalar>(
     }
     state.global_speed = state.global_speed.clamp(MIN_FA2_SPEED, max_speed);
 
-    // 5. Apply adaptive displacements back into layout.
     let speed = state.global_speed;
     let speed_scale = if prevent_overlap { 0.1 } else { 1.0 };
     let max_disp = state.max_displacement;
-    let (xs_mut, ys_mut) = layout.xy_mut();
     for i in 0..n {
-        let fxi = state.fx[i];
-        let fyi = state.fy[i];
+        let fxi = buf.forces[2 * i];
+        let fyi = buf.forces[2 * i + 1];
         let local_factor = speed_scale * (speed / (1.0 + (speed * state.swing_buf[i]).sqrt()));
         let mut dx = fxi * local_factor;
         let mut dy = fyi * local_factor;
@@ -257,8 +205,8 @@ pub(super) fn step_2d<S: Scalar>(
             dx *= cap;
             dy *= cap;
         }
-        let nx = S::from_f64(state.x_buf[i] + dx);
-        let ny = S::from_f64(state.y_buf[i] + dy);
+        let nx = L::Scalar::from_f64(xs_mut[i].to_f64() + dx);
+        let ny = L::Scalar::from_f64(ys_mut[i].to_f64() + dy);
         if !nx.is_finite() || !ny.is_finite() {
             return Err(CoreError::numerical_breakdown(
                 "ForceAtlas2Solver 2D coordinates became non-finite",
@@ -266,8 +214,8 @@ pub(super) fn step_2d<S: Scalar>(
         }
         xs_mut[i] = nx;
         ys_mut[i] = ny;
-        state.prev_fx[i] = fxi;
-        state.prev_fy[i] = fyi;
+        buf.prev_forces[2 * i] = fxi;
+        buf.prev_forces[2 * i + 1] = fyi;
     }
 
     Ok(())

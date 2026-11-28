@@ -1,6 +1,6 @@
 use egraph_core::{
-    CoreError, CoreResult, CsrGraph, IterativeSolver, LayoutStorage, ManifoldKind,
-    ManifoldLayout2d, MetricSpace, RiemannianLayout, Scalar, SolverStatus,
+    CoreError, CoreResult, CsrGraph, DeterministicRng, IterativeSolver, LayoutStorage,
+    ManifoldKind, ManifoldLayout2d, MetricSpace, RiemannianLayout, Scalar, SolverStatus,
 };
 
 use super::*;
@@ -38,7 +38,6 @@ fn test_fr_manifold_all_kinds_bit_exact_f64_f32_and_metric() {
     let n = graph.num_nodes();
     let cfg = FruchtermanReingoldConfig::new()
         .with_iterations(20)
-        .with_backend(FrBackend::Exact)
         .with_gravity(0.03);
 
     for kind in [
@@ -92,17 +91,8 @@ fn test_fr_manifold_all_kinds_bit_exact_f64_f32_and_metric() {
 }
 
 #[test]
-fn test_fr_manifold_fail_fast_backends_and_kind_lock() {
+fn test_fr_manifold_degenerates_and_validation() {
     let graph = grid_graph(2, 2);
-
-    // Non-Exact backends fail fast at construction on ManifoldLayout2d.
-    for backend in [FrBackend::BarnesHut, FrBackend::Grid] {
-        let err = FruchtermanReingoldSolver::<ManifoldLayout2d<f64>>::new(
-            &graph,
-            FruchtermanReingoldConfig::new().with_backend(backend),
-        );
-        assert!(matches!(err, Err(CoreError::UnsupportedOperation(_))));
-    }
 
     for n in [0usize, 1, 4] {
         let g = CsrGraph::<f64>::from_edges(n, &[], None, false, false).unwrap();
@@ -124,22 +114,11 @@ fn test_fr_manifold_fail_fast_backends_and_kind_lock() {
     }
 
     let cfg = FruchtermanReingoldConfig::new().with_iterations(5);
-    let mut s_err =
-        FruchtermanReingoldSolver::<ManifoldLayout2d<f64>>::new(&graph, cfg.clone()).unwrap();
+    let mut s_err = FruchtermanReingoldSolver::<ManifoldLayout2d<f64>>::new(&graph, cfg).unwrap();
     let mut l_wrong = ManifoldLayout2d::<f64>::zeros(ManifoldKind::Torus2d, 2);
     assert!(matches!(
         s_err.step(&mut l_wrong),
         Err(CoreError::DimensionMismatch { .. })
-    ));
-
-    let mut l_tor = init_manifold::<f64>(ManifoldKind::Torus2d, 4, 2);
-    let mut l_sph = init_manifold::<f64>(ManifoldKind::Spherical, 4, 2);
-    let mut s_from_m =
-        FruchtermanReingoldSolver::<ManifoldLayout2d<f64>>::new(&graph, cfg).unwrap();
-    s_from_m.step(&mut l_tor).unwrap();
-    assert!(matches!(
-        s_from_m.step(&mut l_sph),
-        Err(CoreError::InvalidInput(_))
     ));
 }
 
@@ -206,27 +185,79 @@ impl RiemannianLayout for CustomRiemannianRing {
     }
 }
 
+#[derive(Debug, Clone, Default)]
+struct CustomRingBackend {
+    strength: f64,
+}
+
+impl FrRepulsion<CustomRiemannianRing> for CustomRingBackend {
+    type State = ();
+
+    fn validate(&self) -> CoreResult<()> {
+        if !self.strength.is_finite() || self.strength < 0.0 {
+            return Err(CoreError::invalid_input("strength must be >= 0.0"));
+        }
+        Ok(())
+    }
+
+    fn init_state(&self, _num_nodes: usize) -> CoreResult<Self::State> {
+        Ok(())
+    }
+
+    fn accumulate_repulsion(
+        &self,
+        _state: &mut Self::State,
+        layout: &CustomRiemannianRing,
+        k: f64,
+        _iter: usize,
+        _rng: &mut DeterministicRng,
+        disp: &mut [f64],
+    ) -> CoreResult<()> {
+        let n = layout.len();
+        let mut log_buf = [0.0_f64; 1];
+        for i in 0..n {
+            for j in (i + 1)..n {
+                layout.log_map_into(i, j, &mut log_buf)?;
+                let d = log_buf[0];
+                if d.abs() > 1e-12 {
+                    let f = (self.strength * k * k) / d;
+                    disp[i] -= f;
+                    disp[j] += f;
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
 #[test]
-fn test_fr_custom_riemannian_layout_exact_works_and_bh_fails() {
+fn test_fr_custom_riemannian_layout_exact_and_external_backend_work() {
     let g = CsrGraph::<()>::from_unweighted_edges(3, &[(0, 1), (1, 2)], false, false).unwrap();
-    assert!(matches!(
-        FruchtermanReingoldSolver::<CustomRiemannianRing>::new_unweighted(
-            &g,
-            FruchtermanReingoldConfig::new().with_backend(FrBackend::BarnesHut),
-        ),
-        Err(CoreError::UnsupportedOperation(_))
-    ));
 
     let mut ring = CustomRiemannianRing {
         angles: vec![0.1, 0.2, 2.5],
     };
     let mut solver = FruchtermanReingoldSolver::<CustomRiemannianRing>::new_unweighted(
         &g,
-        FruchtermanReingoldConfig::new()
-            .with_iterations(10)
-            .with_backend(FrBackend::Exact),
+        FruchtermanReingoldConfig::new().with_iterations(10),
     )
     .unwrap();
     assert_eq!(solver.run(&mut ring).unwrap(), SolverStatus::Completed);
     assert!(ring.validate_finite().is_ok());
+
+    let mut ring2 = CustomRiemannianRing {
+        angles: vec![0.1, 0.2, 2.5],
+    };
+    let mut custom_solver =
+        FruchtermanReingoldSolver::<CustomRiemannianRing, CustomRingBackend>::with_backend_unweighted(
+            &g,
+            FruchtermanReingoldConfig::new().with_iterations(10),
+            CustomRingBackend { strength: 1.0 },
+        )
+        .unwrap();
+    assert_eq!(
+        custom_solver.run(&mut ring2).unwrap(),
+        SolverStatus::Completed
+    );
+    assert!(ring2.validate_finite().is_ok());
 }

@@ -1,5 +1,6 @@
 //! Force-directed graph layout solvers for `egraph-rs`.
 
+mod backend;
 mod coarsening;
 mod force_atlas2;
 #[cfg(feature = "baselines")]
@@ -9,17 +10,20 @@ mod gem;
 mod graph_edges;
 #[cfg(feature = "baselines")]
 mod linlog;
-#[cfg(feature = "baselines")]
-mod manifold_utils;
 mod repulsion;
 mod yifan_hu;
 
-pub use force_atlas2::{ForceAtlas2Config, ForceAtlas2Solver};
+pub use backend::{BarnesHut, DefaultForceBackend, Exact, ForceBackend};
 #[cfg(feature = "baselines")]
-pub use fr::{FrBackend, FruchtermanReingoldConfig, FruchtermanReingoldSolver};
+pub use backend::{DefaultFrBackend, FrBackend, Grid};
+pub use force_atlas2::{
+    ForceAtlas2Config, ForceAtlas2Solver, ForceRepulsion, ForceRepulsionParams,
+};
+#[cfg(feature = "baselines")]
+pub use fr::{FrRepulsion, FruchtermanReingoldConfig, FruchtermanReingoldSolver};
 #[cfg(feature = "baselines")]
 pub use gem::{GemConfig, GemSolver};
 #[cfg(feature = "baselines")]
-pub use linlog::{LinLogConfig, LinLogRepulsion, LinLogSolver};
+pub use linlog::{LinLogConfig, LinLogRepulsion, LinLogRepulsionBackend, LinLogSolver};
 pub use repulsion::CoulombRepulsionBackend;
-pub use yifan_hu::{YifanHuConfig, YifanHuSolver};
+pub use yifan_hu::{YifanHuConfig, YifanHuLevelCoords, YifanHuRepulsion, YifanHuSolver};

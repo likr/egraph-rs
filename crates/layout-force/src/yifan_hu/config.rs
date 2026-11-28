@@ -14,8 +14,6 @@ pub struct YifanHuConfig {
     pub relative_strength: f64,
     /// Optional explicit finest-level optimal edge length $K_0$ (`None` defaults to `1.0`).
     pub optimal_distance: Option<f64>,
-    /// Barnes-Hut spatial tree opening angle threshold $\theta \ge 0$ (`default: 1.2`).
-    pub theta: f64,
     /// Stop coarsening once vertex count drops to or below this size (`default: 30`).
     pub min_coarsen_size: usize,
     /// Stop coarsening if `coarse_nodes / fine_nodes >= min_coarsen_ratio` (`default: 0.75`).
@@ -34,7 +32,6 @@ impl Default for YifanHuConfig {
             step_ratio: 0.9,
             relative_strength: 0.2,
             optimal_distance: None,
-            theta: 1.2,
             min_coarsen_size: 30,
             min_coarsen_ratio: 0.75,
             convergence_tolerance: 1e-4,
@@ -76,12 +73,6 @@ impl YifanHuConfig {
     /// Sets the optional explicit finest-level optimal distance $K_0$.
     pub fn with_optimal_distance(mut self, optimal_distance: Option<f64>) -> Self {
         self.optimal_distance = optimal_distance;
-        self
-    }
-
-    /// Sets the Barnes-Hut spatial tree opening angle threshold `theta`.
-    pub fn with_theta(mut self, theta: f64) -> Self {
-        self.theta = theta;
         self
     }
 
@@ -134,12 +125,6 @@ impl YifanHuConfig {
         {
             return Err(CoreError::invalid_input(format!(
                 "optimal_distance must be finite and > 0.0, got {k}"
-            )));
-        }
-        if !self.theta.is_finite() || self.theta < 0.0 {
-            return Err(CoreError::invalid_input(format!(
-                "theta must be finite and >= 0.0, got {}",
-                self.theta
             )));
         }
         if self.min_coarsen_size == 0 {

@@ -1,5 +1,7 @@
 use egraph_core::{CoreError, CsrGraph, IterativeSolver, Layout3d, LayoutNd, Scalar, SolverStatus};
 
+use crate::backend::{BarnesHut, Exact, FrBackend};
+
 use super::*;
 
 fn grid_3d(nx: usize, ny: usize, nz: usize) -> CsrGraph<f64> {
@@ -26,11 +28,19 @@ fn grid_3d(nx: usize, ny: usize, nz: usize) -> CsrGraph<f64> {
 
 fn assert_step_eq_run_3d<S: Scalar>(
     cfg: FruchtermanReingoldConfig,
+    backend: FrBackend,
     graph: &CsrGraph<f64>,
     init: &Layout3d<S>,
 ) {
-    let mut s_run = FruchtermanReingoldSolver::<Layout3d<S>>::new(graph, cfg.clone()).unwrap();
-    let mut s_step = FruchtermanReingoldSolver::<Layout3d<S>>::new(graph, cfg).unwrap();
+    let mut s_run = FruchtermanReingoldSolver::<Layout3d<S>, FrBackend>::with_backend(
+        graph,
+        cfg.clone(),
+        backend.clone(),
+    )
+    .unwrap();
+    let mut s_step =
+        FruchtermanReingoldSolver::<Layout3d<S>, FrBackend>::with_backend(graph, cfg, backend)
+            .unwrap();
     let mut l_run = init.clone();
     let mut l_step = init.clone();
 
@@ -64,7 +74,7 @@ fn assert_step_eq_run_nd<S: Scalar>(
     init: &LayoutNd<S>,
 ) {
     let mut s_run = FruchtermanReingoldSolver::<LayoutNd<S>>::new(graph, cfg.clone()).unwrap();
-    let mut s_step = FruchtermanReingoldSolver::<LayoutNd<S>>::new(graph, cfg).unwrap();
+    let mut s_step = FruchtermanReingoldSolver::<LayoutNd<S>, Exact>::new(graph, cfg).unwrap();
     let mut l_run = init.clone();
     let mut l_step = init.clone();
 
@@ -87,21 +97,22 @@ fn test_fr_3d_backends_and_nd_exact() {
     let graph = grid_3d(3, 2, 2);
     let n = graph.num_nodes();
 
-    for backend in [FrBackend::Exact, FrBackend::BarnesHut, FrBackend::Grid] {
+    for backend in [
+        FrBackend::exact(),
+        FrBackend::barnes_hut(1.2),
+        FrBackend::grid(),
+    ] {
         let cfg = FruchtermanReingoldConfig::new()
             .with_iterations(20)
-            .with_backend(backend)
             .with_gravity(0.03);
         let init64 = Layout3d::<f64>::init(n, 27, 4.0).unwrap();
-        assert_step_eq_run_3d(cfg.clone(), &graph, &init64);
+        assert_step_eq_run_3d(cfg.clone(), backend.clone(), &graph, &init64);
         let init32 = Layout3d::<f32>::init(n, 27, 4.0).unwrap();
-        assert_step_eq_run_3d(cfg, &graph, &init32);
+        assert_step_eq_run_3d(cfg, backend, &graph, &init32);
     }
 
-    // 4D Exact backend bit-exactness across f64 & f32.
-    let cfg_exact = FruchtermanReingoldConfig::new()
-        .with_iterations(15)
-        .with_backend(FrBackend::Exact);
+    // 4D Exact backend bit-exactness across f64 & f32 (LayoutNd defaults to Exact).
+    let cfg_exact = FruchtermanReingoldConfig::new().with_iterations(15);
     assert_step_eq_run_nd(
         cfg_exact.clone(),
         &graph,
@@ -119,19 +130,15 @@ fn test_fr_3d_backends_and_nd_exact() {
     let mut l_bh0 = init.clone();
     FruchtermanReingoldSolver::<Layout3d<f64>>::new(
         &graph,
-        FruchtermanReingoldConfig::new()
-            .with_iterations(15)
-            .with_backend(FrBackend::Exact),
+        FruchtermanReingoldConfig::new().with_iterations(15),
     )
     .unwrap()
     .run(&mut l_exact)
     .unwrap();
-    FruchtermanReingoldSolver::<Layout3d<f64>>::new(
+    FruchtermanReingoldSolver::<Layout3d<f64>, BarnesHut>::with_backend(
         &graph,
-        FruchtermanReingoldConfig::new()
-            .with_iterations(15)
-            .with_backend(FrBackend::BarnesHut)
-            .with_theta(0.0),
+        FruchtermanReingoldConfig::new().with_iterations(15),
+        BarnesHut::new(0.0),
     )
     .unwrap()
     .run(&mut l_bh0)
@@ -150,15 +157,15 @@ fn test_fr_3d_backends_and_nd_exact() {
         vec![0.1, 1.5, 1.9, 10.0],
     )
     .unwrap();
-    let mut s_grid3 = FruchtermanReingoldSolver::<Layout3d<f64>>::new_unweighted(
-        &edgeless,
-        FruchtermanReingoldConfig::new()
-            .with_iterations(1)
-            .with_backend(FrBackend::Grid)
-            .with_k(Some(1.0))
-            .with_initial_temperature(Some(10.0)),
-    )
-    .unwrap();
+    let mut s_grid3 =
+        FruchtermanReingoldSolver::<Layout3d<f64>, crate::backend::Grid>::new_unweighted(
+            &edgeless,
+            FruchtermanReingoldConfig::new()
+                .with_iterations(1)
+                .with_k(Some(1.0))
+                .with_initial_temperature(Some(10.0)),
+        )
+        .unwrap();
     s_grid3.step(&mut l_grid3).unwrap();
     assert!(l_grid3.z()[0] < 0.1);
     assert!(l_grid3.z()[1] > 1.5);
@@ -170,23 +177,20 @@ fn test_fr_3d_backends_and_nd_exact() {
 }
 
 #[test]
-fn test_fr_nd_fail_fast_construction_and_dimension_lock() {
+fn test_fr_nd_fail_fast_validation_and_dimension_lock() {
     let disc = CsrGraph::<f64>::from_edges(6, &[(0, 1), (2, 3)], None, false, false).unwrap();
 
-    // BarnesHut and Grid fail fast at construction on LayoutNd.
-    for backend in [FrBackend::BarnesHut, FrBackend::Grid] {
-        let err = FruchtermanReingoldSolver::<LayoutNd<f64>>::new(
-            &disc,
-            FruchtermanReingoldConfig::new().with_backend(backend),
-        );
-        assert!(matches!(err, Err(CoreError::UnsupportedOperation(_))));
-    }
+    // Invalid BarnesHut theta fails fast at construction on Layout3d.
+    let err = FruchtermanReingoldSolver::<Layout3d<f64>, BarnesHut>::with_backend(
+        &disc,
+        FruchtermanReingoldConfig::new(),
+        BarnesHut::new(-0.1),
+    );
+    assert!(matches!(err, Err(CoreError::InvalidInput(_))));
 
     let mut s_exact = FruchtermanReingoldSolver::<LayoutNd<f64>>::new(
         &disc,
-        FruchtermanReingoldConfig::new()
-            .with_iterations(5)
-            .with_backend(FrBackend::Exact),
+        FruchtermanReingoldConfig::new().with_iterations(5),
     )
     .unwrap();
 

@@ -1,7 +1,10 @@
 //! Integration tests for 3D (`Layout3d<S>`) and N-D (`LayoutNd<S>`) force-directed solvers.
 
 use egraph_core::{CoreError, CsrGraph, IterativeSolver, Layout3d, LayoutNd, Scalar, SolverStatus};
-use egraph_layout_force::{ForceAtlas2Config, ForceAtlas2Solver, YifanHuConfig, YifanHuSolver};
+use egraph_layout_force::{
+    BarnesHut, Exact, ForceAtlas2Config, ForceAtlas2Solver, ForceBackend, YifanHuConfig,
+    YifanHuSolver,
+};
 
 fn make_grid_3d_csr(nx: usize, ny: usize, nz: usize) -> CsrGraph<f64> {
     let n = nx * ny * nz;
@@ -100,14 +103,24 @@ fn test_force_atlas2_3d_and_nd_step_run_bit_exact() {
     for use_bh in [false, true] {
         let cfg = ForceAtlas2Config::new()
             .with_iterations(18)
-            .with_use_barnes_hut(use_bh)
-            .with_theta(0.5)
             .with_linlog_mode(use_bh)
             .with_strong_gravity(!use_bh)
             .with_outbound_attraction_distribution(use_bh);
+        let backend = if use_bh {
+            ForceBackend::barnes_hut(0.5)
+        } else {
+            ForceBackend::exact()
+        };
         let init64 = Layout3d::<f64>::init(n, 101, 4.0).unwrap();
         assert_step_eq_run(
-            || ForceAtlas2Solver::<Layout3d<f64>>::new(&graph, cfg.clone()).unwrap(),
+            || {
+                ForceAtlas2Solver::<Layout3d<f64>, ForceBackend>::with_backend(
+                    &graph,
+                    cfg.clone(),
+                    backend.clone(),
+                )
+                .unwrap()
+            },
             &init64,
             5,
             assert_layout_3d_bit_exact,
@@ -115,17 +128,22 @@ fn test_force_atlas2_3d_and_nd_step_run_bit_exact() {
 
         let init32 = Layout3d::<f32>::init(n, 101, 4.0).unwrap();
         assert_step_eq_run(
-            || ForceAtlas2Solver::<Layout3d<f32>>::new(&graph, cfg.clone()).unwrap(),
+            || {
+                ForceAtlas2Solver::<Layout3d<f32>, ForceBackend>::with_backend(
+                    &graph,
+                    cfg.clone(),
+                    backend.clone(),
+                )
+                .unwrap()
+            },
             &init32,
             5,
             assert_layout_3d_bit_exact,
         );
     }
 
-    // 5D exact repulsion bit-exactness across f64 & f32.
-    let cfg_5d = ForceAtlas2Config::new()
-        .with_iterations(12)
-        .with_use_barnes_hut(false);
+    // 5D exact repulsion bit-exactness across f64 & f32 (LayoutNd defaults to Exact).
+    let cfg_5d = ForceAtlas2Config::new().with_iterations(12);
     let init5_64 = LayoutNd::<f64>::init(n, 5, 303, 2.0).unwrap();
     assert_step_eq_run(
         || ForceAtlas2Solver::<LayoutNd<f64>>::new(&graph, cfg_5d.clone()).unwrap(),
@@ -135,7 +153,7 @@ fn test_force_atlas2_3d_and_nd_step_run_bit_exact() {
     );
     let init5_32 = LayoutNd::<f32>::init(n, 5, 303, 2.0).unwrap();
     assert_step_eq_run(
-        || ForceAtlas2Solver::<LayoutNd<f32>>::new(&graph, cfg_5d.clone()).unwrap(),
+        || ForceAtlas2Solver::<LayoutNd<f32>, Exact>::new(&graph, cfg_5d.clone()).unwrap(),
         &init5_32,
         4,
         assert_layout_nd_bit_exact,
@@ -145,6 +163,7 @@ fn test_force_atlas2_3d_and_nd_step_run_bit_exact() {
     assert_eq!(s.status(), SolverStatus::Initialized);
     assert_eq!(s.iteration(), 0);
     assert_eq!(s.total_iterations(), Some(12));
+    assert_eq!(s.backend(), &Exact::new());
 }
 
 #[test]
@@ -158,7 +177,6 @@ fn test_force_atlas2_3d_overlap_and_yifan_hu_3d_nd() {
     .unwrap();
     let cfg_ov = ForceAtlas2Config::new()
         .with_iterations(20)
-        .with_use_barnes_hut(true)
         .with_prevent_overlap(true)
         .with_default_node_radius(1.0);
     assert_step_eq_run(
@@ -179,11 +197,10 @@ fn test_force_atlas2_3d_overlap_and_yifan_hu_3d_nd() {
     .sqrt();
     assert!(d01 > 1.0, "expected overlap separation in 3D, got {d01}");
 
-    // 4D overlap repulsion without Barnes-Hut.
+    // 4D overlap repulsion (defaults to Exact on LayoutNd).
     let init4 = LayoutNd::<f64>::init(4, 4, 19, 0.5).unwrap();
     let cfg_ov4 = ForceAtlas2Config::new()
         .with_iterations(15)
-        .with_use_barnes_hut(false)
         .with_prevent_overlap(true)
         .with_default_node_radius(1.0);
     assert_step_eq_run(
@@ -193,7 +210,7 @@ fn test_force_atlas2_3d_overlap_and_yifan_hu_3d_nd() {
         assert_layout_nd_bit_exact,
     );
 
-    // Yifan Hu 3D octree + 4D/1D exact.
+    // Yifan Hu 3D octree + 3D exact + 4D/1D exact.
     let graph = make_grid_3d_csr(4, 4, 4);
     let cfg = YifanHuConfig::new()
         .with_max_iterations_per_level(15)
@@ -201,6 +218,15 @@ fn test_force_atlas2_3d_overlap_and_yifan_hu_3d_nd() {
         .with_min_coarsen_ratio(0.75);
     assert_step_eq_run(
         || YifanHuSolver::<Layout3d<f64>>::new(&graph, cfg.clone()).unwrap(),
+        &Layout3d::<f64>::init(64, 404, 4.0).unwrap(),
+        7,
+        assert_layout_3d_bit_exact,
+    );
+    assert_step_eq_run(
+        || {
+            YifanHuSolver::<Layout3d<f64>, Exact>::with_backend(&graph, cfg.clone(), Exact::new())
+                .unwrap()
+        },
         &Layout3d::<f64>::init(64, 404, 4.0).unwrap(),
         7,
         assert_layout_3d_bit_exact,
@@ -228,17 +254,27 @@ fn test_force_atlas2_3d_overlap_and_yifan_hu_3d_nd() {
 fn test_nd_degenerates_and_fail_fast_guards() {
     let g_disc = make_disconnected_weighted_csr();
 
-    // Barnes-Hut on LayoutNd is rejected immediately at construction.
+    // Invalid BarnesHut theta fails fast at construction.
     assert!(matches!(
-        ForceAtlas2Solver::<LayoutNd<f64>>::new(&g_disc, ForceAtlas2Config::default()),
-        Err(CoreError::UnsupportedOperation(_))
+        ForceAtlas2Solver::<Layout3d<f64>, BarnesHut>::with_backend(
+            &g_disc,
+            ForceAtlas2Config::default(),
+            BarnesHut::new(-0.1),
+        ),
+        Err(CoreError::InvalidInput(_))
+    ));
+    assert!(matches!(
+        YifanHuSolver::<Layout3d<f64>, BarnesHut>::with_backend(
+            &g_disc,
+            YifanHuConfig::default(),
+            BarnesHut::new(f64::NAN),
+        ),
+        Err(CoreError::InvalidInput(_))
     ));
 
     let mut fa2 = ForceAtlas2Solver::<LayoutNd<f64>>::new(
         &g_disc,
-        ForceAtlas2Config::new()
-            .with_use_barnes_hut(false)
-            .with_iterations(5),
+        ForceAtlas2Config::new().with_iterations(5),
     )
     .unwrap();
     let mut yh = YifanHuSolver::<LayoutNd<f64>>::new(&g_disc, YifanHuConfig::default()).unwrap();

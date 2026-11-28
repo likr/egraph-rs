@@ -1,20 +1,4 @@
 use egraph_core::{CoreError, CoreResult};
-#[cfg(doc)]
-use egraph_spatial_trees::{ArenaOctree3d, ArenaQuadtree2d};
-
-/// Spatial repulsion backend for [`FruchtermanReingoldSolver`](super::FruchtermanReingoldSolver).
-#[non_exhaustive]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub enum FrBackend {
-    /// Exact $O(N^2)$ all-pairs repulsion (supported on all [`RiemannianLayout`](egraph_core::RiemannianLayout) targets).
-    #[default]
-    Exact,
-    /// $O(N \log N)$ Barnes-Hut spatial tree approximation via [`ArenaQuadtree2d`] (`Layout2d`)
-    /// or [`ArenaOctree3d`] (`Layout3d`).
-    BarnesHut,
-    /// Fruchterman–Reingold (1991) Fig. 2 $2k$ grid with strict $d < 2k$ cutoff (`Layout2d` and `Layout3d`).
-    Grid,
-}
 
 /// Hyperparameters for [`FruchtermanReingoldSolver`](super::FruchtermanReingoldSolver).
 #[non_exhaustive]
@@ -22,18 +6,14 @@ pub enum FrBackend {
 pub struct FruchtermanReingoldConfig {
     /// Total number of iterations (`default: 200`).
     pub iterations: usize,
-    /// Spatial repulsion backend (`default: FrBackend::Exact`).
-    pub backend: FrBackend,
     /// Optional optimal pairwise distance $k$ (`None` uses $\sqrt{\text{area} / N}$, `default: None`).
     pub k: Option<f64>,
     /// Optional canvas area (`None` uses $N$ or $k^2 N$ if `k` is specified, `default: None`).
     pub area: Option<f64>,
     /// Optional initial temperature (`None` uses $0.1 \sqrt{\text{area}}$, `default: None`).
     pub initial_temperature: Option<f64>,
-    /// Optional central gravity coefficient pulling vertices toward origin (`default: 0.0`).
+    /// Optional central gravity coefficient pulling vertices toward the layout barycenter (`default: 0.0`).
     pub gravity: f64,
-    /// Barnes-Hut opening angle threshold $\theta \ge 0$ (`default: 1.2`).
-    pub theta: f64,
     /// Deterministic explicit RNG seed for symmetry breaking (`default: 42`).
     pub seed: u64,
 }
@@ -42,12 +22,10 @@ impl Default for FruchtermanReingoldConfig {
     fn default() -> Self {
         Self {
             iterations: 200,
-            backend: FrBackend::Exact,
             k: None,
             area: None,
             initial_temperature: None,
             gravity: 0.0,
-            theta: 1.2,
             seed: 42,
         }
     }
@@ -62,12 +40,6 @@ impl FruchtermanReingoldConfig {
     /// Sets the total number of iterations.
     pub fn with_iterations(mut self, iterations: usize) -> Self {
         self.iterations = iterations;
-        self
-    }
-
-    /// Sets the spatial repulsion backend.
-    pub fn with_backend(mut self, backend: FrBackend) -> Self {
-        self.backend = backend;
         self
     }
 
@@ -92,12 +64,6 @@ impl FruchtermanReingoldConfig {
     /// Sets the central gravity coefficient.
     pub fn with_gravity(mut self, gravity: f64) -> Self {
         self.gravity = gravity;
-        self
-    }
-
-    /// Sets the Barnes-Hut opening angle threshold `theta`.
-    pub fn with_theta(mut self, theta: f64) -> Self {
-        self.theta = theta;
         self
     }
 
@@ -134,12 +100,6 @@ impl FruchtermanReingoldConfig {
             return Err(CoreError::invalid_input(format!(
                 "gravity must be finite and >= 0.0, got {}",
                 self.gravity
-            )));
-        }
-        if !self.theta.is_finite() || self.theta < 0.0 {
-            return Err(CoreError::invalid_input(format!(
-                "theta must be finite and >= 0.0, got {}",
-                self.theta
             )));
         }
         Ok(())

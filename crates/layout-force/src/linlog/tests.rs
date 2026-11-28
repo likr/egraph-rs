@@ -2,8 +2,10 @@ use egraph_core::{
     CoreError, CsrGraph, DeterministicRng, IterativeSolver, Layout2d, Scalar, SolverStatus,
 };
 
-use super::*;
+use crate::backend::{BarnesHut, Exact};
 use crate::force_atlas2::{ForceAtlas2Config, ForceAtlas2Solver};
+
+use super::*;
 
 fn seeded_layout<S: Scalar>(n: usize, seed: u64) -> Layout2d<S> {
     let mut rng = DeterministicRng::from_seed_u64(seed);
@@ -82,8 +84,6 @@ fn test_linlog_config_defaults_builders_and_validation() {
     assert_eq!(cfg.repulsion_model, LinLogRepulsion::EdgeRepulsion);
     assert_eq!(cfg.attraction_exponent, 0.0);
     assert_eq!(cfg.repulsion_exponent, -1.0);
-    assert_eq!(cfg.theta, 1.2);
-    assert!(cfg.use_barnes_hut);
     assert_eq!(cfg.gravity, 0.01);
     assert_eq!(cfg.edge_weight_influence, 1.0);
     assert_eq!(cfg.max_displacement, None);
@@ -99,7 +99,6 @@ fn test_linlog_config_defaults_builders_and_validation() {
             .with_repulsion_exponent(-1.0),
         cfg.clone().with_attraction_exponent(f64::NAN),
         cfg.clone().with_repulsion_exponent(f64::NEG_INFINITY),
-        cfg.clone().with_theta(-0.1),
         cfg.clone().with_gravity(-0.01),
         cfg.clone().with_edge_weight_influence(-1.0),
         cfg.clone().with_max_displacement(Some(0.0)),
@@ -117,12 +116,11 @@ fn test_linlog_pinhole_collapse_edge_vs_node_and_distinct_from_fa2_linlog() {
     let init = seeded_layout::<f64>(graph.num_nodes(), 11);
 
     let mut l_edge = init.clone();
-    let mut s_edge = LinLogSolver::<Layout2d<f64>>::new(
+    let mut s_edge = LinLogSolver::<Layout2d<f64>, Exact>::new(
         &graph,
         LinLogConfig::new()
             .with_iterations(300)
-            .with_repulsion_model(LinLogRepulsion::EdgeRepulsion)
-            .with_use_barnes_hut(false),
+            .with_repulsion_model(LinLogRepulsion::EdgeRepulsion),
     )
     .unwrap();
     let e0 = s_edge.energy(&l_edge).unwrap();
@@ -136,12 +134,11 @@ fn test_linlog_pinhole_collapse_edge_vs_node_and_distinct_from_fa2_linlog() {
     assert!(pinhole_ratio_edge > 20.0);
 
     let mut l_node = init.clone();
-    let mut s_node = LinLogSolver::<Layout2d<f64>>::new(
+    let mut s_node = LinLogSolver::<Layout2d<f64>, Exact>::new(
         &graph,
         LinLogConfig::new()
             .with_iterations(300)
-            .with_repulsion_model(LinLogRepulsion::NodeRepulsion)
-            .with_use_barnes_hut(false),
+            .with_repulsion_model(LinLogRepulsion::NodeRepulsion),
     )
     .unwrap();
     s_node.run(&mut l_node).unwrap();
@@ -151,12 +148,11 @@ fn test_linlog_pinhole_collapse_edge_vs_node_and_distinct_from_fa2_linlog() {
     assert!((inter_edge / small_d_edge.max(1e-12)) > (inter_node / small_d_node.max(1e-12)) * 1.5);
 
     let mut l_fa2_matched = init.clone();
-    ForceAtlas2Solver::<Layout2d<f64>>::new(
+    ForceAtlas2Solver::<Layout2d<f64>, Exact>::new(
         &graph,
         ForceAtlas2Config::new()
             .with_iterations(300)
             .with_linlog_mode(true)
-            .with_use_barnes_hut(false)
             .with_gravity(0.01)
             .with_scaling_ratio(1.0),
     )
@@ -170,12 +166,11 @@ fn test_linlog_pinhole_collapse_edge_vs_node_and_distinct_from_fa2_linlog() {
     assert!(pinhole_ratio_edge > pinhole_ratio_fa2 * 1.25);
 
     let mut l_fa2_default = init.clone();
-    ForceAtlas2Solver::<Layout2d<f64>>::new(
+    ForceAtlas2Solver::<Layout2d<f64>, Exact>::new(
         &graph,
         ForceAtlas2Config::new()
             .with_iterations(300)
-            .with_linlog_mode(true)
-            .with_use_barnes_hut(false),
+            .with_linlog_mode(true),
     )
     .unwrap()
     .run(&mut l_fa2_default)
@@ -194,21 +189,14 @@ fn test_linlog_barnes_hut_vs_exact_and_general_polylog_exponents() {
 
     let mut l_exact = init.clone();
     let mut l_bh0 = init.clone();
-    LinLogSolver::<Layout2d<f64>>::new(
+    LinLogSolver::<Layout2d<f64>, Exact>::new(&graph, LinLogConfig::new().with_iterations(20))
+        .unwrap()
+        .run(&mut l_exact)
+        .unwrap();
+    LinLogSolver::<Layout2d<f64>>::with_backend(
         &graph,
-        LinLogConfig::new()
-            .with_iterations(20)
-            .with_use_barnes_hut(false),
-    )
-    .unwrap()
-    .run(&mut l_exact)
-    .unwrap();
-    LinLogSolver::<Layout2d<f64>>::new(
-        &graph,
-        LinLogConfig::new()
-            .with_iterations(20)
-            .with_use_barnes_hut(true)
-            .with_theta(0.0),
+        LinLogConfig::new().with_iterations(20),
+        BarnesHut::new(0.0),
     )
     .unwrap()
     .run(&mut l_bh0)
@@ -226,22 +214,17 @@ fn test_linlog_barnes_hut_vs_exact_and_general_polylog_exponents() {
             .with_iterations(25)
             .with_attraction_exponent(a_exp)
             .with_repulsion_exponent(r_exp);
-        LinLogSolver::<Layout2d<f64>>::new(&graph, base_cfg.clone().with_use_barnes_hut(false))
+        LinLogSolver::<Layout2d<f64>, Exact>::new(&graph, base_cfg.clone())
             .unwrap()
             .run(&mut l_gen_ex)
             .unwrap();
-        LinLogSolver::<Layout2d<f64>>::new(
-            &graph,
-            base_cfg.clone().with_use_barnes_hut(true).with_theta(0.0),
-        )
-        .unwrap()
-        .run(&mut l_gen_bh0)
-        .unwrap();
-        let mut s_bh = LinLogSolver::<Layout2d<f64>>::new(
-            &graph,
-            base_cfg.with_use_barnes_hut(true).with_theta(1.2),
-        )
-        .unwrap();
+        LinLogSolver::<Layout2d<f64>>::with_backend(&graph, base_cfg.clone(), BarnesHut::new(0.0))
+            .unwrap()
+            .run(&mut l_gen_bh0)
+            .unwrap();
+        let mut s_bh =
+            LinLogSolver::<Layout2d<f64>>::with_backend(&graph, base_cfg, BarnesHut::new(1.2))
+                .unwrap();
         let e_before = s_bh.energy(&l_gen_bh).unwrap();
         s_bh.run(&mut l_gen_bh).unwrap();
         let e_after = s_bh.energy(&l_gen_bh).unwrap();

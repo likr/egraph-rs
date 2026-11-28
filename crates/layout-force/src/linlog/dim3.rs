@@ -1,16 +1,39 @@
-use egraph_core::{CoreError, CoreResult, DeterministicRng, Layout3d, Scalar};
+use egraph_core::{
+    CoreError, CoreResult, DeterministicRng, EuclideanLayout, EuclideanStorageMut, Scalar,
+};
 
+use super::repulsion::LinLogRepulsionBackend;
 use super::solver::{COULOMB_EPS_SQ, LinLogState, MAX_LINLOG_SPEED, MIN_LINLOG_SPEED};
 
-pub(super) fn step_3d<S: Scalar>(
+#[derive(Debug, Clone)]
+pub(super) struct LinLogBuf3d {
+    forces: Vec<f64>,
+    prev_forces: Vec<f64>,
+    att_hess: Vec<f64>,
+}
+
+impl LinLogBuf3d {
+    pub(super) fn new(num_nodes: usize) -> Self {
+        let len = num_nodes * 3;
+        Self {
+            forces: vec![0.0; len],
+            prev_forces: vec![0.0; len],
+            att_hess: vec![0.0; num_nodes],
+        }
+    }
+}
+
+pub(super) fn step_3d<L: EuclideanLayout, B: LinLogRepulsionBackend<L>>(
     state: &mut LinLogState,
-    layout: &mut Layout3d<S>,
+    buf: &mut LinLogBuf3d,
+    backend: &B,
+    rep_state: &mut B::State,
+    layout: &mut L,
 ) -> CoreResult<()> {
     let n = state.num_nodes;
+    if state.iter == 0
+        && let EuclideanStorageMut::Soa3d { x, y, z } = layout.as_euclidean_storage_mut()
     {
-        let xs = layout.x();
-        let ys = layout.y();
-        let zs = layout.z();
         let mut min_x = f64::INFINITY;
         let mut max_x = f64::NEG_INFINITY;
         let mut min_y = f64::INFINITY;
@@ -18,98 +41,60 @@ pub(super) fn step_3d<S: Scalar>(
         let mut min_z = f64::INFINITY;
         let mut max_z = f64::NEG_INFINITY;
         for i in 0..n {
-            let x = xs[i].to_f64();
-            let y = ys[i].to_f64();
-            let z = zs[i].to_f64();
-            state.x_buf[i] = x;
-            state.y_buf[i] = y;
-            state.z_buf[i] = z;
-            min_x = min_x.min(x);
-            max_x = max_x.max(x);
-            min_y = min_y.min(y);
-            max_y = max_y.max(y);
-            min_z = min_z.min(z);
-            max_z = max_z.max(z);
+            let xf = x[i].to_f64();
+            let yf = y[i].to_f64();
+            let zf = z[i].to_f64();
+            min_x = min_x.min(xf);
+            max_x = max_x.max(xf);
+            min_y = min_y.min(yf);
+            max_y = max_y.max(yf);
+            min_z = min_z.min(zf);
+            max_z = max_z.max(zf);
         }
-
-        if state.iter == 0
-            && (max_x - min_x) < 1e-12
-            && (max_y - min_y) < 1e-12
-            && (max_z - min_z) < 1e-12
-        {
+        if (max_x - min_x) < 1e-12 && (max_y - min_y) < 1e-12 && (max_z - min_z) < 1e-12 {
             let mut rng = DeterministicRng::from_seed_u64(state.config.seed);
             for i in 0..n {
-                state.x_buf[i] += 1e-4 * (rng.next_f64() - 0.5);
-                state.y_buf[i] += 1e-4 * (rng.next_f64() - 0.5);
-                state.z_buf[i] += 1e-4 * (rng.next_f64() - 0.5);
+                let nx = L::Scalar::from_f64(x[i].to_f64() + 1e-4 * (rng.next_f64() - 0.5));
+                let ny = L::Scalar::from_f64(y[i].to_f64() + 1e-4 * (rng.next_f64() - 0.5));
+                let nz = L::Scalar::from_f64(z[i].to_f64() + 1e-4 * (rng.next_f64() - 0.5));
+                if !nx.is_finite() || !ny.is_finite() || !nz.is_finite() {
+                    return Err(CoreError::numerical_breakdown(
+                        "LinLogSolver 3D scatter coordinates became non-finite",
+                    ));
+                }
+                x[i] = nx;
+                y[i] = ny;
+                z[i] = nz;
             }
         }
     }
 
-    let r_exp = state.config.repulsion_exponent;
-    let is_coulomb = (r_exp - (-1.0)).abs() <= 1e-12;
+    buf.forces.fill(0.0);
+    backend.accumulate_repulsion(
+        rep_state,
+        layout,
+        &state.masses,
+        state.config.repulsion_exponent,
+        COULOMB_EPS_SQ,
+        &mut buf.forces,
+    )?;
 
-    if state.config.use_barnes_hut {
-        state
-            .octree
-            .build_weighted_xyz(&state.x_buf, &state.y_buf, &state.z_buf, &state.masses)?;
-        state.octree.compute_power_repulsion_flat(
-            state.config.theta,
-            r_exp,
-            COULOMB_EPS_SQ,
-            &mut state.rep_3d_flat,
-        )?;
-        for i in 0..n {
-            let mi = state.masses[i];
-            let base = i * 3;
-            state.fx[i] = mi * state.rep_3d_flat[base];
-            state.fy[i] = mi * state.rep_3d_flat[base + 1];
-            state.fz[i] = mi * state.rep_3d_flat[base + 2];
-        }
-    } else {
-        state.fx.fill(0.0);
-        state.fy.fill(0.0);
-        state.fz.fill(0.0);
-        let pow_exp = 0.5 * (r_exp - 1.0);
-        for i in 0..n {
-            let xi = state.x_buf[i];
-            let yi = state.y_buf[i];
-            let zi = state.z_buf[i];
-            let mi = state.masses[i];
-            let mut acc_x = 0.0_f64;
-            let mut acc_y = 0.0_f64;
-            let mut acc_z = 0.0_f64;
-            for j in (i + 1)..n {
-                let dx = xi - state.x_buf[j];
-                let dy = yi - state.y_buf[j];
-                let dz = zi - state.z_buf[j];
-                let d_sq_reg = dx * dx + dy * dy + dz * dz + COULOMB_EPS_SQ;
-                let mult = if is_coulomb {
-                    (mi * state.masses[j]) / d_sq_reg
-                } else {
-                    (mi * state.masses[j]) * d_sq_reg.powf(pow_exp)
-                };
-                let fx_ij = mult * dx;
-                let fy_ij = mult * dy;
-                let fz_ij = mult * dz;
-                acc_x += fx_ij;
-                acc_y += fy_ij;
-                acc_z += fz_ij;
-                state.fx[j] -= fx_ij;
-                state.fy[j] -= fy_ij;
-                state.fz[j] -= fz_ij;
-            }
-            state.fx[i] += acc_x;
-            state.fy[i] += acc_y;
-            state.fz[i] += acc_z;
-        }
-    }
+    let EuclideanStorageMut::Soa3d {
+        x: xs_mut,
+        y: ys_mut,
+        z: zs_mut,
+    } = layout.as_euclidean_storage_mut()
+    else {
+        return Err(CoreError::numerical_breakdown(
+            "LinLogSolver 3D storage mismatch",
+        ));
+    };
 
     let a_exp = state.config.attraction_exponent;
     let a_is_zero = a_exp.abs() <= 1e-12;
     let a_is_one = (a_exp - 1.0).abs() <= 1e-12;
     let a_hess_scale = a_exp.abs().max(1.0);
-    state.att_hess.fill(0.0);
+    buf.att_hess.fill(0.0);
 
     for idx in 0..state.edges_u.len() {
         let u = state.edges_u[idx] as usize;
@@ -118,9 +103,9 @@ pub(super) fn step_3d<S: Scalar>(
         if w == 0.0 {
             continue;
         }
-        let dx = state.x_buf[v] - state.x_buf[u];
-        let dy = state.y_buf[v] - state.y_buf[u];
-        let dz = state.z_buf[v] - state.z_buf[u];
+        let dx = xs_mut[v].to_f64() - xs_mut[u].to_f64();
+        let dy = ys_mut[v].to_f64() - ys_mut[u].to_f64();
+        let dz = zs_mut[v].to_f64() - zs_mut[u].to_f64();
         let d_sq = dx * dx + dy * dy + dz * dz;
         let (factor, hess) = if a_is_zero {
             if d_sq > 1e-24 {
@@ -142,14 +127,14 @@ pub(super) fn step_3d<S: Scalar>(
         let ax = factor * dx;
         let ay = factor * dy;
         let az = factor * dz;
-        state.fx[u] += ax;
-        state.fy[u] += ay;
-        state.fz[u] += az;
-        state.fx[v] -= ax;
-        state.fy[v] -= ay;
-        state.fz[v] -= az;
-        state.att_hess[u] += hess;
-        state.att_hess[v] += hess;
+        buf.forces[3 * u] += ax;
+        buf.forces[3 * u + 1] += ay;
+        buf.forces[3 * u + 2] += az;
+        buf.forces[3 * v] -= ax;
+        buf.forces[3 * v + 1] -= ay;
+        buf.forces[3 * v + 2] -= az;
+        buf.att_hess[u] += hess;
+        buf.att_hess[v] += hess;
     }
 
     if state.config.gravity > 0.0 && state.total_mass > 0.0 {
@@ -158,9 +143,9 @@ pub(super) fn step_3d<S: Scalar>(
         let mut bz = 0.0_f64;
         for i in 0..n {
             let m = state.masses[i];
-            bx += m * state.x_buf[i];
-            by += m * state.y_buf[i];
-            bz += m * state.z_buf[i];
+            bx += m * xs_mut[i].to_f64();
+            by += m * ys_mut[i].to_f64();
+            bz += m * zs_mut[i].to_f64();
         }
         bx /= state.total_mass;
         by /= state.total_mass;
@@ -168,9 +153,9 @@ pub(super) fn step_3d<S: Scalar>(
 
         let g = state.config.gravity;
         for i in 0..n {
-            let dx = bx - state.x_buf[i];
-            let dy = by - state.y_buf[i];
-            let dz = bz - state.z_buf[i];
+            let dx = bx - xs_mut[i].to_f64();
+            let dy = by - ys_mut[i].to_f64();
+            let dz = bz - zs_mut[i].to_f64();
             let d = (dx * dx + dy * dy + dz * dz).sqrt();
             if d > 1e-12 {
                 let factor = if a_is_zero {
@@ -180,10 +165,10 @@ pub(super) fn step_3d<S: Scalar>(
                 } else {
                     g * state.masses[i] * d.powf(a_exp - 1.0)
                 };
-                state.fx[i] += factor * dx;
-                state.fy[i] += factor * dy;
-                state.fz[i] += factor * dz;
-                state.att_hess[i] += a_hess_scale * factor;
+                buf.forces[3 * i] += factor * dx;
+                buf.forces[3 * i + 1] += factor * dy;
+                buf.forces[3 * i + 2] += factor * dz;
+                buf.att_hess[i] += a_hess_scale * factor;
             }
         }
     }
@@ -191,32 +176,35 @@ pub(super) fn step_3d<S: Scalar>(
     let mut total_swing = 0.0_f64;
     let mut total_traction = 0.0_f64;
     for i in 0..n {
-        let fxi = if state.fx[i].is_finite() {
-            state.fx[i]
+        let fxi = if buf.forces[3 * i].is_finite() {
+            buf.forces[3 * i]
         } else {
             0.0
         };
-        let fyi = if state.fy[i].is_finite() {
-            state.fy[i]
+        let fyi = if buf.forces[3 * i + 1].is_finite() {
+            buf.forces[3 * i + 1]
         } else {
             0.0
         };
-        let fzi = if state.fz[i].is_finite() {
-            state.fz[i]
+        let fzi = if buf.forces[3 * i + 2].is_finite() {
+            buf.forces[3 * i + 2]
         } else {
             0.0
         };
-        state.fx[i] = fxi;
-        state.fy[i] = fyi;
-        state.fz[i] = fzi;
+        buf.forces[3 * i] = fxi;
+        buf.forces[3 * i + 1] = fyi;
+        buf.forces[3 * i + 2] = fzi;
 
-        let dx_s = fxi - state.prev_fx[i];
-        let dy_s = fyi - state.prev_fy[i];
-        let dz_s = fzi - state.prev_fz[i];
+        let pfx = buf.prev_forces[3 * i];
+        let pfy = buf.prev_forces[3 * i + 1];
+        let pfz = buf.prev_forces[3 * i + 2];
+        let dx_s = fxi - pfx;
+        let dy_s = fyi - pfy;
+        let dz_s = fzi - pfz;
         let swg = (dx_s * dx_s + dy_s * dy_s + dz_s * dz_s).sqrt();
-        let dx_t = fxi + state.prev_fx[i];
-        let dy_t = fyi + state.prev_fy[i];
-        let dz_t = fzi + state.prev_fz[i];
+        let dx_t = fxi + pfx;
+        let dy_t = fyi + pfy;
+        let dz_t = fzi + pfz;
         let tra = 0.5 * (dx_t * dx_t + dy_t * dy_t + dz_t * dz_t).sqrt();
         state.swing_buf[i] = swg;
         let m = state.masses[i];
@@ -239,13 +227,12 @@ pub(super) fn step_3d<S: Scalar>(
 
     let speed = state.global_speed;
     let max_disp = state.max_displacement;
-    let (xs_mut, ys_mut, zs_mut) = layout.xyz_mut();
     for i in 0..n {
-        let fxi = state.fx[i];
-        let fyi = state.fy[i];
-        let fzi = state.fz[i];
+        let fxi = buf.forces[3 * i];
+        let fyi = buf.forces[3 * i + 1];
+        let fzi = buf.forces[3 * i + 2];
         let local_factor =
-            speed / (1.0 + (speed * state.swing_buf[i]).sqrt() + 0.5 * state.att_hess[i]);
+            speed / (1.0 + (speed * state.swing_buf[i]).sqrt() + 0.5 * buf.att_hess[i]);
         let mut dx = fxi * local_factor;
         let mut dy = fyi * local_factor;
         let mut dz = fzi * local_factor;
@@ -256,9 +243,9 @@ pub(super) fn step_3d<S: Scalar>(
             dy *= cap;
             dz *= cap;
         }
-        let nx = S::from_f64(state.x_buf[i] + dx);
-        let ny = S::from_f64(state.y_buf[i] + dy);
-        let nz = S::from_f64(state.z_buf[i] + dz);
+        let nx = L::Scalar::from_f64(xs_mut[i].to_f64() + dx);
+        let ny = L::Scalar::from_f64(ys_mut[i].to_f64() + dy);
+        let nz = L::Scalar::from_f64(zs_mut[i].to_f64() + dz);
         if !nx.is_finite() || !ny.is_finite() || !nz.is_finite() {
             return Err(CoreError::numerical_breakdown(
                 "LinLogSolver 3D coordinates became non-finite",
@@ -267,9 +254,9 @@ pub(super) fn step_3d<S: Scalar>(
         xs_mut[i] = nx;
         ys_mut[i] = ny;
         zs_mut[i] = nz;
-        state.prev_fx[i] = fxi;
-        state.prev_fy[i] = fyi;
-        state.prev_fz[i] = fzi;
+        buf.prev_forces[3 * i] = fxi;
+        buf.prev_forces[3 * i + 1] = fyi;
+        buf.prev_forces[3 * i + 2] = fzi;
     }
 
     Ok(())

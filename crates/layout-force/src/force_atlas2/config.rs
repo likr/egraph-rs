@@ -6,13 +6,6 @@ use egraph_core::{CoreError, CoreResult};
 pub struct ForceAtlas2Config {
     /// Total number of ForceAtlas2 iterations (`default: 200`).
     pub iterations: usize,
-    /// Barnes-Hut spatial tree opening angle threshold $\theta \ge 0$ (`default: 1.2`).
-    pub theta: f64,
-    /// Whether to use $O(N \log N)$ Barnes-Hut spatial tree repulsion (`default: true`).
-    ///
-    /// Supported on [`Layout2d`](egraph_core::Layout2d) and [`Layout3d`](egraph_core::Layout3d);
-    /// must be `false` on [`LayoutNd`](egraph_core::LayoutNd).
-    pub use_barnes_hut: bool,
     /// Whether to use Jacomy et al. (2014) ForceAtlas2 logarithmic attraction
     /// $F_{\mathrm{att}}(d) = w \frac{\ln(1 + d)}{d} (p_v - p_u)$ (`default: false`).
     ///
@@ -46,8 +39,6 @@ impl Default for ForceAtlas2Config {
     fn default() -> Self {
         Self {
             iterations: 200,
-            theta: 1.2,
-            use_barnes_hut: true,
             linlog_mode: false,
             strong_gravity: false,
             gravity: 1.0,
@@ -72,18 +63,6 @@ impl ForceAtlas2Config {
     /// Sets the total number of iterations.
     pub fn with_iterations(mut self, iterations: usize) -> Self {
         self.iterations = iterations;
-        self
-    }
-
-    /// Sets the Barnes-Hut opening angle threshold `theta`.
-    pub fn with_theta(mut self, theta: f64) -> Self {
-        self.theta = theta;
-        self
-    }
-
-    /// Enables or disables Barnes-Hut spatial tree repulsion.
-    pub fn with_use_barnes_hut(mut self, use_barnes_hut: bool) -> Self {
-        self.use_barnes_hut = use_barnes_hut;
         self
     }
 
@@ -158,12 +137,6 @@ impl ForceAtlas2Config {
 
     /// Validates all ForceAtlas2 hyperparameters.
     pub fn validate(&self) -> CoreResult<()> {
-        if !self.theta.is_finite() || self.theta < 0.0 {
-            return Err(CoreError::invalid_input(format!(
-                "theta must be finite and >= 0.0, got {}",
-                self.theta
-            )));
-        }
         if !self.gravity.is_finite() || self.gravity < 0.0 {
             return Err(CoreError::invalid_input(format!(
                 "gravity must be finite and >= 0.0, got {}",

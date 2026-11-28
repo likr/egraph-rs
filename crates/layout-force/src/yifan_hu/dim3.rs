@@ -1,12 +1,45 @@
-use egraph_core::{CoreError, CoreResult, Layout3d, Scalar, SolverStatus};
+use egraph_core::{
+    CoreError, CoreResult, EuclideanLayout, EuclideanStorageMut, Scalar, SolverStatus,
+};
 
+use super::repulsion::{YifanHuLevelCoords, YifanHuRepulsion};
 use super::solver::{PROLONGATION_JITTER_FACTOR, YifanHuState};
 
-fn initialize_coarsest_coords_3d<S: Scalar>(state: &mut YifanHuState, layout: &Layout3d<S>) {
+#[derive(Debug, Clone)]
+pub(super) struct YhBuf3d {
+    active_x: Vec<f64>,
+    active_y: Vec<f64>,
+    active_z: Vec<f64>,
+    tmp_x: Vec<f64>,
+    tmp_y: Vec<f64>,
+    tmp_z: Vec<f64>,
+    counts: Vec<f64>,
+    forces: Vec<f64>,
+}
+
+impl YhBuf3d {
+    pub(super) fn new(num_nodes: usize) -> Self {
+        Self {
+            active_x: vec![0.0; num_nodes],
+            active_y: vec![0.0; num_nodes],
+            active_z: vec![0.0; num_nodes],
+            tmp_x: vec![0.0; num_nodes],
+            tmp_y: vec![0.0; num_nodes],
+            tmp_z: vec![0.0; num_nodes],
+            counts: vec![0.0; num_nodes],
+            forces: vec![0.0; num_nodes * 3],
+        }
+    }
+}
+
+fn initialize_coarsest_coords_3d<S: Scalar>(
+    state: &mut YifanHuState,
+    buf: &mut YhBuf3d,
+    xs: &[S],
+    ys: &[S],
+    zs: &[S],
+) {
     let n = state.num_nodes;
-    let xs = layout.x();
-    let ys = layout.y();
-    let zs = layout.z();
     let mut min_x = f64::INFINITY;
     let mut max_x = f64::NEG_INFINITY;
     let mut min_y = f64::INFINITY;
@@ -18,9 +51,9 @@ fn initialize_coarsest_coords_3d<S: Scalar>(state: &mut YifanHuState, layout: &L
         let x = xs[i].to_f64();
         let y = ys[i].to_f64();
         let z = zs[i].to_f64();
-        state.active_x[i] = x;
-        state.active_y[i] = y;
-        state.active_z[i] = z;
+        buf.active_x[i] = x;
+        buf.active_y[i] = y;
+        buf.active_z[i] = z;
         min_x = min_x.min(x);
         max_x = max_x.max(x);
         min_y = min_y.min(y);
@@ -35,34 +68,34 @@ fn initialize_coarsest_coords_3d<S: Scalar>(state: &mut YifanHuState, layout: &L
         let k_coarse = state.levels[coarsest].optimal_distance;
         let spread = k_coarse * (coarse_n as f64).sqrt().max(1.0);
         for i in 0..coarse_n {
-            state.active_x[i] = spread * (state.rng.next_f64() - 0.5);
-            state.active_y[i] = spread * (state.rng.next_f64() - 0.5);
-            state.active_z[i] = spread * (state.rng.next_f64() - 0.5);
+            buf.active_x[i] = spread * (state.rng.next_f64() - 0.5);
+            buf.active_y[i] = spread * (state.rng.next_f64() - 0.5);
+            buf.active_z[i] = spread * (state.rng.next_f64() - 0.5);
         }
     } else if coarsest > 0 {
         let map = &state.fine_to_level[coarsest];
-        state.fx[..coarse_n].fill(0.0);
-        state.fy[..coarse_n].fill(0.0);
-        state.fz[..coarse_n].fill(0.0);
-        state.rep_x[..coarse_n].fill(0.0);
+        buf.tmp_x[..coarse_n].fill(0.0);
+        buf.tmp_y[..coarse_n].fill(0.0);
+        buf.tmp_z[..coarse_n].fill(0.0);
+        buf.counts[..coarse_n].fill(0.0);
         for u in 0..n {
             let c = map[u] as usize;
-            state.fx[c] += state.active_x[u];
-            state.fy[c] += state.active_y[u];
-            state.fz[c] += state.active_z[u];
-            state.rep_x[c] += 1.0;
+            buf.tmp_x[c] += buf.active_x[u];
+            buf.tmp_y[c] += buf.active_y[u];
+            buf.tmp_z[c] += buf.active_z[u];
+            buf.counts[c] += 1.0;
         }
         for c in 0..coarse_n {
-            let cnt = state.rep_x[c].max(1.0);
-            state.active_x[c] = state.fx[c] / cnt;
-            state.active_y[c] = state.fy[c] / cnt;
-            state.active_z[c] = state.fz[c] / cnt;
+            let cnt = buf.counts[c].max(1.0);
+            buf.active_x[c] = buf.tmp_x[c] / cnt;
+            buf.active_y[c] = buf.tmp_y[c] / cnt;
+            buf.active_z[c] = buf.tmp_z[c] / cnt;
         }
     }
     state.initialized_coords = true;
 }
 
-fn prolongate_to_finer_level_3d(state: &mut YifanHuState) {
+fn prolongate_to_finer_level_3d(state: &mut YifanHuState, buf: &mut YhBuf3d) {
     let finer = state.current_level - 1;
     let fine_n = state.levels[finer].graph.num_nodes();
     let k_fine = state.levels[finer].optimal_distance;
@@ -75,13 +108,13 @@ fn prolongate_to_finer_level_3d(state: &mut YifanHuState) {
 
     for u in 0..fine_n {
         let c = coarse_of[u] as usize;
-        let cx = state.active_x[c];
-        let cy = state.active_y[c];
-        let cz = state.active_z[c];
+        let cx = buf.active_x[c];
+        let cy = buf.active_y[c];
+        let cz = buf.active_z[c];
         if counts[c] <= 1 {
-            state.fx[u] = cx;
-            state.fy[u] = cy;
-            state.fz[u] = cz;
+            buf.tmp_x[u] = cx;
+            buf.tmp_y[u] = cy;
+            buf.tmp_z[u] = cz;
         } else {
             let dx = state.rng.next_f64() - 0.5;
             let dy = state.rng.next_f64() - 0.5;
@@ -90,19 +123,19 @@ fn prolongate_to_finer_level_3d(state: &mut YifanHuState) {
             let radius = PROLONGATION_JITTER_FACTOR * k_fine * (0.25 + 0.75 * state.rng.next_f64());
             if norm > 1e-12 {
                 let scale = radius / norm;
-                state.fx[u] = cx + scale * dx;
-                state.fy[u] = cy + scale * dy;
-                state.fz[u] = cz + scale * dz;
+                buf.tmp_x[u] = cx + scale * dx;
+                buf.tmp_y[u] = cy + scale * dy;
+                buf.tmp_z[u] = cz + scale * dz;
             } else {
-                state.fx[u] = cx + radius;
-                state.fy[u] = cy;
-                state.fz[u] = cz;
+                buf.tmp_x[u] = cx + radius;
+                buf.tmp_y[u] = cy;
+                buf.tmp_z[u] = cz;
             }
         }
     }
-    state.active_x[..fine_n].copy_from_slice(&state.fx[..fine_n]);
-    state.active_y[..fine_n].copy_from_slice(&state.fy[..fine_n]);
-    state.active_z[..fine_n].copy_from_slice(&state.fz[..fine_n]);
+    buf.active_x[..fine_n].copy_from_slice(&buf.tmp_x[..fine_n]);
+    buf.active_y[..fine_n].copy_from_slice(&buf.tmp_y[..fine_n]);
+    buf.active_z[..fine_n].copy_from_slice(&buf.tmp_z[..fine_n]);
 
     state.current_level = finer;
     state.level_iter = 0;
@@ -113,14 +146,16 @@ fn prolongate_to_finer_level_3d(state: &mut YifanHuState) {
 
 fn write_active_coords_to_layout_3d<S: Scalar>(
     state: &YifanHuState,
-    layout: &mut Layout3d<S>,
+    buf: &YhBuf3d,
+    xs_mut: &mut [S],
+    ys_mut: &mut [S],
+    zs_mut: &mut [S],
 ) -> CoreResult<()> {
-    let (xs_mut, ys_mut, zs_mut) = layout.xyz_mut();
     if state.current_level == 0 {
         for i in 0..state.num_nodes {
-            let nx = S::from_f64(state.active_x[i]);
-            let ny = S::from_f64(state.active_y[i]);
-            let nz = S::from_f64(state.active_z[i]);
+            let nx = S::from_f64(buf.active_x[i]);
+            let ny = S::from_f64(buf.active_y[i]);
+            let nz = S::from_f64(buf.active_z[i]);
             if !nx.is_finite() || !ny.is_finite() || !nz.is_finite() {
                 return Err(CoreError::numerical_breakdown(
                     "YifanHuSolver 3D coordinates became non-finite",
@@ -134,9 +169,9 @@ fn write_active_coords_to_layout_3d<S: Scalar>(
         let map = &state.fine_to_level[state.current_level];
         for (u, &c) in map.iter().enumerate() {
             let ci = c as usize;
-            let nx = S::from_f64(state.active_x[ci]);
-            let ny = S::from_f64(state.active_y[ci]);
-            let nz = S::from_f64(state.active_z[ci]);
+            let nx = S::from_f64(buf.active_x[ci]);
+            let ny = S::from_f64(buf.active_y[ci]);
+            let nz = S::from_f64(buf.active_z[ci]);
             if !nx.is_finite() || !ny.is_finite() || !nz.is_finite() {
                 return Err(CoreError::numerical_breakdown(
                     "YifanHuSolver 3D coarse coordinates became non-finite",
@@ -150,72 +185,79 @@ fn write_active_coords_to_layout_3d<S: Scalar>(
     Ok(())
 }
 
-pub(super) fn step_3d<S: Scalar>(
+pub(super) fn step_3d<L: EuclideanLayout, B: YifanHuRepulsion<L>>(
     state: &mut YifanHuState,
-    layout: &mut Layout3d<S>,
+    buf: &mut YhBuf3d,
+    backend: &B,
+    rep_state: &mut B::State,
+    layout: &mut L,
 ) -> CoreResult<SolverStatus> {
     let n = state.num_nodes;
-    if !state.initialized_coords {
-        initialize_coarsest_coords_3d(state, layout);
-    } else if state.current_level == 0 {
-        let xs = layout.x();
-        let ys = layout.y();
-        let zs = layout.z();
-        for i in 0..n {
-            state.active_x[i] = xs[i].to_f64();
-            state.active_y[i] = ys[i].to_f64();
-            state.active_z[i] = zs[i].to_f64();
+    {
+        let EuclideanStorageMut::Soa3d {
+            x: xs,
+            y: ys,
+            z: zs,
+        } = layout.as_euclidean_storage_mut()
+        else {
+            return Err(CoreError::numerical_breakdown(
+                "YifanHuSolver 3D storage mismatch",
+            ));
+        };
+        if !state.initialized_coords {
+            initialize_coarsest_coords_3d(state, buf, xs, ys, zs);
+        } else if state.current_level == 0 {
+            for i in 0..n {
+                buf.active_x[i] = xs[i].to_f64();
+                buf.active_y[i] = ys[i].to_f64();
+                buf.active_z[i] = zs[i].to_f64();
+            }
         }
     }
 
-    let level = &state.levels[state.current_level];
-    let ln = level.graph.num_nodes();
-    let k_level = level.optimal_distance;
+    let ln = state.levels[state.current_level].graph.num_nodes();
+    let k_level = state.levels[state.current_level].optimal_distance;
 
     if ln <= 1 {
         state.level_iter += 1;
         state.total_iter_executed += 1;
         if state.current_level > 0 {
-            prolongate_to_finer_level_3d(state);
-            write_active_coords_to_layout_3d(state, layout)?;
+            prolongate_to_finer_level_3d(state, buf);
             state.status = SolverStatus::Running;
         } else {
-            write_active_coords_to_layout_3d(state, layout)?;
             state.status = SolverStatus::Converged;
         }
+        let EuclideanStorageMut::Soa3d { x, y, z } = layout.as_euclidean_storage_mut() else {
+            return Err(CoreError::numerical_breakdown(
+                "YifanHuSolver 3D storage mismatch",
+            ));
+        };
+        write_active_coords_to_layout_3d(state, buf, x, y, z)?;
         return Ok(state.status);
     }
 
-    // 1. Repulsion at active level via unit-mass ArenaOctree3d Coulomb evaluation.
-    state.octree.build_weighted_xyz(
-        &state.active_x[..ln],
-        &state.active_y[..ln],
-        &state.active_z[..ln],
-        &state.unit_masses[..ln],
-    )?;
     let eps_sq = (1e-8 * k_level * k_level).max(1e-24);
-    state.octree.compute_coulomb_repulsion(
-        state.config.theta,
+    let rep_scale = state.config.relative_strength * k_level * k_level;
+    buf.forces[..(ln * 3)].fill(0.0);
+    let coords_view = YifanHuLevelCoords::Soa3d {
+        x: &buf.active_x[..ln],
+        y: &buf.active_y[..ln],
+        z: &buf.active_z[..ln],
+    };
+    backend.accumulate_level_repulsion(
+        rep_state,
+        &coords_view,
         eps_sq,
-        &mut state.rep_x[..ln],
-        &mut state.rep_y[..ln],
-        &mut state.rep_z[..ln],
+        rep_scale,
+        &mut buf.forces[..(ln * 3)],
     )?;
 
-    let rep_scale = state.config.relative_strength * k_level * k_level;
-    for i in 0..ln {
-        state.fx[i] = rep_scale * state.rep_x[i];
-        state.fy[i] = rep_scale * state.rep_y[i];
-        state.fz[i] = rep_scale * state.rep_z[i];
-    }
-
-    // 2. Quadratic spring attraction.
     let level_graph = &state.levels[state.current_level].graph;
     let use_weights = state.current_level == 0 && state.has_explicit_weights;
     for u in 0..ln {
-        let ux = state.active_x[u];
-        let uy = state.active_y[u];
-        let uz = state.active_z[u];
+        let ux = buf.active_x[u];
+        let uy = buf.active_y[u];
+        let uz = buf.active_z[u];
         let nbrs = level_graph.neighbors(u);
         let weights = level_graph.neighbor_weights(u);
         let mut ax = 0.0_f64;
@@ -231,41 +273,40 @@ pub(super) fn step_3d<S: Scalar>(
             if w == 0.0 {
                 continue;
             }
-            let dx = state.active_x[v] - ux;
-            let dy = state.active_y[v] - uy;
-            let dz = state.active_z[v] - uz;
+            let dx = buf.active_x[v] - ux;
+            let dy = buf.active_y[v] - uy;
+            let dz = buf.active_z[v] - uz;
             let d = (dx * dx + dy * dy + dz * dz).sqrt();
             let mult = w * (d / k_level);
             ax += mult * dx;
             ay += mult * dy;
             az += mult * dz;
         }
-        state.fx[u] += ax;
-        state.fy[u] += ay;
-        state.fz[u] += az;
+        buf.forces[3 * u] += ax;
+        buf.forces[3 * u + 1] += ay;
+        buf.forces[3 * u + 2] += az;
     }
 
-    // 3. Compute total squared force energy and adapt step length.
     let mut energy = 0.0_f64;
     for i in 0..ln {
-        let fxi = if state.fx[i].is_finite() {
-            state.fx[i]
+        let fxi = if buf.forces[3 * i].is_finite() {
+            buf.forces[3 * i]
         } else {
             0.0
         };
-        let fyi = if state.fy[i].is_finite() {
-            state.fy[i]
+        let fyi = if buf.forces[3 * i + 1].is_finite() {
+            buf.forces[3 * i + 1]
         } else {
             0.0
         };
-        let fzi = if state.fz[i].is_finite() {
-            state.fz[i]
+        let fzi = if buf.forces[3 * i + 2].is_finite() {
+            buf.forces[3 * i + 2]
         } else {
             0.0
         };
-        state.fx[i] = fxi;
-        state.fy[i] = fyi;
-        state.fz[i] = fzi;
+        buf.forces[3 * i] = fxi;
+        buf.forces[3 * i + 1] = fyi;
+        buf.forces[3 * i + 2] = fzi;
         energy += fxi * fxi + fyi * fyi + fzi * fzi;
     }
     if !energy.is_finite() {
@@ -287,27 +328,26 @@ pub(super) fn step_3d<S: Scalar>(
     }
     state.prev_energy = energy;
 
-    // 4. Displace vertices along normalized force direction by adaptive step length.
     let mut max_disp = 0.0_f64;
     let mut max_force = 0.0_f64;
     let step_len = state.level_step_len;
     for i in 0..ln {
-        let fxi = state.fx[i];
-        let fyi = state.fy[i];
-        let fzi = state.fz[i];
+        let fxi = buf.forces[3 * i];
+        let fyi = buf.forces[3 * i + 1];
+        let fzi = buf.forces[3 * i + 2];
         let f_norm = (fxi * fxi + fyi * fyi + fzi * fzi).sqrt();
         if f_norm > max_force {
             max_force = f_norm;
         }
         if f_norm > 1e-12 {
             let scale = step_len / f_norm;
-            let nx = state.active_x[i] + fxi * scale;
-            let ny = state.active_y[i] + fyi * scale;
-            let nz = state.active_z[i] + fzi * scale;
+            let nx = buf.active_x[i] + fxi * scale;
+            let ny = buf.active_y[i] + fyi * scale;
+            let nz = buf.active_z[i] + fzi * scale;
             if nx.is_finite() && ny.is_finite() && nz.is_finite() {
-                state.active_x[i] = nx;
-                state.active_y[i] = ny;
-                state.active_z[i] = nz;
+                buf.active_x[i] = nx;
+                buf.active_y[i] = ny;
+                buf.active_z[i] = nz;
                 if step_len > max_disp {
                     max_disp = step_len;
                 }
@@ -324,11 +364,9 @@ pub(super) fn step_3d<S: Scalar>(
 
     if level_converged || level_exhausted {
         if state.current_level > 0 {
-            prolongate_to_finer_level_3d(state);
-            write_active_coords_to_layout_3d(state, layout)?;
+            prolongate_to_finer_level_3d(state, buf);
             state.status = SolverStatus::Running;
         } else {
-            write_active_coords_to_layout_3d(state, layout)?;
             state.status = if level_converged {
                 SolverStatus::Converged
             } else {
@@ -336,9 +374,14 @@ pub(super) fn step_3d<S: Scalar>(
             };
         }
     } else {
-        write_active_coords_to_layout_3d(state, layout)?;
         state.status = SolverStatus::Running;
     }
 
+    let EuclideanStorageMut::Soa3d { x, y, z } = layout.as_euclidean_storage_mut() else {
+        return Err(CoreError::numerical_breakdown(
+            "YifanHuSolver 3D storage mismatch",
+        ));
+    };
+    write_active_coords_to_layout_3d(state, buf, x, y, z)?;
     Ok(state.status)
 }

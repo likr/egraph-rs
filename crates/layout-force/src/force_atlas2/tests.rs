@@ -3,6 +3,8 @@ use egraph_core::{
     SolverStatus,
 };
 
+use crate::backend::{BarnesHut, Exact, ForceBackend};
+
 use super::solver::MAX_FA2_DISPLACEMENT;
 use super::{ForceAtlas2Config, ForceAtlas2Solver};
 
@@ -92,8 +94,6 @@ fn count_disk_overlaps<S: Scalar>(layout: &Layout2d<S>, radii: &[f64]) -> usize 
 fn test_force_atlas2_config_defaults_builders_and_validation() {
     let cfg = ForceAtlas2Config::new();
     assert_eq!(cfg.iterations, 200);
-    assert_eq!(cfg.theta, 1.2);
-    assert!(cfg.use_barnes_hut);
     assert!(!cfg.linlog_mode);
     assert!(!cfg.strong_gravity);
     assert_eq!(cfg.gravity, 1.0);
@@ -108,7 +108,6 @@ fn test_force_atlas2_config_defaults_builders_and_validation() {
     cfg.validate().unwrap();
 
     for bad in [
-        cfg.clone().with_theta(-0.1),
         cfg.clone().with_gravity(f64::NAN),
         cfg.clone().with_scaling_ratio(-1.0),
         cfg.clone().with_edge_weight_influence(-0.5),
@@ -122,6 +121,14 @@ fn test_force_atlas2_config_defaults_builders_and_validation() {
     ] {
         assert!(bad.validate().is_err());
     }
+
+    let bh = BarnesHut::default();
+    assert_eq!(bh.theta(), 1.2);
+    bh.validate().unwrap();
+    assert_eq!(BarnesHut::new(0.5).theta(), 0.5);
+    assert_eq!(BarnesHut::default().with_theta(0.8).theta(), 0.8);
+    assert!(BarnesHut::new(-0.1).validate().is_err());
+    assert!(BarnesHut::new(f64::NAN).validate().is_err());
 }
 
 #[test]
@@ -131,21 +138,17 @@ fn test_force_atlas2_2d_barnes_hut_vs_exact_and_modes() {
 
     let mut l_exact = init.clone();
     let mut l_bh_zero = init.clone();
-    ForceAtlas2Solver::<Layout2d<f64>>::new(
+    ForceAtlas2Solver::<Layout2d<f64>, Exact>::new(
         &graph,
-        ForceAtlas2Config::new()
-            .with_iterations(20)
-            .with_use_barnes_hut(false),
+        ForceAtlas2Config::new().with_iterations(20),
     )
     .unwrap()
     .run(&mut l_exact)
     .unwrap();
-    ForceAtlas2Solver::<Layout2d<f64>>::new(
+    ForceAtlas2Solver::<Layout2d<f64>, BarnesHut>::with_backend(
         &graph,
-        ForceAtlas2Config::new()
-            .with_iterations(20)
-            .with_theta(0.0)
-            .with_use_barnes_hut(true),
+        ForceAtlas2Config::new().with_iterations(20),
+        BarnesHut::new(0.0),
     )
     .unwrap()
     .run(&mut l_bh_zero)
@@ -156,9 +159,7 @@ fn test_force_atlas2_2d_barnes_hut_vs_exact_and_modes() {
     }
 
     for cfg in [
-        ForceAtlas2Config::new()
-            .with_iterations(150)
-            .with_use_barnes_hut(true),
+        ForceAtlas2Config::new().with_iterations(150),
         ForceAtlas2Config::new()
             .with_iterations(150)
             .with_linlog_mode(true)
@@ -175,26 +176,22 @@ fn test_force_atlas2_2d_barnes_hut_vs_exact_and_modes() {
 }
 
 #[test]
-fn test_force_atlas2_3d_octree_vs_exact_and_nd_fail_fast() {
+fn test_force_atlas2_3d_octree_vs_exact_and_nd_default_exact() {
     let graph = grid_graph(3, 3);
     let init3 = Layout3d::<f64>::init(9, 77, 4.0).unwrap();
     let mut l_exact = init3.clone();
     let mut l_bh0 = init3.clone();
-    ForceAtlas2Solver::<Layout3d<f64>>::new(
+    ForceAtlas2Solver::<Layout3d<f64>, Exact>::new(
         &graph,
-        ForceAtlas2Config::new()
-            .with_iterations(15)
-            .with_use_barnes_hut(false),
+        ForceAtlas2Config::new().with_iterations(15),
     )
     .unwrap()
     .run(&mut l_exact)
     .unwrap();
-    ForceAtlas2Solver::<Layout3d<f64>>::new(
+    ForceAtlas2Solver::<Layout3d<f64>>::with_backend(
         &graph,
-        ForceAtlas2Config::new()
-            .with_iterations(15)
-            .with_use_barnes_hut(true)
-            .with_theta(0.0),
+        ForceAtlas2Config::new().with_iterations(15),
+        BarnesHut::new(0.0),
     )
     .unwrap()
     .run(&mut l_bh0)
@@ -205,19 +202,21 @@ fn test_force_atlas2_3d_octree_vs_exact_and_nd_fail_fast() {
         assert!((l_exact.z()[i] - l_bh0.z()[i]).abs() < 1e-8);
     }
 
-    // LayoutNd fails fast at construction when Barnes-Hut is enabled.
-    let err = ForceAtlas2Solver::<LayoutNd<f64>>::new(&graph, ForceAtlas2Config::default());
-    assert!(matches!(err, Err(CoreError::UnsupportedOperation(_))));
+    // Invalid BarnesHut theta fails fast at construction.
+    let err = ForceAtlas2Solver::<Layout3d<f64>>::with_backend(
+        &graph,
+        ForceAtlas2Config::default(),
+        BarnesHut::new(-0.2),
+    );
+    assert!(matches!(err, Err(CoreError::InvalidInput(_))));
 
-    // LayoutNd succeeds with Exact (use_barnes_hut = false) and unweighted CsrGraph<()>.
+    // LayoutNd defaults to Exact automatically and accepts unweighted CsrGraph<()>.
     let unit_graph =
         CsrGraph::<()>::from_unweighted_csr(graph.indptr(), graph.indices(), false, false).unwrap();
     let mut l_nd = LayoutNd::<f32>::init(9, 4, 19, 2.0).unwrap();
     let mut s_nd = ForceAtlas2Solver::<LayoutNd<f32>>::new_unweighted(
         &unit_graph,
-        ForceAtlas2Config::new()
-            .with_iterations(10)
-            .with_use_barnes_hut(false),
+        ForceAtlas2Config::new().with_iterations(10),
     )
     .unwrap();
     assert_eq!(s_nd.total_iterations(), Some(10));
@@ -239,11 +238,18 @@ fn test_force_atlas2_step_vs_run_overlap_and_v6_contract() {
         let mut layout = init_overlap.clone();
         let cfg = ForceAtlas2Config::new()
             .with_iterations(300)
-            .with_use_barnes_hut(use_bh)
             .with_prevent_overlap(true)
             .with_linlog_mode(use_bh);
+        let backend = if use_bh {
+            ForceBackend::barnes_hut(1.2)
+        } else {
+            ForceBackend::exact()
+        };
         let mut solver =
-            ForceAtlas2Solver::<Layout2d<f64>>::with_node_radii(&grid, cfg, &radii).unwrap();
+            ForceAtlas2Solver::<Layout2d<f64>, ForceBackend>::with_node_radii_and_backend(
+                &grid, cfg, &radii, backend,
+            )
+            .unwrap();
         assert_eq!(solver.node_radii(), radii.as_slice());
         assert_eq!(solver.run(&mut layout).unwrap(), SolverStatus::Completed);
         assert_eq!(count_disk_overlaps(&layout, &radii), 0);
@@ -274,11 +280,10 @@ fn test_force_atlas2_step_vs_run_overlap_and_v6_contract() {
 
     // Overflow to non-finite f32 transitions solver to Failed.
     let edgeless = CsrGraph::<()>::from_unweighted_edges(2, &[], false, false).unwrap();
-    let mut overflow_solver = ForceAtlas2Solver::<Layout2d<f32>>::new_unweighted(
+    let mut overflow_solver = ForceAtlas2Solver::<Layout2d<f32>, Exact>::new_unweighted(
         &edgeless,
         ForceAtlas2Config::new()
             .with_iterations(5)
-            .with_use_barnes_hut(false)
             .with_gravity(0.0)
             .with_scaling_ratio(1e120)
             .with_max_displacement(Some(1e38)),

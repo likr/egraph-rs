@@ -3,6 +3,8 @@ use egraph_core::{
     SolverStatus,
 };
 
+use crate::backend::{BarnesHut, Exact};
+
 use super::{YifanHuConfig, YifanHuSolver};
 
 fn grid_graph(rows: usize, cols: usize) -> CsrGraph<f64> {
@@ -41,7 +43,6 @@ fn test_yifan_hu_config_builders_and_validation() {
     assert_eq!(yh.step_ratio, 0.9);
     assert_eq!(yh.relative_strength, 0.2);
     assert_eq!(yh.optimal_distance, None);
-    assert_eq!(yh.theta, 1.2);
     assert_eq!(yh.min_coarsen_size, 30);
     assert_eq!(yh.min_coarsen_ratio, 0.75);
     assert_eq!(yh.convergence_tolerance, 1e-4);
@@ -54,7 +55,6 @@ fn test_yifan_hu_config_builders_and_validation() {
         yh.clone().with_step_ratio(0.0),
         yh.clone().with_relative_strength(-0.1),
         yh.clone().with_optimal_distance(Some(0.0)),
-        yh.clone().with_theta(-0.1),
         yh.clone().with_min_coarsen_size(0),
         yh.clone().with_min_coarsen_ratio(0.0),
         yh.clone().with_min_coarsen_ratio(1.1),
@@ -76,6 +76,7 @@ fn test_yifan_hu_2d_3d_nd_and_unweighted_csr() {
     let mut yh_step = YifanHuSolver::<Layout2d<f64>>::new(&grid, cfg.clone()).unwrap();
     assert!(yh_run.num_levels() >= 3);
     assert_eq!(yh_run.total_iterations(), Some(yh_run.num_levels() * 30));
+    assert_eq!(yh_run.backend(), &BarnesHut::default());
 
     let mut l2_run = Layout2d::<f64>::zeros(225);
     let mut l2_step = l2_run.clone();
@@ -88,8 +89,39 @@ fn test_yifan_hu_2d_3d_nd_and_unweighted_csr() {
         assert_eq!(l2_run.y()[i].to_bits(), l2_step.y()[i].to_bits());
     }
 
-    // 3D Layout3d multilevel octree bit-exactness across f64 & f32.
+    // 2D Exact vs BarnesHut theta=0.0 agreement on single-level & multilevel Exact run.
     let g_small = grid_graph(6, 6);
+    let cfg_cmp = YifanHuConfig::new()
+        .with_max_iterations_per_level(15)
+        .with_min_coarsen_size(100);
+    let mut l_ex = seeded_layout::<f64>(36, 17);
+    let mut l_bh0 = l_ex.clone();
+    YifanHuSolver::<Layout2d<f64>, Exact>::new(&g_small, cfg_cmp.clone())
+        .unwrap()
+        .run(&mut l_ex)
+        .unwrap();
+    YifanHuSolver::<Layout2d<f64>>::with_backend(&g_small, cfg_cmp, BarnesHut::new(0.0))
+        .unwrap()
+        .run(&mut l_bh0)
+        .unwrap();
+    for i in 0..36 {
+        assert!((l_ex.x()[i] - l_bh0.x()[i]).abs() < 1e-8);
+        assert!((l_ex.y()[i] - l_bh0.y()[i]).abs() < 1e-8);
+    }
+
+    let mut l_ex_ml = seeded_layout::<f64>(36, 17);
+    let mut s_ex_ml = YifanHuSolver::<Layout2d<f64>, Exact>::new(
+        &g_small,
+        YifanHuConfig::new()
+            .with_max_iterations_per_level(15)
+            .with_min_coarsen_size(10),
+    )
+    .unwrap();
+    assert!(s_ex_ml.num_levels() >= 2);
+    assert!(s_ex_ml.run(&mut l_ex_ml).unwrap().is_finished());
+    assert!(l_ex_ml.is_all_finite());
+
+    // 3D Layout3d multilevel octree bit-exactness across f64 & f32.
     let cfg3 = YifanHuConfig::new()
         .with_max_iterations_per_level(15)
         .with_min_coarsen_size(10);
@@ -120,6 +152,7 @@ fn test_yifan_hu_2d_3d_nd_and_unweighted_csr() {
             .with_min_coarsen_size(10),
     )
     .unwrap();
+    assert_eq!(s_nd.backend(), &Exact::new());
     let mut wrong = LayoutNd::<f64>::zeros(4, 4).unwrap();
     assert!(matches!(
         s_nd.run_steps(&mut wrong, 0),

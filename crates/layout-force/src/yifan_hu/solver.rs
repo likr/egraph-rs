@@ -1,27 +1,24 @@
-use std::any::{Any, TypeId};
 use std::marker::PhantomData;
 
 use egraph_core::{
-    CoreError, CoreResult, CsrGraph, DeterministicRng, EuclideanLayout, IterativeSolver, Layout2d,
-    Layout3d, LayoutNd, Scalar, SolverStatus, VisitStamp,
+    CoreError, CoreResult, CsrGraph, DeterministicRng, EuclideanLayout, EuclideanStorageRef,
+    IterativeSolver, Layout2d, Scalar, SolverStatus, VisitStamp,
 };
-use egraph_spatial_trees::{ArenaOctree3d, ArenaQuadtree2d};
 
+use crate::backend::DefaultForceBackend;
 use crate::coarsening::{build_coarse_csr, ec_coarsen, mivs_coarsen};
 use crate::graph_edges::{
     extract_canonical_undirected_edges, extract_canonical_undirected_unweighted_edges,
 };
 
 use super::config::YifanHuConfig;
-use super::dim3::step_3d;
+use super::dim3::{YhBuf3d, step_3d};
 use super::nd::{YifanHuNdScratch, step_nd};
-use super::step2d::step_2d;
+use super::repulsion::YifanHuRepulsion;
+use super::step2d::{YhBuf2d, step_2d};
 
 const MAX_COARSEN_LEVELS: usize = 64;
 pub(super) const PROLONGATION_JITTER_FACTOR: f64 = 0.05;
-
-pub(super) type YhValidateFn<L> = fn(&YifanHuState, &L) -> CoreResult<()>;
-pub(super) type YhStepFn<L> = fn(&mut YifanHuState, &mut L) -> CoreResult<SolverStatus>;
 
 #[derive(Debug, Clone)]
 pub(super) struct MultilevelGraphLevel {
@@ -46,42 +43,79 @@ pub(super) struct YifanHuState {
     pub(super) level_step_len: f64,
     pub(super) level_progress: usize,
     pub(super) prev_energy: f64,
-    pub(super) active_x: Vec<f64>,
-    pub(super) active_y: Vec<f64>,
-    pub(super) active_z: Vec<f64>,
-    pub(super) fx: Vec<f64>,
-    pub(super) fy: Vec<f64>,
-    pub(super) fz: Vec<f64>,
-    pub(super) rep_x: Vec<f64>,
-    pub(super) rep_y: Vec<f64>,
-    pub(super) rep_z: Vec<f64>,
-    pub(super) unit_masses: Vec<f64>,
-    pub(super) quadtree: ArenaQuadtree2d<f64>,
-    pub(super) octree: ArenaOctree3d<f64>,
-    pub(super) locked_nd_dims: Option<usize>,
-    pub(super) nd_scratch: Option<YifanHuNdScratch>,
     pub(super) rng: DeterministicRng,
     pub(super) status: SolverStatus,
 }
 
+#[derive(Debug, Clone)]
+enum YhSpaceBuf {
+    Uninit,
+    Dim2(YhBuf2d),
+    Dim3(YhBuf3d),
+    Nd(YifanHuNdScratch),
+}
+
 /// Cooperative multilevel Yifan Hu (2005) layout solver implementing [`IterativeSolver`].
 ///
-/// Bound at compile time to a Euclidean layout type `L`:
-/// - [`Layout2d`]: uses [`ArenaQuadtree2d`] Barnes-Hut repulsion across levels.
-/// - [`Layout3d`]: uses [`ArenaOctree3d`] Barnes-Hut repulsion across levels.
-/// - [`LayoutNd`]: uses exact $O(N^2)$ Coulomb repulsion across arbitrary dimensions.
+/// Parameterized at compile time by target layout `L` and repulsion backend `B`:
+/// - [`Layout2d`](egraph_core::Layout2d): defaults to [`BarnesHut`](crate::BarnesHut);
+///   supports [`BarnesHut`](crate::BarnesHut), [`Exact`](crate::Exact), and [`ForceBackend`](crate::ForceBackend).
+/// - [`Layout3d`](egraph_core::Layout3d): defaults to [`BarnesHut`](crate::BarnesHut);
+///   supports [`BarnesHut`](crate::BarnesHut), [`Exact`](crate::Exact), and [`ForceBackend`](crate::ForceBackend).
+/// - [`LayoutNd`](egraph_core::LayoutNd): defaults to [`Exact`](crate::Exact);
+///   rejects [`BarnesHut`](crate::BarnesHut) and [`ForceBackend`](crate::ForceBackend) at compile time:
+///
+/// ```compile_fail
+/// use egraph_core::{CsrGraph, LayoutNd};
+/// use egraph_layout_force::{BarnesHut, YifanHuConfig, YifanHuSolver};
+///
+/// let g = CsrGraph::<()>::from_unweighted_edges(3, &[(0, 1), (1, 2)], false, false).unwrap();
+/// let _solver = YifanHuSolver::<LayoutNd<f64>, BarnesHut>::new(&g, YifanHuConfig::new());
+/// ```
 #[derive(Debug, Clone)]
-pub struct YifanHuSolver<L: EuclideanLayout = Layout2d<f64>> {
+pub struct YifanHuSolver<
+    L: EuclideanLayout + DefaultForceBackend = Layout2d<f64>,
+    B: YifanHuRepulsion<L> = <L as DefaultForceBackend>::Backend,
+> {
     state: YifanHuState,
-    validate_fn: YhValidateFn<L>,
-    step_fn: YhStepFn<L>,
+    space: YhSpaceBuf,
+    backend: B,
+    repulsion_state: B::State,
     _layout: PhantomData<fn() -> L>,
 }
 
-impl<L: EuclideanLayout + 'static> YifanHuSolver<L> {
-    /// Constructs a [`YifanHuSolver`] and builds its `EC + MIVS` coarsening hierarchy.
+impl<L, B> YifanHuSolver<L, B>
+where
+    L: EuclideanLayout + DefaultForceBackend,
+    B: YifanHuRepulsion<L> + Default,
+{
+    /// Constructs a [`YifanHuSolver`] with the default backend `B::default()` and builds its
+    /// `EC + MIVS` coarsening hierarchy.
     pub fn new<W: Scalar>(graph: &CsrGraph<W>, config: YifanHuConfig) -> CoreResult<Self> {
+        Self::with_backend(graph, config, B::default())
+    }
+
+    /// Constructs a [`YifanHuSolver`] from an unweighted [`CsrGraph<W>`] (or ignoring stored
+    /// edge weights) with `B::default()`, without requiring `W: Scalar`.
+    pub fn new_unweighted<W>(graph: &CsrGraph<W>, config: YifanHuConfig) -> CoreResult<Self> {
+        Self::with_backend_unweighted(graph, config, B::default())
+    }
+}
+
+impl<L, B> YifanHuSolver<L, B>
+where
+    L: EuclideanLayout + DefaultForceBackend,
+    B: YifanHuRepulsion<L>,
+{
+    /// Constructs a [`YifanHuSolver`] with an explicit repulsion `backend` and builds its
+    /// `EC + MIVS` coarsening hierarchy.
+    pub fn with_backend<W: Scalar>(
+        graph: &CsrGraph<W>,
+        config: YifanHuConfig,
+        backend: B,
+    ) -> CoreResult<Self> {
         config.validate()?;
+        backend.validate()?;
         let has_explicit_weights = graph.is_weighted();
         let (n, edges_u, edges_v, edge_weights, _) =
             extract_canonical_undirected_edges(graph, "YifanHuSolver::graph_weights")?;
@@ -92,16 +126,22 @@ impl<L: EuclideanLayout + 'static> YifanHuSolver<L> {
             edge_weights,
             has_explicit_weights,
             config,
+            backend,
         )
     }
 
     /// Constructs a [`YifanHuSolver`] from an unweighted [`CsrGraph<W>`] (or ignoring stored
-    /// edge weights) without requiring `W: Scalar`.
-    pub fn new_unweighted<W>(graph: &CsrGraph<W>, config: YifanHuConfig) -> CoreResult<Self> {
+    /// edge weights) and explicit `backend`, without requiring `W: Scalar`.
+    pub fn with_backend_unweighted<W>(
+        graph: &CsrGraph<W>,
+        config: YifanHuConfig,
+        backend: B,
+    ) -> CoreResult<Self> {
         config.validate()?;
+        backend.validate()?;
         let (n, edges_u, edges_v, edge_weights, _) =
             extract_canonical_undirected_unweighted_edges(graph)?;
-        Self::from_canonical_edges(n, edges_u, edges_v, edge_weights, false, config)
+        Self::from_canonical_edges(n, edges_u, edges_v, edge_weights, false, config, backend)
     }
 
     fn from_canonical_edges(
@@ -111,26 +151,9 @@ impl<L: EuclideanLayout + 'static> YifanHuSolver<L> {
         edge_weights: Vec<f64>,
         has_explicit_weights: bool,
         config: YifanHuConfig,
+        backend: B,
     ) -> CoreResult<Self> {
-        let tid = TypeId::of::<L>();
-        let is_2d = tid == TypeId::of::<Layout2d<L::Scalar>>();
-        let is_3d = tid == TypeId::of::<Layout3d<L::Scalar>>();
-        let is_nd = tid == TypeId::of::<LayoutNd<L::Scalar>>();
-
-        if !is_2d && !is_3d && !is_nd {
-            return Err(CoreError::unsupported(
-                "YifanHuSolver supports Layout2d, Layout3d, and LayoutNd",
-            ));
-        }
-
-        let (validate_fn, step_fn): (YhValidateFn<L>, YhStepFn<L>) = if is_2d {
-            (validate_basic::<L>, step_any_2d::<L>)
-        } else if is_3d {
-            (validate_basic::<L>, step_any_3d::<L>)
-        } else {
-            (validate_nd::<L>, step_any_nd::<L>)
-        };
-
+        let repulsion_state = backend.init_state(n)?;
         let edge_pairs: Vec<(u32, u32)> = edges_u.into_iter().zip(edges_v).collect();
         let level0_graph = CsrGraph::from_edges(n, &edge_pairs, Some(&edge_weights), false, false)?;
 
@@ -229,8 +252,6 @@ impl<L: EuclideanLayout + 'static> YifanHuSolver<L> {
             SolverStatus::Initialized
         };
         let init_step_len = config.step_size * levels[coarsest_level].optimal_distance;
-        let len_2d3d = if is_2d || is_3d { n } else { 0 };
-        let len_3d = if is_3d { n } else { 0 };
         let seed = config.seed;
 
         let state = YifanHuState {
@@ -247,38 +268,29 @@ impl<L: EuclideanLayout + 'static> YifanHuSolver<L> {
             level_step_len: init_step_len,
             level_progress: 0,
             prev_energy: f64::INFINITY,
-            active_x: vec![0.0; len_2d3d],
-            active_y: vec![0.0; len_2d3d],
-            active_z: vec![0.0; len_3d],
-            fx: vec![0.0; len_2d3d],
-            fy: vec![0.0; len_2d3d],
-            fz: vec![0.0; len_3d],
-            rep_x: vec![0.0; len_2d3d],
-            rep_y: vec![0.0; len_2d3d],
-            rep_z: vec![0.0; len_3d],
-            unit_masses: vec![1.0; if is_2d || is_3d { n } else { 0 }],
-            quadtree: ArenaQuadtree2d::new(),
-            octree: ArenaOctree3d::new(),
-            locked_nd_dims: None,
-            nd_scratch: None,
             rng: DeterministicRng::from_seed_u64(seed),
             status,
         };
 
         Ok(Self {
             state,
-            validate_fn,
-            step_fn,
+            space: YhSpaceBuf::Uninit,
+            backend,
+            repulsion_state,
             _layout: PhantomData,
         })
     }
-}
 
-impl<L: EuclideanLayout> YifanHuSolver<L> {
     /// Returns the solver configuration.
     #[inline]
     pub fn config(&self) -> &YifanHuConfig {
         &self.state.config
+    }
+
+    /// Returns the configured repulsion backend.
+    #[inline]
+    pub fn backend(&self) -> &B {
+        &self.backend
     }
 
     /// Returns the expected number of vertices in the target layout.
@@ -324,11 +336,36 @@ impl<L: EuclideanLayout> YifanHuSolver<L> {
     }
 }
 
-impl<L: EuclideanLayout> IterativeSolver for YifanHuSolver<L> {
+impl<L, B> IterativeSolver for YifanHuSolver<L, B>
+where
+    L: EuclideanLayout + DefaultForceBackend,
+    B: YifanHuRepulsion<L>,
+{
     type Target = L;
 
     fn validate_target(&self, target: &Self::Target) -> CoreResult<()> {
-        (self.validate_fn)(&self.state, target)
+        if target.len() != self.state.num_nodes {
+            return Err(CoreError::dimension_mismatch(
+                self.state.num_nodes,
+                target.len(),
+                "YifanHuSolver::validate_target",
+            ));
+        }
+        if let EuclideanStorageRef::FlatNd { dims, .. } = target.as_euclidean_storage() {
+            if dims == 0 {
+                return Err(CoreError::invalid_input("LayoutNd dims must be >= 1"));
+            }
+            if let YhSpaceBuf::Nd(scratch) = &self.space
+                && scratch.dims != dims
+            {
+                return Err(CoreError::dimension_mismatch(
+                    scratch.dims,
+                    dims,
+                    "YifanHuSolver::validate_target::dims",
+                ));
+            }
+        }
+        target.validate_finite()
     }
 
     fn step(&mut self, target: &mut Self::Target) -> CoreResult<SolverStatus> {
@@ -343,7 +380,46 @@ impl<L: EuclideanLayout> IterativeSolver for YifanHuSolver<L> {
             return Ok(self.state.status);
         }
 
-        match (self.step_fn)(&mut self.state, target) {
+        if matches!(self.space, YhSpaceBuf::Uninit) {
+            self.space = match target.as_euclidean_storage() {
+                EuclideanStorageRef::Soa2d { .. } => {
+                    YhSpaceBuf::Dim2(YhBuf2d::new(self.state.num_nodes))
+                }
+                EuclideanStorageRef::Soa3d { .. } => {
+                    YhSpaceBuf::Dim3(YhBuf3d::new(self.state.num_nodes))
+                }
+                EuclideanStorageRef::FlatNd { dims, .. } => {
+                    YhSpaceBuf::Nd(YifanHuNdScratch::new(self.state.num_nodes, dims)?)
+                }
+            };
+        }
+
+        let step_res = match &mut self.space {
+            YhSpaceBuf::Dim2(buf) => step_2d(
+                &mut self.state,
+                buf,
+                &self.backend,
+                &mut self.repulsion_state,
+                target,
+            ),
+            YhSpaceBuf::Dim3(buf) => step_3d(
+                &mut self.state,
+                buf,
+                &self.backend,
+                &mut self.repulsion_state,
+                target,
+            ),
+            YhSpaceBuf::Nd(scratch) => step_nd(
+                &mut self.state,
+                scratch,
+                &self.backend,
+                &mut self.repulsion_state,
+                target,
+            ),
+            YhSpaceBuf::Uninit => unreachable!("space buffer initialized above"),
+        };
+
+        match step_res {
             Ok(status) => Ok(status),
             Err(err) => {
                 if matches!(
@@ -371,69 +447,4 @@ impl<L: EuclideanLayout> IterativeSolver for YifanHuSolver<L> {
     fn total_iterations(&self) -> Option<usize> {
         Some(self.state.max_total_iterations)
     }
-}
-
-fn validate_basic<L: EuclideanLayout>(state: &YifanHuState, target: &L) -> CoreResult<()> {
-    if target.len() != state.num_nodes {
-        return Err(CoreError::dimension_mismatch(
-            state.num_nodes,
-            target.len(),
-            "YifanHuSolver::validate_target",
-        ));
-    }
-    target.validate_finite()
-}
-
-fn validate_nd<L: EuclideanLayout>(state: &YifanHuState, target: &L) -> CoreResult<()> {
-    if target.len() != state.num_nodes {
-        return Err(CoreError::dimension_mismatch(
-            state.num_nodes,
-            target.len(),
-            "YifanHuSolver::validate_target",
-        ));
-    }
-    let dims = target.dims();
-    if dims == 0 {
-        return Err(CoreError::invalid_input("LayoutNd dims must be >= 1"));
-    }
-    if let Some(prev) = state.locked_nd_dims
-        && prev != dims
-    {
-        return Err(CoreError::dimension_mismatch(
-            prev,
-            dims,
-            "YifanHuSolver::validate_target::dims",
-        ));
-    }
-    target.validate_finite()
-}
-
-fn step_any_2d<L: EuclideanLayout + 'static>(
-    state: &mut YifanHuState,
-    target: &mut L,
-) -> CoreResult<SolverStatus> {
-    let layout = (target as &mut dyn Any)
-        .downcast_mut::<Layout2d<L::Scalar>>()
-        .ok_or_else(|| CoreError::numerical_breakdown("YifanHuSolver target type mismatch"))?;
-    step_2d(state, layout)
-}
-
-fn step_any_3d<L: EuclideanLayout + 'static>(
-    state: &mut YifanHuState,
-    target: &mut L,
-) -> CoreResult<SolverStatus> {
-    let layout = (target as &mut dyn Any)
-        .downcast_mut::<Layout3d<L::Scalar>>()
-        .ok_or_else(|| CoreError::numerical_breakdown("YifanHuSolver target type mismatch"))?;
-    step_3d(state, layout)
-}
-
-fn step_any_nd<L: EuclideanLayout + 'static>(
-    state: &mut YifanHuState,
-    target: &mut L,
-) -> CoreResult<SolverStatus> {
-    let layout = (target as &mut dyn Any)
-        .downcast_mut::<LayoutNd<L::Scalar>>()
-        .ok_or_else(|| CoreError::numerical_breakdown("YifanHuSolver target type mismatch"))?;
-    step_nd(state, layout)
 }

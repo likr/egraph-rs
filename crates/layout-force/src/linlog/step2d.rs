@@ -1,109 +1,92 @@
-use egraph_core::{CoreError, CoreResult, DeterministicRng, Layout2d, Scalar};
+use egraph_core::{
+    CoreError, CoreResult, DeterministicRng, EuclideanLayout, EuclideanStorageMut, Scalar,
+};
 
+use super::repulsion::LinLogRepulsionBackend;
 use super::solver::{COULOMB_EPS_SQ, LinLogState, MAX_LINLOG_SPEED, MIN_LINLOG_SPEED};
 
-pub(super) fn step_2d<S: Scalar>(
+#[derive(Debug, Clone)]
+pub(super) struct LinLogBuf2d {
+    forces: Vec<f64>,
+    prev_forces: Vec<f64>,
+    att_hess: Vec<f64>,
+}
+
+impl LinLogBuf2d {
+    pub(super) fn new(num_nodes: usize) -> Self {
+        let len = num_nodes * 2;
+        Self {
+            forces: vec![0.0; len],
+            prev_forces: vec![0.0; len],
+            att_hess: vec![0.0; num_nodes],
+        }
+    }
+}
+
+pub(super) fn step_2d<L: EuclideanLayout, B: LinLogRepulsionBackend<L>>(
     state: &mut LinLogState,
-    layout: &mut Layout2d<S>,
+    buf: &mut LinLogBuf2d,
+    backend: &B,
+    rep_state: &mut B::State,
+    layout: &mut L,
 ) -> CoreResult<()> {
     let n = state.num_nodes;
+    if state.iter == 0
+        && let EuclideanStorageMut::Soa2d { x, y } = layout.as_euclidean_storage_mut()
     {
-        let xs = layout.x();
-        let ys = layout.y();
         let mut min_x = f64::INFINITY;
         let mut max_x = f64::NEG_INFINITY;
         let mut min_y = f64::INFINITY;
         let mut max_y = f64::NEG_INFINITY;
         for i in 0..n {
-            let x = xs[i].to_f64();
-            let y = ys[i].to_f64();
-            state.x_buf[i] = x;
-            state.y_buf[i] = y;
-            min_x = min_x.min(x);
-            max_x = max_x.max(x);
-            min_y = min_y.min(y);
-            max_y = max_y.max(y);
+            let xf = x[i].to_f64();
+            let yf = y[i].to_f64();
+            min_x = min_x.min(xf);
+            max_x = max_x.max(xf);
+            min_y = min_y.min(yf);
+            max_y = max_y.max(yf);
         }
-
-        if state.iter == 0 && (max_x - min_x) < 1e-12 && (max_y - min_y) < 1e-12 {
+        if (max_x - min_x) < 1e-12 && (max_y - min_y) < 1e-12 {
             let mut rng = DeterministicRng::from_seed_u64(state.config.seed);
             for i in 0..n {
-                state.x_buf[i] += 1e-4 * (rng.next_f64() - 0.5);
-                state.y_buf[i] += 1e-4 * (rng.next_f64() - 0.5);
+                let nx = L::Scalar::from_f64(x[i].to_f64() + 1e-4 * (rng.next_f64() - 0.5));
+                let ny = L::Scalar::from_f64(y[i].to_f64() + 1e-4 * (rng.next_f64() - 0.5));
+                if !nx.is_finite() || !ny.is_finite() {
+                    return Err(CoreError::numerical_breakdown(
+                        "LinLogSolver 2D scatter coordinates became non-finite",
+                    ));
+                }
+                x[i] = nx;
+                y[i] = ny;
             }
         }
     }
 
-    let r_exp = state.config.repulsion_exponent;
-    let is_coulomb = (r_exp - (-1.0)).abs() <= 1e-12;
+    buf.forces.fill(0.0);
+    backend.accumulate_repulsion(
+        rep_state,
+        layout,
+        &state.masses,
+        state.config.repulsion_exponent,
+        COULOMB_EPS_SQ,
+        &mut buf.forces,
+    )?;
 
-    if state.config.use_barnes_hut {
-        if is_coulomb {
-            state
-                .quadtree
-                .build_weighted_xy(&state.x_buf, &state.y_buf, &state.masses)?;
-            state.quadtree.compute_coulomb_repulsion(
-                state.config.theta,
-                COULOMB_EPS_SQ,
-                &mut state.rep_x,
-                &mut state.rep_y,
-            )?;
-        } else {
-            state
-                .gen_quadtree
-                .build(&state.x_buf, &state.y_buf, &state.masses);
-            state.gen_quadtree.compute_general_repulsion(
-                &state.x_buf,
-                &state.y_buf,
-                &state.masses,
-                state.config.theta,
-                r_exp,
-                COULOMB_EPS_SQ,
-                &mut state.rep_x,
-                &mut state.rep_y,
-            );
-        }
-        for i in 0..n {
-            let mi = state.masses[i];
-            state.fx[i] = mi * state.rep_x[i];
-            state.fy[i] = mi * state.rep_y[i];
-        }
-    } else {
-        state.fx.fill(0.0);
-        state.fy.fill(0.0);
-        let pow_exp = 0.5 * (r_exp - 1.0);
-        for i in 0..n {
-            let xi = state.x_buf[i];
-            let yi = state.y_buf[i];
-            let mi = state.masses[i];
-            let mut acc_x = 0.0_f64;
-            let mut acc_y = 0.0_f64;
-            for j in (i + 1)..n {
-                let dx = xi - state.x_buf[j];
-                let dy = yi - state.y_buf[j];
-                let d_sq_reg = dx * dx + dy * dy + COULOMB_EPS_SQ;
-                let mult = if is_coulomb {
-                    (mi * state.masses[j]) / d_sq_reg
-                } else {
-                    (mi * state.masses[j]) * d_sq_reg.powf(pow_exp)
-                };
-                let fx_ij = mult * dx;
-                let fy_ij = mult * dy;
-                acc_x += fx_ij;
-                acc_y += fy_ij;
-                state.fx[j] -= fx_ij;
-                state.fy[j] -= fy_ij;
-            }
-            state.fx[i] += acc_x;
-            state.fy[i] += acc_y;
-        }
-    }
+    let EuclideanStorageMut::Soa2d {
+        x: xs_mut,
+        y: ys_mut,
+    } = layout.as_euclidean_storage_mut()
+    else {
+        return Err(CoreError::numerical_breakdown(
+            "LinLogSolver 2D storage mismatch",
+        ));
+    };
 
     let a_exp = state.config.attraction_exponent;
     let a_is_zero = a_exp.abs() <= 1e-12;
     let a_is_one = (a_exp - 1.0).abs() <= 1e-12;
     let a_hess_scale = a_exp.abs().max(1.0);
-    state.att_hess.fill(0.0);
+    buf.att_hess.fill(0.0);
 
     for idx in 0..state.edges_u.len() {
         let u = state.edges_u[idx] as usize;
@@ -112,8 +95,8 @@ pub(super) fn step_2d<S: Scalar>(
         if w == 0.0 {
             continue;
         }
-        let dx = state.x_buf[v] - state.x_buf[u];
-        let dy = state.y_buf[v] - state.y_buf[u];
+        let dx = xs_mut[v].to_f64() - xs_mut[u].to_f64();
+        let dy = ys_mut[v].to_f64() - ys_mut[u].to_f64();
         let d_sq = dx * dx + dy * dy;
         let (factor, hess) = if a_is_zero {
             if d_sq > 1e-24 {
@@ -134,28 +117,28 @@ pub(super) fn step_2d<S: Scalar>(
 
         let ax = factor * dx;
         let ay = factor * dy;
-        state.fx[u] += ax;
-        state.fy[u] += ay;
-        state.fx[v] -= ax;
-        state.fy[v] -= ay;
-        state.att_hess[u] += hess;
-        state.att_hess[v] += hess;
+        buf.forces[2 * u] += ax;
+        buf.forces[2 * u + 1] += ay;
+        buf.forces[2 * v] -= ax;
+        buf.forces[2 * v + 1] -= ay;
+        buf.att_hess[u] += hess;
+        buf.att_hess[v] += hess;
     }
 
     if state.config.gravity > 0.0 && state.total_mass > 0.0 {
         let mut bx = 0.0_f64;
         let mut by = 0.0_f64;
         for i in 0..n {
-            bx += state.masses[i] * state.x_buf[i];
-            by += state.masses[i] * state.y_buf[i];
+            bx += state.masses[i] * xs_mut[i].to_f64();
+            by += state.masses[i] * ys_mut[i].to_f64();
         }
         bx /= state.total_mass;
         by /= state.total_mass;
 
         let g = state.config.gravity;
         for i in 0..n {
-            let dx = bx - state.x_buf[i];
-            let dy = by - state.y_buf[i];
+            let dx = bx - xs_mut[i].to_f64();
+            let dy = by - ys_mut[i].to_f64();
             let d = dx.hypot(dy);
             if d > 1e-12 {
                 let factor = if a_is_zero {
@@ -165,9 +148,9 @@ pub(super) fn step_2d<S: Scalar>(
                 } else {
                     g * state.masses[i] * d.powf(a_exp - 1.0)
                 };
-                state.fx[i] += factor * dx;
-                state.fy[i] += factor * dy;
-                state.att_hess[i] += a_hess_scale * factor;
+                buf.forces[2 * i] += factor * dx;
+                buf.forces[2 * i + 1] += factor * dy;
+                buf.att_hess[i] += a_hess_scale * factor;
             }
         }
     }
@@ -175,21 +158,23 @@ pub(super) fn step_2d<S: Scalar>(
     let mut total_swing = 0.0_f64;
     let mut total_traction = 0.0_f64;
     for i in 0..n {
-        let fxi = if state.fx[i].is_finite() {
-            state.fx[i]
+        let fxi = if buf.forces[2 * i].is_finite() {
+            buf.forces[2 * i]
         } else {
             0.0
         };
-        let fyi = if state.fy[i].is_finite() {
-            state.fy[i]
+        let fyi = if buf.forces[2 * i + 1].is_finite() {
+            buf.forces[2 * i + 1]
         } else {
             0.0
         };
-        state.fx[i] = fxi;
-        state.fy[i] = fyi;
+        buf.forces[2 * i] = fxi;
+        buf.forces[2 * i + 1] = fyi;
 
-        let swg = (fxi - state.prev_fx[i]).hypot(fyi - state.prev_fy[i]);
-        let tra = 0.5 * (fxi + state.prev_fx[i]).hypot(fyi + state.prev_fy[i]);
+        let pfx = buf.prev_forces[2 * i];
+        let pfy = buf.prev_forces[2 * i + 1];
+        let swg = (fxi - pfx).hypot(fyi - pfy);
+        let tra = 0.5 * (fxi + pfx).hypot(fyi + pfy);
         state.swing_buf[i] = swg;
         let m = state.masses[i];
         total_swing += m * swg;
@@ -211,12 +196,11 @@ pub(super) fn step_2d<S: Scalar>(
 
     let speed = state.global_speed;
     let max_disp = state.max_displacement;
-    let (xs_mut, ys_mut) = layout.xy_mut();
     for i in 0..n {
-        let fxi = state.fx[i];
-        let fyi = state.fy[i];
+        let fxi = buf.forces[2 * i];
+        let fyi = buf.forces[2 * i + 1];
         let local_factor =
-            speed / (1.0 + (speed * state.swing_buf[i]).sqrt() + 0.5 * state.att_hess[i]);
+            speed / (1.0 + (speed * state.swing_buf[i]).sqrt() + 0.5 * buf.att_hess[i]);
         let mut dx = fxi * local_factor;
         let mut dy = fyi * local_factor;
         let disp = dx.hypot(dy);
@@ -225,8 +209,8 @@ pub(super) fn step_2d<S: Scalar>(
             dx *= cap;
             dy *= cap;
         }
-        let nx = S::from_f64(state.x_buf[i] + dx);
-        let ny = S::from_f64(state.y_buf[i] + dy);
+        let nx = L::Scalar::from_f64(xs_mut[i].to_f64() + dx);
+        let ny = L::Scalar::from_f64(ys_mut[i].to_f64() + dy);
         if !nx.is_finite() || !ny.is_finite() {
             return Err(CoreError::numerical_breakdown(
                 "LinLogSolver 2D coordinates became non-finite",
@@ -234,8 +218,8 @@ pub(super) fn step_2d<S: Scalar>(
         }
         xs_mut[i] = nx;
         ys_mut[i] = ny;
-        state.prev_fx[i] = fxi;
-        state.prev_fy[i] = fyi;
+        buf.prev_forces[2 * i] = fxi;
+        buf.prev_forces[2 * i + 1] = fyi;
     }
 
     Ok(())

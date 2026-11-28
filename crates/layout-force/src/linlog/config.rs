@@ -23,13 +23,6 @@ pub struct LinLogConfig {
     pub attraction_exponent: f64,
     /// Repulsion force exponent $r$ in $\|d\|^r$ (`default: -1.0`).
     pub repulsion_exponent: f64,
-    /// Barnes-Hut spatial tree opening angle threshold $\theta \ge 0$ (`default: 1.2`).
-    pub theta: f64,
-    /// Whether to use $O(N \log N)$ Barnes-Hut spatial tree repulsion (`default: true`).
-    ///
-    /// Supported on [`Layout2d`](egraph_core::Layout2d) and [`Layout3d`](egraph_core::Layout3d);
-    /// must be `false` on [`LayoutNd`](egraph_core::LayoutNd).
-    pub use_barnes_hut: bool,
     /// Gravitational pull coefficient toward mass barycenter $b(p)$ (`default: 0.01`).
     pub gravity: f64,
     /// Exponent applied to edge weights (`default: 1.0`).
@@ -47,8 +40,6 @@ impl Default for LinLogConfig {
             repulsion_model: LinLogRepulsion::EdgeRepulsion,
             attraction_exponent: 0.0,
             repulsion_exponent: -1.0,
-            theta: 1.2,
-            use_barnes_hut: true,
             gravity: 0.01,
             edge_weight_influence: 1.0,
             max_displacement: None,
@@ -84,18 +75,6 @@ impl LinLogConfig {
     /// Sets the repulsion force exponent `r`.
     pub fn with_repulsion_exponent(mut self, repulsion_exponent: f64) -> Self {
         self.repulsion_exponent = repulsion_exponent;
-        self
-    }
-
-    /// Sets the Barnes-Hut spatial tree opening angle threshold `theta`.
-    pub fn with_theta(mut self, theta: f64) -> Self {
-        self.theta = theta;
-        self
-    }
-
-    /// Enables or disables Barnes-Hut spatial tree repulsion.
-    pub fn with_use_barnes_hut(mut self, use_barnes_hut: bool) -> Self {
-        self.use_barnes_hut = use_barnes_hut;
         self
     }
 
@@ -141,12 +120,6 @@ impl LinLogConfig {
             return Err(CoreError::invalid_input(format!(
                 "attraction_exponent ({}) must be strictly greater than repulsion_exponent ({})",
                 self.attraction_exponent, self.repulsion_exponent
-            )));
-        }
-        if !self.theta.is_finite() || self.theta < 0.0 {
-            return Err(CoreError::invalid_input(format!(
-                "theta must be finite and >= 0.0, got {}",
-                self.theta
             )));
         }
         if !self.gravity.is_finite() || self.gravity < 0.0 {

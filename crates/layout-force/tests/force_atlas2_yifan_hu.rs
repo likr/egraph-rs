@@ -5,7 +5,9 @@ use std::time::Instant;
 use egraph_core::{
     CoreError, CsrGraph, DeterministicRng, IterativeSolver, Layout2d, Layout3d, SolverStatus,
 };
-use egraph_layout_force::{ForceAtlas2Config, ForceAtlas2Solver, YifanHuConfig, YifanHuSolver};
+use egraph_layout_force::{
+    BarnesHut, Exact, ForceAtlas2Config, ForceAtlas2Solver, YifanHuConfig, YifanHuSolver,
+};
 
 fn make_grid_csr(rows: usize, cols: usize) -> CsrGraph<f64> {
     let n = rows * cols;
@@ -40,11 +42,9 @@ fn test_force_atlas2_n5000_step_budget_and_stability() {
     let graph = make_grid_csr(50, 100);
     assert_eq!(graph.num_nodes(), 5000);
 
-    let cfg = ForceAtlas2Config::new()
-        .with_iterations(10)
-        .with_use_barnes_hut(true)
-        .with_theta(0.5);
-    let mut solver = ForceAtlas2Solver::<Layout2d<f64>>::new(&graph, cfg).unwrap();
+    let cfg = ForceAtlas2Config::new().with_iterations(10);
+    let mut solver =
+        ForceAtlas2Solver::<Layout2d<f64>>::with_backend(&graph, cfg, BarnesHut::new(0.5)).unwrap();
     let mut layout = seeded_layout(5000, 42);
 
     assert_eq!(solver.step(&mut layout).unwrap(), SolverStatus::Running);
@@ -80,7 +80,7 @@ fn test_yifan_hu_multilevel_coarsening_depth_and_convergence() {
     assert_eq!(solver.current_level(), solver.num_levels() - 1);
 
     let mut layout = seeded_layout(500, 2026);
-    let mut solver2 = YifanHuSolver::<Layout2d<f64>>::new(&graph, cfg).unwrap();
+    let mut solver2 = YifanHuSolver::<Layout2d<f64>, BarnesHut>::new(&graph, cfg.clone()).unwrap();
     assert_eq!(solver2.num_nodes(), 500);
 
     let status = solver.run(&mut layout).unwrap();
@@ -98,6 +98,13 @@ fn test_yifan_hu_multilevel_coarsening_depth_and_convergence() {
         assert_eq!(layout.x()[i].to_bits(), layout2.x()[i].to_bits());
         assert_eq!(layout.y()[i].to_bits(), layout2.y()[i].to_bits());
     }
+
+    // Verify Exact backend on small graph.
+    let small = make_grid_csr(4, 4);
+    let mut s_exact = YifanHuSolver::<Layout2d<f64>, Exact>::new(&small, cfg).unwrap();
+    let mut l_exact = seeded_layout(16, 7);
+    assert!(s_exact.run(&mut l_exact).unwrap().is_finished());
+    assert!(l_exact.is_all_finite());
 }
 
 #[test]

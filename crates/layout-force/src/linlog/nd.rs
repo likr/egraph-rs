@@ -1,12 +1,13 @@
-use egraph_core::{CoreError, CoreResult, DeterministicRng, LayoutNd, Scalar};
+use egraph_core::{
+    CoreError, CoreResult, DeterministicRng, EuclideanLayout, EuclideanStorageMut, Scalar,
+};
 
+use super::repulsion::LinLogRepulsionBackend;
 use super::solver::{COULOMB_EPS_SQ, LinLogState, MAX_LINLOG_SPEED, MIN_LINLOG_SPEED};
 
-/// Lazy exact N-D scratch buffers for [`LinLogSolver`](super::LinLogSolver) on [`LayoutNd`].
 #[derive(Debug, Clone)]
 pub(super) struct LinLogNdScratch {
-    dims: usize,
-    coords: Vec<f64>,
+    pub(super) dims: usize,
     forces: Vec<f64>,
     prev_forces: Vec<f64>,
     att_hess: Vec<f64>,
@@ -16,13 +17,12 @@ pub(super) struct LinLogNdScratch {
 }
 
 impl LinLogNdScratch {
-    fn new(num_nodes: usize, dims: usize) -> CoreResult<Self> {
+    pub(super) fn new(num_nodes: usize, dims: usize) -> CoreResult<Self> {
         let total = num_nodes
             .checked_mul(dims)
             .ok_or_else(|| CoreError::invalid_input("LinLog N-D buffer size overflow"))?;
         Ok(Self {
             dims,
-            coords: vec![0.0; total],
             forces: vec![0.0; total],
             prev_forces: vec![0.0; total],
             att_hess: vec![0.0; num_nodes],
@@ -33,44 +33,59 @@ impl LinLogNdScratch {
     }
 }
 
-fn step_nd_repulsion(
-    state: &LinLogState,
+pub(super) fn step_nd<L: EuclideanLayout, B: LinLogRepulsionBackend<L>>(
+    state: &mut LinLogState,
     scratch: &mut LinLogNdScratch,
-    r_exp: f64,
-    is_coulomb: bool,
-) {
+    backend: &B,
+    rep_state: &mut B::State,
+    layout: &mut L,
+) -> CoreResult<()> {
     let n = state.num_nodes;
-    let d = scratch.dims;
-    scratch.forces.fill(0.0);
-    let pow_exp = 0.5 * (r_exp - 1.0);
-    for i in 0..n {
-        let base_i = i * d;
-        let mi = state.masses[i];
-        for (j, &mj) in state.masses.iter().enumerate().take(n).skip(i + 1) {
-            let base_j = j * d;
-            let mut d_sq = 0.0_f64;
-            for axis in 0..d {
-                let delta = scratch.coords[base_i + axis] - scratch.coords[base_j + axis];
-                d_sq += delta * delta;
+    let dims = scratch.dims;
+
+    if state.iter == 0
+        && let EuclideanStorageMut::FlatNd { coords, .. } = layout.as_euclidean_storage_mut()
+    {
+        scratch.min_axis.fill(f64::INFINITY);
+        scratch.max_axis.fill(f64::NEG_INFINITY);
+        for i in 0..n {
+            let base = i * dims;
+            for axis in 0..dims {
+                let v = coords[base + axis].to_f64();
+                scratch.min_axis[axis] = scratch.min_axis[axis].min(v);
+                scratch.max_axis[axis] = scratch.max_axis[axis].max(v);
             }
-            let d_sq_reg = d_sq + COULOMB_EPS_SQ;
-            let mult = if is_coulomb {
-                (mi * mj) / d_sq_reg
-            } else {
-                (mi * mj) * d_sq_reg.powf(pow_exp)
-            };
-            for axis in 0..d {
-                let f = mult * (scratch.coords[base_i + axis] - scratch.coords[base_j + axis]);
-                scratch.forces[base_i + axis] += f;
-                scratch.forces[base_j + axis] -= f;
+        }
+        if (0..dims).all(|a| (scratch.max_axis[a] - scratch.min_axis[a]) < 1e-12) {
+            let mut rng = DeterministicRng::from_seed_u64(state.config.seed);
+            for slot in coords.iter_mut() {
+                let next = L::Scalar::from_f64(slot.to_f64() + 1e-4 * (rng.next_f64() - 0.5));
+                if !next.is_finite() {
+                    return Err(CoreError::numerical_breakdown(
+                        "LinLogSolver N-D scatter coordinates became non-finite",
+                    ));
+                }
+                *slot = next;
             }
         }
     }
-}
 
-fn step_nd_attraction_and_gravity(state: &LinLogState, scratch: &mut LinLogNdScratch) {
-    let n = state.num_nodes;
-    let d = scratch.dims;
+    scratch.forces.fill(0.0);
+    backend.accumulate_repulsion(
+        rep_state,
+        layout,
+        &state.masses,
+        state.config.repulsion_exponent,
+        COULOMB_EPS_SQ,
+        &mut scratch.forces,
+    )?;
+
+    let EuclideanStorageMut::FlatNd { coords, .. } = layout.as_euclidean_storage_mut() else {
+        return Err(CoreError::numerical_breakdown(
+            "LinLogSolver N-D storage mismatch",
+        ));
+    };
+
     let a_exp = state.config.attraction_exponent;
     let a_is_zero = a_exp.abs() <= 1e-12;
     let a_is_one = (a_exp - 1.0).abs() <= 1e-12;
@@ -84,11 +99,11 @@ fn step_nd_attraction_and_gravity(state: &LinLogState, scratch: &mut LinLogNdScr
         if w == 0.0 {
             continue;
         }
-        let base_u = u * d;
-        let base_v = v * d;
+        let base_u = u * dims;
+        let base_v = v * dims;
         let mut d_sq = 0.0_f64;
-        for axis in 0..d {
-            let delta = scratch.coords[base_v + axis] - scratch.coords[base_u + axis];
+        for axis in 0..dims {
+            let delta = coords[base_v + axis].to_f64() - coords[base_u + axis].to_f64();
             d_sq += delta * delta;
         }
         let (factor, hess) = if a_is_zero {
@@ -108,8 +123,8 @@ fn step_nd_attraction_and_gravity(state: &LinLogState, scratch: &mut LinLogNdScr
             (f, a_hess_scale * f)
         };
 
-        for axis in 0..d {
-            let a = factor * (scratch.coords[base_v + axis] - scratch.coords[base_u + axis]);
+        for axis in 0..dims {
+            let a = factor * (coords[base_v + axis].to_f64() - coords[base_u + axis].to_f64());
             scratch.forces[base_u + axis] += a;
             scratch.forces[base_v + axis] -= a;
         }
@@ -120,9 +135,9 @@ fn step_nd_attraction_and_gravity(state: &LinLogState, scratch: &mut LinLogNdScr
     if state.config.gravity > 0.0 && state.total_mass > 0.0 {
         scratch.barycenter.fill(0.0);
         for (i, &m) in state.masses.iter().enumerate().take(n) {
-            let base = i * d;
-            for axis in 0..d {
-                scratch.barycenter[axis] += m * scratch.coords[base + axis];
+            let base = i * dims;
+            for axis in 0..dims {
+                scratch.barycenter[axis] += m * coords[base + axis].to_f64();
             }
         }
         for b in &mut scratch.barycenter {
@@ -131,10 +146,10 @@ fn step_nd_attraction_and_gravity(state: &LinLogState, scratch: &mut LinLogNdScr
 
         let g = state.config.gravity;
         for i in 0..n {
-            let base = i * d;
+            let base = i * dims;
             let mut d_sq = 0.0_f64;
-            for axis in 0..d {
-                let delta = scratch.barycenter[axis] - scratch.coords[base + axis];
+            for axis in 0..dims {
+                let delta = scratch.barycenter[axis] - coords[base + axis].to_f64();
                 d_sq += delta * delta;
             }
             let dist = d_sq.sqrt();
@@ -146,132 +161,85 @@ fn step_nd_attraction_and_gravity(state: &LinLogState, scratch: &mut LinLogNdScr
                 } else {
                     g * state.masses[i] * dist.powf(a_exp - 1.0)
                 };
-                for axis in 0..d {
+                for axis in 0..dims {
                     scratch.forces[base + axis] +=
-                        factor * (scratch.barycenter[axis] - scratch.coords[base + axis]);
+                        factor * (scratch.barycenter[axis] - coords[base + axis].to_f64());
                 }
                 scratch.att_hess[i] += a_hess_scale * factor;
             }
         }
     }
-}
 
-pub(super) fn step_nd<S: Scalar>(
-    state: &mut LinLogState,
-    layout: &mut LayoutNd<S>,
-) -> CoreResult<()> {
-    let n = state.num_nodes;
-    let dims = layout.dims();
-    if state.locked_nd_dims.is_none() {
-        state.locked_nd_dims = Some(dims);
+    let mut total_swing = 0.0_f64;
+    let mut total_traction = 0.0_f64;
+    for i in 0..n {
+        let base = i * dims;
+        let mut swg_sq = 0.0_f64;
+        let mut tra_sq = 0.0_f64;
+        for axis in 0..dims {
+            let idx = base + axis;
+            let fi = if scratch.forces[idx].is_finite() {
+                scratch.forces[idx]
+            } else {
+                0.0
+            };
+            scratch.forces[idx] = fi;
+            let df = fi - scratch.prev_forces[idx];
+            let sf = fi + scratch.prev_forces[idx];
+            swg_sq += df * df;
+            tra_sq += sf * sf;
+        }
+        let swg = swg_sq.sqrt();
+        let tra = 0.5 * tra_sq.sqrt();
+        state.swing_buf[i] = swg;
+        let m = state.masses[i];
+        total_swing += m * swg;
+        total_traction += m * tra;
     }
 
-    let mut scratch = match state.nd_scratch.take() {
-        Some(existing) if existing.dims == dims => existing,
-        _ => LinLogNdScratch::new(n, dims)?,
+    let target_speed = if total_swing > 1e-12 {
+        (total_traction / total_swing).clamp(MIN_LINLOG_SPEED, MAX_LINLOG_SPEED)
+    } else {
+        (state.global_speed * 1.5).min(MAX_LINLOG_SPEED)
     };
+    if state.iter > 0 {
+        let max_rise = 0.5 * state.global_speed;
+        state.global_speed += (target_speed - state.global_speed).min(max_rise);
+    } else {
+        state.global_speed = target_speed;
+    }
+    state.global_speed = state.global_speed.clamp(MIN_LINLOG_SPEED, MAX_LINLOG_SPEED);
 
-    let result = (|| -> CoreResult<()> {
-        scratch.min_axis.fill(f64::INFINITY);
-        scratch.max_axis.fill(f64::NEG_INFINITY);
-        let src = layout.coords();
-        for i in 0..n {
-            let base = i * dims;
-            for axis in 0..dims {
-                let v = src[base + axis].to_f64();
-                scratch.coords[base + axis] = v;
-                scratch.min_axis[axis] = scratch.min_axis[axis].min(v);
-                scratch.max_axis[axis] = scratch.max_axis[axis].max(v);
-            }
+    let speed = state.global_speed;
+    let max_disp = state.max_displacement;
+    for i in 0..n {
+        let base = i * dims;
+        let local_factor =
+            speed / (1.0 + (speed * state.swing_buf[i]).sqrt() + 0.5 * scratch.att_hess[i]);
+        let mut disp_sq = 0.0_f64;
+        for axis in 0..dims {
+            let da = scratch.forces[base + axis] * local_factor;
+            disp_sq += da * da;
         }
-
-        if state.iter == 0 && (0..dims).all(|a| (scratch.max_axis[a] - scratch.min_axis[a]) < 1e-12)
-        {
-            let mut rng = DeterministicRng::from_seed_u64(state.config.seed);
-            for v in &mut scratch.coords {
-                *v += 1e-4 * (rng.next_f64() - 0.5);
-            }
-        }
-
-        let r_exp = state.config.repulsion_exponent;
-        let is_coulomb = (r_exp - (-1.0)).abs() <= 1e-12;
-        step_nd_repulsion(state, &mut scratch, r_exp, is_coulomb);
-        step_nd_attraction_and_gravity(state, &mut scratch);
-
-        let mut total_swing = 0.0_f64;
-        let mut total_traction = 0.0_f64;
-        for i in 0..n {
-            let base = i * dims;
-            let mut swg_sq = 0.0_f64;
-            let mut tra_sq = 0.0_f64;
-            for axis in 0..dims {
-                let idx = base + axis;
-                let fi = if scratch.forces[idx].is_finite() {
-                    scratch.forces[idx]
-                } else {
-                    0.0
-                };
-                scratch.forces[idx] = fi;
-                let df = fi - scratch.prev_forces[idx];
-                let sf = fi + scratch.prev_forces[idx];
-                swg_sq += df * df;
-                tra_sq += sf * sf;
-            }
-            let swg = swg_sq.sqrt();
-            let tra = 0.5 * tra_sq.sqrt();
-            state.swing_buf[i] = swg;
-            let m = state.masses[i];
-            total_swing += m * swg;
-            total_traction += m * tra;
-        }
-
-        let target_speed = if total_swing > 1e-12 {
-            (total_traction / total_swing).clamp(MIN_LINLOG_SPEED, MAX_LINLOG_SPEED)
+        let disp = disp_sq.sqrt();
+        let cap = if disp > max_disp {
+            max_disp / disp
         } else {
-            (state.global_speed * 1.5).min(MAX_LINLOG_SPEED)
+            1.0
         };
-        if state.iter > 0 {
-            let max_rise = 0.5 * state.global_speed;
-            state.global_speed += (target_speed - state.global_speed).min(max_rise);
-        } else {
-            state.global_speed = target_speed;
-        }
-        state.global_speed = state.global_speed.clamp(MIN_LINLOG_SPEED, MAX_LINLOG_SPEED);
-
-        let speed = state.global_speed;
-        let max_disp = state.max_displacement;
-        let coords_mut = layout.coords_mut();
-        for i in 0..n {
-            let base = i * dims;
-            let local_factor =
-                speed / (1.0 + (speed * state.swing_buf[i]).sqrt() + 0.5 * scratch.att_hess[i]);
-            let mut disp_sq = 0.0_f64;
-            for axis in 0..dims {
-                let da = scratch.forces[base + axis] * local_factor;
-                disp_sq += da * da;
+        for axis in 0..dims {
+            let idx = base + axis;
+            let fi = scratch.forces[idx];
+            let next_c = L::Scalar::from_f64(coords[idx].to_f64() + fi * local_factor * cap);
+            if !next_c.is_finite() {
+                return Err(CoreError::numerical_breakdown(
+                    "LinLogSolver N-D coordinates became non-finite",
+                ));
             }
-            let disp = disp_sq.sqrt();
-            let cap = if disp > max_disp {
-                max_disp / disp
-            } else {
-                1.0
-            };
-            for axis in 0..dims {
-                let idx = base + axis;
-                let fi = scratch.forces[idx];
-                let next_c = S::from_f64(scratch.coords[idx] + fi * local_factor * cap);
-                if !next_c.is_finite() {
-                    return Err(CoreError::numerical_breakdown(
-                        "LinLogSolver N-D coordinates became non-finite",
-                    ));
-                }
-                coords_mut[idx] = next_c;
-                scratch.prev_forces[idx] = fi;
-            }
+            coords[idx] = next_c;
+            scratch.prev_forces[idx] = fi;
         }
-        Ok(())
-    })();
+    }
 
-    state.nd_scratch = Some(scratch);
-    result
+    Ok(())
 }

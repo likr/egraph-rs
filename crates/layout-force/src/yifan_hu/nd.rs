@@ -1,11 +1,13 @@
-use egraph_core::{CoreError, CoreResult, LayoutNd, Scalar, SolverStatus};
+use egraph_core::{
+    CoreError, CoreResult, EuclideanLayout, EuclideanStorageMut, Scalar, SolverStatus,
+};
 
+use super::repulsion::{YifanHuLevelCoords, YifanHuRepulsion};
 use super::solver::{PROLONGATION_JITTER_FACTOR, YifanHuState};
 
-/// Lazy exact N-D scratch buffers for [`YifanHuSolver`](super::YifanHuSolver) on [`LayoutNd`].
 #[derive(Debug, Clone)]
 pub(super) struct YifanHuNdScratch {
-    dims: usize,
+    pub(super) dims: usize,
     active: Vec<f64>,
     forces: Vec<f64>,
     counts: Vec<f64>,
@@ -15,7 +17,7 @@ pub(super) struct YifanHuNdScratch {
 }
 
 impl YifanHuNdScratch {
-    fn new(num_nodes: usize, dims: usize) -> CoreResult<Self> {
+    pub(super) fn new(num_nodes: usize, dims: usize) -> CoreResult<Self> {
         let total = num_nodes
             .checked_mul(dims)
             .ok_or_else(|| CoreError::invalid_input("YifanHu N-D buffer size overflow"))?;
@@ -33,12 +35,11 @@ impl YifanHuNdScratch {
 
 fn initialize_coarsest_coords_nd<S: Scalar>(
     state: &mut YifanHuState,
-    layout: &LayoutNd<S>,
+    src: &[S],
     scratch: &mut YifanHuNdScratch,
 ) {
     let n = state.num_nodes;
     let d = scratch.dims;
-    let src = layout.coords();
     scratch.min_axis.fill(f64::INFINITY);
     scratch.max_axis.fill(f64::NEG_INFINITY);
 
@@ -138,11 +139,10 @@ fn prolongate_to_finer_level_nd(state: &mut YifanHuState, scratch: &mut YifanHuN
 
 fn write_active_coords_to_layout_nd<S: Scalar>(
     state: &YifanHuState,
-    layout: &mut LayoutNd<S>,
+    coords_mut: &mut [S],
     scratch: &YifanHuNdScratch,
 ) -> CoreResult<()> {
     let d = scratch.dims;
-    let coords_mut = layout.coords_mut();
     if state.current_level == 0 {
         for (dst, &val) in coords_mut.iter_mut().zip(scratch.active.iter()) {
             let converted = S::from_f64(val);
@@ -172,196 +172,182 @@ fn write_active_coords_to_layout_nd<S: Scalar>(
     Ok(())
 }
 
-fn compute_nd_exact_repulsion(
-    state: &YifanHuState,
-    scratch: &mut YifanHuNdScratch,
-    ln: usize,
-    k_level: f64,
-) {
-    let d = scratch.dims;
-    let eps_sq = (1e-8 * k_level * k_level).max(1e-24);
-    let rep_scale = state.config.relative_strength * k_level * k_level;
-
-    scratch.forces[..(ln * d)].fill(0.0);
-    for i in 0..ln {
-        let base_i = i * d;
-        for j in (i + 1)..ln {
-            let base_j = j * d;
-            let mut dist_sq = 0.0_f64;
-            for axis in 0..d {
-                let delta = scratch.active[base_i + axis] - scratch.active[base_j + axis];
-                dist_sq += delta * delta;
-            }
-            let mult = rep_scale / (dist_sq + eps_sq);
-            for axis in 0..d {
-                let f = mult * (scratch.active[base_i + axis] - scratch.active[base_j + axis]);
-                scratch.forces[base_i + axis] += f;
-                scratch.forces[base_j + axis] -= f;
-            }
-        }
-    }
-}
-
-pub(super) fn step_nd<S: Scalar>(
+pub(super) fn step_nd<L: EuclideanLayout, B: YifanHuRepulsion<L>>(
     state: &mut YifanHuState,
-    layout: &mut LayoutNd<S>,
+    scratch: &mut YifanHuNdScratch,
+    backend: &B,
+    rep_state: &mut B::State,
+    layout: &mut L,
 ) -> CoreResult<SolverStatus> {
-    let n = state.num_nodes;
-    let dims = layout.dims();
-    if state.locked_nd_dims.is_none() {
-        state.locked_nd_dims = Some(dims);
-    }
-
-    let mut scratch = match state.nd_scratch.take() {
-        Some(existing) if existing.dims == dims => existing,
-        _ => YifanHuNdScratch::new(n, dims)?,
-    };
-
-    let result = (|| -> CoreResult<SolverStatus> {
+    let dims = scratch.dims;
+    {
+        let EuclideanStorageMut::FlatNd { coords, .. } = layout.as_euclidean_storage_mut() else {
+            return Err(CoreError::numerical_breakdown(
+                "YifanHuSolver N-D storage mismatch",
+            ));
+        };
         if !state.initialized_coords {
-            initialize_coarsest_coords_nd(state, layout, &mut scratch);
+            initialize_coarsest_coords_nd(state, coords, scratch);
         } else if state.current_level == 0 {
-            let src = layout.coords();
-            for (dst, &v) in scratch.active.iter_mut().zip(src.iter()) {
+            for (dst, &v) in scratch.active.iter_mut().zip(coords.iter()) {
                 *dst = v.to_f64();
             }
         }
+    }
 
-        let ln = state.levels[state.current_level].graph.num_nodes();
-        let k_level = state.levels[state.current_level].optimal_distance;
+    let ln = state.levels[state.current_level].graph.num_nodes();
+    let k_level = state.levels[state.current_level].optimal_distance;
 
-        if ln <= 1 {
-            state.level_iter += 1;
-            state.total_iter_executed += 1;
-            if state.current_level > 0 {
-                prolongate_to_finer_level_nd(state, &mut scratch);
-                write_active_coords_to_layout_nd(state, layout, &scratch)?;
-                state.status = SolverStatus::Running;
-            } else {
-                write_active_coords_to_layout_nd(state, layout, &scratch)?;
-                state.status = SolverStatus::Converged;
-            }
-            return Ok(state.status);
-        }
-
-        compute_nd_exact_repulsion(state, &mut scratch, ln, k_level);
-
-        let level_graph = &state.levels[state.current_level].graph;
-        let use_weights = state.current_level == 0 && state.has_explicit_weights;
-        for u in 0..ln {
-            let base_u = u * dims;
-            let nbrs = level_graph.neighbors(u);
-            let weights = level_graph.neighbor_weights(u);
-            for (pos, &v_u32) in nbrs.iter().enumerate() {
-                let v = v_u32 as usize;
-                let w = if use_weights {
-                    weights.map_or(1.0, |ws| ws[pos])
-                } else {
-                    1.0
-                };
-                if w == 0.0 {
-                    continue;
-                }
-                let base_v = v * dims;
-                let mut dist_sq = 0.0_f64;
-                for axis in 0..dims {
-                    let delta = scratch.active[base_v + axis] - scratch.active[base_u + axis];
-                    dist_sq += delta * delta;
-                }
-                let mult = w * (dist_sq.sqrt() / k_level);
-                for axis in 0..dims {
-                    let delta = scratch.active[base_v + axis] - scratch.active[base_u + axis];
-                    scratch.forces[base_u + axis] += mult * delta;
-                }
-            }
-        }
-
-        let mut energy = 0.0_f64;
-        for f_slot in scratch.forces.iter_mut().take(ln * dims) {
-            let fi = if f_slot.is_finite() { *f_slot } else { 0.0 };
-            *f_slot = fi;
-            energy += fi * fi;
-        }
-        if !energy.is_finite() {
-            energy = f64::MAX;
-        }
-
-        if state.level_iter > 0 {
-            if energy < state.prev_energy {
-                state.level_progress += 1;
-                if state.level_progress >= 5 {
-                    state.level_progress = 0;
-                    state.level_step_len =
-                        (state.level_step_len / state.config.step_ratio).min(4.0 * k_level);
-                }
-            } else {
-                state.level_progress = 0;
-                state.level_step_len *= state.config.step_ratio;
-            }
-        }
-        state.prev_energy = energy;
-
-        let mut max_disp = 0.0_f64;
-        let mut max_force = 0.0_f64;
-        let step_len = state.level_step_len;
-        for i in 0..ln {
-            let base = i * dims;
-            let mut f_norm_sq = 0.0_f64;
-            for axis in 0..dims {
-                let fi = scratch.forces[base + axis];
-                f_norm_sq += fi * fi;
-            }
-            let f_norm = f_norm_sq.sqrt();
-            if f_norm > max_force {
-                max_force = f_norm;
-            }
-            if f_norm > 1e-12 {
-                let scale = step_len / f_norm;
-                let mut all_finite = true;
-                for axis in 0..dims {
-                    let next_c = scratch.active[base + axis] + scratch.forces[base + axis] * scale;
-                    scratch.dir_buf[axis] = next_c;
-                    if !next_c.is_finite() {
-                        all_finite = false;
-                    }
-                }
-                if all_finite {
-                    scratch.active[base..base + dims].copy_from_slice(&scratch.dir_buf[..dims]);
-                    if step_len > max_disp {
-                        max_disp = step_len;
-                    }
-                }
-            }
-        }
-
+    if ln <= 1 {
         state.level_iter += 1;
         state.total_iter_executed += 1;
+        if state.current_level > 0 {
+            prolongate_to_finer_level_nd(state, scratch);
+            state.status = SolverStatus::Running;
+        } else {
+            state.status = SolverStatus::Converged;
+        }
+        let EuclideanStorageMut::FlatNd { coords, .. } = layout.as_euclidean_storage_mut() else {
+            return Err(CoreError::numerical_breakdown(
+                "YifanHuSolver N-D storage mismatch",
+            ));
+        };
+        write_active_coords_to_layout_nd(state, coords, scratch)?;
+        return Ok(state.status);
+    }
 
-        let level_converged =
-            max_disp <= state.config.convergence_tolerance * k_level || max_force <= 1e-12;
-        let level_exhausted = state.level_iter >= state.config.max_iterations_per_level;
+    let eps_sq = (1e-8 * k_level * k_level).max(1e-24);
+    let rep_scale = state.config.relative_strength * k_level * k_level;
+    let active_len = ln * dims;
+    scratch.forces[..active_len].fill(0.0);
+    let coords_view = YifanHuLevelCoords::FlatNd {
+        coords: &scratch.active[..active_len],
+        num_active: ln,
+        dims,
+    };
+    backend.accumulate_level_repulsion(
+        rep_state,
+        &coords_view,
+        eps_sq,
+        rep_scale,
+        &mut scratch.forces[..active_len],
+    )?;
 
-        if level_converged || level_exhausted {
-            if state.current_level > 0 {
-                prolongate_to_finer_level_nd(state, &mut scratch);
-                write_active_coords_to_layout_nd(state, layout, &scratch)?;
-                state.status = SolverStatus::Running;
+    let level_graph = &state.levels[state.current_level].graph;
+    let use_weights = state.current_level == 0 && state.has_explicit_weights;
+    for u in 0..ln {
+        let base_u = u * dims;
+        let nbrs = level_graph.neighbors(u);
+        let weights = level_graph.neighbor_weights(u);
+        for (pos, &v_u32) in nbrs.iter().enumerate() {
+            let v = v_u32 as usize;
+            let w = if use_weights {
+                weights.map_or(1.0, |ws| ws[pos])
             } else {
-                write_active_coords_to_layout_nd(state, layout, &scratch)?;
-                state.status = if level_converged {
-                    SolverStatus::Converged
-                } else {
-                    SolverStatus::Completed
-                };
+                1.0
+            };
+            if w == 0.0 {
+                continue;
+            }
+            let base_v = v * dims;
+            let mut dist_sq = 0.0_f64;
+            for axis in 0..dims {
+                let delta = scratch.active[base_v + axis] - scratch.active[base_u + axis];
+                dist_sq += delta * delta;
+            }
+            let mult = w * (dist_sq.sqrt() / k_level);
+            for axis in 0..dims {
+                let delta = scratch.active[base_v + axis] - scratch.active[base_u + axis];
+                scratch.forces[base_u + axis] += mult * delta;
+            }
+        }
+    }
+
+    let mut energy = 0.0_f64;
+    for f_slot in scratch.forces.iter_mut().take(active_len) {
+        let fi = if f_slot.is_finite() { *f_slot } else { 0.0 };
+        *f_slot = fi;
+        energy += fi * fi;
+    }
+    if !energy.is_finite() {
+        energy = f64::MAX;
+    }
+
+    if state.level_iter > 0 {
+        if energy < state.prev_energy {
+            state.level_progress += 1;
+            if state.level_progress >= 5 {
+                state.level_progress = 0;
+                state.level_step_len =
+                    (state.level_step_len / state.config.step_ratio).min(4.0 * k_level);
             }
         } else {
-            write_active_coords_to_layout_nd(state, layout, &scratch)?;
-            state.status = SolverStatus::Running;
+            state.level_progress = 0;
+            state.level_step_len *= state.config.step_ratio;
         }
+    }
+    state.prev_energy = energy;
 
-        Ok(state.status)
-    })();
+    let mut max_disp = 0.0_f64;
+    let mut max_force = 0.0_f64;
+    let step_len = state.level_step_len;
+    for i in 0..ln {
+        let base = i * dims;
+        let mut f_norm_sq = 0.0_f64;
+        for axis in 0..dims {
+            let fi = scratch.forces[base + axis];
+            f_norm_sq += fi * fi;
+        }
+        let f_norm = f_norm_sq.sqrt();
+        if f_norm > max_force {
+            max_force = f_norm;
+        }
+        if f_norm > 1e-12 {
+            let scale = step_len / f_norm;
+            let mut all_finite = true;
+            for axis in 0..dims {
+                let next_c = scratch.active[base + axis] + scratch.forces[base + axis] * scale;
+                scratch.dir_buf[axis] = next_c;
+                if !next_c.is_finite() {
+                    all_finite = false;
+                }
+            }
+            if all_finite {
+                scratch.active[base..base + dims].copy_from_slice(&scratch.dir_buf[..dims]);
+                if step_len > max_disp {
+                    max_disp = step_len;
+                }
+            }
+        }
+    }
 
-    state.nd_scratch = Some(scratch);
-    result
+    state.level_iter += 1;
+    state.total_iter_executed += 1;
+
+    let level_converged =
+        max_disp <= state.config.convergence_tolerance * k_level || max_force <= 1e-12;
+    let level_exhausted = state.level_iter >= state.config.max_iterations_per_level;
+
+    if level_converged || level_exhausted {
+        if state.current_level > 0 {
+            prolongate_to_finer_level_nd(state, scratch);
+            state.status = SolverStatus::Running;
+        } else {
+            state.status = if level_converged {
+                SolverStatus::Converged
+            } else {
+                SolverStatus::Completed
+            };
+        }
+    } else {
+        state.status = SolverStatus::Running;
+    }
+
+    let EuclideanStorageMut::FlatNd { coords, .. } = layout.as_euclidean_storage_mut() else {
+        return Err(CoreError::numerical_breakdown(
+            "YifanHuSolver N-D storage mismatch",
+        ));
+    };
+    write_active_coords_to_layout_nd(state, coords, scratch)?;
+    Ok(state.status)
 }
