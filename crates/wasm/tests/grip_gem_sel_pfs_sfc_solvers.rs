@@ -199,3 +199,254 @@ fn grip_gem_sel_pfs_prime_sfc_step_eq_run() {
         .generate()
         .unwrap();
 }
+
+fn err_code(err: JsValue) -> Option<String> {
+    js_sys::Reflect::get(&err, &JsValue::from_str("code"))
+        .ok()
+        .and_then(|v| v.as_string())
+}
+
+#[wasm_bindgen_test]
+fn sel_layout_solver_nested_configs_and_validation() {
+    type ErrorCase<'a> = (&'a str, &'a [(&'a str, JsValue)], &'a str);
+    let (graph, _) = make_two_cluster_graph();
+    let init = make_circle_layout(8, 1.5);
+
+    // 1. Nested tFdpConfig validation failures (fail fast with structured .code)
+    let tfdp_invalid_cases: [ErrorCase<'_>; 10] = [
+        (
+            "minGridDim=50",
+            &[("minGridDim", JsValue::from_f64(50.0))],
+            "InvalidInput",
+        ),
+        (
+            "maxGridDim=32",
+            &[("maxGridDim", JsValue::from_f64(32.0))],
+            "InvalidInput",
+        ),
+        (
+            "intervals=0",
+            &[("intervals", JsValue::from_f64(0.0))],
+            "InvalidInput",
+        ),
+        (
+            "interpolationOrder=2",
+            &[("interpolationOrder", JsValue::from_f64(2.0))],
+            "InvalidInput",
+        ),
+        (
+            "theta=-1",
+            &[("theta", JsValue::from_f64(-1.0))],
+            "InvalidInput",
+        ),
+        (
+            "theta=NaN",
+            &[("theta", JsValue::from_f64(f64::NAN))],
+            "InvalidInput",
+        ),
+        (
+            "backend=bogus",
+            &[("backend", JsValue::from_str("bogus"))],
+            "InvalidInput",
+        ),
+        (
+            "backend=grid",
+            &[("backend", JsValue::from_str("grid"))],
+            "InvalidInput",
+        ),
+        (
+            "backend=auto",
+            &[("backend", JsValue::from_str("auto"))],
+            "InvalidInput",
+        ),
+        (
+            "backend=ib_fft",
+            &[("backend", JsValue::from_str("ib_fft"))],
+            "InvalidInput",
+        ),
+    ];
+    for (label, entries, expected_code) in tfdp_invalid_cases {
+        let opts = make_opts(&[
+            ("layoutBackend", JsValue::from_str("tFdp")),
+            ("tFdpConfig", make_opts(entries).into()),
+        ]);
+        let err = JsSelLayoutSolver::new(&graph, &opts)
+            .expect_err(&format!("expected error for tFdpConfig {label}"));
+        assert_eq!(err_code(err).as_deref(), Some(expected_code), "{label}");
+    }
+
+    // Conflicting useBarnesHut + backend and unsupported target inside tFdpConfig
+    for (label, entries, expected_code) in [
+        (
+            "exact+useBarnesHut=true",
+            &[
+                ("backend", JsValue::from_str("exact")),
+                ("useBarnesHut", JsValue::from_bool(true)),
+            ][..],
+            "InvalidInput",
+        ),
+        (
+            "ibFft+useBarnesHut=true",
+            &[
+                ("backend", JsValue::from_str("ibFft")),
+                ("useBarnesHut", JsValue::from_bool(true)),
+            ][..],
+            "InvalidInput",
+        ),
+        (
+            "bh+useBarnesHut=false",
+            &[
+                ("backend", JsValue::from_str("barnesHut")),
+                ("useBarnesHut", JsValue::from_bool(false)),
+            ][..],
+            "InvalidInput",
+        ),
+        (
+            "target=layout3d",
+            &[("target", JsValue::from_str("layout3d"))][..],
+            "UnsupportedOperation",
+        ),
+    ] {
+        let opts = make_opts(&[
+            ("layoutBackend", JsValue::from_str("tFdp")),
+            ("tFdpConfig", make_opts(entries).into()),
+        ]);
+        let err = JsSelLayoutSolver::new(&graph, &opts)
+            .expect_err(&format!("expected error for tFdpConfig {label}"));
+        assert_eq!(err_code(err).as_deref(), Some(expected_code), "{label}");
+    }
+
+    // 2. Nested frConfig validation failures
+    let fr_invalid_cases: [ErrorCase<'_>; 7] = [
+        (
+            "theta=-1",
+            &[("theta", JsValue::from_f64(-1.0))],
+            "InvalidInput",
+        ),
+        (
+            "backend=bogus",
+            &[("backend", JsValue::from_str("bogus"))],
+            "InvalidInput",
+        ),
+        (
+            "backend=barnes_hut",
+            &[("backend", JsValue::from_str("barnes_hut"))],
+            "InvalidInput",
+        ),
+        (
+            "exact+useBarnesHut=true",
+            &[
+                ("backend", JsValue::from_str("exact")),
+                ("useBarnesHut", JsValue::from_bool(true)),
+            ],
+            "InvalidInput",
+        ),
+        (
+            "grid+useBarnesHut=true",
+            &[
+                ("backend", JsValue::from_str("grid")),
+                ("useBarnesHut", JsValue::from_bool(true)),
+            ],
+            "InvalidInput",
+        ),
+        (
+            "bh+useBarnesHut=false",
+            &[
+                ("backend", JsValue::from_str("barnesHut")),
+                ("useBarnesHut", JsValue::from_bool(false)),
+            ],
+            "InvalidInput",
+        ),
+        (
+            "target=layout3d",
+            &[("target", JsValue::from_str("layout3d"))],
+            "UnsupportedOperation",
+        ),
+    ];
+    for (label, entries, expected_code) in fr_invalid_cases {
+        let opts = make_opts(&[
+            ("layoutBackend", JsValue::from_str("fr")),
+            ("frConfig", make_opts(entries).into()),
+        ]);
+        let err = JsSelLayoutSolver::new(&graph, &opts)
+            .expect_err(&format!("expected error for frConfig {label}"));
+        assert_eq!(err_code(err).as_deref(), Some(expected_code), "{label}");
+    }
+
+    // 3. tFdpConfig backend selection actually changes layout output (exact vs ibFft vs barnesHut)
+    let run_sel_tfdp = |tfdp_entries: &[(&str, JsValue)]| -> Vec<f32> {
+        let opts = make_opts(&[
+            ("layoutBackend", JsValue::from_str("tFdp")),
+            ("tFdpConfig", make_opts(tfdp_entries).into()),
+        ]);
+        let mut solver = JsSelLayoutSolver::new(&graph, &opts).unwrap();
+        let mut layout = init.clone();
+        solver.run(&mut layout).unwrap();
+        assert!(layout.is_all_finite());
+        layout.copy_coords()
+    };
+
+    let coords_exact = run_sel_tfdp(&[
+        ("backend", JsValue::from_str("exact")),
+        ("iterations", JsValue::from_f64(20.0)),
+        ("seed", JsValue::from_f64(42.0)),
+    ]);
+    let coords_ibfft = run_sel_tfdp(&[
+        ("backend", JsValue::from_str("ibFft")),
+        ("iterations", JsValue::from_f64(20.0)),
+        ("seed", JsValue::from_f64(42.0)),
+    ]);
+    let coords_bh = run_sel_tfdp(&[
+        ("backend", JsValue::from_str("barnesHut")),
+        ("theta", JsValue::from_f64(0.8)),
+        ("iterations", JsValue::from_f64(20.0)),
+        ("seed", JsValue::from_f64(42.0)),
+    ]);
+    let coords_ibfft_cubic = run_sel_tfdp(&[
+        ("backend", JsValue::from_str("ibFft")),
+        ("interpolationOrder", JsValue::from_str("cubic")),
+        ("intervals", JsValue::from_f64(16.0)),
+        ("minGridDim", JsValue::from_f64(32.0)),
+        ("maxGridDim", JsValue::from_f64(128.0)),
+        ("iterations", JsValue::from_f64(20.0)),
+        ("seed", JsValue::from_f64(42.0)),
+    ]);
+    assert_ne!(coords_exact, coords_ibfft, "exact vs ibFft should diverge");
+    assert_ne!(coords_exact, coords_bh, "exact vs barnesHut should diverge");
+    assert_ne!(
+        coords_ibfft, coords_ibfft_cubic,
+        "ibFft default vs cubic should diverge"
+    );
+
+    // 4. frConfig backend selection actually changes layout output (exact vs grid vs barnesHut)
+    let run_sel_fr = |fr_entries: &[(&str, JsValue)]| -> Vec<f32> {
+        let opts = make_opts(&[
+            ("layoutBackend", JsValue::from_str("fr")),
+            ("frConfig", make_opts(fr_entries).into()),
+        ]);
+        let mut solver = JsSelLayoutSolver::new(&graph, &opts).unwrap();
+        let mut layout = init.clone();
+        solver.run(&mut layout).unwrap();
+        assert!(layout.is_all_finite());
+        layout.copy_coords()
+    };
+
+    let fr_exact = run_sel_fr(&[
+        ("backend", JsValue::from_str("exact")),
+        ("iterations", JsValue::from_f64(20.0)),
+        ("seed", JsValue::from_f64(42.0)),
+    ]);
+    let fr_bh = run_sel_fr(&[
+        ("backend", JsValue::from_str("barnesHut")),
+        ("theta", JsValue::from_f64(0.8)),
+        ("iterations", JsValue::from_f64(20.0)),
+        ("seed", JsValue::from_f64(42.0)),
+    ]);
+    let fr_grid = run_sel_fr(&[
+        ("backend", JsValue::from_str("grid")),
+        ("iterations", JsValue::from_f64(20.0)),
+        ("seed", JsValue::from_f64(42.0)),
+    ]);
+    assert_ne!(fr_exact, fr_grid, "FR exact vs grid should diverge");
+    assert_ne!(fr_exact, fr_bh, "FR exact vs barnesHut should diverge");
+}

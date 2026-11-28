@@ -1,20 +1,25 @@
 //! WebAssembly bindings for GEM and Structural Entropy Layout (`SEL`) baseline solvers (`f32`).
 
+use egraph::layout::force::BarnesHut as ForceBarnesHut;
+use egraph::layout::neighbor::{BarnesHut as NeighborBarnesHut, Exact as NeighborExact, IbFft};
 use egraph::layout::{
-    GemConfig, GemSolver, SelConfig, SelLayoutBackend, SelLayoutSolver, SelWeightMapping,
+    FrBackend, FruchtermanReingoldConfig, GemConfig, GemSolver, SelConfig, SelLayoutBackend,
+    SelLayoutSolver, SelWeightMapping, TFdpBackend2d, TFdpConfig,
 };
 use wasm_bindgen::prelude::*;
 
 use crate::csr_graph::JsCsrGraph;
+use crate::force_classic::DEFAULT_BARNES_HUT_THETA;
 use crate::force_fr::parse_fr_config;
-use crate::js_convert::{core_err_to_js, invalid_input_err};
+use crate::js_convert::{core_err_to_js, invalid_input_err, unsupported_err};
 use crate::js_options::{
-    check_options_arg, get_prop, normalize_enum_token, opt_f64_prop, opt_maybe_f64_prop,
-    opt_maybe_usize_prop, opt_seed_prop, opt_string_prop, opt_usize_prop, solver_status_str,
+    JsTargetKind, check_options_arg, get_prop, normalize_enum_token, opt_f64_prop,
+    opt_maybe_bool_prop, opt_maybe_f64_prop, opt_maybe_usize_prop, opt_seed_prop, opt_string_prop,
+    opt_usize_prop, parse_target_kind, solver_status_str,
 };
 use crate::layout_buffers::JsLayout2d;
 use crate::solver_runner::{run_layout_in_place, run_steps_layout_in_place, step_layout_in_place};
-use crate::t_fdp::parse_t_fdp_config_with_ctx;
+use crate::t_fdp::{parse_ibfft_from_options, parse_t_fdp_config_with_ctx};
 
 /// Cooperative Frick et al. (1995) GEM adaptive local-temperature layout solver (`f32`).
 #[wasm_bindgen(js_name = GemSolver)]
@@ -133,6 +138,129 @@ fn parse_sel_layout_backend(raw: &str) -> Result<SelLayoutBackend, JsValue> {
     }
 }
 
+fn ensure_sel_subconfig_target_2d(val: &JsValue, ctx: &str) -> Result<(), JsValue> {
+    if let Some(target_str) = opt_string_prop(val, "target")?
+        && parse_target_kind(&target_str)? != JsTargetKind::Layout2d
+    {
+        return Err(unsupported_err(format!(
+            "{ctx} only supports target 'layout2d', got {target_str:?}"
+        )));
+    }
+    Ok(())
+}
+
+fn parse_sel_fr_config(
+    fr_val: &JsValue,
+) -> Result<(FruchtermanReingoldConfig, FrBackend), JsValue> {
+    let cfg = parse_fr_config(fr_val, "SelLayoutSolver.frConfig")?;
+    ensure_sel_subconfig_target_2d(fr_val, "SelLayoutSolver.frConfig")?;
+    let theta = opt_f64_prop(fr_val, "theta", DEFAULT_BARNES_HUT_THETA)?;
+    ForceBarnesHut::new(theta)
+        .validate()
+        .map_err(core_err_to_js)?;
+    let backend_opt = opt_string_prop(fr_val, "backend")?;
+    let use_bh_opt = opt_maybe_bool_prop(fr_val, "useBarnesHut")?;
+    let fr_backend = match backend_opt {
+        Some(ref b) => match normalize_enum_token(b)?.as_str() {
+            "exact" => {
+                if use_bh_opt == Some(true) {
+                    return Err(invalid_input_err(
+                        "conflicting SelLayoutSolver.frConfig options: backend='exact' cannot be combined with useBarnesHut=true",
+                    ));
+                }
+                FrBackend::exact()
+            }
+            "barneshut" | "bh" => {
+                if use_bh_opt == Some(false) {
+                    return Err(invalid_input_err(
+                        "conflicting SelLayoutSolver.frConfig options: backend='barnesHut' cannot be combined with useBarnesHut=false",
+                    ));
+                }
+                FrBackend::barnes_hut(theta)
+            }
+            "grid" => {
+                if use_bh_opt == Some(true) {
+                    return Err(invalid_input_err(
+                        "conflicting SelLayoutSolver.frConfig options: backend='grid' cannot be combined with useBarnesHut=true",
+                    ));
+                }
+                FrBackend::grid()
+            }
+            _ => {
+                return Err(invalid_input_err(format!(
+                    "unknown FrBackend {b:?}; expected 'exact', 'barnesHut', or 'grid'"
+                )));
+            }
+        },
+        None => {
+            if use_bh_opt == Some(true) {
+                FrBackend::barnes_hut(theta)
+            } else {
+                FrBackend::exact()
+            }
+        }
+    };
+    cfg.validate().map_err(core_err_to_js)?;
+    fr_backend.validate().map_err(core_err_to_js)?;
+    Ok((cfg, fr_backend))
+}
+
+fn parse_sel_t_fdp_config(tfdp_val: &JsValue) -> Result<(TFdpConfig, TFdpBackend2d), JsValue> {
+    let cfg = parse_t_fdp_config_with_ctx(tfdp_val, "SelLayoutSolver.tFdpConfig")?;
+    ensure_sel_subconfig_target_2d(tfdp_val, "SelLayoutSolver.tFdpConfig")?;
+    let theta = opt_f64_prop(tfdp_val, "theta", NeighborBarnesHut::default().theta)?;
+    NeighborBarnesHut::new(theta)
+        .validate()
+        .map_err(core_err_to_js)?;
+    let ibfft_cfg = parse_ibfft_from_options(tfdp_val)?;
+    ibfft_cfg.validate().map_err(core_err_to_js)?;
+    let backend_opt = opt_string_prop(tfdp_val, "backend")?;
+    let use_bh_opt = opt_maybe_bool_prop(tfdp_val, "useBarnesHut")?;
+    let t_fdp_backend = match backend_opt {
+        Some(ref b) => match normalize_enum_token(b)?.as_str() {
+            "ibfft" | "fft" => {
+                if use_bh_opt == Some(true) {
+                    return Err(invalid_input_err(
+                        "conflicting SelLayoutSolver.tFdpConfig options: backend='ibFft' cannot be combined with useBarnesHut=true",
+                    ));
+                }
+                TFdpBackend2d::IbFft(IbFft::new().with_ibfft(ibfft_cfg))
+            }
+            "barneshut" | "bh" => {
+                if use_bh_opt == Some(false) {
+                    return Err(invalid_input_err(
+                        "conflicting SelLayoutSolver.tFdpConfig options: backend='barnesHut' cannot be combined with useBarnesHut=false",
+                    ));
+                }
+                TFdpBackend2d::BarnesHut(NeighborBarnesHut::new(theta))
+            }
+            "exact" => {
+                if use_bh_opt == Some(true) {
+                    return Err(invalid_input_err(
+                        "conflicting SelLayoutSolver.tFdpConfig options: backend='exact' cannot be combined with useBarnesHut=true",
+                    ));
+                }
+                TFdpBackend2d::Exact(NeighborExact::new())
+            }
+            _ => {
+                return Err(invalid_input_err(format!(
+                    "unknown TFdpSolver backend {b:?}; expected 'ibFft', 'barnesHut', or 'exact'"
+                )));
+            }
+        },
+        None => {
+            if use_bh_opt == Some(true) {
+                TFdpBackend2d::BarnesHut(NeighborBarnesHut::new(theta))
+            } else {
+                TFdpBackend2d::IbFft(IbFft::new().with_ibfft(ibfft_cfg))
+            }
+        }
+    };
+    cfg.validate().map_err(core_err_to_js)?;
+    t_fdp_backend.validate().map_err(core_err_to_js)?;
+    Ok((cfg, t_fdp_backend))
+}
+
 /// Cooperative Xue et al. (2025) Structural Entropy Layout (`SEL`) solver (`f32`).
 #[wasm_bindgen(js_name = SelLayoutSolver)]
 #[derive(Debug, Clone)]
@@ -159,14 +287,15 @@ impl JsSelLayoutSolver {
             cfg.seed = opt_seed_prop(options)?;
             let fr_val = get_prop(options, "frConfig")?;
             if !fr_val.is_undefined() && !fr_val.is_null() {
-                cfg.fr_config = Some(parse_fr_config(&fr_val, "SelLayoutSolver.frConfig")?);
+                let (fr_cfg, fr_backend) = parse_sel_fr_config(&fr_val)?;
+                cfg = cfg.with_fr_config(Some(fr_cfg)).with_fr_backend(fr_backend);
             }
             let tfdp_val = get_prop(options, "tFdpConfig")?;
             if !tfdp_val.is_undefined() && !tfdp_val.is_null() {
-                cfg.t_fdp_config = Some(parse_t_fdp_config_with_ctx(
-                    &tfdp_val,
-                    "SelLayoutSolver.tFdpConfig",
-                )?);
+                let (tfdp_cfg, tfdp_backend) = parse_sel_t_fdp_config(&tfdp_val)?;
+                cfg = cfg
+                    .with_t_fdp_config(Some(tfdp_cfg))
+                    .with_t_fdp_backend(tfdp_backend);
             }
         }
         let inner = SelLayoutSolver::<f32>::new(graph.inner(), cfg).map_err(core_err_to_js)?;
