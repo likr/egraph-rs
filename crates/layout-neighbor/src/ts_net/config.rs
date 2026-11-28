@@ -5,37 +5,90 @@ use egraph_spatial_fft::{IbFftConfig, InterpolationOrder};
 pub(super) const MIN_LAMBDA_SUM: f64 = 1e-12;
 
 /// Repulsion approximation backend used by [`TsNetSolver`](super::TsNetSolver).
+#[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum TsNetBackend {
     /// Exact $O(N^2)$ pairwise Student-$t$ KL repulsion and entropy repulsion.
     Exact,
-    /// $O(N \log N)$ Barnes-Hut quadtree approximation for KL and entropy repulsion.
+    /// $O(N \log N)$ Barnes-Hut spatial tree approximation (`ArenaQuadtree2d` on `Layout2d`,
+    /// `ArenaOctree3d` on `Layout3d`).
     BarnesHut,
     /// Fused 2D FFT interpolation for KL and entropy repulsion via [`FitField2d`](egraph_spatial_fft::FitField2d).
     #[default]
     FftInterpolation,
     /// Linear-time fused 2D FFT interpolation enforcing [`InterpolationOrder::Bilinear`] ($p=1$).
     LinearFft,
-    /// Adaptive backend: [`Exact`](Self::Exact) for $N \le 256$ and [`LinearFft`](Self::LinearFft) ($p=1$) for $N > 256$.
+    /// Adaptive backend resolved at construction for the target layout:
+    /// - `Layout2d`: `Exact` for $N \le 256$, `LinearFft` ($p=1$) for $N > 256$.
+    /// - `Layout3d`: `Exact` for $N \le 256$, `BarnesHut` (`ArenaOctree3d`) for $N > 256$.
+    /// - `LayoutNd` / `ManifoldLayout2d` / other `RiemannianLayout`: `Exact`.
     Auto,
 }
 
 /// Hyperparameters governing a single optimization stage of [`TsNetSolver`](super::TsNetSolver).
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TsNetStage {
-    /// Number of gradient descent iterations in this stage.
+    /// Number of gradient descent iterations in this stage (`default: 250`).
     pub iterations: usize,
-    /// Early exaggeration multiplier applied to high-dimensional probabilities $P_{ij}$.
+    /// Early exaggeration multiplier applied to high-dimensional probabilities $P_{ij}$ (`default: 1.0`).
     pub exaggeration: f64,
-    /// Weight of the KL divergence gradient term.
+    /// Weight of the KL divergence gradient term (`default: 1.0`).
     pub lambda_kl: f64,
-    /// Weight of the quadratic origin-compression gradient term.
+    /// Weight of the quadratic origin-compression gradient term (`default: 0.0`).
     pub lambda_c: f64,
-    /// Weight of the repulsive entropy gradient term.
+    /// Weight of the repulsive entropy gradient term (`default: 0.0`).
     pub lambda_r: f64,
 }
 
+impl Default for TsNetStage {
+    fn default() -> Self {
+        Self {
+            iterations: 250,
+            exaggeration: 1.0,
+            lambda_kl: 1.0,
+            lambda_c: 0.0,
+            lambda_r: 0.0,
+        }
+    }
+}
+
 impl TsNetStage {
+    /// Creates a new [`TsNetStage`] initialized with default values.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets the number of gradient descent iterations in this stage.
+    pub fn with_iterations(mut self, iterations: usize) -> Self {
+        self.iterations = iterations;
+        self
+    }
+
+    /// Sets the early exaggeration multiplier applied to high-dimensional probabilities $P_{ij}$.
+    pub fn with_exaggeration(mut self, exaggeration: f64) -> Self {
+        self.exaggeration = exaggeration;
+        self
+    }
+
+    /// Sets the weight `lambda_kl` of the KL divergence gradient term.
+    pub fn with_lambda_kl(mut self, lambda_kl: f64) -> Self {
+        self.lambda_kl = lambda_kl;
+        self
+    }
+
+    /// Sets the weight `lambda_c` of the origin-compression gradient term.
+    pub fn with_lambda_c(mut self, lambda_c: f64) -> Self {
+        self.lambda_c = lambda_c;
+        self
+    }
+
+    /// Sets the weight `lambda_r` of the repulsive entropy gradient term.
+    pub fn with_lambda_r(mut self, lambda_r: f64) -> Self {
+        self.lambda_r = lambda_r;
+        self
+    }
+
     /// Validates stage weights and exaggeration multiplier.
     pub fn validate(&self) -> CoreResult<()> {
         if !self.exaggeration.is_finite() || self.exaggeration < 0.0 {
@@ -60,7 +113,8 @@ impl TsNetStage {
 }
 
 /// Configuration for [`TsNetSolver`](super::TsNetSolver), defaulting to the Pure 1+2-Hop adaptive preset.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TsNetConfig {
     /// Repulsion computation backend (`FftInterpolation` by default).
     pub backend: TsNetBackend,
@@ -78,18 +132,8 @@ pub struct TsNetConfig {
     pub sigma_tolerance: f64,
     /// Symmetrization strategy for high-dimensional probabilities (`StandardTsne`).
     pub symmetrization: SymmetrizationMode,
-    /// Iteration counts `[stage1, stage2, stage3]` for the 3 optimization stages (`[250, 250, 500]`).
-    pub stage_iterations: [usize; 3],
-    /// Early exaggeration factor applied in Stage 1 (`4.0`).
-    pub exaggeration: f64,
-    /// Compression weight $\lambda_c$ in Stage 1 (`0.1`).
-    pub lambda_c_stage1: f64,
-    /// Compression weight $\lambda_c$ in Stage 2 (`0.01`).
-    pub lambda_c_stage2: f64,
-    /// Compression weight $\lambda_c$ in Stage 3 (`0.0`).
-    pub lambda_c_stage3: f64,
-    /// Repulsion weight $\lambda_r$ in Stage 3 (`0.0`).
-    pub lambda_r_stage3: f64,
+    /// Ordered optimization stages (defaults to the 3 canonical Pure 1+2-Hop stages).
+    pub stages: Vec<TsNetStage>,
     /// Optional explicit base gradient descent learning rate (`None` uses `max(10.0, N / learning_rate_divisor)`).
     pub learning_rate: Option<f64>,
     /// Divisor applied to $N$ in automatic learning-rate scaling (`3.0`).
@@ -116,6 +160,38 @@ impl Default for TsNetConfig {
 }
 
 impl TsNetConfig {
+    /// Creates a new [`TsNetConfig`] initialized with the [`pure_2hop`](Self::pure_2hop) defaults.
+    pub fn new() -> Self {
+        Self::pure_2hop()
+    }
+
+    /// Returns the 3 canonical optimization stages used by Pure 1+2-Hop Fit-tsNET.
+    pub fn canonical_stages() -> Vec<TsNetStage> {
+        vec![
+            TsNetStage {
+                iterations: 250,
+                exaggeration: 4.0,
+                lambda_kl: 1.0,
+                lambda_c: 0.1,
+                lambda_r: 0.0,
+            },
+            TsNetStage {
+                iterations: 250,
+                exaggeration: 1.0,
+                lambda_kl: 1.0,
+                lambda_c: 0.01,
+                lambda_r: 0.0,
+            },
+            TsNetStage {
+                iterations: 500,
+                exaggeration: 1.0,
+                lambda_kl: 1.0,
+                lambda_c: 0.0,
+                lambda_r: 0.0,
+            },
+        ]
+    }
+
     /// Returns the Pure 1+2-Hop node-wise adaptive Fit-tsNET preset configuration.
     pub fn pure_2hop() -> Self {
         Self {
@@ -127,27 +203,121 @@ impl TsNetConfig {
             sigma_iters: 50,
             sigma_tolerance: 1e-5,
             symmetrization: SymmetrizationMode::StandardTsne,
-            stage_iterations: [250, 250, 500],
-            exaggeration: 4.0,
-            lambda_c_stage1: 0.1,
-            lambda_c_stage2: 0.01,
-            lambda_c_stage3: 0.0,
-            lambda_r_stage3: 0.0,
+            stages: Self::canonical_stages(),
             learning_rate: None,
             learning_rate_divisor: 3.0,
             jacobi_precondition: true,
             momentum: 0.8,
             epsilon_r: 0.05,
             theta: 0.5,
-            ibfft: IbFftConfig {
-                order: InterpolationOrder::Cubic,
-                ..IbFftConfig::default()
-            },
+            ibfft: IbFftConfig::default().with_order(InterpolationOrder::Cubic),
             seed: 42,
         }
     }
 
-    /// Resolves [`TsNetBackend::Auto`] for a graph with `num_nodes` vertices
+    /// Sets the repulsion computation backend.
+    pub fn with_backend(mut self, backend: TsNetBackend) -> Self {
+        self.backend = backend;
+        self
+    }
+
+    /// Sets the node-wise 2-hop adaptive perplexity multiplier `perplexity_c`.
+    pub fn with_perplexity_c(mut self, perplexity_c: f64) -> Self {
+        self.perplexity_c = perplexity_c;
+        self
+    }
+
+    /// Sets the minimum adaptive perplexity clamp `min_perplexity`.
+    pub fn with_min_perplexity(mut self, min_perplexity: f64) -> Self {
+        self.min_perplexity = min_perplexity;
+        self
+    }
+
+    /// Sets the maximum adaptive perplexity clamp `max_perplexity`.
+    pub fn with_max_perplexity(mut self, max_perplexity: f64) -> Self {
+        self.max_perplexity = max_perplexity;
+        self
+    }
+
+    /// Sets the normalized distance exponent `power`.
+    pub fn with_power(mut self, power: f64) -> Self {
+        self.power = power;
+        self
+    }
+
+    /// Sets the maximum binary-search iterations `sigma_iters`.
+    pub fn with_sigma_iters(mut self, sigma_iters: usize) -> Self {
+        self.sigma_iters = sigma_iters;
+        self
+    }
+
+    /// Sets the perplexity binary-search tolerance `sigma_tolerance`.
+    pub fn with_sigma_tolerance(mut self, sigma_tolerance: f64) -> Self {
+        self.sigma_tolerance = sigma_tolerance;
+        self
+    }
+
+    /// Sets the probability symmetrization strategy.
+    pub fn with_symmetrization(mut self, symmetrization: SymmetrizationMode) -> Self {
+        self.symmetrization = symmetrization;
+        self
+    }
+
+    /// Replaces the optimization schedule stages.
+    pub fn with_stages(mut self, stages: Vec<TsNetStage>) -> Self {
+        self.stages = stages;
+        self
+    }
+
+    /// Sets an explicit base learning rate (`None` enables automatic $O(N)$ scaling).
+    pub fn with_learning_rate(mut self, learning_rate: Option<f64>) -> Self {
+        self.learning_rate = learning_rate;
+        self
+    }
+
+    /// Sets the automatic learning-rate divisor applied to $N$.
+    pub fn with_learning_rate_divisor(mut self, learning_rate_divisor: f64) -> Self {
+        self.learning_rate_divisor = learning_rate_divisor;
+        self
+    }
+
+    /// Enables or disables per-vertex Jacobi preconditioning.
+    pub fn with_jacobi_precondition(mut self, jacobi_precondition: bool) -> Self {
+        self.jacobi_precondition = jacobi_precondition;
+        self
+    }
+
+    /// Sets the velocity momentum factor in `[0.0, 1.0)`.
+    pub fn with_momentum(mut self, momentum: f64) -> Self {
+        self.momentum = momentum;
+        self
+    }
+
+    /// Sets the entropy softening constant `epsilon_r`.
+    pub fn with_epsilon_r(mut self, epsilon_r: f64) -> Self {
+        self.epsilon_r = epsilon_r;
+        self
+    }
+
+    /// Sets the Barnes-Hut opening angle threshold `theta`.
+    pub fn with_theta(mut self, theta: f64) -> Self {
+        self.theta = theta;
+        self
+    }
+
+    /// Sets the interpolation-based 2D FFT grid configuration.
+    pub fn with_ibfft(mut self, ibfft: IbFftConfig) -> Self {
+        self.ibfft = ibfft;
+        self
+    }
+
+    /// Sets the deterministic RNG seed.
+    pub fn with_seed(mut self, seed: u64) -> Self {
+        self.seed = seed;
+        self
+    }
+
+    /// Resolves [`TsNetBackend::Auto`] for a 2D graph with `num_nodes` vertices
     /// (`Exact` for $N \le 256$, `LinearFft` for $N > 256$).
     #[inline]
     pub fn resolve_backend(&self, num_nodes: usize) -> TsNetBackend {
@@ -171,34 +341,13 @@ impl TsNetConfig {
             .unwrap_or_else(|| 10.0_f64.max((num_nodes as f64) / self.learning_rate_divisor))
     }
 
-    /// Returns the 3 optimization stages defined by this configuration.
-    pub fn stages(&self) -> [TsNetStage; 3] {
-        [
-            TsNetStage {
-                iterations: self.stage_iterations[0],
-                exaggeration: self.exaggeration,
-                lambda_kl: 1.0,
-                lambda_c: self.lambda_c_stage1,
-                lambda_r: 0.0,
-            },
-            TsNetStage {
-                iterations: self.stage_iterations[1],
-                exaggeration: 1.0,
-                lambda_kl: 1.0,
-                lambda_c: self.lambda_c_stage2,
-                lambda_r: 0.0,
-            },
-            TsNetStage {
-                iterations: self.stage_iterations[2],
-                exaggeration: 1.0,
-                lambda_kl: 1.0,
-                lambda_c: self.lambda_c_stage3,
-                lambda_r: self.lambda_r_stage3,
-            },
-        ]
+    /// Returns the optimization stages defined by this configuration.
+    #[inline]
+    pub fn stages(&self) -> &[TsNetStage] {
+        &self.stages
     }
 
-    /// Validates all hyperparameters and nested `ibfft` settings.
+    /// Validates all hyperparameters, stage definitions, and nested `ibfft` settings.
     pub fn validate(&self) -> CoreResult<()> {
         if !self.perplexity_c.is_finite() || self.perplexity_c <= 0.0 {
             return Err(CoreError::invalid_input(format!(
@@ -233,23 +382,8 @@ impl TsNetConfig {
                 self.sigma_tolerance
             )));
         }
-        if !self.exaggeration.is_finite() || self.exaggeration < 1.0 {
-            return Err(CoreError::invalid_input(format!(
-                "exaggeration must be finite and >= 1.0, got {}",
-                self.exaggeration
-            )));
-        }
-        for (name, val) in [
-            ("lambda_c_stage1", self.lambda_c_stage1),
-            ("lambda_c_stage2", self.lambda_c_stage2),
-            ("lambda_c_stage3", self.lambda_c_stage3),
-            ("lambda_r_stage3", self.lambda_r_stage3),
-        ] {
-            if !val.is_finite() || val < 0.0 {
-                return Err(CoreError::invalid_input(format!(
-                    "{name} must be finite and >= 0.0, got {val}"
-                )));
-            }
+        for stage in &self.stages {
+            stage.validate()?;
         }
         if let Some(lr) = self.learning_rate
             && (!lr.is_finite() || lr <= 0.0)
@@ -286,7 +420,7 @@ impl TsNetConfig {
     }
 
     pub(super) fn effective_ibfft_for(&self, resolved_backend: TsNetBackend) -> IbFftConfig {
-        let mut cfg = self.ibfft;
+        let mut cfg = self.ibfft.clone();
         if resolved_backend == TsNetBackend::LinearFft {
             cfg.order = InterpolationOrder::Bilinear;
         }
@@ -318,12 +452,11 @@ impl TsNetConfig {
     }
 
     pub(super) fn perplexity_config(&self) -> PerplexityConfig {
-        PerplexityConfig {
-            power: self.power,
-            sigma_iters: self.sigma_iters,
-            sigma_tolerance: self.sigma_tolerance,
-            symmetrization: self.symmetrization,
-        }
+        PerplexityConfig::new()
+            .with_power(self.power)
+            .with_sigma_iters(self.sigma_iters)
+            .with_sigma_tolerance(self.sigma_tolerance)
+            .with_symmetrization(self.symmetrization)
     }
 }
 

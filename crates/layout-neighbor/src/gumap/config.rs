@@ -2,7 +2,8 @@ use egraph_core::{CoreError, CoreResult};
 use egraph_neighborhood::find_ab_params;
 
 /// Hyperparameters for [`GuMapSolver`](super::GuMapSolver).
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq)]
 pub struct GuMapConfig {
     /// Total number of optimization iterations (`default: 200`).
     pub iterations: usize,
@@ -10,9 +11,9 @@ pub struct GuMapConfig {
     pub negative_sample_rate: usize,
     /// Initial SGD learning rate (`default: 1.0`).
     pub learning_rate: f64,
-    /// Target minimum separation in the 2D embedding (`default: 0.1`).
+    /// Target minimum separation in the embedding (`default: 0.1`).
     pub min_dist: f64,
-    /// Effective scale/spread parameter in the 2D embedding (`default: 1.0`).
+    /// Effective scale/spread parameter in the embedding (`default: 1.0`).
     pub spread: f64,
     /// Optional explicit UMAP curve parameter `a` (`None` fits from `min_dist` and `spread`).
     pub a: Option<f64>,
@@ -47,6 +48,77 @@ impl Default for GuMapConfig {
 }
 
 impl GuMapConfig {
+    /// Creates a new [`GuMapConfig`] initialized with default values.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets total optimization iterations.
+    pub fn with_iterations(mut self, iterations: usize) -> Self {
+        self.iterations = iterations;
+        self
+    }
+
+    /// Sets the number of negative samples drawn per attractive edge.
+    pub fn with_negative_sample_rate(mut self, negative_sample_rate: usize) -> Self {
+        self.negative_sample_rate = negative_sample_rate;
+        self
+    }
+
+    /// Sets the initial SGD learning rate.
+    pub fn with_learning_rate(mut self, learning_rate: f64) -> Self {
+        self.learning_rate = learning_rate;
+        self
+    }
+
+    /// Sets the target minimum separation `min_dist`.
+    pub fn with_min_dist(mut self, min_dist: f64) -> Self {
+        self.min_dist = min_dist;
+        self
+    }
+
+    /// Sets the effective scale/spread parameter `spread`.
+    pub fn with_spread(mut self, spread: f64) -> Self {
+        self.spread = spread;
+        self
+    }
+
+    /// Sets optional explicit UMAP curve parameter `a`.
+    pub fn with_a(mut self, a: Option<f64>) -> Self {
+        self.a = a;
+        self
+    }
+
+    /// Sets optional explicit UMAP curve parameter `b`.
+    pub fn with_b(mut self, b: Option<f64>) -> Self {
+        self.b = b;
+        self
+    }
+
+    /// Sets the maximum binary-search iterations `sigma_iters`.
+    pub fn with_sigma_iters(mut self, sigma_iters: usize) -> Self {
+        self.sigma_iters = sigma_iters;
+        self
+    }
+
+    /// Sets the binary-search convergence tolerance `sigma_tolerance`.
+    pub fn with_sigma_tolerance(mut self, sigma_tolerance: f64) -> Self {
+        self.sigma_tolerance = sigma_tolerance;
+        self
+    }
+
+    /// Enables or disables symmetric negative-sample updates.
+    pub fn with_symmetric_negative(mut self, symmetric_negative: bool) -> Self {
+        self.symmetric_negative = symmetric_negative;
+        self
+    }
+
+    /// Sets the deterministic RNG seed.
+    pub fn with_seed(mut self, seed: u64) -> Self {
+        self.seed = seed;
+        self
+    }
+
     /// Validates all hyperparameters and resolves `(a, b)` curve parameters if omitted.
     pub fn validate(&self) -> CoreResult<()> {
         let _ = self.resolve_ab()?;

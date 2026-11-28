@@ -6,6 +6,31 @@ mod nd;
 
 use egraph_core::{CsrGraph, DeterministicRng, Layout2d, Scalar};
 
+use super::TsNetStage;
+
+pub(super) fn make_stages(s1: usize, s2: usize, s3: usize, lambda_r3: f64) -> Vec<TsNetStage> {
+    vec![
+        TsNetStage::new()
+            .with_iterations(s1)
+            .with_exaggeration(4.0)
+            .with_lambda_kl(1.0)
+            .with_lambda_c(0.1)
+            .with_lambda_r(0.0),
+        TsNetStage::new()
+            .with_iterations(s2)
+            .with_exaggeration(1.0)
+            .with_lambda_kl(1.0)
+            .with_lambda_c(0.01)
+            .with_lambda_r(0.0),
+        TsNetStage::new()
+            .with_iterations(s3)
+            .with_exaggeration(1.0)
+            .with_lambda_kl(1.0)
+            .with_lambda_c(0.0)
+            .with_lambda_r(lambda_r3),
+    ]
+}
+
 pub(super) fn make_barbell_graph(clique_size: usize) -> CsrGraph<f64> {
     let n = 2 * clique_size;
     let mut edges = Vec::new();

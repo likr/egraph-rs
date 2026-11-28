@@ -1,7 +1,7 @@
 use egraph_core::{IterativeSolver, Layout2d, SolverStatus};
 use egraph_neighborhood::{DogVaradhanConfig, SparseProbabilities};
 
-use super::super::{FieldLayoutSolver, FieldRepulsionBackend, IbUmapConfig};
+use super::super::{FieldRepulsionBackend, IbUmapConfig, IbUmapSolver};
 use super::{barbell_graph, grid_graph, seeded_layout, star_graph};
 
 #[test]
@@ -13,15 +13,15 @@ fn test_ib_umap_step_vs_run_bit_exact_f64_and_f32_all_backends() {
         FieldRepulsionBackend::BarnesHut,
         FieldRepulsionBackend::Exact,
     ] {
-        let cfg = IbUmapConfig {
-            backend,
-            iterations: 20,
-            seed: 55,
-            ..Default::default()
-        };
+        let cfg = IbUmapConfig::new()
+            .with_backend(backend)
+            .with_iterations(20)
+            .with_seed(55);
 
-        let mut s_run = FieldLayoutSolver::<f64>::ib_umap(&grid, 32, &dog_cfg, cfg).unwrap();
-        let mut s_step = FieldLayoutSolver::<f64>::ib_umap(&grid, 32, &dog_cfg, cfg).unwrap();
+        let mut s_run =
+            IbUmapSolver::<f64>::from_graph_dog(&grid, 32, &dog_cfg, cfg.clone()).unwrap();
+        let mut s_step =
+            IbUmapSolver::<f64>::from_graph_dog(&grid, 32, &dog_cfg, cfg.clone()).unwrap();
         let mut l_run = seeded_layout::<f64>(grid.num_nodes(), 2.0, 23);
         let mut l_step = l_run.clone();
 
@@ -38,8 +38,9 @@ fn test_ib_umap_step_vs_run_bit_exact_f64_and_f32_all_backends() {
             assert_eq!(l_run.y()[i].to_bits(), l_step.y()[i].to_bits());
         }
 
-        let mut s32_run = FieldLayoutSolver::<f32>::ib_umap(&grid, 32, &dog_cfg, cfg).unwrap();
-        let mut s32_step = FieldLayoutSolver::<f32>::ib_umap(&grid, 32, &dog_cfg, cfg).unwrap();
+        let mut s32_run =
+            IbUmapSolver::<f32>::from_graph_dog(&grid, 32, &dog_cfg, cfg.clone()).unwrap();
+        let mut s32_step = IbUmapSolver::<f32>::from_graph_dog(&grid, 32, &dog_cfg, cfg).unwrap();
         let mut l32_run = seeded_layout::<f32>(grid.num_nodes(), 2.0, 23);
         let mut l32_step = l32_run.clone();
         s32_run.run(&mut l32_run).unwrap();
@@ -59,38 +60,32 @@ fn test_ib_umap_ibfft_vs_exact_and_barbell_separation() {
     let dog_cfg = DogVaradhanConfig::default();
     let init = seeded_layout::<f64>(barbell.num_nodes(), 2.5, 202);
 
-    let mut s_exact = FieldLayoutSolver::<f64>::ib_umap(
+    let mut s_exact = IbUmapSolver::<f64>::from_graph_dog(
         &barbell,
         32,
         &dog_cfg,
-        IbUmapConfig {
-            backend: FieldRepulsionBackend::Exact,
-            iterations: 25,
-            ..Default::default()
-        },
+        IbUmapConfig::new()
+            .with_backend(FieldRepulsionBackend::Exact)
+            .with_iterations(25),
     )
     .unwrap();
-    let mut s_ibfft = FieldLayoutSolver::<f64>::ib_umap(
+    let mut s_ibfft = IbUmapSolver::<f64>::from_graph_dog(
         &barbell,
         32,
         &dog_cfg,
-        IbUmapConfig {
-            backend: FieldRepulsionBackend::IbFft,
-            iterations: 25,
-            ..Default::default()
-        },
+        IbUmapConfig::new()
+            .with_backend(FieldRepulsionBackend::IbFft)
+            .with_iterations(25),
     )
     .unwrap();
-    let mut s_bh_exact = FieldLayoutSolver::<f64>::ib_umap(
+    let mut s_bh_exact = IbUmapSolver::<f64>::from_graph_dog(
         &barbell,
         32,
         &dog_cfg,
-        IbUmapConfig {
-            backend: FieldRepulsionBackend::BarnesHut,
-            iterations: 25,
-            theta: 0.0,
-            ..Default::default()
-        },
+        IbUmapConfig::new()
+            .with_backend(FieldRepulsionBackend::BarnesHut)
+            .with_iterations(25)
+            .with_theta(0.0),
     )
     .unwrap();
 
@@ -109,14 +104,11 @@ fn test_ib_umap_ibfft_vs_exact_and_barbell_separation() {
     }
 
     // Full 150-epoch run from all-zeros separates the two barbell cliques cleanly.
-    let mut full_solver = FieldLayoutSolver::<f64>::ib_umap(
+    let mut full_solver = IbUmapSolver::<f64>::from_graph_dog(
         &barbell,
         32,
         &dog_cfg,
-        IbUmapConfig {
-            iterations: 150,
-            ..Default::default()
-        },
+        IbUmapConfig::new().with_iterations(150),
     )
     .unwrap();
     let mut layout = Layout2d::<f64>::zeros(barbell.num_nodes());
@@ -146,9 +138,9 @@ fn test_ib_umap_ibfft_vs_exact_and_barbell_separation() {
 #[test]
 fn test_ib_umap_hub_damping_and_tau_clipping() {
     let star = star_graph(24);
-    let probs = SparseProbabilities {
-        n_nodes: star.num_nodes(),
-        indptr: {
+    let probs = SparseProbabilities::from_csr(
+        star.num_nodes(),
+        {
             let mut p = Vec::with_capacity(star.num_nodes() + 1);
             p.push(0);
             p.push(24);
@@ -157,16 +149,15 @@ fn test_ib_umap_hub_damping_and_tau_clipping() {
             }
             p
         },
-        indices: {
+        {
             let mut idx: Vec<u32> = (1..star.num_nodes() as u32).collect();
             idx.resize(48, 0);
             idx
         },
-        values: vec![1.0; 48],
-    };
+        vec![1.0; 48],
+    )
+    .unwrap();
 
-    // Place hub far away at (100, 0) and leaves around (0, 0) to trigger large hub attraction
-    // and verify both hub_damping eta_i and tau_t = tau_scale * alpha_t step clipping.
     let mut xs = vec![0.0_f64; star.num_nodes()];
     let mut ys = vec![0.0_f64; star.num_nodes()];
     xs[0] = 100.0;
@@ -177,44 +168,31 @@ fn test_ib_umap_hub_damping_and_tau_clipping() {
     }
     let init = Layout2d::from_xy(xs, ys).unwrap();
 
-    let cfg_damped = IbUmapConfig {
-        backend: FieldRepulsionBackend::Exact,
-        iterations: 10,
-        learning_rate: 1.0,
-        tau_scale: 4.0,
-        hub_damping: true,
-        ..Default::default()
-    };
-    let cfg_undamped = IbUmapConfig {
-        hub_damping: false,
-        ..cfg_damped
-    };
-    let cfg_tight_tau = IbUmapConfig {
-        tau_scale: 0.25,
-        hub_damping: false,
-        ..cfg_damped
-    };
+    let cfg_damped = IbUmapConfig::new()
+        .with_backend(FieldRepulsionBackend::Exact)
+        .with_iterations(10)
+        .with_learning_rate(1.0)
+        .with_tau_scale(4.0)
+        .with_hub_damping(true);
+    let cfg_undamped = cfg_damped.clone().with_hub_damping(false);
+    let cfg_tight_tau = cfg_damped
+        .clone()
+        .with_tau_scale(0.25)
+        .with_hub_damping(false);
 
-    let s_damped = FieldLayoutSolver::<f64>::ib_umap_from_fuzzy_set(
-        probs.clone(),
-        Some(&[24; 25]), // explicit degrees: even stronger damping test below uses natural degrees
-        cfg_damped,
-    )
-    .unwrap();
+    let s_damped =
+        IbUmapSolver::<f64>::from_fuzzy_set(probs.clone(), Some(&[24; 25]), cfg_damped.clone())
+            .unwrap();
     assert_eq!(s_damped.num_nodes(), 25);
     assert_eq!(s_damped.num_edges(), 48);
-    assert!(s_damped.ab().is_some());
+    assert!(s_damped.a() > 0.0 && s_damped.b() > 0.0);
     assert_eq!(s_damped.backend(), FieldRepulsionBackend::Exact);
-    assert!((s_damped.current_rho() - 1.0).abs() < 1e-12);
 
-    // Natural degrees from fuzzy set: hub deg = 24, leaf deg = 1.
     let mut s_nat_damped =
-        FieldLayoutSolver::<f64>::ib_umap_from_fuzzy_set(probs.clone(), None, cfg_damped).unwrap();
+        IbUmapSolver::<f64>::from_fuzzy_set(probs.clone(), None, cfg_damped).unwrap();
     let mut s_undamped =
-        FieldLayoutSolver::<f64>::ib_umap_from_fuzzy_set(probs.clone(), None, cfg_undamped)
-            .unwrap();
-    let mut s_tight =
-        FieldLayoutSolver::<f64>::ib_umap_from_fuzzy_set(probs, None, cfg_tight_tau).unwrap();
+        IbUmapSolver::<f64>::from_fuzzy_set(probs.clone(), None, cfg_undamped).unwrap();
+    let mut s_tight = IbUmapSolver::<f64>::from_fuzzy_set(probs, None, cfg_tight_tau).unwrap();
 
     let mut l_damped = init.clone();
     let mut l_undamped = init.clone();
@@ -224,10 +202,9 @@ fn test_ib_umap_hub_damping_and_tau_clipping() {
     s_undamped.step(&mut l_undamped).unwrap();
     s_tight.step(&mut l_tight).unwrap();
 
-    // Relative displacement of hub vs centroid shift must be strictly smaller with hub damping.
     let mean_x_before = init.x().iter().sum::<f64>() / (star.num_nodes() as f64);
     let hub_rel_before = init.x()[0] - mean_x_before;
-    let hub_rel_damped = l_damped.x()[0]; // post-step layouts are zero-mean centered
+    let hub_rel_damped = l_damped.x()[0];
     let hub_rel_undamped = l_undamped.x()[0];
     let hub_rel_tight = l_tight.x()[0];
 

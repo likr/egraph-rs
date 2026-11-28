@@ -1,78 +1,6 @@
 use std::f64::consts::PI;
 
-use egraph_core::{CoreError, CoreResult, ManifoldKind, ManifoldLayout2d, Scalar};
-
-/// Tracks which layout representation a stateful solver instance is bound to.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ActiveLayoutKind {
-    Unset,
-    Euclidean2d,
-    Nd(usize),
-    Manifold(ManifoldKind),
-}
-
-impl ActiveLayoutKind {
-    pub(crate) fn lock_2d(&mut self, solver_name: &str) -> CoreResult<()> {
-        match *self {
-            Self::Unset => {
-                *self = Self::Euclidean2d;
-                Ok(())
-            }
-            Self::Euclidean2d => Ok(()),
-            Self::Nd(_) => Err(CoreError::invalid_input(format!(
-                "{solver_name}::step: cannot switch from LayoutNd to Layout2d on stateful solver"
-            ))),
-            Self::Manifold(_) => Err(CoreError::invalid_input(format!(
-                "{solver_name}::step: cannot switch from ManifoldLayout2d to Layout2d on stateful solver"
-            ))),
-        }
-    }
-
-    pub(crate) fn lock_nd(
-        &mut self,
-        dims: usize,
-        solver_name: &'static str,
-        dims_context: &'static str,
-    ) -> CoreResult<()> {
-        match *self {
-            Self::Unset => {
-                *self = Self::Nd(dims);
-                Ok(())
-            }
-            Self::Nd(prev) if prev == dims => Ok(()),
-            Self::Nd(prev) => Err(CoreError::dimension_mismatch(prev, dims, dims_context)),
-            Self::Euclidean2d => Err(CoreError::invalid_input(format!(
-                "{solver_name}::step: cannot switch from Layout2d to LayoutNd on stateful solver"
-            ))),
-            Self::Manifold(_) => Err(CoreError::invalid_input(format!(
-                "{solver_name}::step: cannot switch from ManifoldLayout2d to LayoutNd on stateful solver"
-            ))),
-        }
-    }
-
-    pub(crate) fn lock_manifold(
-        &mut self,
-        kind: ManifoldKind,
-        solver_name: &str,
-    ) -> CoreResult<()> {
-        match *self {
-            Self::Unset => {
-                *self = Self::Manifold(kind);
-                Ok(())
-            }
-            Self::Manifold(prev) if prev == kind => Ok(()),
-            Self::Manifold(_) => Err(CoreError::invalid_input(format!(
-                "{solver_name}::step: cannot switch ManifoldKind on stateful solver"
-            ))),
-            Self::Euclidean2d => Err(CoreError::invalid_input(format!(
-                "{solver_name}::step: cannot switch from Layout2d to ManifoldLayout2d on stateful solver"
-            ))),
-            Self::Nd(_) => Err(CoreError::invalid_input(format!(
-                "{solver_name}::step: cannot switch from LayoutNd to ManifoldLayout2d on stateful solver"
-            ))),
-        }
-    }
-}
+use egraph_core::{CoreResult, ManifoldKind, ManifoldLayout2d, Scalar};
 
 /// Clamps a metric-scaled tangent displacement vector according to the manifold's geometry and
 /// physical scale/aspect metric.
@@ -139,18 +67,12 @@ pub(crate) fn clamp_manifold_tangent_step<S: Scalar>(
     }
 }
 
-/// Applies a clamped tangent-space step to vertex `idx` and guards `f32` boundary rounding on
-/// [`ManifoldKind::Spherical`].
+/// Guards `f32` boundary rounding at Spherical `[0, 2*pi) x [0, pi]` after exponential map.
 #[inline]
-pub(crate) fn apply_clamped_manifold_step<S: Scalar>(
+pub(crate) fn guard_spherical_boundary<S: Scalar>(
     layout: &mut ManifoldLayout2d<S>,
     idx: usize,
-    vx: f64,
-    vy: f64,
 ) -> CoreResult<()> {
-    let (cvx, cvy) = clamp_manifold_tangent_step(layout, vx, vy);
-    layout.apply_tangent_step(idx, S::from_f64(cvx), S::from_f64(cvy))?;
-    // Guard f32 rounding at Spherical [0, 2*pi) x [0, pi] boundary.
     if layout.kind() == ManifoldKind::Spherical {
         let px = layout.x()[idx];
         let py = layout.y()[idx];
@@ -167,4 +89,18 @@ pub(crate) fn apply_clamped_manifold_step<S: Scalar>(
         }
     }
     Ok(())
+}
+
+/// Applies a clamped tangent-space step to vertex `idx` and guards `f32` boundary rounding on
+/// [`ManifoldKind::Spherical`].
+#[inline]
+pub(crate) fn apply_clamped_manifold_step<S: Scalar>(
+    layout: &mut ManifoldLayout2d<S>,
+    idx: usize,
+    vx: f64,
+    vy: f64,
+) -> CoreResult<()> {
+    let (cvx, cvy) = clamp_manifold_tangent_step(layout, vx, vy);
+    layout.apply_tangent_step(idx, S::from_f64(cvx), S::from_f64(cvy))?;
+    guard_spherical_boundary(layout, idx)
 }

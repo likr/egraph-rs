@@ -1,23 +1,30 @@
-use egraph_core::{CoreResult, CsrGraph, DeterministicRng, Scalar, SolverStatus};
+use std::any::TypeId;
+use std::marker::PhantomData;
+
+use egraph_core::{
+    CoreError, CoreResult, CsrGraph, DeterministicRng, IterativeSolver, Layout2d, Layout3d,
+    LayoutNd, ManifoldKind, ManifoldLayout2d, RiemannianLayout, Scalar, SolverStatus,
+};
 use egraph_neighborhood::{
     DogVaradhanConfig, DogVaradhanLandmarks, KnnGraph, Sparse12HopPairs, SparseProbabilities,
     build_gumap_12hop_priority_csr, compute_fuzzy_simplicial_set,
     compute_regularized_dog_varadhan_landmarks,
 };
 
-use crate::manifold_utils::ActiveLayoutKind;
+use crate::field_layout::DEFAULT_MAX_2HOP_PER_NODE;
 use crate::validation::{compute_12hop_alt_distances, validate_sparse_probabilities};
 
 use super::config::GuMapConfig;
+use super::dispatch::{
+    GuMapStepFn, GuMapValidateFn, step_any_2d, step_any_3d, step_any_manifold, step_any_nd,
+    validate_basic, validate_manifold, validate_nd, validate_riemannian,
+};
+use super::riemannian::{GuMapRiemannianScratch, step_riemannian};
 
 const DEFAULT_TIER2_MARGIN: f64 = 1.1;
 
-/// Cooperative, zero-per-step-allocation Graph UMAP (`GuMap`) layout solver.
-///
-/// Uses the `dist_sq.powf(b)` identity ($d^{2b} = (d^2)^b$, $d^{2b-2} = (d^2)^b / d^2$)
-/// to avoid per-pair square roots in both attractive and repulsive gradient evaluations.
 #[derive(Debug, Clone)]
-pub struct GuMapSolver<S: Scalar = f64> {
+pub(super) struct GuMapState<S: Scalar> {
     pub(super) config: GuMapConfig,
     pub(super) num_nodes: usize,
     pub(super) a: f64,
@@ -27,12 +34,27 @@ pub struct GuMapSolver<S: Scalar = f64> {
     pub(super) edge_weight: Vec<f32>,
     pub(super) epoch: usize,
     pub(super) status: SolverStatus,
-    pub(super) active_layout: ActiveLayoutKind,
+    pub(super) locked_nd_dims: Option<usize>,
+    pub(super) locked_manifold: Option<ManifoldKind>,
+    pub(super) riemannian_scratch: Option<GuMapRiemannianScratch>,
     pub(super) rng: DeterministicRng,
-    _marker: std::marker::PhantomData<S>,
+    _marker: PhantomData<S>,
 }
 
-impl<S: Scalar> GuMapSolver<S> {
+/// Cooperative, zero-per-step-allocation Graph UMAP (`GuMap`) layout solver supporting any
+/// [`RiemannianLayout`] (`Layout2d`, `Layout3d`, `LayoutNd`, `ManifoldLayout2d`, and external
+/// Riemannian targets).
+///
+/// Uses the `dist_sq.powf(b)` identity ($d^{2b} = (d^2)^b$, $d^{2b-2} = (d^2)^b / d^2$)
+/// to avoid per-pair square roots in both attractive and repulsive gradient evaluations.
+#[derive(Debug, Clone)]
+pub struct GuMapSolver<L: RiemannianLayout = Layout2d<f64>> {
+    pub(super) state: GuMapState<L::Scalar>,
+    validate_fn: GuMapValidateFn<L>,
+    step_fn: GuMapStepFn<L>,
+}
+
+impl<L: RiemannianLayout + 'static> GuMapSolver<L> {
     fn from_fuzzy_set_parts(
         n: usize,
         mut bucket_offsets: Vec<usize>,
@@ -84,8 +106,23 @@ impl<S: Scalar> GuMapSolver<S> {
         } else {
             SolverStatus::Initialized
         };
+        let seed = config.seed;
 
-        Self {
+        let tid = TypeId::of::<L>();
+        let (validate_fn, step_fn): (GuMapValidateFn<L>, GuMapStepFn<L>) =
+            if tid == TypeId::of::<Layout2d<L::Scalar>>() {
+                (validate_basic::<L>, step_any_2d::<L>)
+            } else if tid == TypeId::of::<Layout3d<L::Scalar>>() {
+                (validate_basic::<L>, step_any_3d::<L>)
+            } else if tid == TypeId::of::<LayoutNd<L::Scalar>>() {
+                (validate_nd::<L>, step_any_nd::<L>)
+            } else if tid == TypeId::of::<ManifoldLayout2d<L::Scalar>>() {
+                (validate_manifold::<L>, step_any_manifold::<L>)
+            } else {
+                (validate_riemannian::<L>, step_riemannian::<L>)
+            };
+
+        let state = GuMapState {
             config,
             num_nodes: n,
             a: ab.0,
@@ -95,16 +132,24 @@ impl<S: Scalar> GuMapSolver<S> {
             edge_weight,
             epoch: 0,
             status,
-            active_layout: ActiveLayoutKind::Unset,
-            rng: DeterministicRng::from_seed_u64(config.seed),
-            _marker: std::marker::PhantomData,
+            locked_nd_dims: None,
+            locked_manifold: None,
+            riemannian_scratch: None,
+            rng: DeterministicRng::from_seed_u64(seed),
+            _marker: PhantomData,
+        };
+
+        Self {
+            state,
+            validate_fn,
+            step_fn,
         }
     }
 
     fn scatter_fuzzy_buckets(
         probs: &SparseProbabilities,
     ) -> (usize, Vec<usize>, Vec<u32>, Vec<u32>, Vec<f32>) {
-        let n = probs.n_nodes;
+        let n = probs.num_nodes();
         let mut bucket_offsets = vec![0usize; n + 1];
         for i in 0..n {
             let i_u32 = i as u32;
@@ -152,7 +197,7 @@ impl<S: Scalar> GuMapSolver<S> {
     pub fn new<W: Scalar>(graph: &CsrGraph<W>, config: GuMapConfig) -> CoreResult<Self> {
         Self::from_graph_dog(
             graph,
-            crate::field_layout::DEFAULT_MAX_2HOP_PER_NODE,
+            DEFAULT_MAX_2HOP_PER_NODE,
             &DogVaradhanConfig::default(),
             config,
         )
@@ -214,11 +259,11 @@ impl<S: Scalar> GuMapSolver<S> {
     ) -> CoreResult<Self> {
         let knn = build_gumap_12hop_priority_csr(
             n,
-            &pairs.u1,
-            &pairs.v1,
+            pairs.u1(),
+            pairs.v1(),
             &d1,
-            &pairs.u2,
-            &pairs.v2,
+            pairs.u2(),
+            pairs.v2(),
             &d2,
             DEFAULT_TIER2_MARGIN,
         )?;
@@ -233,7 +278,7 @@ impl<S: Scalar> GuMapSolver<S> {
     /// Constructs a [`GuMapSolver`] from a [`CsrGraph`] and precomputed
     /// [`DogVaradhanLandmarks`] using $O(|E|)$ hub-safe 1+2-hop pairs, landmark ALT
     /// distances, `eps_dist` flooring, 1+2-hop priority CSR, and fuzzy simplicial sets.
-    pub fn from_landmarks<W: Scalar>(
+    pub fn from_landmarks<W>(
         graph: &CsrGraph<W>,
         landmarks: &DogVaradhanLandmarks,
         max_2hop_per_node: usize,
@@ -279,63 +324,120 @@ impl<S: Scalar> GuMapSolver<S> {
             &landmarks,
             max_2hop_per_node,
             config.seed,
-            "GuMapSolver::from_landmarks::landmarks",
+            "GuMapSolver::from_graph_dog::landmarks",
         )?;
         drop(landmarks);
         Self::finish_from_pairs(n, pairs, d1, d2, config)
     }
+}
 
+impl<L: RiemannianLayout> GuMapSolver<L> {
     /// Returns the solver configuration.
     #[inline]
     pub fn config(&self) -> &GuMapConfig {
-        &self.config
+        &self.state.config
     }
 
-    /// Returns the expected number of vertices in [`Layout2d`](egraph_core::Layout2d).
+    /// Returns the expected number of vertices in the target layout.
     #[inline]
     pub fn num_nodes(&self) -> usize {
-        self.num_nodes
+        self.state.num_nodes
     }
 
     /// Returns the number of stored directed positive probability edges.
     #[inline]
     pub fn num_edges(&self) -> usize {
-        self.edge_src.len()
+        self.state.edge_src.len()
     }
 
     /// Returns the resolved UMAP low-dimensional curve parameters `(a, b)`.
     #[inline]
     pub fn ab(&self) -> (f64, f64) {
-        (self.a, self.b)
+        (self.state.a, self.state.b)
     }
 
     /// Returns the resolved UMAP curve parameter `a`.
     #[inline]
     pub fn a(&self) -> f64 {
-        self.a
+        self.state.a
     }
 
     /// Returns the resolved UMAP curve parameter `b`.
     #[inline]
     pub fn b(&self) -> f64 {
-        self.b
+        self.state.b
     }
 
     /// Returns the current lifecycle status of the solver.
     #[inline]
     pub fn status(&self) -> SolverStatus {
-        self.status
+        self.state.status
     }
 
     /// Returns the number of completed optimization iterations.
     #[inline]
     pub fn iteration(&self) -> usize {
-        self.epoch
+        self.state.epoch
     }
 
     /// Returns the total configured optimization iterations.
     #[inline]
-    pub fn total_iterations(&self) -> usize {
-        self.config.iterations
+    pub fn total_iterations(&self) -> Option<usize> {
+        Some(self.state.config.iterations)
+    }
+}
+
+impl<L: RiemannianLayout> IterativeSolver for GuMapSolver<L> {
+    type Target = L;
+
+    fn validate_target(&self, target: &Self::Target) -> CoreResult<()> {
+        (self.validate_fn)(&self.state, target)
+    }
+
+    fn step(&mut self, target: &mut Self::Target) -> CoreResult<SolverStatus> {
+        self.validate_target(target)?;
+
+        if self.state.status.is_finished() {
+            return Ok(self.state.status);
+        }
+
+        let n = self.state.num_nodes;
+        if n < 2 || self.state.edge_src.is_empty() {
+            self.state.status = SolverStatus::Converged;
+            return Ok(self.state.status);
+        }
+
+        if let Err(err) = (self.step_fn)(&mut self.state, target) {
+            if matches!(
+                err,
+                CoreError::NumericalBreakdown(_) | CoreError::NonFiniteValue { .. }
+            ) {
+                self.state.status = SolverStatus::Failed;
+            }
+            return Err(err);
+        }
+
+        self.state.epoch += 1;
+        self.state.status = if self.state.epoch >= self.state.config.iterations {
+            SolverStatus::Completed
+        } else {
+            SolverStatus::Running
+        };
+        Ok(self.state.status)
+    }
+
+    #[inline]
+    fn status(&self) -> SolverStatus {
+        self.state.status
+    }
+
+    #[inline]
+    fn iteration(&self) -> usize {
+        self.state.epoch
+    }
+
+    #[inline]
+    fn total_iterations(&self) -> Option<usize> {
+        Some(self.state.config.iterations)
     }
 }

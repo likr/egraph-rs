@@ -1,21 +1,21 @@
 use std::f64::consts::TAU;
 
 use egraph_core::{
-    CoreError, CoreResult, IterativeSolver, ManifoldKind, ManifoldLayout2d, Scalar, SolverStatus,
+    CoreError, CoreResult, ManifoldKind, ManifoldLayout2d, RiemannianLayout, Scalar,
     cartesian_to_spherical, lorentz_log_map, poincare_log_map, spherical_log_map,
     spherical_to_cartesian, torus_delta,
 };
 
-use crate::manifold_utils::{apply_clamped_manifold_step, clamp_manifold_tangent_step};
+use crate::manifold_utils::{clamp_manifold_tangent_step, guard_spherical_boundary};
 
-use super::config::{MIN_LAMBDA_SUM, TsNetBackend, compute_stage_lr};
-use super::solver::TsNetSolver;
+use super::config::{MIN_LAMBDA_SUM, compute_stage_lr};
+use super::solver::TsNetState;
 
 const MIN_TOTAL_Z: f64 = 1e-12;
 const EXACT_ENTROPY_MIN_DIST: f64 = 1e-12;
 
-/// Lazily allocated exact geodesic repulsion scratch buffers for [`TsNetSolver`] on
-/// [`ManifoldLayout2d`].
+/// Lazily allocated exact geodesic repulsion scratch buffers for [`TsNetSolver`](super::TsNetSolver)
+/// on [`ManifoldLayout2d`].
 #[derive(Debug, Clone)]
 pub(super) struct TsNetManifoldScratch {
     rep_x: Vec<f64>,
@@ -117,256 +117,218 @@ impl CompressionCenter {
     }
 }
 
-impl<S: Scalar> TsNetSolver<S> {
-    fn check_manifold_backend(&self) -> CoreResult<()> {
-        match self.config.backend {
-            TsNetBackend::Exact | TsNetBackend::Auto => Ok(()),
-            other @ (TsNetBackend::BarnesHut
-            | TsNetBackend::FftInterpolation
-            | TsNetBackend::LinearFft) => Err(CoreError::unsupported(format!(
-                "TsNetBackend::{other:?} is only supported on Euclidean layouts; use Exact or Auto on ManifoldLayout2d"
-            ))),
-        }
+fn ensure_manifold_scratch<S: Scalar>(state: &mut TsNetState<S>) {
+    if state.manifold_scratch.is_some() {
+        return;
     }
-
-    fn ensure_manifold_scratch(&mut self) {
-        if self.manifold_scratch.is_some() {
-            return;
-        }
-        let n = self.num_nodes;
-        let any_entropy = self
-            .stages
-            .iter()
-            .any(|s| s.iterations > 0 && s.lambda_r > 0.0);
-        self.manifold_scratch = Some(TsNetManifoldScratch {
-            rep_x: vec![0.0; n],
-            rep_y: vec![0.0; n],
-            ent_x: vec![0.0; if any_entropy { n } else { 0 }],
-            ent_y: vec![0.0; if any_entropy { n } else { 0 }],
-        });
-    }
-
-    fn enter_current_stage_manifold(&mut self) {
-        let stage = self.stages[self.stage_idx];
-        let base_lr = self.config.resolve_learning_rate(self.num_nodes);
-        let stage_lr = compute_stage_lr(&stage, self.num_nodes, base_lr, self.config.momentum);
-        if stage_lr < self.prev_stage_lr {
-            let vel_scale = stage_lr / self.prev_stage_lr;
-            for v in &mut self.vel_x {
-                *v *= vel_scale;
-            }
-            for v in &mut self.vel_y {
-                *v *= vel_scale;
-            }
-        }
-        self.prev_stage_lr = stage_lr;
-        self.active_stage_lr = stage_lr;
-        self.stage_entered = true;
-    }
-
-    fn compute_attractions_manifold(
-        &mut self,
-        layout: &ManifoldLayout2d<S>,
-        exaggeration: f64,
-    ) -> CoreResult<()> {
-        let n = self.num_nodes;
-        for i in 0..n {
-            let start = self.indptr[i] as usize;
-            let end = self.indptr[i + 1] as usize;
-            let mut ax = 0.0_f64;
-            let mut ay = 0.0_f64;
-            for pos in start..end {
-                let j = self.indices[pos] as usize;
-                if j == i {
-                    continue;
-                }
-                let (tx_s, ty_s) = layout.tangent_delta(i, j)?;
-                let dx = -tx_s.to_f64();
-                let dy = -ty_s.to_f64();
-                let dist_sq = dx * dx + dy * dy;
-                let q_unnorm = 1.0 / (1.0 + dist_sq);
-                let mult = (self.p_vals[pos] * exaggeration) * q_unnorm;
-                ax += mult * dx;
-                ay += mult * dy;
-            }
-            self.attr_x[i] = ax;
-            self.attr_y[i] = ay;
-        }
-        Ok(())
-    }
-
-    fn compute_exact_repulsion_manifold(
-        &mut self,
-        layout: &ManifoldLayout2d<S>,
-        compute_entropy: bool,
-    ) -> CoreResult<()> {
-        let scratch = self.manifold_scratch.as_mut().ok_or_else(|| {
-            CoreError::numerical_breakdown("TsNetManifoldScratch workspace missing")
-        })?;
-        let n = self.num_nodes;
-        let eps_r = self.config.epsilon_r;
-        let mut total_z = 0.0_f64;
-
-        for i in 0..n {
-            let mut z_i = 0.0_f64;
-            let mut rfx = 0.0_f64;
-            let mut rfy = 0.0_f64;
-            let mut efx = 0.0_f64;
-            let mut efy = 0.0_f64;
-
-            for j in 0..n {
-                if j == i {
-                    continue;
-                }
-                let (tx_s, ty_s) = layout.tangent_delta(i, j)?;
-                let dx = -tx_s.to_f64();
-                let dy = -ty_s.to_f64();
-                let dist_sq = dx * dx + dy * dy;
-                let w = 1.0 / (1.0 + dist_sq);
-                z_i += w;
-                let w2 = w * w;
-                rfx += w2 * dx;
-                rfy += w2 * dy;
-                if compute_entropy {
-                    let dist = dist_sq.sqrt();
-                    if dist > EXACT_ENTROPY_MIN_DIST {
-                        let mult = 1.0 / (dist * (dist + eps_r));
-                        efx += mult * dx;
-                        efy += mult * dy;
-                    }
-                }
-            }
-
-            total_z += z_i;
-            scratch.rep_x[i] = rfx;
-            scratch.rep_y[i] = rfy;
-            if compute_entropy {
-                scratch.ent_x[i] = efx;
-                scratch.ent_y[i] = efy;
-            }
-        }
-
-        let denom = total_z.max(MIN_TOTAL_Z);
-        for i in 0..n {
-            scratch.rep_x[i] /= denom;
-            scratch.rep_y[i] /= denom;
-        }
-        Ok(())
-    }
+    let n = state.num_nodes;
+    let any_entropy = state
+        .config
+        .stages
+        .iter()
+        .any(|s| s.iterations > 0 && s.lambda_r > 0.0);
+    state.manifold_scratch = Some(TsNetManifoldScratch {
+        rep_x: vec![0.0; n],
+        rep_y: vec![0.0; n],
+        ent_x: vec![0.0; if any_entropy { n } else { 0 }],
+        ent_y: vec![0.0; if any_entropy { n } else { 0 }],
+    });
 }
 
-impl<S: Scalar> IterativeSolver<S, ManifoldLayout2d<S>> for TsNetSolver<S> {
-    fn step(&mut self, layout: &mut ManifoldLayout2d<S>) -> CoreResult<SolverStatus> {
-        if layout.len() != self.num_nodes {
-            return Err(CoreError::dimension_mismatch(
-                self.num_nodes,
-                layout.len(),
-                "TsNetSolver::step",
-            ));
+fn enter_current_stage_manifold<S: Scalar>(state: &mut TsNetState<S>) {
+    let stage = &state.config.stages[state.stage_idx];
+    let base_lr = state.config.resolve_learning_rate(state.num_nodes);
+    let stage_lr = compute_stage_lr(stage, state.num_nodes, base_lr, state.config.momentum);
+    if stage_lr < state.prev_stage_lr {
+        let vel_scale = stage_lr / state.prev_stage_lr;
+        for v in &mut state.vel_x {
+            *v *= vel_scale;
         }
-        layout.validate_finite()?;
-        self.check_manifold_backend()?;
-        self.active_layout
-            .lock_manifold(layout.kind(), "TsNetSolver")?;
-
-        if self.status.is_finished() {
-            return Ok(self.status);
+        for v in &mut state.vel_y {
+            *v *= vel_scale;
         }
+    }
+    state.prev_stage_lr = stage_lr;
+    state.active_stage_lr = stage_lr;
+    state.stage_entered = true;
+}
 
-        if self.num_nodes < 2 {
-            self.status = SolverStatus::Converged;
-            return Ok(self.status);
+fn compute_attractions_manifold<S: Scalar>(
+    state: &mut TsNetState<S>,
+    layout: &ManifoldLayout2d<S>,
+    exaggeration: f64,
+) -> CoreResult<()> {
+    let n = state.num_nodes;
+    for i in 0..n {
+        let start = state.indptr[i] as usize;
+        let end = state.indptr[i + 1] as usize;
+        let mut ax = 0.0_f64;
+        let mut ay = 0.0_f64;
+        for pos in start..end {
+            let j = state.indices[pos] as usize;
+            if j == i {
+                continue;
+            }
+            let (tx_s, ty_s) = layout.tangent_delta(i, j)?;
+            let dx = -tx_s.to_f64();
+            let dy = -ty_s.to_f64();
+            let dist_sq = dx * dx + dy * dy;
+            let q_unnorm = 1.0 / (1.0 + dist_sq);
+            let mult = (state.p_vals[pos] * exaggeration) * q_unnorm;
+            ax += mult * dx;
+            ay += mult * dy;
         }
+        state.attr_x[i] = ax;
+        state.attr_y[i] = ay;
+    }
+    Ok(())
+}
 
-        self.ensure_manifold_scratch();
-        if !self.stage_entered {
-            self.enter_current_stage_manifold();
-        }
+fn compute_exact_repulsion_manifold<S: Scalar>(
+    state: &mut TsNetState<S>,
+    layout: &ManifoldLayout2d<S>,
+    compute_entropy: bool,
+) -> CoreResult<()> {
+    let scratch = state
+        .manifold_scratch
+        .as_mut()
+        .ok_or_else(|| CoreError::numerical_breakdown("TsNetManifoldScratch workspace missing"))?;
+    let n = state.num_nodes;
+    let eps_r = state.config.epsilon_r;
+    let mut total_z = 0.0_f64;
 
-        let stage = self.stages[self.stage_idx];
-        let compute_entropy = stage.lambda_r > 0.0;
+    for i in 0..n {
+        let mut z_i = 0.0_f64;
+        let mut rfx = 0.0_f64;
+        let mut rfy = 0.0_f64;
+        let mut efx = 0.0_f64;
+        let mut efy = 0.0_f64;
 
-        self.compute_attractions_manifold(layout, stage.exaggeration)?;
-        self.compute_exact_repulsion_manifold(layout, compute_entropy)?;
-
-        let n = self.num_nodes;
-        let n_sq_f64 = (n as f64) * (n as f64);
-        let lambda_sum = (stage.lambda_kl + stage.lambda_c + stage.lambda_r).max(MIN_LAMBDA_SUM);
-        let stage_lr = self.active_stage_lr;
-        let momentum = self.config.momentum;
-        let use_jacobi = self.config.jacobi_precondition;
-        let center = if stage.lambda_c > 0.0 {
-            CompressionCenter::compute(layout)
-        } else {
-            CompressionCenter::None
-        };
-
-        {
-            let scratch = self.manifold_scratch.as_ref().ok_or_else(|| {
-                CoreError::numerical_breakdown("TsNetManifoldScratch workspace missing")
-            })?;
-            for i in 0..n {
-                let grad_kl_x = 4.0 * (self.attr_x[i] - scratch.rep_x[i]);
-                let grad_kl_y = 4.0 * (self.attr_y[i] - scratch.rep_y[i]);
-                let (grad_c_x, grad_c_y) = if stage.lambda_c > 0.0 {
-                    center.gradient_at(layout, i)
-                } else {
-                    (0.0, 0.0)
-                };
-                let (grad_r_x, grad_r_y) = if compute_entropy {
-                    (-scratch.ent_x[i] / n_sq_f64, -scratch.ent_y[i] / n_sq_f64)
-                } else {
-                    (0.0, 0.0)
-                };
-
-                let raw_gx = (stage.lambda_kl * grad_kl_x
-                    + stage.lambda_c * grad_c_x
-                    + stage.lambda_r * grad_r_x)
-                    / lambda_sum;
-                let raw_gy = (stage.lambda_kl * grad_kl_y
-                    + stage.lambda_c * grad_c_y
-                    + stage.lambda_r * grad_r_y)
-                    / lambda_sum;
-                let gx = if raw_gx.is_finite() { raw_gx } else { 0.0 };
-                let gy = if raw_gy.is_finite() { raw_gy } else { 0.0 };
-
-                let lr_i = if use_jacobi {
-                    stage_lr * self.inv_jacobi[i]
-                } else {
-                    stage_lr
-                };
-                let raw_vx = momentum * self.vel_x[i] - lr_i * gx;
-                let raw_vy = momentum * self.vel_y[i] - lr_i * gy;
-                let (cvx, cvy) = clamp_manifold_tangent_step(layout, raw_vx, raw_vy);
-                self.vel_x[i] = cvx;
-                self.vel_y[i] = cvy;
+        for j in 0..n {
+            if j == i {
+                continue;
+            }
+            let (tx_s, ty_s) = layout.tangent_delta(i, j)?;
+            let dx = -tx_s.to_f64();
+            let dy = -ty_s.to_f64();
+            let dist_sq = dx * dx + dy * dy;
+            let w = 1.0 / (1.0 + dist_sq);
+            z_i += w;
+            let w2 = w * w;
+            rfx += w2 * dx;
+            rfy += w2 * dy;
+            if compute_entropy {
+                let dist = dist_sq.sqrt();
+                if dist > EXACT_ENTROPY_MIN_DIST {
+                    let mult = 1.0 / (dist * (dist + eps_r));
+                    efx += mult * dx;
+                    efy += mult * dy;
+                }
             }
         }
 
+        total_z += z_i;
+        scratch.rep_x[i] = rfx;
+        scratch.rep_y[i] = rfy;
+        if compute_entropy {
+            scratch.ent_x[i] = efx;
+            scratch.ent_y[i] = efy;
+        }
+    }
+
+    let denom = total_z.max(MIN_TOTAL_Z);
+    for i in 0..n {
+        scratch.rep_x[i] /= denom;
+        scratch.rep_y[i] /= denom;
+    }
+    Ok(())
+}
+
+pub(super) fn step_manifold<S: Scalar>(
+    state: &mut TsNetState<S>,
+    layout: &mut ManifoldLayout2d<S>,
+) -> CoreResult<()> {
+    if state.locked_manifold.is_none() {
+        state.locked_manifold = Some(layout.kind());
+    }
+
+    ensure_manifold_scratch(state);
+    if !state.stage_entered {
+        enter_current_stage_manifold(state);
+    }
+
+    let stage = state.config.stages[state.stage_idx].clone();
+    let compute_entropy = stage.lambda_r > 0.0;
+
+    compute_attractions_manifold(state, layout, stage.exaggeration)?;
+    compute_exact_repulsion_manifold(state, layout, compute_entropy)?;
+
+    let n = state.num_nodes;
+    let n_sq_f64 = (n as f64) * (n as f64);
+    let lambda_sum = (stage.lambda_kl + stage.lambda_c + stage.lambda_r).max(MIN_LAMBDA_SUM);
+    let stage_lr = state.active_stage_lr;
+    let momentum = state.config.momentum;
+    let use_jacobi = state.config.jacobi_precondition;
+    let center = if stage.lambda_c > 0.0 {
+        CompressionCenter::compute(layout)
+    } else {
+        CompressionCenter::None
+    };
+
+    {
+        let scratch = state.manifold_scratch.as_ref().ok_or_else(|| {
+            CoreError::numerical_breakdown("TsNetManifoldScratch workspace missing")
+        })?;
         for i in 0..n {
-            let vx = self.vel_x[i];
-            let vy = self.vel_y[i];
-            if vx != 0.0 || vy != 0.0 {
-                apply_clamped_manifold_step(layout, i, vx, vy)?;
-            }
+            let grad_kl_x = 4.0 * (state.attr_x[i] - scratch.rep_x[i]);
+            let grad_kl_y = 4.0 * (state.attr_y[i] - scratch.rep_y[i]);
+            let (grad_c_x, grad_c_y) = if stage.lambda_c > 0.0 {
+                center.gradient_at(layout, i)
+            } else {
+                (0.0, 0.0)
+            };
+            let (grad_r_x, grad_r_y) = if compute_entropy {
+                (-scratch.ent_x[i] / n_sq_f64, -scratch.ent_y[i] / n_sq_f64)
+            } else {
+                (0.0, 0.0)
+            };
+
+            let raw_gx = (stage.lambda_kl * grad_kl_x
+                + stage.lambda_c * grad_c_x
+                + stage.lambda_r * grad_r_x)
+                / lambda_sum;
+            let raw_gy = (stage.lambda_kl * grad_kl_y
+                + stage.lambda_c * grad_c_y
+                + stage.lambda_r * grad_r_y)
+                / lambda_sum;
+            let gx = if raw_gx.is_finite() { raw_gx } else { 0.0 };
+            let gy = if raw_gy.is_finite() { raw_gy } else { 0.0 };
+
+            let lr_i = if use_jacobi {
+                stage_lr * state.inv_jacobi[i]
+            } else {
+                stage_lr
+            };
+            let raw_vx = momentum * state.vel_x[i] - lr_i * gx;
+            let raw_vy = momentum * state.vel_y[i] - lr_i * gy;
+            let (cvx, cvy) = clamp_manifold_tangent_step(layout, raw_vx, raw_vy);
+            state.vel_x[i] = cvx;
+            state.vel_y[i] = cvy;
         }
-
-        self.advance_stage_counters();
-        Ok(self.status)
     }
 
-    #[inline]
-    fn status(&self) -> SolverStatus {
-        self.status
+    for i in 0..n {
+        let vx = state.vel_x[i];
+        let vy = state.vel_y[i];
+        if vx != 0.0 || vy != 0.0 {
+            let delta = [vx, vy];
+            let mut vel = [vx, vy];
+            layout.exp_map_and_transport(i, &delta, &mut vel)?;
+            guard_spherical_boundary(layout, i)?;
+            state.vel_x[i] = if vel[0].is_finite() { vel[0] } else { 0.0 };
+            state.vel_y[i] = if vel[1].is_finite() { vel[1] } else { 0.0 };
+        }
     }
 
-    #[inline]
-    fn iteration(&self) -> usize {
-        self.iteration
-    }
-
-    #[inline]
-    fn total_iterations(&self) -> usize {
-        self.total_iterations
-    }
+    Ok(())
 }

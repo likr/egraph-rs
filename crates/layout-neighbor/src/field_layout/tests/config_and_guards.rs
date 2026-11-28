@@ -1,9 +1,14 @@
-use egraph_core::{CoreError, CsrGraph, IterativeSolver, Layout2d, SolverStatus};
+use egraph_core::{
+    CoreError, CsrGraph, IterativeSolver, Layout2d, Layout3d, LayoutNd, SolverStatus,
+};
 use egraph_neighborhood::{
-    DogVaradhanConfig, SparseProbabilities, compute_regularized_dog_varadhan_landmarks,
+    DogVaradhanConfig, DogVaradhanLandmarks, SparseProbabilities,
+    compute_regularized_dog_varadhan_landmarks,
 };
 
-use super::super::{FieldLayoutSolver, IbUmapConfig, RhoSchedule, TFdpConfig};
+use super::super::{
+    FieldRepulsionBackend, IbUmapConfig, IbUmapSolver, RhoSchedule, TFdpConfig, TFdpSolver,
+};
 use super::{grid_graph, seeded_layout};
 
 #[test]
@@ -21,43 +26,21 @@ fn test_rho_schedule_evaluation_and_validation() {
     assert!((sched.evaluate(2.0) - 0.1).abs() < 1e-12);
     assert!((sched.evaluate(f64::NAN) - 1.0).abs() < 1e-12);
 
-    let quad = RhoSchedule {
-        start_weight: 2.0,
-        end_weight: 0.2,
-        power: 2.0,
-    };
+    let quad = RhoSchedule::new()
+        .with_start_weight(2.0)
+        .with_end_weight(0.2)
+        .with_power(2.0);
     quad.validate().unwrap();
     assert!((quad.evaluate(0.5) - (2.0 + (0.2 - 2.0) * 0.25)).abs() < 1e-12);
 
     let bad_cases = [
-        RhoSchedule {
-            start_weight: -0.1,
-            ..sched
-        },
-        RhoSchedule {
-            start_weight: f64::NAN,
-            ..sched
-        },
-        RhoSchedule {
-            end_weight: -0.1,
-            ..sched
-        },
-        RhoSchedule {
-            end_weight: f64::INFINITY,
-            ..sched
-        },
-        RhoSchedule {
-            power: 0.0,
-            ..sched
-        },
-        RhoSchedule {
-            power: -1.0,
-            ..sched
-        },
-        RhoSchedule {
-            power: f64::NAN,
-            ..sched
-        },
+        sched.clone().with_start_weight(-0.1),
+        sched.clone().with_start_weight(f64::NAN),
+        sched.clone().with_end_weight(-0.1),
+        sched.clone().with_end_weight(f64::INFINITY),
+        sched.clone().with_power(0.0),
+        sched.clone().with_power(-1.0),
+        sched.with_power(f64::NAN),
     ];
     for bad in bad_cases {
         assert!(bad.validate().is_err());
@@ -72,15 +55,17 @@ fn test_field_layout_edge_cases_and_error_guards() {
 
     // Empty and singleton graphs for both t-FDP and ibUMAP
     let empty = CsrGraph::<f64>::from_edges(0, &[], None, false, false).unwrap();
-    let mut se_fdp = FieldLayoutSolver::<f64>::t_fdp(&empty, tfdp_cfg).unwrap();
-    let mut se_umap = FieldLayoutSolver::<f64>::ib_umap(&empty, 16, &dog_cfg, ib_cfg).unwrap();
+    let mut se_fdp = TFdpSolver::<Layout2d<f64>>::new(&empty, tfdp_cfg.clone()).unwrap();
+    let mut se_umap =
+        IbUmapSolver::<f64>::from_graph_dog(&empty, 16, &dog_cfg, ib_cfg.clone()).unwrap();
     let mut le = Layout2d::<f64>::zeros(0);
     assert_eq!(se_fdp.run(&mut le).unwrap(), SolverStatus::Converged);
     assert_eq!(se_umap.run(&mut le).unwrap(), SolverStatus::Converged);
 
     let single = CsrGraph::<f64>::from_edges(1, &[], None, false, false).unwrap();
-    let mut ss_fdp = FieldLayoutSolver::<f64>::t_fdp(&single, tfdp_cfg).unwrap();
-    let mut ss_umap = FieldLayoutSolver::<f64>::ib_umap(&single, 16, &dog_cfg, ib_cfg).unwrap();
+    let mut ss_fdp = TFdpSolver::<Layout2d<f64>>::new(&single, tfdp_cfg.clone()).unwrap();
+    let mut ss_umap =
+        IbUmapSolver::<f64>::from_graph_dog(&single, 16, &dog_cfg, ib_cfg.clone()).unwrap();
     let mut ls = Layout2d::from_xy(vec![3.5], vec![-2.5]).unwrap();
     assert_eq!(ss_fdp.run(&mut ls).unwrap(), SolverStatus::Converged);
     assert_eq!(ss_umap.run(&mut ls).unwrap(), SolverStatus::Converged);
@@ -89,22 +74,13 @@ fn test_field_layout_edge_cases_and_error_guards() {
 
     // Disconnected graph with isolated vertices runs cleanly
     let disc = CsrGraph::<f64>::from_edges(6, &[(0, 1), (3, 4)], None, false, false).unwrap();
-    let mut sd_fdp = FieldLayoutSolver::<f64>::t_fdp(
-        &disc,
-        TFdpConfig {
-            iterations: 15,
-            ..tfdp_cfg
-        },
-    )
-    .unwrap();
-    let mut sd_umap = FieldLayoutSolver::<f64>::ib_umap(
+    let mut sd_fdp =
+        TFdpSolver::<Layout2d<f64>>::new(&disc, tfdp_cfg.clone().with_iterations(15)).unwrap();
+    let mut sd_umap = IbUmapSolver::<f64>::from_graph_dog(
         &disc,
         16,
         &dog_cfg,
-        IbUmapConfig {
-            iterations: 15,
-            ..ib_cfg
-        },
+        ib_cfg.clone().with_iterations(15),
     )
     .unwrap();
     let mut ld1 = seeded_layout::<f64>(6, 1.0, 31);
@@ -113,130 +89,104 @@ fn test_field_layout_edge_cases_and_error_guards() {
     assert_eq!(sd_umap.run(&mut ld2).unwrap(), SolverStatus::Completed);
     assert!(ld1.is_all_finite() && ld2.is_all_finite());
 
-    // Zero-iteration solvers complete immediately
-    let zero_fdp = FieldLayoutSolver::<f64>::t_fdp(
-        &disc,
-        TFdpConfig {
-            iterations: 0,
-            ..tfdp_cfg
-        },
-    )
-    .unwrap();
+    // Zero-iteration solvers complete immediately and still validate run_steps(target, 0)
+    let mut zero_fdp =
+        TFdpSolver::<Layout2d<f64>>::new(&disc, tfdp_cfg.clone().with_iterations(0)).unwrap();
     assert_eq!(zero_fdp.status(), SolverStatus::Completed);
-    assert_eq!(zero_fdp.total_iterations(), 0);
-    let zero_umap = FieldLayoutSolver::<f64>::ib_umap(
-        &disc,
-        16,
-        &dog_cfg,
-        IbUmapConfig {
-            iterations: 0,
-            ..ib_cfg
-        },
-    )
-    .unwrap();
+    assert_eq!(zero_fdp.total_iterations(), Some(0));
+    let mut zero_umap =
+        IbUmapSolver::<f64>::from_graph_dog(&disc, 16, &dog_cfg, ib_cfg.clone().with_iterations(0))
+            .unwrap();
     assert_eq!(zero_umap.status(), SolverStatus::Completed);
-    assert_eq!(zero_umap.total_iterations(), 0);
+    assert_eq!(zero_umap.total_iterations(), Some(0));
 
-    // Dimension mismatch & NaN/Inf layout guards
+    // Dimension mismatch & NaN/Inf layout guards (including run_steps(target, 0))
     let mut l_wrong = Layout2d::<f64>::zeros(4);
     assert!(matches!(
         sd_fdp.step(&mut l_wrong),
         Err(CoreError::DimensionMismatch { .. })
     ));
+    assert!(matches!(
+        zero_fdp.run_steps(&mut l_wrong, 0),
+        Err(CoreError::DimensionMismatch { .. })
+    ));
+    assert!(matches!(
+        zero_umap.run_steps(&mut l_wrong, 0),
+        Err(CoreError::DimensionMismatch { .. })
+    ));
+
     let mut l_nan = Layout2d::from_xy(vec![0.0; 6], vec![f64::NAN; 6]).unwrap();
     assert!(matches!(
         sd_umap.step(&mut l_nan),
         Err(CoreError::NonFiniteValue { .. })
     ));
+    assert_eq!(sd_umap.status(), SolverStatus::Completed);
+
+    // Fail-fast backend checks at construction on Layout3d and LayoutNd
+    assert!(matches!(
+        TFdpSolver::<Layout3d<f64>>::new(
+            &disc,
+            TFdpConfig::new().with_backend(FieldRepulsionBackend::IbFft),
+        ),
+        Err(CoreError::UnsupportedOperation(_))
+    ));
+    assert!(matches!(
+        TFdpSolver::<LayoutNd<f64>>::new(
+            &disc,
+            TFdpConfig::new().with_backend(FieldRepulsionBackend::BarnesHut),
+        ),
+        Err(CoreError::UnsupportedOperation(_))
+    ));
+    assert!(matches!(
+        TFdpSolver::<LayoutNd<f64>>::new(
+            &disc,
+            TFdpConfig::new().with_backend(FieldRepulsionBackend::IbFft),
+        ),
+        Err(CoreError::UnsupportedOperation(_))
+    ));
 
     // Negative or NaN config & weight guards
     let bad_tfdp_configs = [
-        TFdpConfig {
-            learning_rate: 0.0,
-            ..tfdp_cfg
-        },
-        TFdpConfig {
-            learning_rate: f64::NAN,
-            ..tfdp_cfg
-        },
-        TFdpConfig {
-            momentum: 1.0,
-            ..tfdp_cfg
-        },
-        TFdpConfig {
-            alpha: 0.0,
-            ..tfdp_cfg
-        },
-        TFdpConfig {
-            gamma: -0.5,
-            ..tfdp_cfg
-        },
-        TFdpConfig {
-            theta: -0.1,
-            ..tfdp_cfg
-        },
-        TFdpConfig {
-            rho: RhoSchedule {
-                power: 0.0,
-                ..RhoSchedule::default()
-            },
-            ..tfdp_cfg
-        },
+        tfdp_cfg.clone().with_learning_rate(0.0),
+        tfdp_cfg.clone().with_learning_rate(f64::NAN),
+        tfdp_cfg.clone().with_momentum(1.0),
+        tfdp_cfg.clone().with_alpha(0.0),
+        tfdp_cfg.clone().with_gamma(-0.5),
+        tfdp_cfg.clone().with_theta(-0.1),
+        tfdp_cfg
+            .clone()
+            .with_rho(RhoSchedule::new().with_power(0.0)),
     ];
     for bad in bad_tfdp_configs {
-        assert!(FieldLayoutSolver::<f64>::t_fdp(&disc, bad).is_err());
+        assert!(TFdpSolver::<Layout2d<f64>>::new(&disc, bad).is_err());
     }
 
     let bad_ib_configs = [
-        IbUmapConfig {
-            learning_rate: f64::NAN,
-            ..ib_cfg
-        },
-        IbUmapConfig {
-            min_dist: -0.1,
-            ..ib_cfg
-        },
-        IbUmapConfig {
-            spread: 0.0,
-            ..ib_cfg
-        },
-        IbUmapConfig {
-            c_k: -1.0,
-            ..ib_cfg
-        },
-        IbUmapConfig {
-            tau_scale: 0.0,
-            ..ib_cfg
-        },
-        IbUmapConfig {
-            theta: f64::INFINITY,
-            ..ib_cfg
-        },
-        IbUmapConfig {
-            a: Some(0.0),
-            ..ib_cfg
-        },
-        IbUmapConfig {
-            b: Some(f64::NAN),
-            ..ib_cfg
-        },
+        ib_cfg.clone().with_learning_rate(f64::NAN),
+        ib_cfg.clone().with_min_dist(-0.1),
+        ib_cfg.clone().with_spread(0.0),
+        ib_cfg.clone().with_c_k(-1.0),
+        ib_cfg.clone().with_tau_scale(0.0),
+        ib_cfg.clone().with_theta(f64::INFINITY),
+        ib_cfg.clone().with_a(Some(0.0)),
+        ib_cfg.clone().with_b(Some(f64::NAN)),
     ];
     for bad in bad_ib_configs {
-        assert!(FieldLayoutSolver::<f64>::ib_umap(&disc, 16, &dog_cfg, bad).is_err());
+        assert!(IbUmapSolver::<f64>::from_graph_dog(&disc, 16, &dog_cfg, bad).is_err());
     }
 
-    // Degree slice length mismatch in ib_umap_from_fuzzy_set
+    // Degree slice length mismatch in IbUmapSolver::from_fuzzy_set
     let probs = SparseProbabilities::empty(3);
     assert!(matches!(
-        FieldLayoutSolver::<f64>::ib_umap_from_fuzzy_set(probs, Some(&[1, 2]), ib_cfg),
+        IbUmapSolver::<f64>::from_fuzzy_set(probs, Some(&[1, 2]), ib_cfg),
         Err(CoreError::DimensionMismatch { .. })
     ));
 
-    // Negative edge weight in t_fdp
+    // Negative edge weight in TFdpSolver
     let neg_w_graph =
         CsrGraph::<f64>::from_edges(2, &[(0, 1)], Some(&[-1.0]), false, false).unwrap();
     assert!(matches!(
-        FieldLayoutSolver::<f64>::t_fdp(&neg_w_graph, tfdp_cfg),
+        TFdpSolver::<Layout2d<f64>>::new(&neg_w_graph, tfdp_cfg),
         Err(CoreError::InvalidInput(_))
     ));
 }
@@ -246,16 +196,11 @@ fn test_ib_umap_from_landmarks_bit_exact_and_validation() {
     let g = grid_graph(4, 4);
     let n = g.num_nodes();
     let dog_cfg = DogVaradhanConfig::default();
-    let cfg = IbUmapConfig {
-        iterations: 15,
-        seed: 67,
-        ..Default::default()
-    };
+    let cfg = IbUmapConfig::new().with_iterations(15).with_seed(67);
     let (landmarks, _) = compute_regularized_dog_varadhan_landmarks(&g, &dog_cfg).unwrap();
 
-    let mut s_dog = FieldLayoutSolver::<f64>::ib_umap(&g, 32, &dog_cfg, cfg).unwrap();
-    let mut s_lm =
-        FieldLayoutSolver::<f64>::ib_umap_from_landmarks(&g, &landmarks, 32, cfg).unwrap();
+    let mut s_dog = IbUmapSolver::<f64>::from_graph_dog(&g, 32, &dog_cfg, cfg.clone()).unwrap();
+    let mut s_lm = IbUmapSolver::<f64>::from_landmarks(&g, &landmarks, 32, cfg.clone()).unwrap();
     let mut l_dog = seeded_layout::<f64>(n, 1.0, 23);
     let mut l_lm = l_dog.clone();
     s_dog.run(&mut l_dog).unwrap();
@@ -265,34 +210,28 @@ fn test_ib_umap_from_landmarks_bit_exact_and_validation() {
         assert_eq!(l_dog.y()[i].to_bits(), l_lm.y()[i].to_bits());
     }
 
+    // Unweighted CsrGraph<()> works with from_landmarks
+    let g_unit =
+        CsrGraph::<()>::from_unweighted_csr(g.indptr(), g.indices(), false, false).unwrap();
+    let mut s_unit =
+        IbUmapSolver::<f64>::from_landmarks(&g_unit, &landmarks, 32, cfg.clone()).unwrap();
+    let mut l_unit = seeded_layout::<f64>(n, 1.0, 23);
+    s_unit.run(&mut l_unit).unwrap();
+    for i in 0..n {
+        assert_eq!(l_unit.x()[i].to_bits(), l_lm.x()[i].to_bits());
+        assert_eq!(l_unit.y()[i].to_bits(), l_lm.y()[i].to_bits());
+    }
+
     // Validation errors
-    let mut bad_nodes = landmarks.clone();
-    bad_nodes.num_nodes = n + 1;
+    let bad_nodes = DogVaradhanLandmarks::empty(n + 1).unwrap();
     assert!(matches!(
-        FieldLayoutSolver::<f64>::ib_umap_from_landmarks(&g, &bad_nodes, 32, cfg),
+        IbUmapSolver::<f64>::from_landmarks(&g, &bad_nodes, 32, cfg.clone()),
         Err(CoreError::DimensionMismatch { .. })
     ));
 
-    let mut bad_empty_lm = landmarks.clone();
-    bad_empty_lm.landmarks.clear();
-    bad_empty_lm.d_dog.clear();
-    bad_empty_lm.d_coarse = None;
+    let bad_empty_lm = DogVaradhanLandmarks::empty(n).unwrap();
     assert!(matches!(
-        FieldLayoutSolver::<f64>::ib_umap_from_landmarks(&g, &bad_empty_lm, 32, cfg),
+        IbUmapSolver::<f64>::from_landmarks(&g, &bad_empty_lm, 32, cfg),
         Err(CoreError::InvalidInput(_))
-    ));
-
-    let mut bad_nan = landmarks.clone();
-    bad_nan.d_dog[0] = f64::NAN;
-    assert!(matches!(
-        FieldLayoutSolver::<f64>::ib_umap_from_landmarks(&g, &bad_nan, 32, cfg),
-        Err(CoreError::NonFiniteValue { .. })
-    ));
-
-    let mut bad_idx = landmarks;
-    bad_idx.landmarks[0] = n as u32;
-    assert!(matches!(
-        FieldLayoutSolver::<f64>::ib_umap_from_landmarks(&g, &bad_idx, 32, cfg),
-        Err(CoreError::IndexOutOfBounds { .. })
     ));
 }

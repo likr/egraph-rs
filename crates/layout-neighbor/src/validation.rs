@@ -1,4 +1,4 @@
-use egraph_core::{CoreError, CoreResult, CsrGraph, Scalar};
+use egraph_core::{CoreError, CoreResult, CsrGraph};
 use egraph_neighborhood::{
     DogVaradhanLandmarks, Sparse12HopPairs, SparseProbabilities, extract_sparse_1hop_2hop_pairs,
 };
@@ -6,48 +6,52 @@ use egraph_neighborhood::{
 const DEFAULT_EPS_DIST: f64 = 1e-6;
 
 pub(crate) fn validate_sparse_probabilities(probs: &SparseProbabilities) -> CoreResult<()> {
-    let n = probs.n_nodes;
+    let n = probs.num_nodes();
+    let indptr = probs.indptr();
+    let indices = probs.indices();
+    let values = probs.values();
+
     if u32::try_from(n).is_err() {
         return Err(CoreError::invalid_csr("n_nodes exceeds u32::MAX"));
     }
-    if probs.indptr.len() != n + 1 {
+    if indptr.len() != n + 1 {
         return Err(CoreError::dimension_mismatch(
             n + 1,
-            probs.indptr.len(),
+            indptr.len(),
             "SparseProbabilities::indptr",
         ));
     }
-    if probs.indptr[0] != 0 {
+    if indptr[0] != 0 {
         return Err(CoreError::invalid_csr(format!(
             "SparseProbabilities indptr[0] must be 0, got {}",
-            probs.indptr[0]
+            indptr[0]
         )));
     }
     for row in 0..n {
-        if probs.indptr[row + 1] < probs.indptr[row] {
+        if indptr[row + 1] < indptr[row] {
             return Err(CoreError::invalid_csr(format!(
                 "SparseProbabilities indptr must be non-decreasing at row {row}: {} > {}",
-                probs.indptr[row],
-                probs.indptr[row + 1]
+                indptr[row],
+                indptr[row + 1]
             )));
         }
     }
-    let nnz = probs.indptr[n] as usize;
-    if probs.indices.len() != nnz {
+    let nnz = indptr[n] as usize;
+    if indices.len() != nnz {
         return Err(CoreError::dimension_mismatch(
             nnz,
-            probs.indices.len(),
+            indices.len(),
             "SparseProbabilities::indices",
         ));
     }
-    if probs.values.len() != nnz {
+    if values.len() != nnz {
         return Err(CoreError::dimension_mismatch(
             nnz,
-            probs.values.len(),
+            values.len(),
             "SparseProbabilities::values",
         ));
     }
-    for (&idx, &val) in probs.indices.iter().zip(probs.values.iter()) {
+    for (&idx, &val) in indices.iter().zip(values.iter()) {
         if (idx as usize) >= n {
             return Err(CoreError::index_out_of_bounds(
                 idx as usize,
@@ -67,7 +71,7 @@ pub(crate) fn validate_sparse_probabilities(probs: &SparseProbabilities) -> Core
     Ok(())
 }
 
-pub(crate) fn compute_12hop_alt_distances<W: Scalar>(
+pub(crate) fn compute_12hop_alt_distances<W>(
     graph: &CsrGraph<W>,
     landmarks: &DogVaradhanLandmarks,
     max_2hop_per_node: usize,
@@ -127,8 +131,8 @@ pub(crate) fn compute_12hop_alt_distances<W: Scalar>(
     }
 
     let pairs = extract_sparse_1hop_2hop_pairs(graph, max_2hop_per_node, seed)?;
-    let mut d1 = landmarks.alt_pair_distances(&pairs.u1, &pairs.v1)?;
-    let mut d2 = landmarks.alt_pair_distances(&pairs.u2, &pairs.v2)?;
+    let mut d1 = landmarks.alt_pair_distances(pairs.u1(), pairs.v1())?;
+    let mut d2 = landmarks.alt_pair_distances(pairs.u2(), pairs.v2())?;
     for d in &mut d1 {
         *d = d.max(DEFAULT_EPS_DIST);
     }

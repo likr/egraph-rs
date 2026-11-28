@@ -2,10 +2,13 @@
 //! and cooperative [`IterativeSolver`](egraph_core::IterativeSolver) stepping.
 
 mod config;
+mod dispatch;
 mod manifold;
 mod nd;
+mod riemannian;
 mod solver;
-mod step;
+mod step2d;
+mod step3d;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

@@ -1,6 +1,6 @@
 use egraph_core::{
-    CoreError, CsrGraph, DeterministicRng, IterativeSolver, Layout2d, LayoutNd, Scalar,
-    SolverStatus,
+    CoreError, CoreResult, CsrGraph, DeterministicRng, IterativeSolver, Layout2d, Layout3d,
+    LayoutNd, LayoutStorage, MetricSpace, RiemannianLayout, Scalar, SolverStatus,
 };
 use egraph_neighborhood::{DogVaradhanConfig, SparseProbabilities};
 
@@ -38,35 +38,88 @@ fn grid_graph(rows: usize, cols: usize) -> CsrGraph<f64> {
     CsrGraph::from_edges(n, &edges, None, false, false).unwrap()
 }
 
+fn seeded_layout_3d<S: Scalar>(n: usize, scale: f64, seed: u64) -> Layout3d<S> {
+    let mut rng = DeterministicRng::from_seed_u64(seed);
+    let mut x = Vec::with_capacity(n);
+    let mut y = Vec::with_capacity(n);
+    let mut z = Vec::with_capacity(n);
+    for _ in 0..n {
+        x.push(S::from_f64((rng.next_f64() * 2.0 - 1.0) * scale));
+        y.push(S::from_f64((rng.next_f64() * 2.0 - 1.0) * scale));
+        z.push(S::from_f64((rng.next_f64() * 2.0 - 1.0) * scale));
+    }
+    Layout3d::from_xyz(x, y, z).unwrap()
+}
+
 fn seeded_layout_nd<S: Scalar>(n: usize, dims: usize, scale: f64, seed: u64) -> LayoutNd<S> {
     let mut rng = DeterministicRng::from_seed_u64(seed);
     let mut coords = Vec::with_capacity(n * dims);
     for _ in 0..(n * dims) {
         coords.push(S::from_f64((rng.next_f64() * 2.0 - 1.0) * scale));
     }
-    LayoutNd::from_flat(n, dims, coords).unwrap()
+    LayoutNd::from_flat(n, dims, &coords).unwrap()
 }
 
 #[test]
-fn test_gumap_nd_step_vs_run_bit_exact_f64_and_f32() {
+fn test_gumap_3d_and_nd_step_vs_run_bit_exact_f64_and_f32() {
     let grid = grid_graph(4, 4);
     let n = grid.num_nodes();
-    let cfg = GuMapConfig {
-        iterations: 20,
-        seed: 99,
-        ..Default::default()
-    };
+    let cfg = GuMapConfig::new().with_iterations(20).with_seed(99);
     let dog_cfg = DogVaradhanConfig::default();
 
+    // Layout3d f64 & f32 bit-exact step == run
+    {
+        let mut s_run =
+            GuMapSolver::<Layout3d<f64>>::from_graph_dog(&grid, 32, &dog_cfg, cfg.clone()).unwrap();
+        let mut s_step =
+            GuMapSolver::<Layout3d<f64>>::from_graph_dog(&grid, 32, &dog_cfg, cfg.clone()).unwrap();
+        let mut l_run = seeded_layout_3d::<f64>(n, 1.0, 17);
+        let mut l_step = l_run.clone();
+
+        assert_eq!(s_run.total_iterations(), Some(20));
+        assert_eq!(s_run.run(&mut l_run).unwrap(), SolverStatus::Completed);
+        assert_eq!(
+            s_step.run_steps(&mut l_step, 7).unwrap(),
+            SolverStatus::Running
+        );
+        while !s_step.status().is_finished() {
+            s_step.step(&mut l_step).unwrap();
+        }
+        assert_eq!(s_step.status(), SolverStatus::Completed);
+        for i in 0..n {
+            assert_eq!(l_run.x()[i].to_bits(), l_step.x()[i].to_bits());
+            assert_eq!(l_run.y()[i].to_bits(), l_step.y()[i].to_bits());
+            assert_eq!(l_run.z()[i].to_bits(), l_step.z()[i].to_bits());
+        }
+
+        let mut s32_run =
+            GuMapSolver::<Layout3d<f32>>::from_graph_dog(&grid, 32, &dog_cfg, cfg.clone()).unwrap();
+        let mut s32_step =
+            GuMapSolver::<Layout3d<f32>>::from_graph_dog(&grid, 32, &dog_cfg, cfg.clone()).unwrap();
+        let mut l32_run = seeded_layout_3d::<f32>(n, 1.0, 17);
+        let mut l32_step = l32_run.clone();
+        assert_eq!(s32_run.run(&mut l32_run).unwrap(), SolverStatus::Completed);
+        for _ in 0..20 {
+            s32_step.step(&mut l32_step).unwrap();
+        }
+        for i in 0..n {
+            assert_eq!(l32_run.x()[i].to_bits(), l32_step.x()[i].to_bits());
+            assert_eq!(l32_run.y()[i].to_bits(), l32_step.y()[i].to_bits());
+            assert_eq!(l32_run.z()[i].to_bits(), l32_step.z()[i].to_bits());
+        }
+    }
+
+    // LayoutNd (3D, 5D) f64 & f32 bit-exact step == run
     for dims in [3usize, 5usize] {
-        // f64 bit-exact step == run
-        let mut s_run = GuMapSolver::<f64>::from_graph_dog(&grid, 32, &dog_cfg, cfg).unwrap();
-        let mut s_step = GuMapSolver::<f64>::from_graph_dog(&grid, 32, &dog_cfg, cfg).unwrap();
+        let mut s_run =
+            GuMapSolver::<LayoutNd<f64>>::from_graph_dog(&grid, 32, &dog_cfg, cfg.clone()).unwrap();
+        let mut s_step =
+            GuMapSolver::<LayoutNd<f64>>::from_graph_dog(&grid, 32, &dog_cfg, cfg.clone()).unwrap();
         let mut l_run = seeded_layout_nd::<f64>(n, dims, 1.0, 17);
         let mut l_step = l_run.clone();
 
         assert_eq!(s_run.status(), SolverStatus::Initialized);
-        assert_eq!(s_run.total_iterations(), 20);
+        assert_eq!(s_run.total_iterations(), Some(20));
         assert_eq!(s_run.run(&mut l_run).unwrap(), SolverStatus::Completed);
 
         assert_eq!(
@@ -84,9 +137,10 @@ fn test_gumap_nd_step_vs_run_bit_exact_f64_and_f32() {
             assert_eq!(a.to_bits(), b.to_bits());
         }
 
-        // f32 bit-exact step == run
-        let mut s32_run = GuMapSolver::<f32>::from_graph_dog(&grid, 32, &dog_cfg, cfg).unwrap();
-        let mut s32_step = GuMapSolver::<f32>::from_graph_dog(&grid, 32, &dog_cfg, cfg).unwrap();
+        let mut s32_run =
+            GuMapSolver::<LayoutNd<f32>>::from_graph_dog(&grid, 32, &dog_cfg, cfg.clone()).unwrap();
+        let mut s32_step =
+            GuMapSolver::<LayoutNd<f32>>::from_graph_dog(&grid, 32, &dog_cfg, cfg.clone()).unwrap();
         let mut l32_run = seeded_layout_nd::<f32>(n, dims, 1.0, 17);
         let mut l32_step = l32_run.clone();
 
@@ -103,22 +157,15 @@ fn test_gumap_nd_step_vs_run_bit_exact_f64_and_f32() {
 }
 
 #[test]
-fn test_gumap_nd_2d_parity_bit_exact() {
+fn test_gumap_nd_2d_and_3d_parity_bit_exact() {
     let grid = grid_graph(4, 4);
     let n = grid.num_nodes();
-    let cfg = GuMapConfig {
-        iterations: 15,
-        seed: 77,
-        ..Default::default()
-    };
+    let cfg = GuMapConfig::new().with_iterations(15).with_seed(77);
 
     for sym in [true, false] {
-        let cfg_sym = GuMapConfig {
-            symmetric_negative: sym,
-            ..cfg
-        };
-        let mut s2d = GuMapSolver::<f64>::new(&grid, cfg_sym).unwrap();
-        let mut snd = GuMapSolver::<f64>::new(&grid, cfg_sym).unwrap();
+        let cfg_sym = cfg.clone().with_symmetric_negative(sym);
+        let mut s2d = GuMapSolver::<Layout2d<f64>>::new(&grid, cfg_sym.clone()).unwrap();
+        let mut snd = GuMapSolver::<LayoutNd<f64>>::new(&grid, cfg_sym.clone()).unwrap();
 
         let l_init = seeded_layout_nd::<f64>(n, 2, 1.0, 41);
         let mut xs = Vec::with_capacity(n);
@@ -138,9 +185,29 @@ fn test_gumap_nd_2d_parity_bit_exact() {
             assert_eq!(l2d.y()[i].to_bits(), lnd.coords()[2 * i + 1].to_bits());
         }
 
+        // 3D Layout3d <-> LayoutNd(3) parity
+        let mut s3d = GuMapSolver::<Layout3d<f64>>::new(&grid, cfg_sym.clone()).unwrap();
+        let mut snd3 = GuMapSolver::<LayoutNd<f64>>::new(&grid, cfg_sym.clone()).unwrap();
+        let l3_init = seeded_layout_3d::<f64>(n, 1.0, 53);
+        let mut flat3 = Vec::with_capacity(3 * n);
+        for i in 0..n {
+            flat3.push(l3_init.x()[i]);
+            flat3.push(l3_init.y()[i]);
+            flat3.push(l3_init.z()[i]);
+        }
+        let mut l3d = l3_init;
+        let mut lnd3 = LayoutNd::from_flat(n, 3, &flat3).unwrap();
+        s3d.run(&mut l3d).unwrap();
+        snd3.run(&mut lnd3).unwrap();
+        for i in 0..n {
+            assert_eq!(l3d.x()[i].to_bits(), lnd3.coords()[3 * i].to_bits());
+            assert_eq!(l3d.y()[i].to_bits(), lnd3.coords()[3 * i + 1].to_bits());
+            assert_eq!(l3d.z()[i].to_bits(), lnd3.coords()[3 * i + 2].to_bits());
+        }
+
         // All-zero collapsed initialization parity in 2D
-        let mut s2d_z = GuMapSolver::<f64>::new(&grid, cfg_sym).unwrap();
-        let mut snd_z = GuMapSolver::<f64>::new(&grid, cfg_sym).unwrap();
+        let mut s2d_z = GuMapSolver::<Layout2d<f64>>::new(&grid, cfg_sym.clone()).unwrap();
+        let mut snd_z = GuMapSolver::<LayoutNd<f64>>::new(&grid, cfg_sym).unwrap();
         let mut l2d_z = Layout2d::<f64>::zeros(n);
         let mut lnd_z = LayoutNd::<f64>::zeros(n, 2).unwrap();
         s2d_z.run(&mut l2d_z).unwrap();
@@ -153,40 +220,40 @@ fn test_gumap_nd_2d_parity_bit_exact() {
 }
 
 #[test]
-fn test_gumap_nd_barbell_3d_separation_and_collapsed_init() {
+fn test_gumap_3d_barbell_separation_and_collapsed_init() {
     let barbell = barbell_graph(6);
     let n = barbell.num_nodes();
-    let cfg = GuMapConfig {
-        iterations: 150,
-        negative_sample_rate: 5,
-        learning_rate: 1.0,
-        seed: 42,
-        ..Default::default()
-    };
-    let mut solver = GuMapSolver::<f64>::new(&barbell, cfg).unwrap();
-    let mut layout = LayoutNd::<f64>::zeros(n, 3).unwrap();
+    let cfg = GuMapConfig::new()
+        .with_iterations(150)
+        .with_negative_sample_rate(5)
+        .with_learning_rate(1.0)
+        .with_seed(42);
+    let mut solver = GuMapSolver::<Layout3d<f64>>::new(&barbell, cfg).unwrap();
+    let mut layout = Layout3d::<f64>::zeros(n);
     assert_eq!(solver.run(&mut layout).unwrap(), SolverStatus::Completed);
     assert!(layout.is_all_finite());
 
     let mut c0 = [0.0_f64; 3];
     let mut c1 = [0.0_f64; 3];
     for i in 0..6 {
-        for d in 0..3 {
-            c0[d] += layout.coords()[i * 3 + d] / 6.0;
-            c1[d] += layout.coords()[(6 + i) * 3 + d] / 6.0;
-        }
+        c0[0] += layout.x()[i] / 6.0;
+        c0[1] += layout.y()[i] / 6.0;
+        c0[2] += layout.z()[i] / 6.0;
+        c1[0] += layout.x()[6 + i] / 6.0;
+        c1[1] += layout.y()[6 + i] / 6.0;
+        c1[2] += layout.z()[6 + i] / 6.0;
     }
     let centroid_dist =
         ((c0[0] - c1[0]).powi(2) + (c0[1] - c1[1]).powi(2) + (c0[2] - c1[2]).powi(2)).sqrt();
     let mut intra = 0.0_f64;
     for i in 0..6 {
-        let d0 = ((layout.coords()[i * 3] - c0[0]).powi(2)
-            + (layout.coords()[i * 3 + 1] - c0[1]).powi(2)
-            + (layout.coords()[i * 3 + 2] - c0[2]).powi(2))
+        let d0 = ((layout.x()[i] - c0[0]).powi(2)
+            + (layout.y()[i] - c0[1]).powi(2)
+            + (layout.z()[i] - c0[2]).powi(2))
         .sqrt();
-        let d1 = ((layout.coords()[(6 + i) * 3] - c1[0]).powi(2)
-            + (layout.coords()[(6 + i) * 3 + 1] - c1[1]).powi(2)
-            + (layout.coords()[(6 + i) * 3 + 2] - c1[2]).powi(2))
+        let d1 = ((layout.x()[6 + i] - c1[0]).powi(2)
+            + (layout.y()[6 + i] - c1[1]).powi(2)
+            + (layout.z()[6 + i] - c1[2]).powi(2))
         .sqrt();
         intra += d0 + d1;
     }
@@ -198,31 +265,25 @@ fn test_gumap_nd_barbell_3d_separation_and_collapsed_init() {
 }
 
 #[test]
-fn test_gumap_nd_edge_cases_and_validation() {
-    let cfg = GuMapConfig {
-        iterations: 10,
-        ..Default::default()
-    };
+fn test_gumap_nd_edge_cases_validation_and_custom_riemannian() {
+    let cfg = GuMapConfig::new().with_iterations(10);
 
-    // Empty graph (n = 0)
     let empty = CsrGraph::<f64>::from_edges(0, &[], None, false, false).unwrap();
-    let mut s_empty = GuMapSolver::<f64>::new(&empty, cfg).unwrap();
+    let mut s_empty = GuMapSolver::<LayoutNd<f64>>::new(&empty, cfg.clone()).unwrap();
     let mut l_empty = LayoutNd::<f64>::zeros(0, 3).unwrap();
     assert_eq!(s_empty.run(&mut l_empty).unwrap(), SolverStatus::Converged);
 
-    // Singleton graph (n = 1)
     let single = CsrGraph::<f64>::from_edges(1, &[], None, false, false).unwrap();
-    let mut s_single = GuMapSolver::<f64>::new(&single, cfg).unwrap();
-    let mut l_single = LayoutNd::from_flat(1, 3, vec![2.0, -3.0, 4.5]).unwrap();
+    let mut s_single = GuMapSolver::<LayoutNd<f64>>::new(&single, cfg.clone()).unwrap();
+    let mut l_single = LayoutNd::from_flat(1, 3, &[2.0, -3.0, 4.5]).unwrap();
     assert_eq!(
         s_single.run(&mut l_single).unwrap(),
         SolverStatus::Converged
     );
     assert_eq!(l_single.coords(), &[2.0, -3.0, 4.5]);
 
-    // Edgeless graph (n = 4, no edges)
     let edgeless = CsrGraph::<f64>::from_edges(4, &[], None, false, false).unwrap();
-    let mut s_edgeless = GuMapSolver::<f64>::new(&edgeless, cfg).unwrap();
+    let mut s_edgeless = GuMapSolver::<LayoutNd<f64>>::new(&edgeless, cfg.clone()).unwrap();
     let mut l_edgeless = seeded_layout_nd::<f64>(4, 3, 1.0, 9);
     let before = l_edgeless.clone();
     assert_eq!(
@@ -231,81 +292,92 @@ fn test_gumap_nd_edge_cases_and_validation() {
     );
     assert_eq!(l_edgeless.coords(), before.coords());
 
-    // Collinear-in-3D and planar-in-3D layouts remain finite
-    let grid = grid_graph(3, 3);
-    let mut s_col = GuMapSolver::<f64>::new(&grid, cfg).unwrap();
-    let mut col_coords = Vec::with_capacity(9 * 3);
-    for i in 0..9 {
-        col_coords.extend_from_slice(&[i as f64, 0.0, 0.0]);
-    }
-    let mut l_col = LayoutNd::from_flat(9, 3, col_coords).unwrap();
-    assert_eq!(s_col.run(&mut l_col).unwrap(), SolverStatus::Completed);
-    assert!(l_col.is_all_finite());
-
-    let mut s_planar = GuMapSolver::<f64>::new(&grid, cfg).unwrap();
-    let mut planar_coords = Vec::with_capacity(9 * 3);
-    for i in 0..9 {
-        planar_coords.extend_from_slice(&[(i % 3) as f64, (i / 3) as f64, 0.0]);
-    }
-    let mut l_planar = LayoutNd::from_flat(9, 3, planar_coords).unwrap();
-    assert_eq!(
-        s_planar.run(&mut l_planar).unwrap(),
-        SolverStatus::Completed
-    );
-    assert!(l_planar.is_all_finite());
-
-    // NaN, Inf, and node-count mismatch rejection
-    let probs = SparseProbabilities {
-        n_nodes: 2,
-        indptr: vec![0, 1, 2],
-        indices: vec![1, 0],
-        values: vec![1.0, 1.0],
-    };
-    let mut s_err = GuMapSolver::<f64>::from_fuzzy_set(probs, cfg).unwrap();
+    // NaN, Inf, node-count mismatch, and mid-run LayoutNd dimension lock.
+    let probs =
+        SparseProbabilities::from_csr(2, vec![0, 1, 2], vec![1, 0], vec![1.0, 1.0]).unwrap();
+    let mut s_err = GuMapSolver::<LayoutNd<f64>>::from_fuzzy_set(probs, cfg.clone()).unwrap();
     let mut l_wrong = LayoutNd::<f64>::zeros(3, 3).unwrap();
     assert!(matches!(
         s_err.step(&mut l_wrong),
         Err(CoreError::DimensionMismatch { .. })
     ));
-
-    let mut l_nan = LayoutNd::from_flat(2, 3, vec![0.0, f64::NAN, 0.0, 1.0, 0.0, 0.0]).unwrap();
+    let mut l_nan = LayoutNd::from_flat(2, 3, &[0.0, f64::NAN, 0.0, 1.0, 0.0, 0.0]).unwrap();
     assert!(matches!(
         s_err.step(&mut l_nan),
         Err(CoreError::NonFiniteValue { .. })
     ));
 
-    let mut l_inf =
-        LayoutNd::from_flat(2, 3, vec![0.0, 0.0, f64::INFINITY, 1.0, 0.0, 0.0]).unwrap();
-    assert!(matches!(
-        s_err.step(&mut l_inf),
-        Err(CoreError::NonFiniteValue { .. })
-    ));
-
-    // Mid-run dimension and Layout2d <-> LayoutNd switching rejection.
+    let grid = grid_graph(3, 3);
     let mut l_d3 = seeded_layout_nd::<f64>(9, 3, 1.0, 3);
     let mut l_d4 = seeded_layout_nd::<f64>(9, 4, 1.0, 3);
-    let mut l_d2 = seeded_layout_nd::<f64>(9, 2, 1.0, 3);
-    let mut l_2d = Layout2d::<f64>::init(9, 3, 1.0).unwrap();
-
-    let mut s_nd = GuMapSolver::<f64>::new(&grid, cfg).unwrap();
+    let mut s_nd = GuMapSolver::<LayoutNd<f64>>::new(&grid, cfg.clone()).unwrap();
     s_nd.step(&mut l_d3).unwrap();
     assert!(matches!(
         s_nd.step(&mut l_d4),
         Err(CoreError::DimensionMismatch { .. })
     ));
     assert!(matches!(
-        s_nd.step(&mut l_2d),
-        Err(CoreError::InvalidInput(_))
+        s_nd.run_steps(&mut l_d4, 0),
+        Err(CoreError::DimensionMismatch { .. })
     ));
 
-    let mut s_2d = GuMapSolver::<f64>::new(&grid, cfg).unwrap();
-    s_2d.step(&mut l_2d).unwrap();
-    assert!(matches!(
-        s_2d.step(&mut l_d3),
-        Err(CoreError::InvalidInput(_))
-    ));
-    assert!(matches!(
-        s_2d.step(&mut l_d2),
-        Err(CoreError::InvalidInput(_))
-    ));
+    // Open RiemannianLayout target works directly with GuMapSolver<L>.
+    #[derive(Clone)]
+    struct CustomSurfaceMock {
+        coords: Vec<[f64; 2]>,
+    }
+    impl LayoutStorage for CustomSurfaceMock {
+        type Scalar = f64;
+        fn len(&self) -> usize {
+            self.coords.len()
+        }
+        fn validate_finite(&self) -> CoreResult<()> {
+            if self
+                .coords
+                .iter()
+                .all(|p| p[0].is_finite() && p[1].is_finite())
+            {
+                Ok(())
+            } else {
+                Err(CoreError::non_finite("CustomSurfaceMock"))
+            }
+        }
+    }
+    impl MetricSpace for CustomSurfaceMock {
+        fn distance(&self, i: usize, j: usize) -> f64 {
+            let dx = self.coords[i][0] - self.coords[j][0];
+            let dy = self.coords[i][1] - self.coords[j][1];
+            dx.hypot(dy)
+        }
+    }
+    impl RiemannianLayout for CustomSurfaceMock {
+        fn tangent_dim(&self) -> usize {
+            2
+        }
+        fn log_map_into(&self, i: usize, j: usize, out: &mut [f64]) -> CoreResult<()> {
+            out[0] = self.coords[j][0] - self.coords[i][0];
+            out[1] = self.coords[j][1] - self.coords[i][1];
+            Ok(())
+        }
+        fn exp_map(&mut self, i: usize, delta: &[f64]) -> CoreResult<()> {
+            self.coords[i][0] += delta[0];
+            self.coords[i][1] += delta[1];
+            Ok(())
+        }
+        fn parallel_transport_into(
+            &self,
+            _i: usize,
+            _delta: &[f64],
+            _vec: &mut [f64],
+        ) -> CoreResult<()> {
+            Ok(())
+        }
+    }
+
+    let mut mock = CustomSurfaceMock {
+        coords: (0..9).map(|i| [(i % 3) as f64, (i / 3) as f64]).collect(),
+    };
+    let mut s_mock = GuMapSolver::<CustomSurfaceMock>::new(&grid, cfg).unwrap();
+    assert_eq!(s_mock.run(&mut mock).unwrap(), SolverStatus::Completed);
+    assert!(mock.validate_finite().is_ok());
 }
