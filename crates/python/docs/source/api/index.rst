@@ -8,6 +8,7 @@ This section provides detailed documentation for all modules, classes, and funct
 
    graph
    drawing
+   errors
    interop
    layout
    clustering

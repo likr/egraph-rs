@@ -1,8 +1,8 @@
 # `egraph` v6.0.0 GA 向け API 固定化・Trait 再設計仕様書
 
-**策定日**: 2026-11-27 / **ベースライン**: `v6.0.0-alpha.8`（27 クレート → 最終 28 クレート構成）  
+**策定日**: 2026-11-27 / **ベースライン**: `v6.0.0-alpha.9`（最終 28 クレート構成）  
 **目的**: `v6.0.0` 正式版（GA）リリースおよび crates.io 公開に先立ち、既存の trait 設計・SemVer ロックイン・Cargo 公開境界・外部依存リーク・Python/WASM バインディング・多様体幾何バグを一括解消し、将来の `v6.x` 拡張（ポリゴン表面グラフ描画 `SurfaceLayout`・新規エッジバンドリング手法・動的制約・3D 描画等）を **破壊的変更ゼロ** で追加できる安定 API 契約を確定する。  
-**本書の位置づけ**: 本計画段階では仕様書の確定・レビューのみを行い、ソースコードの実装はまだ開始しない。
+**本書の位置づけ**: 本仕様書（D1〜D24 および Option 1 型パラメータバックエンド設計）の API 固定化設計は 28 クレート構成として実装・凍結済みであり、プレリリース公開に先立つ凍結 API 契約として維持する。
 
 > [!IMPORTANT]
 > **絶対不変のエンジニアリング原則（全 Wave 共通）**:
@@ -71,7 +71,7 @@ flowchart TD
 
     SI["SpatialIndex / NearestNeighborIndex"]
     LO["LinearOperator"]
-    NC["NodeBounds & Constraints"]
+    NC["NodeExtents2d / NodeShape2d / PinMask"]
     CL["ClusteringAlgorithm"]
 
     SI --> RB
@@ -327,8 +327,8 @@ pub trait LayoutTransform {
    }
    ```
 2. **ノード外形・一般制約・固定ノード（ピン留め）抽象**:
-   - 乱立していた `half_widths/half_heights`, `GibBox`, `Rect2d<S>`, `sprawlter_half_*` を共通の外形表現（`NodeShape2d` / `NodeExtents` 参照ビュー＋バリデーション）へ揃える。
-   - `LayoutTransform` / `ConstraintProjector` が 1D `SeparationConstraint` だけでなく、**固定ノードマスク（ピン留め制約）** や将来の線形／境界制約（`beta.1` 予定の `LinearConstraintProjector`）を受け入れられる設計にする。反復ソルバにも `.with_pinned_nodes(&[bool])` 等を非破壊で追加しやすい構造にする。
+   - 乱立していた `half_widths/half_heights`, `GibBox`, `Rect2d<S>`, `sprawlter_half_*` を共通の外形表現（`NodeShape2d<S>` / `NodeExtents2d<'a, S>` 参照ビュー＋バリデーション）へ揃える。
+   - `LayoutTransform` / `ConstraintProjector` が 1D `SeparationConstraint` だけでなく、**固定ノードマスク（`PinMask`）** や将来の線形／境界制約（`LinearConstraintProjector` は次期マイナー／後続プレリリースへ繰延）を受け入れられる設計にする。反復ソルバにも `.with_pinned_nodes(&[bool])` 等を非破壊で追加しやすい構造にする。
 3. **行列フリー `LinearOperator<S>` trait（`egraph-linalg`）**:
    - `LanczosEigen`, `AmgPcgSolver`, `ChebyshevDogKernel`, `SubspaceEigen` が `CsrMatrix` だけでなく任意の行列ベクトル積 `apply(&mut self, x: &[f64], y: &mut [f64]) -> CoreResult<()>`（例：ポリゴン表面の離散ラプラシアンや部分空間作用素）を受け取れる `LinearOperator` trait を導入する。
 4. **クラスタリング共通 trait（`egraph-clustering`）**:
@@ -461,12 +461,12 @@ pub trait LayoutTransform {
 1. **長大位置引数の `*` キーワード専用化**:
    - 座標組等以外の **27 箇所**（`SpatialIntruderRefiner.__new__` の 13 位置引数、`spectral_clustering` 7、`build_gumap_12hop_priority_csr` 7、`SgdSolver.from_pairs_with_hinges` 7、`SgdSolver.from_packed_symmetric` 6、`kmeans_plus_plus` 6、`louvain_communities` 5、`LayoutNd.init` 5、`generate_weighted_graph` 5、`ScreenedPoissonField2d.evaluate_in_bounds` 5 等）について、必須コア引数（例：`graph`, `num_nodes`）の直後に `*` を挿入してキーワード専用引数へ整理し、将来の引数追加を 100% 非破壊にする。
 2. **`.pyi` 型スタブの近代化**:
-   - 現在ゼロの `Protocol` / `TypedDict` / `Literal` を全面導入する（`LayoutProtocol`, `IterativeSolverProtocol`, `LayoutGeneratorProtocol`, `LayoutTransformProtocol`、バックエンド・スケジューリング指定用の厳密 `Literal[...]`）。
+   - 現在ゼロの `Protocol` / `TypedDict` / `Literal` を全面導入する（`LayoutStorage`, `IterativeSolver`, `LayoutGenerator`, `LayoutTransform` — `crates/python/python/egraph/_core_types.pyi`、およびバックエンド・ターゲット・スケジューリング指定用の厳密 `Literal[...]`）。
    - CI での `mypy --strict` および `stubtest` 検証を必須化する。
 3. **拡張可能な構造化戻り値（`tuple` / 非型付け `dict` の解消）**:
    - 拡張時にアンパック互換が壊れる位置 `tuple` 返却（39 箇所）と非型付け `dict[str, Any]`（34 箇所）を整理し、今後のフィールド追加が予想される関数（`coarsen_graph`, `project_psd_spectral_filter`, `spectral_moment_stats`, `layout_degeneracy`, `minimum_angle_summary` 等）は専用 Result クラスまたは `TypedDict` を返す形式へ移行する。
 4. **例外階層の細分類（`ValueError` 後方互換維持）**:
-   - `CoreError` の各種エラーを素の `ValueError` に潰すのではなく、`class EgraphError(ValueError)` を基底に `DimensionMismatchError`, `InvalidCsrError`, `NonFiniteValueError`, `UnsupportedOperationError`, `NumericalBreakdownError` を定義する（`except ValueError:` と互換を保ちつつ細かい `except` が可能）。
+   - `CoreError` / `ErrorKind` の全 7 バリアントを素の `ValueError` に潰すのではなく、`class EgraphError(ValueError)` を基底に `InvalidInputError`, `DimensionMismatchError`, `IndexOutOfBoundsError(EgraphError, IndexError)`, `InvalidCsrError`, `NonFiniteValueError`, `UnsupportedOperationError`, `NumericalBreakdownError` を定義する（`except ValueError:` および `except IndexError:` と互換を保ちつつ細かい `except` が可能）。
 5. **新 Rust 体系との完全パリティ**:
    - `Layout3d`（ゼロコピー `(N, 3)` NumPy ビュー、`dtype="float32"|"float64"`）・`EdgePolylines` クラスを追加。
    - `TFdpSolver` / `IbUmapSolver`、`SgdSolver` 分離 6 クラス、`PivotMds` / `Hde` / `ClassicalMds` / `KorenSpectral` / `CoarseBackbone` / `SfcLayout` 生成系クラス、`PfsPrimeOverlapRemoval` / `TwinDeclutterer` 変換クラスを Python に揃える。
@@ -476,7 +476,7 @@ pub trait LayoutTransform {
 1. **オプションオブジェクト化（34 位置引数関数の解消）**:
    - オプションオブジェクトを受け取らない 5 引数以上の 34 関数（`dog_varadhan`, `js_chebyshev_dog_jl_embedding_matrix`, `js_build_hybrid_adaptive_knn`, `js_graph_12hop_row_normalized_probabilities_with_options`, `js_rta_*` 6 関数等）を `{ ...options }` 形式のオプション引数オブジェクト受け渡しへ統一する。
 2. **文字列リテラルユニオンの `camelCase` 完全統一**:
-   - `SolverStatus`, `SuggestedGeometry`, `TsNetBackend`, `TwoHopSamplingMode`, `SgdScheduleKind`, `BarrierSymmetry`, `FieldRepulsionBackend`, `LayeringMethod`, `CoarseEdgeLengthMode`, `CoarseDistanceBackend`, `DensityFieldKernel`, `LeidenObjective`, `LinLogRepulsion`, `FrBackend`, `BackboneLayoutMode`, `ClusterRefineMethod`, `GibBoxLayoutMode`, `GibIntraLayoutMode`, `ForbidVariant` ほか全文字列ユニオン型で混在していた `snake_case`（`"edge_repulsion"`, `"barnes_hut"`, `"two_step_random_walk"` 等）を廃止し、JS/TS 標準の **`camelCase` へ 100% 統一** する。
+   - `SolverStatus`, `SuggestedGeometry`, `TsNetBackend`, `TwoHopSamplingMode`, `SgdScheduleKind`, `BarrierSymmetry`, `FieldRepulsionBackend`, `LayeringMethod`, `CoarseEdgeLengthMode`, `CoarseDistanceBackend`, `DensityFieldKernel`, `LeidenObjective`, `LinLogRepulsion`, `FrBackend`, `BackboneLayoutMode`, `ClusterRefineMethod`, `GibBoxLayoutMode`, `GibIntraLayoutMode`, `ForbidVariant`, `StressMajorizationBackend`, `TargetKind` ほか全文字列ユニオン型で混在していた `snake_case`（`"edge_repulsion"`, `"barnes_hut"`, `"two_step_random_walk"`, `"hyperbolic_lorentz"`, `"symmetric_normalized"` 等）を廃止し、JS/TS 標準の **`camelCase` へ 100% 統一** する。Option 1 の Rust 型パラメータバックエンド（`Auto2d`/`Auto3d`/`FitFft`/`LinearFft`/`IbFft`/`Grid`/`Exact`/`BarnesHut`/`EuclideanPcg`/`GeodesicGradient`）に対応し、WASM/TS 層でも構築時に `(target, backend)` を即座に検証する。
 3. **64-bit シードパリティ（`seed?: number | bigint`）**:
    - `parse_seed_u64` を `JsValue` 経由で `number`（非負安全整数 `<= 2^53 - 1`）と **`bigint`（`0n .. 2^64 - 1`）の両対応** へ改め、Rust / Python との完全な 64-bit シードパリティを確保する。
 4. **`f32` 専用 `CsrGraph` 契約の厳格化（D16）**:
@@ -662,7 +662,7 @@ flowchart TD
 | `layout-neighbor` | `egraph-layout-neighbor` | 更新 (`true`) | `FieldLayoutSolver` → `TFdpSolver` + `IbUmapSolver` 分割、`TsNetConfig` 可変段数化（`Copy` 撤去）、`RiemannianLayout`/`EuclideanLayout` + `RepulsionBackend` 統一、`TsNetSolver` 平行移動修正 | Wave 3 |
 | `layout-stress` | `egraph-layout-stress` | 更新 (`true`) | `KamadaKawai`/`StressMajorization`/`MaxentStress` の幾何 trait 統一、`ActiveLayoutKind` 削除＋`Maxent` 2D/ND 混在バグ根治、`KamadaKawai` ヘッセ行列正定値修正 | Wave 3 |
 | `layout-force` | `egraph-layout-force` | 更新 (`true`) | `ContinuousFdp` 廃止、`fdeb` を `edge-routing` へ移管、`ForceAtlas2`/`YifanHu`/`LinLog`/`FR`/`Gem` の `EuclideanLayout`＋`RepulsionBackend`（2D Quadtree / 3D Octree / Exact）統一、混在バグ根治 | Wave 3 |
-| `layout-constraints` | `egraph-layout-constraints` | 更新 (`true`) | `PfsPrimeOverlapRemoval`/`TwinDeclutterer` → `LayoutTransform` 化、`NodeBounds`・一般制約・ピン留め抽象、`delaunay` feature 削除、無重み `W: Scalar` 撤去、レイヤ ID `u32` 統一 | Wave 3 |
+| `layout-constraints` | `egraph-layout-constraints` | 更新 (`true`) | `PfsPrimeOverlapRemoval`/`TwinDeclutterer` → `LayoutTransform` 化、`NodeExtents2d`/`NodeShape2d`/`PinMask`・一般制約・ピン留め抽象、`delaunay` feature 削除、無重み `W: Scalar` 撤去、レイヤ ID `u32` 統一 | Wave 3 |
 | `layout-multilevel` | `egraph-layout-multilevel` | 更新 (`true`) | 純リーフ系（`GripSolver`, `SfcLayout` 構造体化, `layout-sgd` から移管した `CoarseBackbone`）に縮小し他 `layout-*` 依存を全廃 | Wave 3 |
 | `layout-refine` | `egraph-layout-refine` | **新設** (`true`) | `layout-multilevel` から後処理 3 種（`SpatialIntruderRefiner`, `ScreenedPoissonRefiner`, `ClusterRefineSolver`）を分離 | Wave 3 |
 | `layout-composite` | `egraph-layout-composite` | **新設** (`true`) | `layout-multilevel` から他ソルバ合成 3 種（`BackboneSolver`, `SelLayoutSolver`, `GroupInABoxSolver`）を分離 | Wave 3 |
@@ -711,7 +711,7 @@ flowchart LR
 |---|---|---|
 | **Wave 1** | `egraph-core`, ルート `Cargo.toml` | `rust-version = "1.88"` 設定、4 層幾何 trait・`RepulsionBackend<L>`・`Layout3d`・`EdgePolylines<L>`・3 種アルゴリズム trait・`CsrGraph` `W: Scalar` 撤去＋`CsrGraphBuilder`・`DeterministicRng` 隔離・オプショナル `serde` feature 完了。`./scripts/verify.sh --fast --crate egraph-core --invariants` 緑。 |
 | **Wave 2** | `spatial-*`, `linalg-*`, `neighborhood`, `clustering` | `crates/cluster` → `crates/clustering` 改名、薄いアンブレラ `crates/spatial` 廃止、`egraph-neighborhood` の `egraph-spatial-trees` 直接依存化、`NearestNeighborIndex`・`LinearOperator`・クラスタリング trait 実装、ジェネレータ構造体化、`spade` 必須化（`delaunay` feature 削除）、`SparseProbabilities`/`Sparse12HopPairs` カプセル化、`TorusLayoutView` 整理、内部 `pub mod` 閉鎖。対象クレートのテスト＋`--invariants` 緑。 |
-| **Wave 3** | `layout-*`, `edge-routing` | `edge-routing`, `layout-embedding`, `layout-refine`, `layout-composite` 新設、`coarse_backbone` の `layout-multilevel` 移管、薄いアンブレラ `crates/layout` 廃止、全 27 型→新型再編・6 混在バグ解消、`Layout2d`/`Layout3d`/`LayoutNd`/`ManifoldLayout2d` 統合、Manifold 4 ソルバ幾何修正、`NodeBounds`・ピン留め抽象、`#[non_exhaustive]`＋`Copy` 撤去。`./scripts/verify.sh --rust --invariants` 緑。 |
+| **Wave 3** | **Wave 3** | `layout-*`, `edge-routing` | `edge-routing`, `layout-embedding`, `layout-refine`, `layout-composite` 新設、`coarse_backbone` の `layout-multilevel` 移管、薄いアンブレラ `crates/layout` 廃止、全 27 型→新型再編・6 混在バグ解消、`Layout2d`/`Layout3d`/`LayoutNd`/`ManifoldLayout2d` 統合、Manifold 4 ソルバ幾何修正、`NodeExtents2d`/`NodeShape2d`/`PinMask`・ピン留め抽象、`#[non_exhaustive]`＋`Copy` 撤去。`./scripts/verify.sh --rust --invariants` 緑。 |
 | **Wave 4** | `metrics-*`, `dataset`, `egraph`（`petgraph` 削除） | メトリクス汎用化（90 超の重複削減）、`MetricReport`/`MetricConfig` 非加法性解消、`egraph-dataset` 純 CSR 化、`crates/petgraph` 完全削除、`egraph` ファサードへの `spatial`/`layout`/`edge_routing` 直接再エクスポート統合、`egraph::prelude` 厳選と全 28 クレート `publish` 境界整理。Rust 全ワークスペーステスト＋`--mode strict`＋WASM コンパイル緑。 |
 | **Wave 5** | `ffi`, `python`, `wasm`, `cli`, 周辺ディレクトリ/文書, `.github/` | FFI 確定後に Python（5a）・WASM/TS（5b）・CLI/周辺整理（5c：`js/` → `examples/web/` 移動、ルート `package.json` 刷新、旧計画書 `docs/archive/` 移動、`PROJECT_SUMMARY.md` 同期、CI/Playwright/`verify.sh`/`verify_helpers.py` パス追従）を並行実装。続いて 3 ターゲットパリティ（`parity_harness.py`）、`mypy`/`stubtest`、`tsc`、ゴールデンフィクスチャ更新、`docs/MIGRATION_V6.md` 改訂、CI への `cargo semver-checks` 組込を実施し、`./scripts/verify.sh --all --build-wasm --docs` および `./scripts/check_invariants.sh --mode strict` を完全通過させる。 |
 

@@ -187,16 +187,16 @@ Weighted edges in ``CsrGraph`` are respected directly by shortest-path and stres
 3D / N-Dimensional Layouts & Post-Layout Decluttering
 -----------------------------------------------------
 
-Eleven v6 solvers run polymorphically on :class:`egraph.LayoutNd` (3D and arbitrary $N$-D), and :class:`egraph.TwinDeclutterer` separates co-located or near-twin nodes after layout:
+Use :class:`egraph.Layout3d` with ``target="layout3d"`` for Barnes-Hut 3D layouts (or :class:`egraph.LayoutNd` with ``target="layout_nd"`` for arbitrary $N$-D), and :class:`egraph.TwinDeclutterer` (a ``LayoutTransform`` using ``.apply(layout)``) to separate co-located or near-twin nodes after layout:
 
 .. testcode:: python
 
     import egraph as eg
 
     graph = eg.load_dataset("karate")
-    layout_3d = eg.LayoutNd.init(graph.num_nodes, dims=3, seed=42)
-    eg.ForceAtlas2Solver(graph, iterations=30, seed=42).run(layout_3d)
-    assert layout_3d.dims == 3 and layout_3d.is_all_finite()
+    layout_3d = eg.Layout3d.init(graph.num_nodes, seed=42)
+    eg.ForceAtlas2Solver(graph, target="layout3d", iterations=30, seed=42).run(layout_3d)
+    assert layout_3d.coords(copy=False).shape == (graph.num_nodes, 3) and layout_3d.is_all_finite()
 
     layout_2d = eg.pivot_mds_init(graph, num_pivots=16, seed=42)
     eg.TsNetSolver.from_graph_row_normalized(
@@ -205,7 +205,7 @@ Eleven v6 solvers run polymorphically on :class:`egraph.LayoutNd` (3D and arbitr
         stage_iterations=(15, 15, 20),
         seed=42,
     ).run(layout_2d)
-    eg.TwinDeclutterer(iterations=4).run(layout_2d)
+    eg.TwinDeclutterer(iterations=4).apply(layout_2d)
     assert layout_2d.is_all_finite()
     print("3D and decluttered 2D layouts complete")
 

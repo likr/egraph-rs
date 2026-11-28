@@ -23,9 +23,9 @@ v6 Solvers & Workflows
 
 * :doc:`track_a_tsnet` - Track A Pure 1+2-Hop Adaptive tsNET (``TsNetSolver.pure_2hop``) and Row-Normalized ``from_graph_row_normalized`` with ``backend="auto"``
 * :doc:`track_b_sparse_barrier` - Track B Regularized DoG 3-Tier Sparse Barrier SGD, ``GuMapSolver``, and ``SpatialIntruderRefiner``
-* :doc:`unified_force_models` - ``TFdpSolver``, ``IbUmapSolver``, ``SgdSolver.snap_t_fdp``, ``SgdSolver.pacmap_graph``, ``ForceAtlas2Solver``, and ``YifanHuSolver``
+* :doc:`unified_force_models` - ``TFdpSolver``, ``IbUmapSolver``, ``SnapTFdpSolver``, ``PacmapGraphSolver``, ``ForceAtlas2Solver``, and ``YifanHuSolver``
 * :doc:`prism_overlap_removal` - $O(N \log N)$ Delaunay PRISM overlap removal and ``prism_distortion``
-* :doc:`fdeb` - Cooperative Force-Directed Edge Bundling (``FdebSolver``)
+* :doc:`fdeb` - Cooperative Force-Directed Edge Bundling (``EdgePolylines`` + ``FdebSolver``)
 * :doc:`manifold_layouts` - Non-Euclidean ``ManifoldLayout2d`` (Poincaré Hyperbolic, Lorentz Hyperboloid, Spherical, Torus)
 
 Interactive Colab Notebooks

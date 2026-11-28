@@ -30,4 +30,8 @@ Summary of Key Changes
 
 6. **3D / N-D & Non-Euclidean Manifolds**
 
-   Replace ``DrawingEuclidean2d`` with :class:`egraph.Layout2d` (or :class:`egraph.LayoutNd` with ``.dims`` and :class:`egraph.ArenaOctree3d` for 3D/$N$-D layouts), and replace ``DrawingHyperbolic2d`` / ``DrawingSpherical2d`` / ``DrawingTorus2d`` with :class:`egraph.ManifoldLayout2d` (``"hyperbolic"``, ``"hyperbolic_lorentz"``, ``"spherical"``, ``"torus"``) + polymorphic :meth:`egraph.SgdSolver.run` (supported across 6 manifold solvers).
+   Replace ``DrawingEuclidean2d`` with :class:`egraph.Layout2d`, :class:`egraph.Layout3d`, or :class:`egraph.LayoutNd` (with ``.dims`` and :class:`egraph.ArenaOctree3d` for 3D Barnes-Hut repulsion), and replace ``DrawingHyperbolic2d`` / ``DrawingSpherical2d`` / ``DrawingTorus2d`` with :class:`egraph.ManifoldLayout2d` (``"hyperbolic"``, ``"hyperbolic_lorentz"``, ``"spherical"``, ``"torus"``).
+
+7. **API Freeze Contracts (``target=``, ``EdgePolylines``, Separated Classes, ``EgraphError``)**
+
+   Pass explicit ``target="layout2d" | "layout3d" | "layout_nd" | "manifold2d"`` when constructing solvers for non-2D spaces, construct :class:`egraph.EdgePolylines` for :class:`egraph.FdebSolver`, use separated SGD classes (:class:`egraph.Sgd2Solver`, :class:`egraph.PacmapGraphSolver`, :class:`egraph.LargeVisSolver`, :class:`egraph.DrGraphSolver`, :class:`egraph.GraphCneSolver`, :class:`egraph.SnapTFdpSolver`), ``LayoutGenerator.generate()`` (:class:`egraph.PivotMds`, :class:`egraph.ClassicalMds`, :class:`egraph.Hde`, :class:`egraph.RdMds`, :class:`egraph.KorenSpectral`, :class:`egraph.CoarseBackbone`, :class:`egraph.SfcLayout`), ``LayoutTransform.apply()`` (:class:`egraph.PfsPrimeOverlapRemoval`, :class:`egraph.TwinDeclutterer`), keyword-only ``*`` parameters, frozen Result objects (:class:`egraph.KnnBuildResult`, :class:`egraph.RhghLandmarksResult`, etc.), and the :class:`egraph.EgraphError` exception hierarchy.

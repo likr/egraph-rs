@@ -10,6 +10,14 @@ Data Containers & Workspaces
    :members:
    :undoc-members:
 
+.. autoclass:: egraph.KnnStats
+   :members:
+   :undoc-members:
+
+.. autoclass:: egraph.KnnBuildResult
+   :members:
+   :undoc-members:
+
 .. autoclass:: egraph.SparseProbabilities
    :members:
    :undoc-members:
@@ -26,11 +34,27 @@ Data Containers & Workspaces
    :members:
    :undoc-members:
 
+.. autoclass:: egraph.RhghLandmarkStats
+   :members:
+   :undoc-members:
+
+.. autoclass:: egraph.RhghLandmarksResult
+   :members:
+   :undoc-members:
+
 .. autoclass:: egraph.CsrMatrix
    :members:
    :undoc-members:
 
 .. autoclass:: egraph.ChebyshevDogKernel
+   :members:
+   :undoc-members:
+
+.. autoclass:: egraph.SpectralMomentStats
+   :members:
+   :undoc-members:
+
+.. autoclass:: egraph.SpectralFilterProjection
    :members:
    :undoc-members:
 
@@ -42,11 +66,42 @@ Data Containers & Workspaces
    :members:
    :undoc-members:
 
+.. autoclass:: egraph.AmgSolveResult
+   :members:
+   :undoc-members:
+
+.. autoclass:: egraph.AmgBatchSolveResult
+   :members:
+   :undoc-members:
+
 .. autoclass:: egraph.EffectiveResistanceResult
    :members:
    :undoc-members:
 
 .. autoclass:: egraph.ResistanceCurvatureFlowResult
+   :members:
+   :undoc-members:
+
+MDS & Spectral ``LayoutGenerator`` Classes
+------------------------------------------
+
+.. autoclass:: egraph.ClassicalMds
+   :members:
+   :undoc-members:
+
+.. autoclass:: egraph.PivotMds
+   :members:
+   :undoc-members:
+
+.. autoclass:: egraph.Hde
+   :members:
+   :undoc-members:
+
+.. autoclass:: egraph.RdMds
+   :members:
+   :undoc-members:
+
+.. autoclass:: egraph.KorenSpectral
    :members:
    :undoc-members:
 

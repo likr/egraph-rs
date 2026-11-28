@@ -9,8 +9,10 @@ Understanding Coordinate Spaces
 egraph v6 supports multiple coordinate containers and geometric spaces:
 
 * **Euclidean 2D**: :class:`egraph.Layout2d` (zero-copy ``float64`` or ``float32`` SoA buffers)
-* **Euclidean nD**: :class:`egraph.LayoutNd` (arbitrary-dimensional embeddings with ``.dims`` and :class:`egraph.ArenaOctree3d` for 3D Barnes-Hut repulsion across 11 $N$-D solvers)
-* **Manifold 2D**: :class:`egraph.ManifoldLayout2d` (``"hyperbolic"``, ``"hyperbolic_lorentz"``, ``"spherical"``, ``"torus"`` across 6 manifold solvers)
+* **Euclidean 3D**: :class:`egraph.Layout3d` (zero-copy ``(N, 3)`` SoA buffers with :class:`egraph.ArenaOctree3d` Barnes-Hut repulsion via ``target="layout3d"``)
+* **Euclidean nD**: :class:`egraph.LayoutNd` (arbitrary-dimensional embeddings with ``.dims`` via ``target="layout_nd"``)
+* **Manifold 2D**: :class:`egraph.ManifoldLayout2d` (``"hyperbolic"``, ``"hyperbolic_lorentz"``, ``"spherical"``, ``"torus"`` via ``target="manifold2d"``)
+* **Edge Polylines**: :class:`egraph.EdgePolylines` (owned UAF-safe control-point storage for :class:`egraph.FdebSolver`)
 
 Euclidean 2D Layout
 -------------------
@@ -78,7 +80,7 @@ Non-Euclidean Manifold Layouts
 ------------------------------
 
 Use :class:`egraph.ManifoldLayout2d` for non-Euclidean geometries (``"hyperbolic"``,
-``"hyperbolic_lorentz"``, ``"spherical"``, ``"torus"``) with polymorphic ``step(manifold)`` / ``run(manifold)`` across 6 manifold solvers (:class:`egraph.SgdSolver`, :class:`egraph.TsNetSolver`, :class:`egraph.GuMapSolver`, :class:`egraph.StressMajorizationSolver`, :class:`egraph.KamadaKawaiSolver`, :class:`egraph.FruchtermanReingoldSolver`).
+``"hyperbolic_lorentz"``, ``"spherical"``, ``"torus"``) with explicit ``target="manifold2d"`` across manifold-capable solvers (:class:`egraph.SgdSolver`, :class:`egraph.Sgd2Solver`, :class:`egraph.PacmapGraphSolver`, :class:`egraph.TsNetSolver`, :class:`egraph.GuMapSolver`, :class:`egraph.StressMajorizationSolver`, :class:`egraph.KamadaKawaiSolver`, :class:`egraph.FruchtermanReingoldSolver`).
 
 .. testcode:: python
 
@@ -87,14 +89,14 @@ Use :class:`egraph.ManifoldLayout2d` for non-Euclidean geometries (``"hyperbolic
     graph = eg.CsrGraph.from_edges(6, [(i, (i + 1) % 6) for i in range(6)])
     for kind in ("hyperbolic", "hyperbolic_lorentz", "spherical", "torus"):
         manifold = eg.ManifoldLayout2d.init(kind, graph.num_nodes, seed=42)
-        sgd = eg.SgdSolver.full(graph, iterations=30, seed=42)
+        sgd = eg.SgdSolver.full(graph, target="manifold2d", iterations=30, seed=42)
         sgd.run(manifold)
         assert manifold.coords().shape == (6, 2)
         assert manifold.kind == kind
 
     # Convert Lorentz hyperboloid coordinates to Poincaré disk & pan torus layouts
     lorentz = eg.ManifoldLayout2d.init("hyperbolic_lorentz", graph.num_nodes, seed=42)
-    eg.SgdSolver.full(graph, iterations=30, seed=42).run(lorentz)
+    eg.SgdSolver.full(graph, target="manifold2d", iterations=30, seed=42).run(lorentz)
     poincare = lorentz.to_poincare_layout()
     poincare.rescale_geodesic(1.5)
     assert poincare.kind == "hyperbolic" and poincare.scale == 1.5
@@ -116,18 +118,18 @@ Use :class:`egraph.ManifoldLayout2d` for non-Euclidean geometries (``"hyperbolic
     import egraph as eg
 
     graph = eg.CsrGraph.from_edges(8, [(i, (i + 1) % 8) for i in range(8)])
-    layout_3d = eg.LayoutNd.init(graph.num_nodes, dims=3, seed=42)
-    eg.ForceAtlas2Solver(graph, iterations=20, seed=42).run(layout_3d)
+    layout_3d = eg.Layout3d.init(graph.num_nodes, seed=42)
+    eg.ForceAtlas2Solver(graph, target="layout3d", iterations=20, seed=42).run(layout_3d)
 
     octree = eg.ArenaOctree3d()
-    octree.build(layout_3d)
+    octree.build(layout_3d.coords(copy=False))
     forces = octree.compute_coulomb_repulsion(theta=0.5)
-    assert layout_3d.dims == 3 and forces.shape == (8, 3)
-    print("3D LayoutNd & ArenaOctree3d complete")
+    assert layout_3d.coords(copy=False).shape == (8, 3) and forces.shape == (8, 3)
+    print("3D Layout3d & ArenaOctree3d complete")
 
 .. testoutput:: python
 
-    3D LayoutNd & ArenaOctree3d complete
+    3D Layout3d & ArenaOctree3d complete
 
 Visualization with Matplotlib
 ------------------------------

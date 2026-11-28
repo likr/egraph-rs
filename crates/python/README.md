@@ -6,18 +6,19 @@
 
 **Version: 6.0.0-alpha.9**
 
-**egraph** is a fast, strictly single-threaded graph drawing and layout library for Python powered by pure CPU Rust (`abi3-py310`). It provides zero-copy Compressed Sparse Row (`CsrGraph`) and Structure-of-Arrays (`Layout2d`, `LayoutNd`, `ManifoldLayout2d`) bindings, deterministic seeded execution (`seed=42` default), and SOTA neighborhood-preserving, force-directed, $N$-dimensional, and non-Euclidean layouts.
+**egraph** is a fast, strictly single-threaded graph drawing and layout library for Python powered by pure CPU Rust (`abi3-py310`). It provides zero-copy Compressed Sparse Row (`CsrGraph`) and Structure-of-Arrays (`Layout2d`, `Layout3d`, `LayoutNd`, `ManifoldLayout2d`, `EdgePolylines`) bindings, deterministic seeded execution (`seed=42` default), structured `EgraphError` exceptions, and SOTA neighborhood-preserving, force-directed, 3D/$N$-dimensional, and non-Euclidean layouts.
 
 ## Key Features
 
-- **Zero-Copy CSR & SoA Buffers**: `CsrGraph.from_csr`, `CsrGraph.from_edges` (with `weight_dtype="float64" | "float32"`, `__len__`, `edges()`, `has_edge()`, `edge_weight()`, `is_connected()`), `Layout2d`, `LayoutNd` (`.dims`), and `ManifoldLayout2d`.
-- **3D & $N$-Dimensional Engine**: `ArenaOctree3d`, `DynamicKdTree`, `LayoutNd`, and **11 $N$-D solvers** (`SgdSolver`, `TsNetSolver`, `GuMapSolver`, `StressMajorizationSolver`, `KamadaKawaiSolver`, `MaxentStressSolver`, `FruchtermanReingoldSolver`, `LinLogSolver`, `ForceAtlas2Solver`, `YifanHuSolver`, `FdebSolver`) with $N$-D evaluation metrics.
-- **Non-Euclidean Manifold Engine**: `ManifoldLayout2d` across `"hyperbolic"` (Poincaré disk), `"hyperbolic_lorentz"` (Lorentz hyperboloid + `to_poincare_layout()`), `"spherical"` ($S^2$), and `"torus"` ($T^2$ with `torus_spectral_phase_init`, `torus_auto_pan`, `torus_edge_segments`, `torus_layout_edge_segments`), physical `ManifoldMetric` (`scale`, `aspect`, `set_scale`, `set_torus_extents`, `rescale_geodesic`), **6 manifold solvers** (`SgdSolver`, `TsNetSolver`, `GuMapSolver`, `StressMajorizationSolver`, `KamadaKawaiSolver`, `FruchtermanReingoldSolver`), `geodesic_distortion`, and hyperbolic/spherical/torus geodesic crossings.
-- **Ecosystem Interop (`egraph.interop`)**: Direct conversion helpers `from_scipy_csr`, `to_scipy_csr`, `from_networkx`, `to_networkx(layout=...)`, `from_igraph`, and `to_igraph(layout=...)` supporting `Layout2d`, `LayoutNd`, and `ManifoldLayout2d`.
-- **Track A (Pure 1+2-Hop & Row-Normalized Adaptive tsNET)**: `TsNetSolver.pure_2hop`, `TsNetSolver.from_graph_row_normalized` (`TwoStepRandomWalk` $A_1 + w_2 A_2$), `TsNetSolver.from_knn`, `TsNetSolver.from_probabilities`, `TsNetSolver.from_probabilities_with_stages` (`TsNetStage`), and `TsNetSolver.from_graph_partial_bfs` with `backend="auto"` (`N <= 256` Exact, `> 256` `LinearFft`) plus `"fft"`, `"linear_fft"`, `"barnes_hut"`, and `"exact"` backends.
+- **Zero-Copy CSR & SoA Buffers**: `CsrGraph.from_csr`, `CsrGraph.from_edges` (with `weight_dtype="float64" | "float32"`, `__len__`, `edges()`, `has_edge()`, `edge_weight()`, `is_connected()`), `Layout2d`, `Layout3d` (zero-copy `(N, 3)` NumPy views), `LayoutNd` (`.dims`), `ManifoldLayout2d`, and UAF-safe `EdgePolylines`.
+- **3D & $N$-Dimensional Engine**: `Layout3d` (`target="layout3d"` with `ArenaOctree3d` Barnes-Hut), `LayoutNd` (`target="layout_nd"`, `DynamicKdTree`), and explicit `target`-selected solvers (`SgdSolver`, `Sgd2Solver`, `PacmapGraphSolver`, `TsNetSolver`, `GuMapSolver`, `StressMajorizationSolver`, `KamadaKawaiSolver`, `MaxentStressSolver`, `FruchtermanReingoldSolver`, `LinLogSolver`, `ForceAtlas2Solver`, `YifanHuSolver`, `TFdpSolver`, `LargeVisSolver`, `DrGraphSolver`, `GraphCneSolver`, `SnapTFdpSolver`, plus `FdebSolver` on `EdgePolylines`) with $N$-D evaluation metrics.
+- **Non-Euclidean Manifold Engine**: `ManifoldLayout2d` across `"hyperbolic"` (Poincaré disk), `"hyperbolic_lorentz"` (Lorentz hyperboloid + `to_poincare_layout()`), `"spherical"` ($S^2$), and `"torus"` ($T^2$ with `torus_spectral_phase_init`, `torus_auto_pan`, `torus_edge_segments`, `torus_layout_edge_segments`), physical `ManifoldMetric` (`scale`, `aspect`, `set_scale`, `set_torus_extents`, `rescale_geodesic`), `target="manifold2d"` solvers (`SgdSolver`, `Sgd2Solver`, `PacmapGraphSolver`, `TsNetSolver`, `GuMapSolver`, `StressMajorizationSolver`, `KamadaKawaiSolver`, `FruchtermanReingoldSolver`), `geodesic_distortion`, and hyperbolic/spherical/torus geodesic crossings.
+- **Ecosystem Interop (`egraph.interop`)**: Direct conversion helpers `from_scipy_csr`, `to_scipy_csr`, `from_networkx`, `to_networkx(layout=...)`, `from_igraph`, and `to_igraph(layout=...)` supporting `Layout2d`, `Layout3d`, `LayoutNd`, and `ManifoldLayout2d`.
+- **Track A (Pure 1+2-Hop & Row-Normalized Adaptive tsNET)**: `TsNetSolver.pure_2hop`, `TsNetSolver.from_graph_row_normalized` (`TwoStepRandomWalk` $A_1 + w_2 A_2$), `TsNetSolver.from_knn`, `TsNetSolver.from_probabilities`, `TsNetSolver.from_probabilities_with_stages` (`TsNetStage`), and `TsNetSolver.from_graph_partial_bfs` with `backend="auto"` (`N <= 256` Exact, `> 256` `LinearFft` in 2D; `Exact`/`BarnesHut` in 3D) plus `"fit_fft"`, `"linear_fft"`, `"barnes_hut"`, and `"exact"` backends.
 - **Track B (Regularized Chebyshev DoG + 3-Tier Sparse Barrier SGD & GuMap)**: `SgdSolver.sparse_barrier_dog`, `GuMapSolver.from_graph_dog`, `SgdSolver.from_packed_symmetric`, `SgdSolver.reset_schedule` / `run_schedule_window`, and 2D `StaticKdTree` `SpatialIntruderRefiner`.
-- **Unified Force & Multilevel Models**: `TFdpSolver`, `IbUmapSolver`, `SgdSolver.snap_t_fdp`, `SgdSolver.pacmap_graph`, `SgdSolver.ortmann_sparse_stress`, `SgdSolver.largevis`, `SgdSolver.drgraph`, `SgdSolver.graph_cne`, `SgdSolver.sgd2`, `MaxentStressSolver`, `GripSolver`, `GemSolver`, `SelLayoutSolver`, `SfcLayoutSolver`, `BackboneSolver`, `GroupInABoxSolver`, `ClusterRefineSolver`, `ForceAtlas2Solver`, `YifanHuSolver`, `StressMajorizationSolver`, `KamadaKawaiSolver`, and decoupled `FdebSolver(graph)` (`step(layout)` / `run(layout)`).
-- **Overlap Removal, Decluttering & Constraints**: $O(N \log N)$ Delaunay `PrismOverlapRemoval`, `PfsPrimeOverlapRemoval`, `GTreeOverlapRemoval`, `ForbidOverlapRemoval` (default `"sparse_forbid"`), `TwinDeclutterer` / `declutter_twins_2d`, `ScreenedPoissonField2d` (`grid_size=512`, `density_grid()`, 4-scalar `evaluate_in_bounds`), `ScreenedPoissonRefiner`, `transitive_reduction`, `SeparationConstraint` 1D/2D projection, and DAG layering (`cycle_edges`, `remove_cycles`, `assign_layers`, `generate_layered_constraints`).
+- **Separated Force, Embedding, Multilevel & Edge-Bundling Models**: `TFdpSolver`, `IbUmapSolver`, separated SGD classes (`Sgd2Solver`, `PacmapGraphSolver`, `LargeVisSolver`, `DrGraphSolver`, `GraphCneSolver`, `SnapTFdpSolver`), `SgdSolver.ortmann_sparse_stress`, `MaxentStressSolver`, `GripSolver`, `GemSolver`, `SelLayoutSolver`, `BackboneSolver`, `GroupInABoxSolver`, `ClusterRefineSolver`, `ForceAtlas2Solver`, `YifanHuSolver`, `StressMajorizationSolver`, `KamadaKawaiSolver`, `LayoutGenerator` structs (`ClassicalMds`, `PivotMds`, `Hde`, `RdMds`, `KorenSpectral`, `CoarseBackbone`, `SfcLayout` `.generate()`), and `EdgePolylines` + `FdebSolver(polylines)` (`step(polylines)` / `run(polylines)`).
+- **Overlap Removal, Decluttering & Constraints**: $O(N \log N)$ Delaunay `PrismOverlapRemoval`, `GTreeOverlapRemoval`, `ForbidOverlapRemoval` (default `"sparse_forbid"`), `LayoutTransform` passes (`PfsPrimeOverlapRemoval`, `TwinDeclutterer` `.apply(layout)`), `declutter_twins_2d`, `ScreenedPoissonField2d` (`grid_size=512`, `density_grid()`, 4-scalar `evaluate_in_bounds`), `ScreenedPoissonRefiner`, `transitive_reduction`, `SeparationConstraint` 1D/2D projection, and DAG layering (`cycle_edges`, `remove_cycles`, `assign_layers`, `generate_layered_constraints`).
+- **Structured `EgraphError` Hierarchy & Keyword-Only Parameters**: `EgraphError(ValueError)` with 7 typed subclasses (`InvalidInputError`, `DimensionMismatchError`, `IndexOutOfBoundsError(EgraphError, IndexError)`, `InvalidCsrError`, `NonFiniteValueError`, `UnsupportedOperationError`, `NumericalBreakdownError`), keyword-only `*` hyperparameters, `.pyi` `Protocol`/`TypedDict`/`Literal` stubs (`LayoutStorage`, `IterativeSolver`, `LayoutGenerator`, `LayoutTransform`), and frozen Result classes (`KnnBuildResult`, `RhghLandmarksResult`, `AmgSolveResult`, `AmgBatchSolveResult`, `SpectralFilterProjection`, etc.).
 - **Community Detection & Coarsening (5 Zero-Copy Result Classes)**: `louvain_communities` (`LouvainResult`), `leiden_communities` (`LeidenResult`), `kmeans_plus_plus` (`KMeansResult`), `label_propagation` (`LabelPropagationResult`), and `spectral_clustering` (`SpectralClusteringResult`), plus `coarsen_graph`, `louvain_coarsen`, `coarse_backbone_init`, `refine_cluster_layout`, and `squarified_treemap`.
 - **Selective Quality Metrics (`MetricReport`)**: `evaluate_metrics` returning a `MetricReport` across 2D, $N$-D, and manifold spaces—covering Scale-Normalized Stress (`scale_normalized_stress`), `geodesic_distortion`, sweep-line crossings, spherical/hyperbolic/torus crossings, `NP1`/`NP2`, `prism_distortion`, `layout_degeneracy` (including `excess_duplicate_ratio` and `near_collision_ratio`), Eades et al. (2017) `S_RNG`/`S_GG` (`drng_preservation`, `dgg_preservation`), `cluster_area_faithfulness` (`G-CAF`), `landmark_stratified_rta`, `adjusted_patch_nig`, `nor_metrics`, `sprawlter_nn`, and cluster separation baselines.
 - **Linear Algebra & Datasets**: `DijkstraWorkspace` (`dijkstra_single_source`, `all_pairs_dijkstra`), `classical_mds`, `pivot_mds`, `hde`, `rd_mds`, `laplacian` / `combinatorial_laplacian` / `symmetric_normalized_laplacian` / `random_walk_laplacian` / `shifted_normalized_laplacian`, `ChebyshevDogKernel`, `AmgPcgSolver`, `compute_effective_resistances`, `resistance_curvature_flow`, `list_datasets` / `dataset_catalog` / `dataset_info`, and 7 synthetic generators (`generate_weighted_graph`, `generate_layered_dag`, `generate_sbm_graph`, `generate_torus_grid`, `generate_spherical_icosphere`, `generate_spherical_grid`, `generate_hyperbolic_tree`).
@@ -110,7 +111,7 @@ nx_out = to_networkx(g_sp, layout=layout)
 ig_out = to_igraph(g_sp, layout=layout)
 ```
 
-### 3. Track B, Non-Euclidean Manifolds, 3D `LayoutNd` & `TwinDeclutterer`
+### 3. Track B, `Layout3d`, `EdgePolylines`, Non-Euclidean Manifolds & `EgraphError`
 
 ```python
 import numpy as np
@@ -120,30 +121,41 @@ edges = [(i, (i + 1) % 12) for i in range(12)] + [(0, 6), (3, 9)]
 graph = eg.CsrGraph.from_edges(12, edges)
 
 # Track B: Regularized Chebyshev DoG + 3-tier Sparse Barrier SGD + TwinDeclutterer
-layout_b = eg.pivot_mds_init(graph, num_pivots=8, seed=42)
+layout_b = eg.PivotMds(graph, num_pivots=8, seed=42).generate()
 eg.SgdSolver.sparse_barrier_dog(graph, iterations=60, seed=42).run(layout_b)
-eg.TwinDeclutterer(iterations=4).run(layout_b)
+eg.TwinDeclutterer(iterations=4).apply(layout_b)
 
-# 3D LayoutNd optimization (polymorphic run)
-layout_3d = eg.LayoutNd.init(graph.num_nodes, dims=3, seed=42)
-eg.ForceAtlas2Solver(graph, iterations=100, seed=42).run(layout_3d)
+# 3D Layout3d optimization (explicit target="layout3d" + Barnes-Hut)
+layout_3d = eg.Layout3d.init(graph.num_nodes, seed=42)
+eg.ForceAtlas2Solver(graph, target="layout3d", iterations=100, seed=42).run(layout_3d)
+
+# Edge bundling via EdgePolylines + FdebSolver
+polylines = eg.EdgePolylines.straight_line_from_graph(graph, layout_b)
+eg.FdebSolver(polylines, cycles=3, steps_per_cycle=20).run(polylines)
+print("Bundled control points:", polylines.points(copy=False).shape)
 
 # Non-Euclidean Lorentz hyperboloid -> Poincaré disk projection
 lorentz = eg.ManifoldLayout2d.init("hyperbolic_lorentz", graph.num_nodes, seed=42)
-eg.SgdSolver.full(graph, iterations=60, seed=42).run(lorentz)
+eg.SgdSolver.full(graph, target="manifold2d", iterations=60, seed=42).run(lorentz)
 poincare = lorentz.to_poincare_layout()
 print("Geodesic distortion:", eg.geodesic_distortion(graph, poincare))
+
+# Fail-fast typed error handling
+try:
+    eg.TsNetSolver.pure_2hop(graph, target="layout3d", backend="fit_fft")
+except eg.UnsupportedOperationError as exc:
+    print("Rejected incompatible (target, backend):", exc)
 ```
 
 ## Migration from v5 / Legacy Alpha
 
-See [docs/MIGRATION_V6.md](https://github.com/likr/egraph-rs/blob/master/docs/MIGRATION_V6.md) for a complete guide covering v5 and `alpha.8 -> alpha.9` clean-break updates:
+See [docs/MIGRATION_V6.md](https://github.com/likr/egraph-rs/blob/master/docs/MIGRATION_V6.md) for a complete guide covering v5, `alpha.8 -> alpha.9`, and the v6 API freeze updates:
 
 1. Host object weights removal -> `CsrGraph` + `egraph.interop` + host-side arrays
-2. Legacy v5 overlap removal classes -> `PrismOverlapRemoval` / `ForbidOverlapRemoval` / `TwinDeclutterer`
-3. `TsNet` / `BhTsNet` / `FitTsNet` / `LTsNet` -> `TsNetSolver` (`pure_2hop`, `from_graph_row_normalized`, `"auto"`)
-4. Iteration argument unification (`iterations` / `max_iterations`), `labels`, 5 Cluster Result classes, and `MetricReport`
-5. 3D/$N$-D `LayoutNd` + `ArenaOctree3d` and Non-Euclidean `ManifoldLayout2d` (`"hyperbolic_lorentz"`, `ManifoldMetric`, polymorphic `step`/`run`)
+2. Legacy overlap removal -> `PrismOverlapRemoval` / `ForbidOverlapRemoval` and `LayoutTransform.apply()` (`PfsPrimeOverlapRemoval`, `TwinDeclutterer`)
+3. `TsNet` / `BhTsNet` / `FitTsNet` / `LTsNet` -> `TsNetSolver` (`pure_2hop`, `from_graph_row_normalized`, `"auto"`, `"fit_fft"`, `"linear_fft"`, `"barnes_hut"`, `"exact"`)
+4. `LayoutGenerator` initializers (`PivotMds`, `ClassicalMds`, `Hde`, `RdMds`, `KorenSpectral`, `CoarseBackbone`, `SfcLayout`) and separated SGD classes (`Sgd2Solver`, `PacmapGraphSolver`, `LargeVisSolver`, `DrGraphSolver`, `GraphCneSolver`, `SnapTFdpSolver`)
+5. Explicit `target=` (`"layout2d"`, `"layout3d"`, `"layout_nd"`, `"manifold2d"`), `Layout3d`, `EdgePolylines` + `FdebSolver(polylines)`, `EgraphError` hierarchy, `*` keyword-only hyperparameters, and frozen Result classes (`MetricReport`, `KnnBuildResult`, etc.)
 
 ## Documentation & Development
 

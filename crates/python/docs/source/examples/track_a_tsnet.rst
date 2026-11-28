@@ -80,12 +80,12 @@ You can also construct a ``TsNetSolver`` from pure 1+2-hop or hybrid adaptive $k
     import egraph as eg
 
     graph = eg.CsrGraph.from_edges(8, [(i, (i + 1) % 8) for i in range(8)] + [(0, 4), (2, 6)])
-    knn, _, _ = eg.build_pure_2hop_knn(graph)
+    knn_res = eg.build_pure_2hop_knn(graph)
     perplexities = eg.compute_nodewise_2hop_perplexities(graph, c=0.9)
 
     layout = eg.koren_spectral_init(graph, seed=42)
     solver = eg.TsNetSolver.from_knn(
-        knn,
+        knn_res.knn,
         perplexities=perplexities,
         backend="barnes_hut",
         stage_iterations=(15, 15, 20),

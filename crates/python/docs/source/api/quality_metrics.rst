@@ -11,6 +11,51 @@ Selective Dispatcher & Report
    :undoc-members:
    :show-inheritance:
 
+.. autoclass:: egraph.StressEvaluation
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: egraph.CrossingSummary
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: egraph.MinimumAngleSummary
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: egraph.LayoutDegeneracy
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: egraph.RtaEvaluation
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: egraph.ClusterAreaReport
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: egraph.AdjustedPatchNigDetail
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: egraph.PartitionAgreement
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: egraph.NorMetrics
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 .. autofunction:: egraph.evaluate_metrics
 
 Scale-Normalized Stress (SNS) & Geodesic Distortion

@@ -7,3 +7,13 @@ $O(N \log N)$ 2D ``StaticKdTree`` active-set spatial intruder refiner for post-l
    :members:
    :undoc-members:
    :show-inheritance:
+
+.. autoclass:: egraph.SpatialRefinerStats
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: egraph.SpatialRefinerRoundStats
+   :members:
+   :undoc-members:
+   :show-inheritance:

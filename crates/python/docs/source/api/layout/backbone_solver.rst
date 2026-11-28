@@ -7,3 +7,8 @@ Quadrilateral Simmelian backbone layout solver (``BackboneSolver``) emphasizing 
    :members:
    :undoc-members:
    :show-inheritance:
+
+.. autoclass:: egraph.BackboneResult
+   :members:
+   :undoc-members:
+   :show-inheritance:

@@ -1,7 +1,7 @@
 FdebSolver
 ==========
 
-Cooperative Force-Directed Edge Bundling (FDEB) solver constructed from a ``CsrGraph`` (``FdebSolver(graph, ...)``) and stepped polymorphically on ``Layout2d`` or ``LayoutNd`` via ``step(layout)`` / ``run_steps(layout, steps)`` / ``run(layout)``, returning flat ``edge_offsets()``, ``points()``, ``points_axis()``, and ``points_z()`` NumPy coordinate arrays.
+Cooperative Force-Directed Edge Bundling (FDEB) solver constructed from an :class:`egraph.EdgePolylines` buffer (``FdebSolver(polylines, ...)``) and stepped in place on ``EdgePolylines`` (targeting ``"layout2d"``, ``"layout3d"``, or ``"layout_nd"``) via ``step(polylines)`` / ``run_steps(polylines, steps)`` / ``run(polylines)``.
 
 .. autoclass:: egraph.FdebSolver
    :members:

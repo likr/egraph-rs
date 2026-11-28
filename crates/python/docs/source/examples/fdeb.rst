@@ -1,7 +1,7 @@
 Force-Directed Edge Bundling (``FdebSolver``)
 =============================================
 
-This example demonstrates cooperative Force-Directed Edge Bundling using :class:`egraph.FdebSolver`, which accepts a ``CsrGraph`` in its constructor and takes a ``Layout2d`` or ``LayoutNd`` in ``step()`` / ``run_steps()`` / ``run()``, outputting flat ``edge_offsets()`` and ``points()`` NumPy arrays.
+This example demonstrates cooperative Force-Directed Edge Bundling using :class:`egraph.EdgePolylines` and :class:`egraph.FdebSolver`. Construct ``EdgePolylines`` via ``EdgePolylines.straight_line_from_graph(graph, layout)``, pass it to ``FdebSolver(polylines, ...)``, and step in place via ``step(polylines)`` / ``run_steps(polylines, k)`` / ``run(polylines)``.
 
 .. testcode:: python
 
@@ -21,11 +21,12 @@ This example demonstrates cooperative Force-Directed Edge Bundling using :class:
         ]
     )
 
-    fdeb = eg.FdebSolver(graph, cycles=3, steps_per_cycle=15)
-    fdeb.run(layout)
+    polylines = eg.EdgePolylines.straight_line_from_graph(graph, layout)
+    fdeb = eg.FdebSolver(polylines, cycles=3, steps_per_cycle=15)
+    fdeb.run(polylines)
 
-    offsets = fdeb.edge_offsets()
-    points = fdeb.points()
+    offsets = polylines.edge_offsets()
+    points = polylines.points()
     assert len(offsets) == fdeb.num_edges + 1
     assert points.ndim == 2 and points.shape[1] == 2
     print("Bundled edges:", fdeb.num_edges)

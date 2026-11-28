@@ -1,9 +1,28 @@
 Layout Module
 =============
 
-This module provides cooperative v6 layout solvers across 2D (``Layout2d``), $N$-D (``LayoutNd``), and non-Euclidean manifolds (``ManifoldLayout2d``).
+This module provides cooperative v6 layout solvers, ``LayoutGenerator`` initializers, and ``LayoutTransform`` passes across 2D (``Layout2d``), 3D (``Layout3d``), $N$-D (``LayoutNd``), non-Euclidean manifolds (``ManifoldLayout2d``), and edge polylines (``EdgePolylines``).
+
+Coarse Backbone & Generators
+----------------------------
+
+.. autoclass:: egraph.CoarseBackbone
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: egraph.CoarseBackboneResult
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: egraph.CoarseBackboneStats
+   :members:
+   :undoc-members:
+   :show-inheritance:
 
 .. autofunction:: egraph.coarse_backbone_init
+.. autofunction:: egraph.pacmap_graph_with_backbone
 .. autofunction:: egraph.extract_quadrilateral_backbone
 
 .. toctree::
@@ -11,6 +30,7 @@ This module provides cooperative v6 layout solvers across 2D (``Layout2d``), $N$
 
    layout/ts_net_solver
    layout/sgd_solver
+   layout/embedding_solvers
    layout/gumap_solver
    layout/t_fdp_solver
    layout/ib_umap_solver
@@ -36,4 +56,4 @@ This module provides cooperative v6 layout solvers across 2D (``Layout2d``), $N$
    layout/kamada_kawai_solver
    layout/maxent_stress_solver
    layout/grip_solver
-   layout/sfc_layout_solver
+   layout/sfc_layout

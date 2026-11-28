@@ -1,7 +1,7 @@
 PfsPrimeOverlapRemoval
 ======================
 
-Cooperative Nachmanson et al. / Chen et al. (2020) ``PFS'`` dual-axis scan-line node overlap removal solver preserving strict orthogonal ordering.
+Nachmanson et al. / Chen et al. (2020) ``PFS'`` dual-axis scan-line node overlap removal ``LayoutTransform`` preserving strict orthogonal ordering via ``apply(layout)``.
 
 .. autoclass:: egraph.PfsPrimeOverlapRemoval
    :members:

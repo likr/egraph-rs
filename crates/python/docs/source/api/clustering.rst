@@ -31,6 +31,11 @@ Result Classes
    :undoc-members:
    :show-inheritance:
 
+.. autoclass:: egraph.LouvainCoarsenResult
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Community Detection & Coarsening Functions
 ------------------------------------------
 

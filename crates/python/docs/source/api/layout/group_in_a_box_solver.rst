@@ -7,3 +7,8 @@ Group-in-a-Box clustered graph layout solver (``GroupInABoxSolver``) supporting 
    :members:
    :undoc-members:
    :show-inheritance:
+
+.. autoclass:: egraph.GibBox
+   :members:
+   :undoc-members:
+   :show-inheritance:

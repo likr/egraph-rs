@@ -11,9 +11,9 @@ For background on the v6 architecture, see [the v6 release plan](archive/V6_RELE
 | Area | Legacy (`v5` / `v6-alpha.0..3`) | `egraph` v6 (`v6.0.0-alpha.9`) |
 |---|---|---|
 | **Graph representation** | `Graph` / `DiGraph` storing `Py<PyAny>` or `JsValue` payloads | `CsrGraph` (`u32` CSR indices + numeric weights) + host-side metadata arrays + `egraph.interop` |
-| **Coordinate buffers** | `DrawingEuclidean2d` / `DrawingHyperbolic2d` / `DrawingSpherical2d` / `DrawingTorus2d` | `Layout2d` (zero-copy `coords(copy=False)` / `coordsView()`), `LayoutNd`, `ManifoldLayout2d` |
-| **Overlap removal** | `OverwrapRemoval` ($O(N^2)$) | `PrismOverlapRemoval` ($O(N \log N)$ Delaunay + bounded CG) |
-| **tsNET family** | `TsNet`, `BhTsNet`, `FitTsNet`, `LTsNet` | Unified `TsNetSolver` (`pure_2hop` / `pure2Hop`, `from_graph_row_normalized` / `fromGraphRowNormalized`, `from_knn`, `from_probabilities`, `from_graph_partial_bfs`) |
+| **Coordinate buffers** | `DrawingEuclidean2d` / `DrawingHyperbolic2d` / `DrawingSpherical2d` / `DrawingTorus2d` | `Layout2d`, `Layout3d`, `LayoutNd` (zero-copy `coords(copy=False)` / `coordsView()`), `ManifoldLayout2d`, `EdgePolylines` |
+| **Overlap removal** | `OverwrapRemoval` ($O(N^2)$) | `PrismOverlapRemoval` ($O(N \log N)$ Delaunay + bounded CG), `PfsPrimeOverlapRemoval` / `TwinDeclutterer` (`LayoutTransform.apply()`) |
+| **tsNET family** | `TsNet`, `BhTsNet`, `FitTsNet`, `LTsNet` | Unified `TsNetSolver` (`pure_2hop` / `pure2Hop`, `from_graph_row_normalized` / `fromGraphRowNormalized`, `from_knn`, `from_probabilities`, `from_graph_partial_bfs`) with Option 1 typed backends (`auto2d`/`auto3d`, `fit_fft`/`fitFft`, `linear_fft`/`linearFft`, `barnes_hut`/`barnesHut`, `exact`) |
 | **Stress metric** | Unscaled `stress(drawing, dm)` (`NS`) | Scale-Normalized Stress (`scale_normalized_stress` / `scaleNormalizedStress`, `evaluate_metrics` / `evaluateMetrics`) |
 | **WASM packaging** | `egraph/dist/web/egraph_wasm`, UMD/Rollup, $2N$ `x(u)`/`y(u)` FFI loops | Pure ESM (`"type": "module"`), `await init()`, `CsrGraph.fromCsr`, `coordsView()`, `runProgressive()` |
 | **Community detection** | `Louvain`, `LabelPropagation`, `SpectralClustering`, `InfoMap` | `louvain_communities`, `label_propagation`, `spectral_clustering`, `kmeans_plus_plus`, `coarsen_graph` (`InfoMap` removed) |
@@ -184,7 +184,7 @@ console.log(prism.lastOverlapCount, sigmaDist, sigmaDisp);
 
 ## 3. `TsNet` / `BhTsNet` / `FitTsNet` / `LTsNet` -> `TsNetSolver`
 
-Legacy v5/alpha split tsNET across four separate classes (`TsNet`, `BhTsNet`, `FitTsNet`, `LTsNet`) with fixed $0.05 N$ perplexity and separate builders. v6 unifies them into **`TsNetSolver`**, supporting `"fft"` (default `Fit-tsNET`), `"linear_fft"`, `"barnes_hut"`, and `"exact"` backends, cooperative `step()` / `run_steps()` / `run()` execution, and the validated Track A preset **`pure_2hop` / `pure2Hop`** (pure 1+2-hop CSR + node-wise adaptive perplexity).
+Legacy v5/alpha split tsNET across four separate classes (`TsNet`, `BhTsNet`, `FitTsNet`, `LTsNet`) with fixed $0.05 N$ perplexity and separate builders. v6 unifies them into **`TsNetSolver`**, supporting `"auto"` (`"auto2d"` / `"auto3d"`), `"fit_fft"` / `"fitFft"` (`"fft"` alias accepted), `"linear_fft"` / `"linearFft"`, `"barnes_hut"` / `"barnesHut"`, and `"exact"` backends, cooperative `step()` / `run_steps()` / `run()` execution, and the validated Track A preset **`pure_2hop` / `pure2Hop`** (pure 1+2-hop CSR + node-wise adaptive perplexity).
 
 ### Python: Before & After
 
@@ -211,10 +211,10 @@ tsnet.run(drawing, graph, rng)
 ```python
 import egraph as eg
 
-layout = eg.pivot_mds_init(graph, num_pivots=50, seed=42)
+layout = eg.PivotMds(graph, num_pivots=50, seed=42).generate()
 solver = eg.TsNetSolver.pure_2hop(
     graph,
-    backend="fft",        # "fft", "linear_fft", "barnes_hut", or "exact"
+    backend="fit_fft",    # "auto", "fit_fft", "linear_fft", "barnes_hut", or "exact"
     perplexity_c=0.9,
     seed=42,
 )
@@ -232,11 +232,11 @@ Custom $k$-NN or precomputed probability matrices remain first-class via `TsNetS
 **After (v6):**
 
 ```ts
-import { TsNetSolver, pivotMdsInit, runProgressive } from "egraph";
+import { PivotMds, TsNetSolver, runProgressive } from "egraph";
 
-const layout = pivotMdsInit(graph, 50, 42);
+const layout = new PivotMds({ numPivots: 50, seed: 42 }).generate(graph);
 const solver = TsNetSolver.pure2Hop(graph, {
-  backend: "fft",
+  backend: "fitFft",
   perplexityC: 0.9,
   seed: 42,
 });
@@ -306,9 +306,7 @@ const report = evaluateMetrics(
   graph,
   layout,
   ["sns", "np2", "crossingNumber"],
-  64,
-  10_000,
-  42,
+  { numPivots: 64, numSamples: 10_000, seed: 42 },
 );
 const record = report.toRecord();
 console.log(record.scaleNormalizedStress, record.neighborhoodPreservation2Hop, record.crossingNumber);
@@ -355,8 +353,8 @@ await init();
 
 // 2. Construct CSR graph in bulk (no per-node/per-edge FFI calls)
 const graph = CsrGraph.fromCsr(indptr, indices, weights, { directed: false, sanitize: true });
-const layout = pivotMdsInit(graph, 50, 42);
-const solver = new TFdpSolver(graph, { backend: "ibfft", iterations: 200, seed: 42 });
+const layout = pivotMdsInit(graph, { numPivots: 50, seed: 42 });
+const solver = new TFdpSolver(graph, { backend: "ibFft", iterations: 200, seed: 42 });
 
 // 3. Cooperative rAF loop with zero-copy linear-memory Float32Array view
 await runProgressive(
@@ -376,8 +374,8 @@ await runProgressive(
 ## Additional v6 Solver & Space Upgrades
 
 - **Track B Sparse Barrier SGD & GuMap**: Replace `SparseSgd.barrier(...).build_barrier_from_landmark_tables(...)` + manual scheduler loops with `SgdSolver.sparse_barrier_dog(graph, seed=42)` (or `SgdSolver.sparseBarrierDog(graph, { seed: 42 })` in WASM) and `SpatialIntruderRefiner(graph)` for 2D `StaticKdTree` post-refinement.
-- **Unified Force, Multilevel & Edge-Bundling Solvers**: `TFdpSolver`, `IbUmapSolver`, `SgdSolver.snap_t_fdp` / `snapTFdp`, `SgdSolver.pacmap_graph` / `pacmapGraph`, `SgdSolver.sgd2`, `ForceAtlas2Solver`, `YifanHuSolver`, and decoupled `FdebSolver(graph)` (`step(layout)` / `run(layout)`, `edge_offsets()`, `points()`).
-- **Non-Euclidean Spaces**: Replace `DrawingHyperbolic2d`, `DrawingSpherical2d`, and `DrawingTorus2d` with `ManifoldLayout2d` (`"hyperbolic"`, `"hyperbolic_lorentz"` / `ManifoldKind::HyperbolicLorentz`, `"spherical"`, `"torus"`) + polymorphic `solver.step(manifold)` / `solver.run(manifold)` across the 6 manifold-capable solvers (`SgdSolver`, `TsNetSolver`, `GuMapSolver`, `StressMajorizationSolver`, `KamadaKawaiSolver`, `FruchtermanReingoldSolver`).
+- **Separated Force, Embedding, Multilevel & Edge-Bundling Solvers**: `TFdpSolver`, `IbUmapSolver`, `SnapTFdpSolver`, `PacmapGraphSolver`, `LargeVisSolver`, `DrGraphSolver`, `GraphCneSolver`, `Sgd2Solver`, `ForceAtlas2Solver`, `YifanHuSolver`, and `EdgePolylines.straight_line_from_graph(graph, layout)` + `FdebSolver(polylines)` (`step(polylines)` / `run(polylines)`, `polylines.edge_offsets()`, `polylines.points()`).
+- **Non-Euclidean Spaces**: Replace `DrawingHyperbolic2d`, `DrawingSpherical2d`, and `DrawingTorus2d` with `ManifoldLayout2d` (`"hyperbolic"`, `"hyperbolic_lorentz"` / `"hyperbolicLorentz"`, `"spherical"`, `"torus"`) + explicit `target="manifold2d"` on manifold-capable solvers (`SgdSolver`, `Sgd2Solver`, `PacmapGraphSolver`, `TsNetSolver`, `GuMapSolver`, `StressMajorizationSolver`, `KamadaKawaiSolver`, `FruchtermanReingoldSolver`).
 
 ---
 
@@ -387,7 +385,7 @@ Between `alpha.8` and `6.0.0-alpha.9` (`6.0.0a9`), all cross-target API inconsis
 
 ### 1. Legacy v5 Crate & Feature Removal
 
-- **Workspace Reduced (`45 -> 27` crates)**: All 18 legacy `petgraph-*` crates and the `legacy` Cargo feature flag have been removed.
+- **Workspace Reduced (`45 -> 27` crates in `alpha.9`, finalized to `28` crates in API Freeze)**: All 18 legacy `petgraph-*` crates and the `legacy` Cargo feature flag have been removed.
 - **`*_v6` Suffixes Removed**: Unprefixed canonical names are used everywhere; legacy `stress(drawing, dm)` is replaced by `scale_normalized_stress` / `evaluate_metrics`.
 
 ### 2. Iteration Argument & Constructor Unification
@@ -447,6 +445,74 @@ Between `alpha.8` and `6.0.0-alpha.9` (`6.0.0a9`), all cross-target API inconsis
 - **Non-Euclidean Manifolds**: `ManifoldLayout2d` removes `.manifold` and Python `.len()` (retaining `.kind` and `__len__` / `numNodes` / `len()`), adds `"hyperbolic_lorentz"` + `to_poincare_layout()`, `ManifoldMetric` (`scale`, `aspect`, `metric()`, `set_scale()`, `set_aspect()`, `set_torus_extents()`, `rescale_geodesic()`), `torus_spectral_phase_init`, `torus_auto_pan`, `torus_edge_segments`, `torus_layout_edge_segments`, geodesic crossings (`spherical_crossing_number`, `crossing_edges_spherical`, `hyperbolic_crossing_number`, `crossing_edges_hyperbolic`, `torus_crossing_number`, `crossing_edges_torus`), and `SgdSolver.reset_schedule` / `run_schedule_window`.
 - **Constraints & Decluttering**: `TwinDeclutterer` / `declutter_twins_2d`, `transitive_reduction` (removing legacy `remove_cycle`), and in-place `project_1d` returning `None` / `void`.
 - **Interop, Datasets & Linalg**: `egraph.interop` adds `to_igraph` and extends `to_networkx(graph, layout=...)` to `Layout2d | LayoutNd | ManifoldLayout2d`; `egraph` adds `list_datasets`, `dataset_catalog`, `dataset_info`, 7 synthetic graph generators, `DijkstraWorkspace` (`dijkstra_single_source`, `all_pairs_dijkstra`), `classical_mds` / `pivot_mds` (`rd_mds(..., degree_normalize=True)`), Laplacian builders, and `ChebyshevDogKernel`.
+
+---
+
+## v6 API Freeze Migration (from `v6.0.0-alpha.9`)
+
+The v6 API Freeze hardens Rust traits, eliminates runtime layout/backend multiplexing, introduces `Layout3d` and `EdgePolylines`, enforces explicit `target` and structured errors across Python/WASM, and locks the **28-crate** workspace (`24` publishable + `4` non-publishable `egraph-{ffi,python,wasm,cli}`).
+
+### 1. Option 1: Compile-Time Typed Backends (`B`) & Open Traits (Rust)
+
+- **Promoted Backend Type Parameter**: `TsNetSolver<L, B>`, `TFdpSolver<L, B>`, `ForceAtlas2Solver<L, B>`, `LinLogSolver<L, B>`, `YifanHuSolver<L, B>`, `FruchtermanReingoldSolver<L, B>`, `MaxentStressSolver<L, B>`, and `StressMajorizationSolver<L, S>` carry their repulsion/solver backend as a type parameter `B` (defaulted via `DefaultTsNetBackend`, `DefaultTFdpBackend`, `DefaultForceBackend`, `DefaultFrBackend`, `DefaultMaxentBackend`, `DefaultStressStrategy`).
+- **Backend Structs & Parameter Separation**: `use_barnes_hut: bool` and runtime backend enums are removed from `*Config`. Parameters live on the backend structs themselves (`BarnesHut::new(theta)`, `FitFft::new(...)`, `LinearFft::new(...)`, `IbFft::new(...)`, `Grid`, `Exact`, `Auto2d`, `Auto3d`, `EuclideanPcg`, `GeodesicGradient`), leaving `Exact` free of unused fields.
+- **Compile-Time Fail Fast**: Repulsion traits (`TsNetRepulsion<L>`, `TFdpRepulsion<L>`, `ForceRepulsion<L>`, `FrRepulsion<L>`, `MaxentRepulsion<L>`, `StressMajorizationStrategy<L>`, open `RepulsionBackend<L>`) are implemented only for valid `(L, B)` pairs—e.g. `ForceAtlas2Solver::<LayoutNd<f64>, BarnesHut>` and `TsNetSolver::<Layout3d<f64>, FitFft>` are compile errors, while `ForceAtlas2Solver::<LayoutNd<f64>>::new(&g, cfg)` resolves to `Exact` automatically.
+- **Open `SurfaceLayout` Extension & Disambiguation**: External crates (such as future `egraph-surface`) can implement `RiemannianLayout` and `RepulsionBackend<SurfaceLayout>` / solver repulsion traits without modifying `egraph`. Because `Exact` and `BarnesHut` exist per domain, access them via `egraph::layout::{neighbor,force,stress}::{Exact, BarnesHut}` (other backends and `Default*` traits are re-exported directly under `egraph::layout::*` and `egraph::prelude::*`).
+
+```rust
+use egraph::core::{CsrGraph, IterativeSolver, Layout3d, LayoutNd};
+use egraph::layout::{
+    ForceAtlas2Config, ForceAtlas2Solver, TsNetConfig, TsNetSolver,
+    neighbor::BarnesHut as NeighborBarnesHut,
+};
+
+let g = CsrGraph::<()>::from_unweighted_edges(3, &[(0, 1), (1, 2)], false, false)?;
+// Resolves DefaultForceBackend -> Exact automatically for LayoutNd
+let mut fa2 = ForceAtlas2Solver::<LayoutNd<f64>>::new_unweighted(&g, ForceAtlas2Config::new())?;
+let mut l_nd = LayoutNd::<f64>::init(3, 4, 42, 1.0)?;
+fa2.run(&mut l_nd)?;
+
+// Explicit 3D Barnes-Hut backend for Layout3d
+let mut tsnet = TsNetSolver::<Layout3d<f64>, NeighborBarnesHut>::new_with_backend(
+    &g, TsNetConfig::pure_2hop(), NeighborBarnesHut::default(),
+)?;
+let mut l_3d = Layout3d::<f64>::init(3, 42, 1.0)?;
+tsnet.run(&mut l_3d)?;
+```
+
+### 2. 4-Layer Geometry, `Layout3d`, `EdgePolylines`, `NodeExtents2d` & 28 Crates
+
+- **4-Layer Geometry Hierarchy**: Open `LayoutStorage` -> `MetricSpace` -> `RiemannianLayout` (adds `exp_map_and_transport(&mut self, i, delta, vec)` so `parallel_transport_into` runs *before* `exp_map`) -> sealed `EuclideanLayout` (`Layout2d<S>`, `Layout3d<S>`, `LayoutNd<S>`).
+- **`Layout3d<S>`**: First-class 3D buffer (SoA in Rust, zero-copy `(N, 3)` in Python, interleaved `Float32Array` `coordsView()` in WASM).
+- **`EdgePolylines<L>` & `FdebSolver`**: `FdebSolver` now mutates `EdgePolylines<L>` (`IterativeSolver<Target = EdgePolylines<L>>`) rather than `CsrGraph` + `Layout*`. Construct polylines via `EdgePolylines::straight_line_from_graph(&graph, &layout)` (Python: `EdgePolylines.straight_line_from_graph(graph, layout)`; WASM: `EdgePolylines.straightLineFromGraph(graph, layout)`), then pass `polylines` into `FdebSolver`.
+- **Shared Extents & Pinning (`egraph-core`)**: `NodeExtents2d<'a, S>`, `NodeShape2d<S>`, and `PinMask` unify bounding-shape and fixed-node inputs.
+- **28-Crate Workspace & `petgraph` Removal**: `crates/petgraph`, `crates/spatial`, and `crates/layout` are deleted (`egraph::spatial` and `egraph::layout` live on the `egraph` facade); `crates/cluster` is renamed to `crates/clustering`; `crates/edge-routing`, `crates/layout-embedding`, `crates/layout-refine`, and `crates/layout-composite` are added; `egraph-{ffi,python,wasm,cli}` set `publish = false`. `CsrGraph<()>` removes `W: Scalar` bounds from unweighted topology functions, and `CsrGraphBuilder` replaces `petgraph::Graph` incremental construction:
+
+```rust
+use egraph::core::{CsrGraph, CsrGraphBuilder};
+
+let mut builder = CsrGraphBuilder::<f64>::new(false);
+let u = builder.add_node();
+let v = builder.add_node();
+builder.add_edge(u, v, 1.5)?;
+let graph: CsrGraph<f64> = builder.build(true)?;
+```
+
+### 3. Policy 1A `target`, `ManifoldKind` Lock & Separated Classes
+
+- **Explicit `target` in Python & WASM**: Multi-space solvers accept `target="layout2d" | "layout3d" | "layout_nd" | "manifold2d"` in Python (`"layoutNd"` in WASM), defaulting to `"layout2d"`. Incompatible `(target, backend)` pairs (e.g. `target="layout3d", backend="fit_fft"` or `target="layout_nd", backend="barnes_hut"`) fail fast at construction (`UnsupportedOperationError` / `Error.code === "UnsupportedOperation"`). `LayoutNd` no longer branches on `dims == 3` (use `Layout3d` + `target="layout3d"` for 3D Barnes-Hut). Manifold solvers lock `ManifoldKind` on first `validate_target`/`step`.
+- **Separated SGD Classes**: `SgdSolver` retains stress/barrier/pair-buffer engines (including `SgdSolver::from_pair_buffer` with `SgdPairBuffer<S>`). Six algorithms move to standalone classes across Rust, Python, and WASM: `Sgd2Solver`, `PacmapGraphSolver`, `LargeVisSolver`, `DrGraphSolver`, `GraphCneSolver`, and `SnapTFdpSolver`. `FieldLayoutSolver` splits into `TFdpSolver` and `IbUmapSolver`, and `ContinuousFdp` is removed.
+- **`LayoutGenerator` & `LayoutTransform`**: `PivotMds`, `ClassicalMds`, `Hde`, `RdMds`, `KorenSpectral`, `CoarseBackbone`, and `SfcLayout` (replacing `SfcLayoutSolver`) implement `LayoutGenerator` (`.generate()` in Rust/Python; `.generate(graph)` in WASM for MDS/spectral generators). `PfsPrimeOverlapRemoval` and `TwinDeclutterer` implement `LayoutTransform` (`.apply(layout)` instead of `.run(layout)`).
+
+### 4. Python & WASM/TS Freeze Contracts
+
+| Area | `alpha.9` | API Freeze |
+|---|---|---|
+| **Python errors** | Plain `ValueError` | `EgraphError(ValueError)` + 7 subclasses (`InvalidInputError`, `DimensionMismatchError`, `IndexOutOfBoundsError(EgraphError, IndexError)`, `InvalidCsrError`, `NonFiniteValueError`, `UnsupportedOperationError`, `NumericalBreakdownError`) |
+| **Python signatures** | Long positional arg lists | `*` keyword-only hyperparameters across 27 functions/constructors; `Protocol`/`TypedDict`/`Literal` in `.pyi` (`LayoutStorage`, `IterativeSolver`, `LayoutGenerator`, `LayoutTransform`) |
+| **Python results** | Raw `tuple` / `dict[str, Any]` | Frozen Result classes (`KnnBuildResult` `.knn/.k2_deg/.stats`, `RhghLandmarksResult`, `AmgSolveResult`, `AmgBatchSolveResult`, `SpectralFilterProjection`, `MetricReport`, `PartitionAgreement`, `NorMetrics`, `ClusterAreaReport`, `LayoutDegeneracy`, `SpectralMomentStats`, `ScreenedPoissonOutput`, `SpatialRefinerStats`) |
+| **WASM options & tokens** | Positional args; mixed `snake_case` | Trailing `{ ...options }` across 34+ functions (`generateSbmGraph`, `pivotMds`, `pivotMdsInit`, `evaluateMetrics`, etc.); strict `camelCase` (`"barnesHut"`, `"fitFft"`, `"linearFft"`, `"ibFft"`, `"twoStepRandomWalk"`, `"degreeOrderedHubSuppressed"`, `"symmetricNormalized"`, `"adaptive2hop"`, `"hyperbolicPoincare"`, `"hyperbolicLorentz"`) |
+| **WASM errors, seeds & CSR** | `JsError`; `number` seeds; silent `f64` coerce | `Result<T, JsValue>` with `.code: EgraphErrorCode`; `seed?: number \| bigint` (`BigInt` 64-bit parity); strict `weightDtype: "float32"` validation |
 
 ---
 

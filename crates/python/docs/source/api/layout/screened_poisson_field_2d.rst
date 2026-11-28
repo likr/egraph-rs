@@ -8,6 +8,16 @@ Reusable single-precision ``f32`` R2C-FFT Screened Poisson unilateral upper-boun
    :undoc-members:
    :show-inheritance:
 
+.. autoclass:: egraph.ScreenedPoissonOutput
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: egraph.ScreenedPoissonStats
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Example
 -------
 
