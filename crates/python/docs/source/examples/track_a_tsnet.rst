@@ -46,7 +46,7 @@ Basic ``TsNetSolver.pure_2hop`` Workflow
 Row-Normalized Affinity (``TsNetSolver.from_graph_row_normalized``)
 -------------------------------------------------------------------
 
-``TsNetSolver.from_graph_row_normalized`` builds direct row-normalized $A_1 + w_2 A_2$ affinity (default ``mode="two_step_random_walk"``) without Gaussian binary-search perplexity tuning:
+``TsNetSolver.from_graph_row_normalized`` builds direct row-normalized $A_1 + w_2 A_2$ affinity (Python defaults: ``w2=0.35``, ``max_2hop_per_node=32``, ``mode="degree_ordered_hub_suppressed"``; this example explicitly selects ``w2=0.5`` and ``mode="two_step_random_walk"``) without Gaussian binary-search perplexity tuning:
 
 .. testcode:: python
 
