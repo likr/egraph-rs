@@ -7,7 +7,7 @@ use super::config::{
 use super::graph_helpers::{
     build_symmetric_csr_from_sorted_pairs, extract_canonical_undirected_edges,
 };
-use super::ortmann::build_ortmann_storage;
+use super::ortmann::{build_ortmann_sparse_problem, ortmann_problem_into_storage};
 use super::pairs::{
     PackedSymPair, compute_eta_bounds, validate_graph_weights, validate_schedule_config,
 };
@@ -156,14 +156,15 @@ impl<L: RiemannianLayout> SgdSolver<L> {
         let eta_max_ovr = config.eta_max;
         let eta_min_ovr = config.eta_min;
         let eps = config.eps;
-        let built = build_ortmann_storage(graph, config)?;
-        let n_springs = built.storage.len();
+        let problem = build_ortmann_sparse_problem::<W, L::Scalar>(graph, config)?;
+        let storage = ortmann_problem_into_storage(&problem);
+        let n_springs = storage.len();
         let mut solver = Self::from_pair_storage(
-            built.num_nodes,
-            built.storage,
+            problem.num_nodes,
+            storage,
             n_springs,
             0,
-            built.schedule_cfg,
+            problem.schedule_cfg,
             seed,
         )?;
         if solver.eta_max > 0.0 {

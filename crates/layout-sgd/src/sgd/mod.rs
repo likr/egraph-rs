@@ -42,7 +42,8 @@ pub use config::{
     BarrierSymmetry, SgdScheduleConfig, SgdScheduleKind, SparseBarrierConfig, SparseBarrierStats,
     StreamingNegativeConfig,
 };
-pub use pair_buffer::SgdPairBuffer;
+pub use ortmann::{OrtmannSparseProblem, build_ortmann_sparse_problem};
+pub use pair_buffer::{SgdPairBuffer, SgdPairKind, SgdPairRecord};
 pub use sgd2::Sgd2Solver;
 pub use solver::SgdSolver;
 pub use variant_config::{OrtmannPivotStrategy, OrtmannSparseStressConfig, Sgd2Config};

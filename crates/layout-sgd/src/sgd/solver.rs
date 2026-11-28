@@ -5,8 +5,8 @@ use egraph_core::{
     SolverStatus,
 };
 
-use super::config::{SgdScheduleConfig, SgdScheduleKind};
-use super::pair_buffer::SgdPairBuffer;
+use super::config::SgdScheduleConfig;
+use super::pair_buffer::{SgdPairBuffer, SgdPairRecord};
 use super::pairs::{
     INDEX_MASK, MAX_PACKED_NODES, PackedSymPair, PairStorage, compute_eta_bounds,
     eta_bounds_from_extrema, init_pair_blocking, validate_pair_endpoints, validate_schedule_config,
@@ -236,6 +236,28 @@ impl<L: RiemannianLayout> SgdSolver<L> {
         Some(self.schedule_cfg.iterations)
     }
 
+    /// Returns the SGD learning rate schedule configuration.
+    #[inline]
+    pub fn schedule_config(&self) -> &SgdScheduleConfig {
+        &self.schedule_cfg
+    }
+
+    /// Returns the precomputed learning rate bounds `(eta_min, eta_max)`.
+    #[inline]
+    pub fn eta_bounds(&self) -> (f64, f64) {
+        (self.eta_min, self.eta_max)
+    }
+
+    /// Returns a read-only iterator over all stored pair records without exposing internal packing.
+    ///
+    /// Note: For solvers initialized via [`Self::streaming_negatives`], only stored 1-hop pairs
+    /// are yielded (on-the-fly negative samples are not materialized). Stored pair order may
+    /// reflect deterministic shuffling for large buffers or after stepping.
+    #[inline]
+    pub fn iter_pairs(&self) -> impl Iterator<Item = SgdPairRecord<L::Scalar>> + '_ {
+        self.pairs.iter()
+    }
+
     #[inline]
     pub(super) fn max_mu_f64(&self) -> f64 {
         self.schedule_cfg.max_mu.unwrap_or(1.0)
@@ -266,12 +288,9 @@ impl<L: RiemannianLayout> SgdSolver<L> {
         self.eta_at(self.iter)
     }
 
+    #[inline]
     pub(super) fn eta_at(&self, t: usize) -> f64 {
-        let t_max = self.schedule_cfg.iterations;
-        if t_max == 0 || t >= t_max {
-            return 0.0;
-        }
-        eval_schedule_eta(t, t_max, self.eta_min, self.eta_max, &self.schedule_cfg)
+        self.schedule_cfg.evaluate(t, self.eta_min, self.eta_max)
     }
 
     pub(super) fn run_streaming_negatives<F>(&mut self, mut apply_sym: F) -> CoreResult<()>
@@ -321,75 +340,5 @@ impl<L: RiemannianLayout> SgdSolver<L> {
             SolverStatus::Running
         };
         self.status
-    }
-}
-
-pub(super) fn eval_schedule_eta(
-    t: usize,
-    t_max: usize,
-    eta_min: f64,
-    eta_max: f64,
-    cfg: &SgdScheduleConfig,
-) -> f64 {
-    let scale = cfg.step_scale;
-    match cfg.kind {
-        SgdScheduleKind::Constant => scale,
-        SgdScheduleKind::Linear => {
-            if eta_max <= 0.0 {
-                return 0.0;
-            }
-            let b = if t_max <= 1 {
-                0.0
-            } else {
-                (eta_max - eta_min) / ((t_max - 1) as f64)
-            };
-            scale * (eta_max - b * (t as f64)).max(0.0)
-        }
-        SgdScheduleKind::Quadratic => {
-            if eta_min <= 0.0 || eta_max <= 0.0 {
-                return 0.0;
-            }
-            let b = if t_max <= 1 {
-                0.0
-            } else {
-                (1.0 - (eta_min / eta_max).sqrt()) / ((t_max - 1) as f64)
-            };
-            let factor = 1.0 - b * (t as f64);
-            scale * eta_max * factor * factor
-        }
-        SgdScheduleKind::Exponential => {
-            if eta_min <= 0.0 || eta_max <= 0.0 {
-                return 0.0;
-            }
-            let b = if t_max <= 1 {
-                0.0
-            } else {
-                (eta_max / eta_min).ln() / ((t_max - 1) as f64)
-            };
-            scale * eta_max * (-b * (t as f64)).exp()
-        }
-        SgdScheduleKind::Reciprocal => {
-            if eta_min <= 0.0 || eta_max <= 0.0 {
-                return 0.0;
-            }
-            let b = if t_max <= 1 {
-                0.0
-            } else {
-                (eta_max / eta_min - 1.0) / ((t_max - 1) as f64)
-            };
-            scale * eta_max / (1.0 + b * (t as f64))
-        }
-        SgdScheduleKind::Squared => {
-            if eta_max <= 0.0 {
-                return 0.0;
-            }
-            let progress = if t_max <= 1 {
-                0.0
-            } else {
-                (t as f64) / ((t_max - 1) as f64)
-            };
-            let factor = 1.0 - progress;
-            scale * (eta_max * factor * factor).max(eta_min)
-        }
     }
 }

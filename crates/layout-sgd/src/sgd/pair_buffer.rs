@@ -2,6 +2,59 @@ use egraph_core::{CoreError, CoreResult, Scalar};
 
 use super::pairs::{INDEX_MASK, PackedSymPair};
 
+/// Potential interaction kind for a buffered or solver-stored SGD pair.
+#[non_exhaustive]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SgdPairKind {
+    /// Two-sided (possibly directionally weighted) spring interaction.
+    Spring,
+    /// One-sided hinge repulsion active only when current distance is below target distance.
+    Hinge,
+}
+
+/// Decoded read-only SGD pair record decoupled from internal bit-packed storage.
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq)]
+pub struct SgdPairRecord<S: Scalar = f64> {
+    /// First endpoint vertex index.
+    pub u: u32,
+    /// Second endpoint vertex index.
+    pub v: u32,
+    /// Interaction kind (`Spring` or `Hinge`).
+    pub kind: SgdPairKind,
+    /// Target distance used when updating endpoint `u` relative to `v`.
+    pub d_uv: S,
+    /// Target distance used when updating endpoint `v` relative to `u`.
+    pub d_vu: S,
+    /// Weight applied when updating endpoint `u`.
+    pub w_uv: S,
+    /// Weight applied when updating endpoint `v`.
+    pub w_vu: S,
+}
+
+impl<S: Scalar> SgdPairRecord<S> {
+    #[inline]
+    pub(super) const fn new(
+        u: u32,
+        v: u32,
+        kind: SgdPairKind,
+        d_uv: S,
+        d_vu: S,
+        w_uv: S,
+        w_vu: S,
+    ) -> Self {
+        Self {
+            u,
+            v,
+            kind,
+            d_uv,
+            d_vu,
+            w_uv,
+            w_vu,
+        }
+    }
+}
+
 /// Reusable zero-copy buffer of symmetric two-sided spring and one-sided hinge pairs for
 /// constructing [`super::SgdSolver`] instances without exposing packed internal representations.
 #[derive(Debug, Clone, Default)]
@@ -166,6 +219,12 @@ impl<S: Scalar> SgdPairBuffer<S> {
     #[inline]
     pub fn num_hinges(&self) -> usize {
         self.num_hinges
+    }
+
+    /// Returns a read-only iterator over buffered pair records in insertion order.
+    #[inline]
+    pub fn iter(&self) -> impl Iterator<Item = SgdPairRecord<S>> + '_ {
+        self.pairs.iter().map(|&p| p.to_record())
     }
 
     /// Clears all buffered pairs while retaining allocated capacity.

@@ -264,6 +264,39 @@ fn layout_twin_declutter_and_transitive_reduction_smoke() {
     assert_eq!(reduced_w.weights().expect("weights"), &[1.5, 2.5]);
 
     let _ = std::any::type_name::<egraph::layout::FieldFftStats>();
+
+    let mut pair_buf = egraph::layout::SgdPairBuffer::<f64>::new();
+    pair_buf.push_spring(0, 1, 1.0, 2.0).expect("push_spring");
+    pair_buf.push_hinge(1, 2, 1.5, 0.5).expect("push_hinge");
+    let recs: Vec<egraph::layout::SgdPairRecord<f64>> = pair_buf.iter().collect();
+    assert_eq!(recs.len(), 2);
+    assert_eq!(recs[0].kind, egraph::layout::SgdPairKind::Spring);
+    assert_eq!(recs[1].kind, egraph::layout::SgdPairKind::Hinge);
+
+    let sched = egraph::layout::SgdScheduleConfig::new(6)
+        .with_kind(egraph::layout::SgdScheduleKind::Exponential);
+    let solver =
+        egraph::layout::SgdSolver::<Layout2d<f64>>::from_pair_buffer(3, pair_buf, sched, 7)
+            .expect("from_pair_buffer");
+    let (emin, emax) = solver.eta_bounds();
+    assert_eq!(
+        solver.schedule_config().evaluate(0, emin, emax).to_bits(),
+        solver.current_eta().to_bits()
+    );
+    assert_eq!(solver.iter_pairs().collect::<Vec<_>>(), recs);
+
+    let path = CsrGraph::<f64>::from_edges(4, &[(0, 1), (1, 2), (2, 3)], None, false, false)
+        .expect("path");
+    let ortmann: egraph::layout::OrtmannSparseProblem<f64> =
+        egraph::layout::build_ortmann_sparse_problem(
+            &path,
+            egraph::layout::OrtmannSparseStressConfig::new()
+                .with_num_pivots(2)
+                .with_seed(5),
+        )
+        .expect("ortmann_problem");
+    assert_eq!(ortmann.num_nodes, 4);
+    assert!(!ortmann.two_sided.is_empty());
 }
 
 #[cfg(feature = "metrics")]

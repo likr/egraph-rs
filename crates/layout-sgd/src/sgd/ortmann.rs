@@ -4,6 +4,7 @@ use egraph_linalg::select_maxmin_sp_pivots;
 use super::config::{SgdScheduleConfig, SgdScheduleKind};
 use super::graph_helpers::{build_positive_canonical_csr, compute_mssp_dists};
 use super::ortmann_pivots::{select_maxmin_random_sp_pivots, select_weighted_maxmin_sp_pivots};
+use super::pair_buffer::{SgdPairKind, SgdPairRecord};
 use super::pairs::{
     DirectedPairAccumulator, MAX_PACKED_NODES, PairStorage, validate_graph_weights,
 };
@@ -176,18 +177,49 @@ pub(super) fn select_ortmann_pivots_and_dists(
     }
 }
 
-pub(super) struct BuiltOrtmann<S: Scalar> {
-    pub(super) num_nodes: usize,
-    pub(super) storage: PairStorage<S>,
-    pub(super) schedule_cfg: SgdScheduleConfig,
+/// Decoupled Problem IR for Ortmann et al. (2016) Sparse Stress SGD.
+///
+/// Separates read-only pivot-to-non-pivot pairs (`one_sided`, with `w_uv == 0`) from symmetric or
+/// mutually weighted `two_sided` pairs (1-hop edges and merged non-edge pivot-pivot pairs).
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq)]
+pub struct OrtmannSparseProblem<S: Scalar = f64> {
+    /// Expected number of vertices in the layout.
+    pub num_nodes: usize,
+    /// Selected shortest-path pivot vertex indices.
+    pub pivots: Vec<u32>,
+    /// One-sided pivot-to-non-pivot spring pairs (`u` in `pivots`, `v` non-pivot, `w_uv == 0`).
+    pub one_sided: Vec<SgdPairRecord<S>>,
+    /// Two-sided spring pairs (canonical 1-hop edges and merged non-edge pivot-pivot pairs `u < v`).
+    pub two_sided: Vec<SgdPairRecord<S>>,
+    /// Minimum positive stored weight across `one_sided` and `two_sided` (`0.0` if empty).
+    pub w_min: f64,
+    /// Maximum positive stored weight across `one_sided` and `two_sided` (`0.0` if empty).
+    pub w_max: f64,
+    /// Derived SGD learning rate schedule configuration.
+    pub schedule_cfg: SgdScheduleConfig,
 }
 
-pub(super) fn build_ortmann_storage<W: Scalar, S: Scalar>(
+#[inline]
+fn record_positive_weight<S: Scalar>(w: S, w_min: &mut f64, w_max: &mut f64) {
+    let wf = w.to_f64();
+    if wf.is_finite() && wf > 0.0 {
+        *w_min = (*w_min).min(wf);
+        *w_max = (*w_max).max(wf);
+    }
+}
+
+/// Builds the decoupled [`OrtmannSparseProblem`] Problem IR for Ortmann et al. (2016) Sparse Stress.
+///
+/// Separates read-only pivot-to-non-pivot pairs (`one_sided`) from 1-hop edges and merged
+/// non-edge pivot-pivot pairs (`two_sided`), preserving 1-hop edge precedence and Voronoi region
+/// weights $w'_{ip} = |\{j \in R(p) : 2 d_{jp} \le d_{ip}\}| / d_{ip}^2$.
+pub fn build_ortmann_sparse_problem<W: Scalar, S: Scalar>(
     graph: &CsrGraph<W>,
     config: OrtmannSparseStressConfig,
-) -> CoreResult<BuiltOrtmann<S>> {
+) -> CoreResult<OrtmannSparseProblem<S>> {
     config.validate()?;
-    validate_graph_weights(graph, "SgdSolver::ortmann_sparse_stress")?;
+    validate_graph_weights(graph, "build_ortmann_sparse_problem")?;
 
     let n = graph.num_nodes();
     if n > MAX_PACKED_NODES {
@@ -201,18 +233,26 @@ pub(super) fn build_ortmann_storage<W: Scalar, S: Scalar>(
         .with_kind(SgdScheduleKind::Exponential)
         .with_step_scale(1.0);
     if n <= 1 {
-        return Ok(BuiltOrtmann {
+        return Ok(OrtmannSparseProblem {
             num_nodes: n,
-            storage: PairStorage::Symmetric(Vec::new()),
+            pivots: Vec::new(),
+            one_sided: Vec::new(),
+            two_sided: Vec::new(),
+            w_min: 0.0,
+            w_max: 0.0,
             schedule_cfg,
         });
     }
 
     let (sym_graph, positive_edges) = build_positive_canonical_csr(graph)?;
     if positive_edges.is_empty() {
-        return Ok(BuiltOrtmann {
+        return Ok(OrtmannSparseProblem {
             num_nodes: n,
-            storage: PairStorage::Symmetric(Vec::new()),
+            pivots: Vec::new(),
+            one_sided: Vec::new(),
+            two_sided: Vec::new(),
+            w_min: 0.0,
+            w_max: 0.0,
             schedule_cfg,
         });
     }
@@ -222,12 +262,33 @@ pub(super) fn build_ortmann_storage<W: Scalar, S: Scalar>(
         select_ortmann_pivots_and_dists(&sym_graph, target_k, config.pivot_strategy, config.seed)?;
     let h = pivots.len();
 
-    let mut acc = DirectedPairAccumulator::<S>::with_capacity(positive_edges.len() + h * n);
+    let mut pivot_slot: Vec<Option<usize>> = vec![None; n];
+    for (k, &p) in pivots.iter().enumerate() {
+        debug_assert!(pivot_slot[p as usize].is_none());
+        pivot_slot[p as usize] = Some(k);
+    }
+
+    let mut w_min_raw = f64::INFINITY;
+    let mut w_max_raw = 0.0_f64;
+    let mut two_sided: Vec<SgdPairRecord<S>> =
+        Vec::with_capacity(positive_edges.len() + h.saturating_mul(h.saturating_sub(1)) / 2);
     let mut edges_1hop: Vec<(u32, u32)> = Vec::with_capacity(positive_edges.len());
     for &(u, v, d_uv) in &positive_edges {
         edges_1hop.push((u, v));
-        let w_uv = 1.0 / (d_uv * d_uv);
-        acc.push_f64(u, v, d_uv, d_uv, w_uv, w_uv);
+        let d_s = S::from_f64(d_uv);
+        let w_s = S::from_f64(1.0 / (d_uv * d_uv));
+        if d_s.is_finite() && d_s > S::ZERO && w_s.is_finite() && w_s > S::ZERO {
+            two_sided.push(SgdPairRecord::new(
+                u,
+                v,
+                SgdPairKind::Spring,
+                d_s,
+                d_s,
+                w_s,
+                w_s,
+            ));
+            record_positive_weight(w_s, &mut w_min_raw, &mut w_max_raw);
+        }
     }
     if !edges_1hop.windows(2).all(|w| w[0] < w[1]) {
         edges_1hop.sort_unstable();
@@ -264,10 +325,58 @@ pub(super) fn build_ortmann_storage<W: Scalar, S: Scalar>(
         dists_k.sort_unstable_by(f64::total_cmp);
     }
 
+    // Merge non-edge pivot-pivot pairs (u, v) with u < v into two_sided:
+    // w_uv moves u toward v (governed by R(v)), while w_vu moves v toward u (governed by R(u)).
+    for k1 in 0..h {
+        for k2 in (k1 + 1)..h {
+            let p1 = pivots[k1];
+            let p2 = pivots[k2];
+            let (u, v, ku, kv) = if p1 < p2 {
+                (p1, p2, k1, k2)
+            } else {
+                (p2, p1, k2, k1)
+            };
+            if edges_1hop.binary_search(&(u, v)).is_ok() {
+                continue;
+            }
+            let d = piv_dists[ku * n + (v as usize)];
+            let d_rev = piv_dists[kv * n + (u as usize)];
+            if !d.is_finite() || d <= 0.0 || !d_rev.is_finite() || d_rev <= 0.0 {
+                continue;
+            }
+            let count_v = r_dists[kv].partition_point(|&dpj| dpj.is_finite() && 2.0 * dpj <= d);
+            let count_u = r_dists[ku].partition_point(|&dpj| dpj.is_finite() && 2.0 * dpj <= d);
+            let d_s = S::from_f64(d);
+            let w_uv_s = S::from_f64((count_v as f64) / (d * d));
+            let w_vu_s = S::from_f64((count_u as f64) / (d * d));
+            if !d_s.is_finite()
+                || d_s <= S::ZERO
+                || !w_uv_s.is_finite()
+                || w_uv_s < S::ZERO
+                || !w_vu_s.is_finite()
+                || w_vu_s < S::ZERO
+                || (w_uv_s == S::ZERO && w_vu_s == S::ZERO)
+            {
+                continue;
+            }
+            two_sided.push(SgdPairRecord::new(
+                u,
+                v,
+                SgdPairKind::Spring,
+                d_s,
+                d_s,
+                w_uv_s,
+                w_vu_s,
+            ));
+            record_positive_weight(w_uv_s, &mut w_min_raw, &mut w_max_raw);
+            record_positive_weight(w_vu_s, &mut w_min_raw, &mut w_max_raw);
+        }
+    }
+
+    let mut one_sided: Vec<SgdPairRecord<S>> = Vec::with_capacity(h * n.saturating_sub(h));
     for (k, &p_u32) in pivots.iter().enumerate() {
-        let p_usize = p_u32 as usize;
         for i in 0..n {
-            if i == p_usize {
+            if pivot_slot[i].is_some() {
                 continue;
             }
             let i_u32 = i as u32;
@@ -287,14 +396,49 @@ pub(super) fn build_ortmann_storage<W: Scalar, S: Scalar>(
             if count == 0 {
                 continue;
             }
-            let w_pi = (count as f64) / (dpi * dpi);
-            acc.push_f64(p_u32, i_u32, dpi, dpi, 0.0, w_pi);
+            let d_s = S::from_f64(dpi);
+            let w_s = S::from_f64((count as f64) / (dpi * dpi));
+            if !d_s.is_finite() || d_s <= S::ZERO || !w_s.is_finite() || w_s <= S::ZERO {
+                continue;
+            }
+            one_sided.push(SgdPairRecord::new(
+                p_u32,
+                i_u32,
+                SgdPairKind::Spring,
+                d_s,
+                d_s,
+                S::ZERO,
+                w_s,
+            ));
+            record_positive_weight(w_s, &mut w_min_raw, &mut w_max_raw);
         }
     }
 
-    Ok(BuiltOrtmann {
+    let (w_min, w_max) = if w_max_raw > 0.0 && w_min_raw.is_finite() {
+        (w_min_raw, w_max_raw)
+    } else {
+        (0.0, 0.0)
+    };
+
+    Ok(OrtmannSparseProblem {
         num_nodes: n,
-        storage: acc.into_storage(),
+        pivots,
+        one_sided,
+        two_sided,
+        w_min,
+        w_max,
         schedule_cfg,
     })
+}
+
+pub(super) fn ortmann_problem_into_storage<S: Scalar>(
+    problem: &OrtmannSparseProblem<S>,
+) -> PairStorage<S> {
+    let mut acc = DirectedPairAccumulator::<S>::with_capacity(
+        problem.two_sided.len() + problem.one_sided.len(),
+    );
+    for rec in problem.two_sided.iter().chain(problem.one_sided.iter()) {
+        acc.push_s(rec.u, rec.v, rec.d_uv, rec.d_vu, rec.w_uv, rec.w_vu);
+    }
+    acc.into_storage()
 }

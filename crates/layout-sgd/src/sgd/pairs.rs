@@ -1,6 +1,7 @@
 use egraph_core::{CoreError, CoreResult, CsrGraph, DeterministicRng, Scalar};
 
 use super::config::{SgdScheduleConfig, SparseBarrierConfig};
+use super::pair_buffer::{SgdPairKind, SgdPairRecord};
 
 pub(super) const HINGE_BIT: u32 = 1u32 << 31;
 pub(super) const INDEX_MASK: u32 = !HINGE_BIT;
@@ -29,6 +30,24 @@ impl<S: Scalar> PackedSymPair<S> {
             w,
         }
     }
+
+    #[inline]
+    pub(super) fn to_record(self) -> SgdPairRecord<S> {
+        let kind = if (self.j_hinge & HINGE_BIT) != 0 {
+            SgdPairKind::Hinge
+        } else {
+            SgdPairKind::Spring
+        };
+        SgdPairRecord::new(
+            self.i,
+            self.j_hinge & INDEX_MASK,
+            kind,
+            self.d,
+            self.d,
+            self.w,
+            self.w,
+        )
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -54,6 +73,24 @@ impl<S: Scalar> PackedGenPair<S> {
             wji,
         }
     }
+
+    #[inline]
+    pub(super) fn to_record(self) -> SgdPairRecord<S> {
+        let kind = if (self.j_hinge & HINGE_BIT) != 0 {
+            SgdPairKind::Hinge
+        } else {
+            SgdPairKind::Spring
+        };
+        SgdPairRecord::new(
+            self.i,
+            self.j_hinge & INDEX_MASK,
+            kind,
+            self.dij,
+            self.dji,
+            self.wij,
+            self.wji,
+        )
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -62,12 +99,57 @@ pub(super) enum PairStorage<S: Scalar> {
     General(Vec<PackedGenPair<S>>),
 }
 
+pub(super) enum PairStorageIter<'a, S: Scalar> {
+    Symmetric(std::slice::Iter<'a, PackedSymPair<S>>),
+    General(std::slice::Iter<'a, PackedGenPair<S>>),
+}
+
+impl<S: Scalar> Iterator for PairStorageIter<'_, S> {
+    type Item = SgdPairRecord<S>;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            Self::Symmetric(iter) => iter.next().map(|&p| p.to_record()),
+            Self::General(iter) => iter.next().map(|&p| p.to_record()),
+        }
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        match self {
+            Self::Symmetric(iter) => iter.size_hint(),
+            Self::General(iter) => iter.size_hint(),
+        }
+    }
+}
+
+impl<S: Scalar> ExactSizeIterator for PairStorageIter<'_, S> {
+    #[inline]
+    fn len(&self) -> usize {
+        match self {
+            Self::Symmetric(iter) => iter.len(),
+            Self::General(iter) => iter.len(),
+        }
+    }
+}
+
+impl<S: Scalar> std::iter::FusedIterator for PairStorageIter<'_, S> {}
+
 impl<S: Scalar> PairStorage<S> {
     #[inline]
     pub(super) fn len(&self) -> usize {
         match self {
             Self::Symmetric(v) => v.len(),
             Self::General(v) => v.len(),
+        }
+    }
+
+    #[inline]
+    pub(super) fn iter(&self) -> PairStorageIter<'_, S> {
+        match self {
+            Self::Symmetric(v) => PairStorageIter::Symmetric(v.iter()),
+            Self::General(v) => PairStorageIter::General(v.iter()),
         }
     }
 }
@@ -85,11 +167,7 @@ impl<S: Scalar> DirectedPairAccumulator<S> {
         }
     }
 
-    pub(super) fn push_f64(&mut self, u: u32, v: u32, d_uv: f64, d_vu: f64, w_uv: f64, w_vu: f64) {
-        let d_uv_s = S::from_f64(d_uv);
-        let d_vu_s = S::from_f64(d_vu);
-        let w_uv_s = S::from_f64(w_uv);
-        let w_vu_s = S::from_f64(w_vu);
+    pub(super) fn push_s(&mut self, u: u32, v: u32, d_uv_s: S, d_vu_s: S, w_uv_s: S, w_vu_s: S) {
         if !d_uv_s.is_finite()
             || d_uv_s <= S::ZERO
             || !d_vu_s.is_finite()
@@ -108,6 +186,17 @@ impl<S: Scalar> DirectedPairAccumulator<S> {
         self.pairs.push(PackedGenPair::new(
             u, v, false, d_uv_s, d_vu_s, w_uv_s, w_vu_s,
         ));
+    }
+
+    pub(super) fn push_f64(&mut self, u: u32, v: u32, d_uv: f64, d_vu: f64, w_uv: f64, w_vu: f64) {
+        self.push_s(
+            u,
+            v,
+            S::from_f64(d_uv),
+            S::from_f64(d_vu),
+            S::from_f64(w_uv),
+            S::from_f64(w_vu),
+        );
     }
 
     pub(super) fn into_storage(self) -> PairStorage<S> {

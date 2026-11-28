@@ -128,9 +128,10 @@ pub use egraph_layout_refine::{
     SpatialRefinerConfig, SpatialRefinerRoundStats, SpatialRefinerStats,
 };
 pub use egraph_layout_sgd::{
-    BarrierSymmetry, OrtmannPivotStrategy, OrtmannSparseStressConfig, Sgd2Config, Sgd2Solver,
-    SgdPairBuffer, SgdScheduleConfig, SgdScheduleKind, SgdSolver, SparseBarrierConfig,
-    SparseBarrierStats, StreamingNegativeConfig,
+    BarrierSymmetry, OrtmannPivotStrategy, OrtmannSparseProblem, OrtmannSparseStressConfig,
+    Sgd2Config, Sgd2Solver, SgdPairBuffer, SgdPairKind, SgdPairRecord, SgdScheduleConfig,
+    SgdScheduleKind, SgdSolver, SparseBarrierConfig, SparseBarrierStats, StreamingNegativeConfig,
+    build_ortmann_sparse_problem,
 };
 #[cfg(feature = "baselines")]
 pub use egraph_layout_stress::{

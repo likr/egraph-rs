@@ -12,7 +12,6 @@ use super::pairs::{
     try_for_each_shuffled_pair, validate_graph_weights, validate_schedule_config,
 };
 use super::sgd2_kernels::{ScratchAccum, accumulate_gen, accumulate_sym, flush_batch};
-use super::solver::eval_schedule_eta;
 use super::stepping::{lock_target_layout, validate_target_layout};
 use super::variant_config::Sgd2Config;
 
@@ -148,12 +147,9 @@ impl<L: RiemannianLayout + 'static> Sgd2Solver<L> {
         self.eta_at(self.iter)
     }
 
+    #[inline]
     fn eta_at(&self, t: usize) -> f64 {
-        let t_max = self.schedule_cfg.iterations;
-        if t_max == 0 || t >= t_max {
-            return 0.0;
-        }
-        eval_schedule_eta(t, t_max, self.eta_min, self.eta_max, &self.schedule_cfg)
+        self.schedule_cfg.evaluate(t, self.eta_min, self.eta_max)
     }
 
     /// Resets the iteration schedule and deterministic RNG without reallocating stored pair buffers.

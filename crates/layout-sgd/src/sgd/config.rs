@@ -124,6 +124,86 @@ impl SgdScheduleConfig {
         }
         Ok(())
     }
+
+    /// Evaluates the scheduled learning rate $\eta$ at zero-based step `iter` given `(eta_min, eta_max)`.
+    ///
+    /// Returns `0.0` when `iterations == 0`, `iter >= iterations`, `step_scale` is non-finite/non-positive,
+    /// or (for decay schedules other than [`SgdScheduleKind::Constant`]) bounds are non-finite or invalid
+    /// (`eta_min > eta_max`, or non-positive bounds required by the chosen schedule curve).
+    pub fn evaluate(&self, iter: usize, eta_min: f64, eta_max: f64) -> f64 {
+        let t_max = self.iterations;
+        let scale = self.step_scale;
+        if t_max == 0 || iter >= t_max || !scale.is_finite() || scale <= 0.0 {
+            return 0.0;
+        }
+        if self.kind == SgdScheduleKind::Constant {
+            return scale;
+        }
+        if !eta_min.is_finite() || !eta_max.is_finite() || eta_min > eta_max {
+            return 0.0;
+        }
+        let t = iter;
+        match self.kind {
+            SgdScheduleKind::Constant => scale,
+            SgdScheduleKind::Linear => {
+                if eta_max <= 0.0 {
+                    return 0.0;
+                }
+                let b = if t_max <= 1 {
+                    0.0
+                } else {
+                    (eta_max - eta_min) / ((t_max - 1) as f64)
+                };
+                scale * (eta_max - b * (t as f64)).max(0.0)
+            }
+            SgdScheduleKind::Quadratic => {
+                if eta_min <= 0.0 || eta_max <= 0.0 {
+                    return 0.0;
+                }
+                let b = if t_max <= 1 {
+                    0.0
+                } else {
+                    (1.0 - (eta_min / eta_max).sqrt()) / ((t_max - 1) as f64)
+                };
+                let factor = 1.0 - b * (t as f64);
+                scale * eta_max * factor * factor
+            }
+            SgdScheduleKind::Exponential => {
+                if eta_min <= 0.0 || eta_max <= 0.0 {
+                    return 0.0;
+                }
+                let b = if t_max <= 1 {
+                    0.0
+                } else {
+                    (eta_max / eta_min).ln() / ((t_max - 1) as f64)
+                };
+                scale * eta_max * (-b * (t as f64)).exp()
+            }
+            SgdScheduleKind::Reciprocal => {
+                if eta_min <= 0.0 || eta_max <= 0.0 {
+                    return 0.0;
+                }
+                let b = if t_max <= 1 {
+                    0.0
+                } else {
+                    (eta_max / eta_min - 1.0) / ((t_max - 1) as f64)
+                };
+                scale * eta_max / (1.0 + b * (t as f64))
+            }
+            SgdScheduleKind::Squared => {
+                if eta_max <= 0.0 {
+                    return 0.0;
+                }
+                let progress = if t_max <= 1 {
+                    0.0
+                } else {
+                    (t as f64) / ((t_max - 1) as f64)
+                };
+                let factor = 1.0 - progress;
+                scale * (eta_max * factor * factor).max(eta_min)
+            }
+        }
+    }
 }
 
 /// Symmetrization rule used for the 2-hop barrier radius $R_{\mathrm{pair}}(u, v)$.
