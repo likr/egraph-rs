@@ -2,30 +2,20 @@
 name = "egraph-layout-multilevel"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+description = "Single-threaded multilevel coarse backbone, GRIP, and space-filling curve graph layouts for egraph-rs"
 
 [features]
 default = []
-delaunay = ["egraph-layout-sgd/delaunay"]
-baselines = [
-    "dep:egraph-linalg",
-    "dep:egraph-layout-constraints",
-    "dep:egraph-layout-stress",
-    "dep:egraph-layout-force",
-    "dep:egraph-layout-neighbor",
-    "egraph-layout-force?/baselines",
-]
+baselines = []
 
 [dependencies]
 egraph-core.workspace = true
 egraph-spatial-trees.workspace = true
-egraph-spatial-fft.workspace = true
-egraph-neighborhood.workspace = true
+egraph-linalg.workspace = true
+egraph-linalg-amg.workspace = true
+egraph-linalg-mds.workspace = true
 egraph-clustering.workspace = true
-egraph-layout-sgd.workspace = true
-egraph-linalg = { workspace = true, optional = true }
-egraph-layout-constraints = { workspace = true, optional = true }
-egraph-layout-stress = { workspace = true, optional = true }
-egraph-layout-force = { workspace = true, optional = true }
-egraph-layout-neighbor = { workspace = true, optional = true }
+egraph-neighborhood.workspace = true

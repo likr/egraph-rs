@@ -20,77 +20,56 @@ fn assert_strictly_distinct<S: Scalar>(layout: &Layout2d<S>) {
 fn test_sfc_config_validation_and_degenerate_inputs() {
     assert!(SfcConfig::default().validate().is_ok());
     assert!(matches!(
-        SfcConfig {
-            scale: 0.0,
-            ..Default::default()
-        }
-        .validate(),
+        SfcConfig::new().with_scale(0.0).validate(),
         Err(CoreError::InvalidInput(_))
     ));
     assert!(matches!(
-        SfcConfig {
-            scale: f64::NAN,
-            ..Default::default()
-        }
-        .validate(),
+        SfcConfig::new().with_scale(f64::NAN).validate(),
         Err(CoreError::NonFiniteValue { .. })
     ));
     assert!(matches!(
-        SfcConfig {
-            resolution_order: Some(0),
-            ..Default::default()
-        }
-        .validate(),
+        SfcConfig::new().with_resolution_order(Some(0)).validate(),
         Err(CoreError::InvalidInput(_))
     ));
     assert!(matches!(
-        SfcConfig {
-            resolution_order: Some(16),
-            ..Default::default()
-        }
-        .validate(),
+        SfcConfig::new().with_resolution_order(Some(16)).validate(),
         Err(CoreError::InvalidInput(_))
     ));
 
     // Explicit resolution_order too small for N -> error.
     let g5 = CsrGraph::<f64>::from_edges(5, &[(0, 1)], None, false, false).unwrap();
+    let mut s_small = SfcLayout::<f64>::from_config(
+        &g5,
+        SfcConfig::new().with_resolution_order(Some(1)), // 4 cells < 5 nodes
+    );
     assert!(matches!(
-        SfcLayoutSolver::<f64>::new(
-            &g5,
-            SfcConfig {
-                resolution_order: Some(1), // 4 cells < 5 nodes
-                ..Default::default()
-            },
-        ),
+        s_small.generate(),
         Err(CoreError::InvalidInput(_))
     ));
 
     // N = 0 and N = 1.
     let g0 = CsrGraph::<f64>::from_edges(0, &[], None, false, false).unwrap();
-    let mut s0 = SfcLayoutSolver::<f64>::new(&g0, SfcConfig::default()).unwrap();
-    let mut l0 = Layout2d::zeros(0);
-    assert_eq!(s0.step(&mut l0).unwrap(), SolverStatus::Converged);
+    let mut s0 = SfcLayout::<f64>::new(&g0);
+    let l0 = s0.generate().unwrap();
+    assert_eq!(l0.len(), 0);
+    assert!(s0.vertex_order().is_empty());
 
     let g1 = CsrGraph::<f64>::from_edges(1, &[], None, false, false).unwrap();
-    let mut s1 = SfcLayoutSolver::<f64>::new(&g1, SfcConfig::default()).unwrap();
-    let mut l1 = Layout2d::zeros(1);
-    assert_eq!(s1.step(&mut l1).unwrap(), SolverStatus::Converged);
+    let mut s1 = SfcLayout::<f64>::new(&g1);
+    let l1 = s1.generate().unwrap();
+    assert_eq!(l1.len(), 1);
     assert_eq!(s1.vertex_order(), &[0]);
 
     // Edgeless graph (N = 10).
     let g_edgeless = CsrGraph::<f64>::from_edges(10, &[], None, false, false).unwrap();
-    let mut s_edgeless = SfcLayoutSolver::<f64>::new(&g_edgeless, SfcConfig::default()).unwrap();
-    let mut l_edgeless = Layout2d::zeros(10);
-    assert_eq!(
-        s_edgeless.run(&mut l_edgeless).unwrap(),
-        SolverStatus::Converged
-    );
+    let mut s_edgeless = SfcLayout::<f64>::new(&g_edgeless);
+    let l_edgeless = s_edgeless.generate().unwrap();
     assert!(l_edgeless.is_all_finite());
     assert_strictly_distinct(&l_edgeless);
 }
 
 #[test]
-fn test_sfc_hilbert_morton_zero_colocation_and_step_run_parity() {
+fn test_sfc_hilbert_morton_zero_colocation_and_determinism() {
     // Two cliques connected by a weak bridge + disconnected isolated node.
     let mut edges = Vec::new();
     let mut weights = Vec::new();
@@ -112,19 +91,16 @@ fn test_sfc_hilbert_morton_zero_colocation_and_step_run_parity() {
     let g = CsrGraph::from_edges(12, &edges, Some(&weights), false, false).unwrap();
 
     for &curve in &[SfcCurveKind::Hilbert, SfcCurveKind::Morton] {
-        let cfg = SfcConfig {
-            curve,
-            scale: 50.0,
-            resolution_order: None,
-            seed: 42,
-        };
-        // f64 step() == run()
-        let mut s1 = SfcLayoutSolver::<f64>::new(&g, cfg).unwrap();
-        let mut s2 = SfcLayoutSolver::<f64>::new(&g, cfg).unwrap();
-        let mut l1 = Layout2d::zeros(12);
-        let mut l2 = Layout2d::zeros(12);
-        assert_eq!(s1.step(&mut l1).unwrap(), SolverStatus::Converged);
-        assert_eq!(s2.run(&mut l2).unwrap(), SolverStatus::Converged);
+        let cfg = SfcConfig::new()
+            .with_curve(curve)
+            .with_scale(50.0)
+            .with_resolution_order(None)
+            .with_seed(42);
+        // f64 determinism
+        let mut s1 = SfcLayout::<f64>::from_config(&g, cfg.clone());
+        let mut s2 = SfcLayout::<f64>::from_config(&g, cfg.clone());
+        let l1 = s1.generate().unwrap();
+        let l2 = s2.generate().unwrap();
         assert_strictly_distinct(&l1);
         assert_eq!(
             l1.x().iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
@@ -140,13 +116,11 @@ fn test_sfc_hilbert_morton_zero_colocation_and_step_run_parity() {
         sorted_order.sort_unstable();
         assert_eq!(sorted_order, (0..12).collect::<Vec<u32>>());
 
-        // f32 step() == run() & zero co-location.
-        let mut s32_a = SfcLayoutSolver::<f32>::new(&g, cfg).unwrap();
-        let mut s32_b = SfcLayoutSolver::<f32>::new(&g, cfg).unwrap();
-        let mut l32_a = Layout2d::<f32>::zeros(12);
-        let mut l32_b = Layout2d::<f32>::zeros(12);
-        assert_eq!(s32_a.step(&mut l32_a).unwrap(), SolverStatus::Converged);
-        assert_eq!(s32_b.run(&mut l32_b).unwrap(), SolverStatus::Converged);
+        // f32 determinism & zero co-location.
+        let mut s32_a = SfcLayout::<f32>::from_config(&g, cfg.clone());
+        let mut s32_b = SfcLayout::<f32>::from_config(&g, cfg);
+        let l32_a = s32_a.generate().unwrap();
+        let l32_b = s32_b.generate().unwrap();
         assert_strictly_distinct(&l32_a);
         assert_eq!(
             l32_a.x().iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
@@ -167,9 +141,15 @@ fn test_sfc_hilbert_morton_zero_colocation_and_step_run_parity() {
         false,
     )
     .unwrap();
-    let mut s_dir = SfcLayoutSolver::<f64>::new(&g_dir, SfcConfig::default()).unwrap();
-    let mut l_dir = Layout2d::zeros(6);
-    assert_eq!(s_dir.run(&mut l_dir).unwrap(), SolverStatus::Converged);
+    let mut s_dir = SfcLayout::<f64>::new(&g_dir);
+    let l_dir = s_dir.generate().unwrap();
     assert!(l_dir.is_all_finite());
     assert_strictly_distinct(&l_dir);
+
+    // f32 overflow yields NumericalBreakdown.
+    let mut s_overflow = SfcLayout::<f32>::new(&g_dir).with_scale(1e39);
+    assert!(matches!(
+        s_overflow.generate(),
+        Err(CoreError::NumericalBreakdown(_))
+    ));
 }

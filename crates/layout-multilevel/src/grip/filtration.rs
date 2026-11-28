@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 
-use egraph_core::{CsrGraph, DeterministicRng, Scalar, VisitStamp};
+use egraph_core::{CsrGraph, DeterministicRng, VisitStamp};
 
 use super::GripConfig;
 use super::forces::initialize_coarsest_triangle;
@@ -50,9 +50,7 @@ pub(super) struct GripComponent {
     pub(super) finished: bool,
 }
 
-pub(super) fn build_simple_undirected_adj<W: Scalar>(
-    graph: &CsrGraph<W>,
-) -> (Vec<usize>, Vec<usize>) {
+pub(super) fn build_simple_undirected_adj<W>(graph: &CsrGraph<W>) -> (Vec<usize>, Vec<usize>) {
     let n = graph.num_nodes();
     let mut pairs: Vec<(u32, u32)> = Vec::with_capacity(graph.nnz() * 2);
     for u in 0..n {

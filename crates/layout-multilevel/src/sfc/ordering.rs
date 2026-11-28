@@ -59,13 +59,7 @@ pub(super) fn compute_community_vertex_order(
     seed: u64,
 ) -> CoreResult<Vec<u32>> {
     let n = graph.num_nodes();
-    let hier = louvain_coarsen(
-        graph,
-        &CoarseLouvainConfig {
-            seed,
-            ..Default::default()
-        },
-    )?;
+    let hier = louvain_coarsen(graph, &CoarseLouvainConfig::new().with_seed(seed))?;
 
     let num_clusters = hier.coarsest.num_clusters;
     let coarse_graph = &hier.coarsest.graph;

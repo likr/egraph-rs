@@ -16,53 +16,142 @@ mod tests;
 
 pub use config::{SfcConfig, SfcCurveKind};
 
+use std::marker::PhantomData;
+
 use config::MAX_SFC_ORDER;
-use egraph_core::{
-    CoreError, CoreResult, CsrGraph, IterativeSolver, Layout2d, Scalar, SolverStatus,
-};
+use egraph_core::{CoreError, CoreResult, CsrGraph, Layout2d, LayoutGenerator, Scalar};
 use ordering::{canonical_undirected_graph, compute_community_vertex_order};
 
-/// Cooperative community-ordered Space-Filling Curve (`SFC`) layout solver.
+/// One-shot community-ordered Space-Filling Curve (`SFC`) layout generator implementing
+/// [`LayoutGenerator`] with `Output = Layout2d<S>`.
 ///
-/// Precomputes a hierarchical Louvain community vertex ordering and maps ranks injectively onto
-/// a $2^k \times 2^k$ Hilbert or Morton grid, writing the resulting coordinates in a single
-/// [`IterativeSolver::step`] (`total_iterations() == 1`).
-#[derive(Debug, Clone)]
-pub struct SfcLayoutSolver<S: Scalar = f64> {
+/// Computes a hierarchical Louvain community vertex ordering and maps ranks injectively onto
+/// a $2^k \times 2^k$ Hilbert or Morton grid, returning the resulting [`Layout2d`] directly
+/// from [`LayoutGenerator::generate`].
+#[non_exhaustive]
+#[derive(Debug)]
+pub struct SfcLayout<'a, S: Scalar = f64, W = f64> {
+    graph: &'a CsrGraph<W>,
     config: SfcConfig,
-    num_nodes: usize,
     vertex_order: Vec<u32>,
-    coords_x: Vec<S>,
-    coords_y: Vec<S>,
-    iter: usize,
-    status: SolverStatus,
+    _scalar: PhantomData<fn() -> S>,
 }
 
-impl<S: Scalar> SfcLayoutSolver<S> {
-    /// Constructs an [`SfcLayoutSolver`] for `graph` using [`SfcConfig`].
-    pub fn new<W: Scalar>(graph: &CsrGraph<W>, config: SfcConfig) -> CoreResult<Self> {
-        config.validate()?;
-        let n = graph.num_nodes();
+impl<S: Scalar, W> Clone for SfcLayout<'_, S, W> {
+    fn clone(&self) -> Self {
+        Self {
+            graph: self.graph,
+            config: self.config.clone(),
+            vertex_order: self.vertex_order.clone(),
+            _scalar: PhantomData,
+        }
+    }
+}
+
+impl<'a, S: Scalar, W: Scalar> SfcLayout<'a, S, W> {
+    /// Creates an [`SfcLayout`] generator with default [`SfcConfig`] on `graph`.
+    pub fn new(graph: &'a CsrGraph<W>) -> Self {
+        Self {
+            graph,
+            config: SfcConfig::default(),
+            vertex_order: Vec::new(),
+            _scalar: PhantomData,
+        }
+    }
+
+    /// Creates an [`SfcLayout`] generator on `graph` with an explicit [`SfcConfig`].
+    pub fn from_config(graph: &'a CsrGraph<W>, config: SfcConfig) -> Self {
+        Self {
+            graph,
+            config,
+            vertex_order: Vec::new(),
+            _scalar: PhantomData,
+        }
+    }
+}
+
+impl<S: Scalar, W> SfcLayout<'_, S, W> {
+    /// Replaces the configuration on this generator.
+    #[inline]
+    pub fn with_config(mut self, config: SfcConfig) -> Self {
+        self.config = config;
+        self
+    }
+
+    /// Sets the space-filling curve family `curve`.
+    #[inline]
+    pub fn with_curve(mut self, curve: SfcCurveKind) -> Self {
+        self.config.curve = curve;
+        self
+    }
+
+    /// Sets the target bounding square side length `scale`.
+    #[inline]
+    pub fn with_scale(mut self, scale: f64) -> Self {
+        self.config.scale = scale;
+        self
+    }
+
+    /// Sets the optional explicit curve resolution order `resolution_order`.
+    #[inline]
+    pub fn with_resolution_order(mut self, resolution_order: Option<u32>) -> Self {
+        self.config.resolution_order = resolution_order;
+        self
+    }
+
+    /// Sets the deterministic PRNG seed `seed`.
+    #[inline]
+    pub fn with_seed(mut self, seed: u64) -> Self {
+        self.config.seed = seed;
+        self
+    }
+
+    /// Returns the community-ordered permutation of vertex indices computed by the most recent
+    /// [`LayoutGenerator::generate`] call (empty before generation).
+    #[inline]
+    pub fn vertex_order(&self) -> &[u32] {
+        &self.vertex_order
+    }
+
+    /// Returns the generator configuration.
+    #[inline]
+    pub fn config(&self) -> &SfcConfig {
+        &self.config
+    }
+
+    /// Returns the number of vertices in the source graph.
+    #[inline]
+    pub fn num_nodes(&self) -> usize {
+        self.graph.num_nodes()
+    }
+}
+
+impl<S: Scalar, W: Scalar> LayoutGenerator for SfcLayout<'_, S, W> {
+    type Output = Layout2d<S>;
+
+    fn generate(&mut self) -> CoreResult<Self::Output> {
+        self.config.validate()?;
+        let n = self.graph.num_nodes();
         if u32::try_from(n).is_err() {
             return Err(CoreError::invalid_csr(
-                "SfcLayoutSolver node count exceeds u32::MAX",
+                "SfcLayout node count exceeds u32::MAX",
             ));
         }
-        if let Some(ws) = graph.weights() {
+        if let Some(ws) = self.graph.weights() {
             for &w in ws {
                 let wf = w.to_f64();
                 if !wf.is_finite() {
-                    return Err(CoreError::non_finite("SfcLayoutSolver::graph::weights"));
+                    return Err(CoreError::non_finite("SfcLayout::graph::weights"));
                 }
                 if wf < 0.0 {
                     return Err(CoreError::invalid_input(
-                        "SfcLayoutSolver requires non-negative edge weights",
+                        "SfcLayout requires non-negative edge weights",
                     ));
                 }
             }
         }
 
-        let order = match config.resolution_order {
+        let order = match self.config.resolution_order {
             Some(ord) => {
                 let total_cells = 1u64 << (2 * ord);
                 if (n as u64) > total_cells {
@@ -76,33 +165,19 @@ impl<S: Scalar> SfcLayoutSolver<S> {
         };
 
         if n == 0 {
-            return Ok(Self {
-                config,
-                num_nodes: 0,
-                vertex_order: Vec::new(),
-                coords_x: Vec::new(),
-                coords_y: Vec::new(),
-                iter: 0,
-                status: SolverStatus::Initialized,
-            });
+            self.vertex_order.clear();
+            return Ok(Layout2d::zeros(0));
         }
         if n == 1 {
-            return Ok(Self {
-                config,
-                num_nodes: 1,
-                vertex_order: vec![0],
-                coords_x: vec![S::ZERO],
-                coords_y: vec![S::ZERO],
-                iter: 0,
-                status: SolverStatus::Initialized,
-            });
+            self.vertex_order = vec![0];
+            return Ok(Layout2d::zeros(1));
         }
 
-        let undirected = canonical_undirected_graph(graph)?;
+        let undirected = canonical_undirected_graph(self.graph)?;
         let vertex_order = if undirected.num_edges() == 0 {
             (0..n as u32).collect()
         } else {
-            compute_community_vertex_order(&undirected, config.seed)?
+            compute_community_vertex_order(&undirected, self.config.seed)?
         };
 
         let side = 1u64 << order;
@@ -115,86 +190,25 @@ impl<S: Scalar> SfcLayoutSolver<S> {
             // Since total_cells >= n, d(rank) = floor(rank * total_cells / n) is strictly
             // increasing in rank, guaranteeing unique grid cells and zero co-location.
             let d = ((rank as u128 * (total_cells as u128)) / (n as u128)) as u64;
-            let (ix, iy) = match config.curve {
+            let (ix, iy) = match self.config.curve {
                 SfcCurveKind::Hilbert => hilbert_d2xy(order, d),
                 SfcCurveKind::Morton => morton_d2xy(order, d),
             };
-            let xf = (((ix as f64) + 0.5) / side_f - 0.5) * config.scale;
-            let yf = (((iy as f64) + 0.5) / side_f - 0.5) * config.scale;
+            let xf = (((ix as f64) + 0.5) / side_f - 0.5) * self.config.scale;
+            let yf = (((iy as f64) + 0.5) / side_f - 0.5) * self.config.scale;
             let idx = v_u32 as usize;
             coords_x[idx] = S::from_f64(xf);
             coords_y[idx] = S::from_f64(yf);
         }
 
-        Ok(Self {
-            config,
-            num_nodes: n,
-            vertex_order,
-            coords_x,
-            coords_y,
-            iter: 0,
-            status: SolverStatus::Initialized,
-        })
-    }
-
-    /// Returns the community-ordered permutation of vertex indices mapped along the curve.
-    #[inline]
-    pub fn vertex_order(&self) -> &[u32] {
-        &self.vertex_order
-    }
-
-    /// Returns the solver configuration.
-    #[inline]
-    pub fn config(&self) -> &SfcConfig {
-        &self.config
-    }
-
-    /// Returns the number of vertices.
-    #[inline]
-    pub fn num_nodes(&self) -> usize {
-        self.num_nodes
-    }
-}
-
-impl<S: Scalar> IterativeSolver<S> for SfcLayoutSolver<S> {
-    fn step(&mut self, layout: &mut Layout2d<S>) -> CoreResult<SolverStatus> {
-        if layout.len() != self.num_nodes {
-            return Err(CoreError::dimension_mismatch(
-                self.num_nodes,
-                layout.len(),
-                "SfcLayoutSolver::step",
+        let layout = Layout2d::from_xy(coords_x, coords_y)?;
+        if layout.validate_finite().is_err() {
+            return Err(CoreError::numerical_breakdown(
+                "SfcLayout coordinates overflowed output scalar",
             ));
         }
-        layout.validate_finite()?;
-
-        if self.status.is_finished() {
-            return Ok(self.status);
-        }
-
-        if self.num_nodes > 1 {
-            let (xs_mut, ys_mut) = layout.xy_mut();
-            xs_mut.copy_from_slice(&self.coords_x);
-            ys_mut.copy_from_slice(&self.coords_y);
-        }
-
-        self.iter = 1;
-        self.status = SolverStatus::Converged;
-        Ok(self.status)
-    }
-
-    #[inline]
-    fn status(&self) -> SolverStatus {
-        self.status
-    }
-
-    #[inline]
-    fn iteration(&self) -> usize {
-        self.iter
-    }
-
-    #[inline]
-    fn total_iterations(&self) -> usize {
-        1
+        self.vertex_order = vertex_order;
+        Ok(layout)
     }
 }
 

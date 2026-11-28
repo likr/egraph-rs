@@ -2,7 +2,8 @@ use egraph_core::{CoreError, CoreResult};
 
 pub(super) const MAX_SFC_ORDER: u32 = 15;
 
-/// Space-filling curve mapping family for [`SfcLayoutSolver`](super::SfcLayoutSolver).
+/// Space-filling curve mapping family for [`SfcLayout`](super::SfcLayout).
+#[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum SfcCurveKind {
     /// Locality-preserving 2D Hilbert curve.
@@ -12,8 +13,9 @@ pub enum SfcCurveKind {
     Morton,
 }
 
-/// Hyperparameters for [`SfcLayoutSolver`](super::SfcLayoutSolver).
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// Hyperparameters for [`SfcLayout`](super::SfcLayout).
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SfcConfig {
     /// Space-filling curve family (`default: SfcCurveKind::Hilbert`).
     pub curve: SfcCurveKind,
@@ -38,6 +40,40 @@ impl Default for SfcConfig {
 }
 
 impl SfcConfig {
+    /// Creates a new [`SfcConfig`] initialized to [`Self::default`].
+    #[inline]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets the space-filling curve family `curve`.
+    #[inline]
+    pub fn with_curve(mut self, curve: SfcCurveKind) -> Self {
+        self.curve = curve;
+        self
+    }
+
+    /// Sets the target bounding square side length `scale`.
+    #[inline]
+    pub fn with_scale(mut self, scale: f64) -> Self {
+        self.scale = scale;
+        self
+    }
+
+    /// Sets the optional explicit curve resolution order `resolution_order`.
+    #[inline]
+    pub fn with_resolution_order(mut self, resolution_order: Option<u32>) -> Self {
+        self.resolution_order = resolution_order;
+        self
+    }
+
+    /// Sets the deterministic PRNG seed `seed`.
+    #[inline]
+    pub fn with_seed(mut self, seed: u64) -> Self {
+        self.seed = seed;
+        self
+    }
+
     /// Validates all space-filling curve layout parameters.
     pub fn validate(&self) -> CoreResult<()> {
         if !self.scale.is_finite() {

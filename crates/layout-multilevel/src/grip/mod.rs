@@ -10,7 +10,7 @@
 //! - Localized Kamada–Kawai forces on coarse levels ($i > 0$), localized Fruchterman–Reingold
 //!   forces on the finest level ($i = 0$), and per-vertex adaptive local temperature
 //!   (`updateLocalTemp`).
-//! - Connected-component decomposition with [`crate::group_in_a_box::squarified_treemap`]
+//! - Connected-component decomposition with [`egraph_spatial_trees::squarified_treemap`]
 //!   packing for disconnected graphs, and guards for `N <= 2`.
 
 mod filtration;
@@ -22,15 +22,16 @@ use egraph_core::{
     CoreError, CoreResult, CsrGraph, DeterministicRng, IterativeSolver, Layout2d, Scalar,
     SolverStatus,
 };
+use egraph_spatial_trees::squarified_treemap;
 
-use crate::group_in_a_box::squarified_treemap;
 use filtration::{
     GripComponent, build_grip_component, build_simple_undirected_adj, extract_connected_components,
 };
 use forces::{map_component_into_box, step_grip_component};
 
 /// Hyperparameters for [`GripSolver`].
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq)]
 pub struct GripConfig {
     /// Minimum refinement rounds at the finest level $i = 0$ (`default: 5`).
     pub rounds_min: usize,
@@ -66,6 +67,68 @@ impl Default for GripConfig {
 }
 
 impl GripConfig {
+    /// Creates a new [`GripConfig`] initialized to [`Self::default`].
+    #[inline]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets the minimum refinement rounds `rounds_min` at the finest level.
+    #[inline]
+    pub fn with_rounds_min(mut self, rounds_min: usize) -> Self {
+        self.rounds_min = rounds_min;
+        self
+    }
+
+    /// Sets the maximum refinement rounds `rounds_max` at the coarsest level.
+    #[inline]
+    pub fn with_rounds_max(mut self, rounds_max: usize) -> Self {
+        self.rounds_max = rounds_max;
+        self
+    }
+
+    /// Sets the local neighborhood size `local_neighborhood_size`.
+    #[inline]
+    pub fn with_local_neighborhood_size(mut self, local_neighborhood_size: usize) -> Self {
+        self.local_neighborhood_size = local_neighborhood_size;
+        self
+    }
+
+    /// Sets the finest-level repulsion scaling factor `repulsion_scale`.
+    #[inline]
+    pub fn with_repulsion_scale(mut self, repulsion_scale: f64) -> Self {
+        self.repulsion_scale = repulsion_scale;
+        self
+    }
+
+    /// Sets the target unit edge length `edge_length`.
+    #[inline]
+    pub fn with_edge_length(mut self, edge_length: f64) -> Self {
+        self.edge_length = edge_length;
+        self
+    }
+
+    /// Sets the local temperature adjustment step `temp_r`.
+    #[inline]
+    pub fn with_temp_r(mut self, temp_r: f64) -> Self {
+        self.temp_r = temp_r;
+        self
+    }
+
+    /// Sets the local temperature acceleration multiplier `temp_s`.
+    #[inline]
+    pub fn with_temp_s(mut self, temp_s: f64) -> Self {
+        self.temp_s = temp_s;
+        self
+    }
+
+    /// Sets the explicit deterministic PRNG seed `seed`.
+    #[inline]
+    pub fn with_seed(mut self, seed: u64) -> Self {
+        self.seed = seed;
+        self
+    }
+
     /// Validates all GRIP hyperparameters.
     pub fn validate(&self) -> CoreResult<()> {
         if self.rounds_min > self.rounds_max {
@@ -121,12 +184,12 @@ impl GripConfig {
 
 /// Cooperative GRIP (Gajer & Kobourov, 2002) multilevel layout solver implementing [`IterativeSolver`].
 ///
-/// GRIP builds an independent-set (MIS) filtration of the graph and places vertices
-/// bottom-up from the coarsest level using deterministic seed-driven geometry. For
-/// `num_nodes >= 2`, running [`GripSolver::step`] or [`GripSolver::run`] replaces
-/// initial `layout` coordinates with the generated MIS placement rather than
-/// refining the input coordinates incrementally. For `num_nodes <= 1`, [`GripSolver`]
-/// validates `layout` length/finiteness and converges immediately without modifying it.
+/// GRIP builds an independent-set (`MIS`) filtration of the graph and **generates/overwrites**
+/// initial vertex coordinates iteratively from `config.seed` bottom-up from the coarsest level.
+/// For `num_nodes >= 2`, running [`IterativeSolver::step`] or [`IterativeSolver::run`] overwrites
+/// any prior coordinates in the target `Layout2d` rather than refining the caller's initial
+/// coordinates incrementally. For `num_nodes <= 1`, [`GripSolver`] validates `layout`
+/// length/finiteness and converges immediately without modifying it.
 #[derive(Debug, Clone)]
 pub struct GripSolver<S: Scalar = f64> {
     config: GripConfig,
@@ -142,25 +205,14 @@ pub struct GripSolver<S: Scalar = f64> {
 }
 
 impl<S: Scalar> GripSolver<S> {
-    /// Constructs a [`GripSolver`] from a [`CsrGraph`] and [`GripConfig`].
-    pub fn new<W: Scalar>(graph: &CsrGraph<W>, config: GripConfig) -> CoreResult<Self> {
+    /// Constructs an unweighted [`GripSolver`] from a [`CsrGraph`] and [`GripConfig`].
+    ///
+    /// Edge weights on `graph` are ignored because GRIP operates on unweighted BFS graph distances.
+    pub fn new<W>(graph: &CsrGraph<W>, config: GripConfig) -> CoreResult<Self> {
         config.validate()?;
         let n = graph.num_nodes();
         if u32::try_from(n).is_err() {
             return Err(CoreError::invalid_csr("num_nodes exceeds u32::MAX"));
-        }
-        if let Some(ws) = graph.weights() {
-            for &w in ws {
-                let wf = w.to_f64();
-                if !wf.is_finite() {
-                    return Err(CoreError::non_finite("GripSolver::graph_weights"));
-                }
-                if wf < 0.0 {
-                    return Err(CoreError::invalid_input(
-                        "graph edge weights must be non-negative",
-                    ));
-                }
-            }
         }
 
         let mut rng = DeterministicRng::from_seed_u64(config.seed);
@@ -243,7 +295,7 @@ impl<S: Scalar> GripSolver<S> {
         self.num_levels
     }
 
-    fn write_to_layout(&self, layout: &mut Layout2d<S>) {
+    fn write_to_layout(&self, layout: &mut Layout2d<S>) -> CoreResult<()> {
         let (out_x, out_y) = layout.xy_mut();
         if self.components.len() == 1 {
             let comp = &self.components[0];
@@ -251,14 +303,15 @@ impl<S: Scalar> GripSolver<S> {
                 let ui = global_u as usize;
                 let nx = S::from_f64(comp.pos_x[local_idx]);
                 let ny = S::from_f64(comp.pos_y[local_idx]);
-                if nx.is_finite() {
-                    out_x[ui] = nx;
+                if !nx.is_finite() || !ny.is_finite() {
+                    return Err(CoreError::numerical_breakdown(
+                        "GripSolver produced non-finite coordinates",
+                    ));
                 }
-                if ny.is_finite() {
-                    out_y[ui] = ny;
-                }
+                out_x[ui] = nx;
+                out_y[ui] = ny;
             }
-            return;
+            return Ok(());
         }
 
         for (comp, &[x_min, x_max, y_min, y_max]) in
@@ -266,24 +319,33 @@ impl<S: Scalar> GripSolver<S> {
         {
             map_component_into_box(comp, x_min, x_max, y_min, y_max, out_x, out_y);
         }
+        if layout.validate_finite().is_err() {
+            return Err(CoreError::numerical_breakdown(
+                "GripSolver produced non-finite treemap coordinates",
+            ));
+        }
+        Ok(())
     }
 }
 
-impl<S: Scalar> IterativeSolver<S> for GripSolver<S> {
-    /// Executes one scheduled GRIP refinement step and writes the updated coordinates into
-    /// `layout`.
-    ///
-    /// Note that for `num_nodes >= 2`, GRIP's MIS filtration initializes and updates vertex
-    /// positions internally from `config.seed`, overwriting any prior coordinates in `layout`.
-    fn step(&mut self, layout: &mut Layout2d<S>) -> CoreResult<SolverStatus> {
-        if layout.len() != self.num_nodes {
+impl<S: Scalar> IterativeSolver for GripSolver<S> {
+    type Target = Layout2d<S>;
+
+    fn validate_target(&self, target: &Self::Target) -> CoreResult<()> {
+        if target.len() != self.num_nodes {
             return Err(CoreError::dimension_mismatch(
                 self.num_nodes,
-                layout.len(),
-                "GripSolver::step",
+                target.len(),
+                "GripSolver::validate_target",
             ));
         }
-        layout.validate_finite()?;
+        target.validate_finite()
+    }
+
+    /// Executes one scheduled GRIP placement/refinement step and writes the generated coordinates
+    /// into `target` (overwriting prior coordinates when `num_nodes >= 2`).
+    fn step(&mut self, target: &mut Self::Target) -> CoreResult<SolverStatus> {
+        self.validate_target(target)?;
 
         if self.status.is_finished() {
             return Ok(self.status);
@@ -304,7 +366,10 @@ impl<S: Scalar> IterativeSolver<S> for GripSolver<S> {
             }
         }
 
-        self.write_to_layout(layout);
+        if let Err(err) = self.write_to_layout(target) {
+            self.status = SolverStatus::Failed;
+            return Err(err);
+        }
         self.iter += 1;
 
         self.status = if !any_active || self.iter >= self.total_iterations {
@@ -326,7 +391,7 @@ impl<S: Scalar> IterativeSolver<S> for GripSolver<S> {
     }
 
     #[inline]
-    fn total_iterations(&self) -> usize {
-        self.total_iterations
+    fn total_iterations(&self) -> Option<usize> {
+        Some(self.total_iterations)
     }
 }
