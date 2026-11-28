@@ -1,4 +1,4 @@
-use egraph_core::{CoreError, CoreResult, Layout2d, Scalar};
+use egraph_core::{CoreError, CoreResult, Layout2d, NodeExtents2d, Scalar};
 
 use super::overlap_2d::project_rectangle_no_overlap_2d;
 
@@ -10,8 +10,7 @@ use super::overlap_2d::project_rectangle_no_overlap_2d;
 pub fn project_clustered_rectangle_no_overlap_2d<S: Scalar>(
     layout: &mut Layout2d<S>,
     labels: &[u32],
-    half_widths: &[S],
-    half_heights: &[S],
+    extents: NodeExtents2d<'_, S>,
 ) -> CoreResult<()> {
     let n = layout.len();
     if labels.len() != n {
@@ -21,37 +20,28 @@ pub fn project_clustered_rectangle_no_overlap_2d<S: Scalar>(
             "project_clustered_rectangle_no_overlap_2d::labels",
         ));
     }
-    if half_widths.len() != n {
+    if extents.len() != n {
         return Err(CoreError::dimension_mismatch(
             n,
-            half_widths.len(),
-            "project_clustered_rectangle_no_overlap_2d::half_widths",
-        ));
-    }
-    if half_heights.len() != n {
-        return Err(CoreError::dimension_mismatch(
-            n,
-            half_heights.len(),
-            "project_clustered_rectangle_no_overlap_2d::half_heights",
+            extents.len(),
+            "project_clustered_rectangle_no_overlap_2d::extents",
         ));
     }
     layout.validate_finite()?;
-    for i in 0..n {
-        if !half_widths[i].is_finite() || !half_heights[i].is_finite() {
-            return Err(CoreError::non_finite(
-                "project_clustered_rectangle_no_overlap_2d::extents",
-            ));
-        }
-        if half_widths[i] < S::ZERO || half_heights[i] < S::ZERO {
-            return Err(CoreError::invalid_input(
-                "half_widths and half_heights must be >= 0",
-            ));
-        }
-    }
+    extents.validate()?;
 
     if n < 2 {
         return Ok(());
     }
+
+    let owned_extents;
+    let (half_widths, half_heights) = match extents.as_slices() {
+        Some((hw, hh)) => (hw, hh),
+        None => {
+            owned_extents = extents.to_vecs();
+            (owned_extents.0.as_slice(), owned_extents.1.as_slice())
+        }
+    };
 
     let mut members: Vec<(u32, u32)> = labels
         .iter()
@@ -107,7 +97,8 @@ pub fn project_clustered_rectangle_no_overlap_2d<S: Scalar>(
     let old_cx = cluster_cx.clone();
     let old_cy = cluster_cy.clone();
     let mut cluster_layout = Layout2d::from_xy(cluster_cx, cluster_cy)?;
-    project_rectangle_no_overlap_2d(&mut cluster_layout, &cluster_hw, &cluster_hh)?;
+    let cluster_extents = NodeExtents2d::new(&cluster_hw, &cluster_hh)?;
+    project_rectangle_no_overlap_2d(&mut cluster_layout, cluster_extents)?;
 
     let (xs_mut, ys_mut) = layout.xy_mut();
     let new_cx = cluster_layout.x();

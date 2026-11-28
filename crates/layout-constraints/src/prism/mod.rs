@@ -1,10 +1,10 @@
-//! PRISM proximity-stress overlap removal using Delaunay triangulation or KD-tree fallback.
+//! PRISM proximity-stress overlap removal using Delaunay triangulation.
 //!
 //! Implements Gansner & Hu (2010), "Efficient Node Overlap Removal Using a Proximity Stress
-//! Model", using `Delaunay2d` (under `feature = "delaunay"`) or `StaticKdTree` $k$-NN fallback
-//! (under `--no-default-features`), combined with an allocation-free Sweep-and-Prune (SAP)
-//! overlap detector to guarantee `0` overlaps at convergence, and a zero-dense-allocation split
-//! `L+D+U` sparse CSR fused 2-RHS Symmetric SSOR-PCG solver.
+//! Model", using [`Delaunay2d`](egraph_spatial_trees::Delaunay2d) combined with an
+//! allocation-free Sweep-and-Prune (SAP) overlap detector to guarantee `0` overlaps at
+//! convergence, and a zero-dense-allocation split `L+D+U` sparse CSR fused 2-RHS
+//! Symmetric SSOR-PCG solver.
 
 mod pcg;
 mod pcg_ssor;
@@ -17,9 +17,6 @@ use egraph_core::{CoreError, CoreResult};
 pub use pcg::SparsePcgWorkspace;
 pub use solver::PrismOverlapRemoval;
 
-#[cfg(not(feature = "delaunay"))]
-pub(super) const K_FALLBACK_NEIGHBORS: usize = 12;
-
 pub(super) const MIN_EDGE_DIST: f64 = 1e-9;
 pub(super) const MIN_WEIGHT_DIST: f64 = 1e-6;
 pub(super) const INNER_MAJORIZATION_ITERS: usize = 1;
@@ -29,7 +26,8 @@ pub(super) const OVERLAP_MICRO_DIST_RATIO: f64 = 1e-4;
 pub(super) const STALL_NO_IMPROVE_STREAK: usize = 8;
 
 /// Hyperparameters for [`PrismOverlapRemoval`].
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq)]
 pub struct PrismConfig {
     /// Maximum number of PRISM proximity-stress rounds (`default: 50`).
     pub max_iterations: usize,
@@ -59,6 +57,47 @@ impl Default for PrismConfig {
 }
 
 impl PrismConfig {
+    /// Creates a new [`PrismConfig`] initialized with default values.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets the maximum number of PRISM proximity-stress rounds.
+    pub fn with_max_iterations(mut self, max_iterations: usize) -> Self {
+        self.max_iterations = max_iterations;
+        self
+    }
+
+    /// Sets the maximum per-round edge expansion factor $s_{\max} > 1.0$.
+    pub fn with_max_scale_factor(mut self, max_scale_factor: f64) -> Self {
+        self.max_scale_factor = max_scale_factor;
+        self
+    }
+
+    /// Sets the maximum inner PCG iterations per linear solve.
+    pub fn with_cg_max_iters(mut self, cg_max_iters: usize) -> Self {
+        self.cg_max_iters = cg_max_iters;
+        self
+    }
+
+    /// Sets the relative residual tolerance for inner PCG.
+    pub fn with_cg_tolerance(mut self, cg_tolerance: f64) -> Self {
+        self.cg_tolerance = cg_tolerance;
+        self
+    }
+
+    /// Sets the extra minimum clearance added between rectangle borders.
+    pub fn with_padding(mut self, padding: f64) -> Self {
+        self.padding = padding;
+        self
+    }
+
+    /// Sets the explicit deterministic seed used for coincident-point jitter.
+    pub fn with_seed(mut self, seed: u64) -> Self {
+        self.seed = seed;
+        self
+    }
+
     /// Validates all PRISM configuration parameters.
     pub fn validate(&self) -> CoreResult<()> {
         if !self.max_scale_factor.is_finite() {

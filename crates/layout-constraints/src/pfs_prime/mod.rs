@@ -1,4 +1,4 @@
-//! Hayashi et al. (1998) `PFS'` two-pass scan-line node overlap removal solver.
+//! Hayashi et al. (1998) `PFS'` two-pass scan-line node overlap removal transform.
 //!
 //! Implements `PFS'` (*"Layout Adjustment and the Mental Map"*, Misue, Eades, Lai & Sugiyama;
 //! *"A Fast Algorithm for Overlap Removal"*, Hayashi, Inoue, Masuzawa & Fujiwara, GD '98)

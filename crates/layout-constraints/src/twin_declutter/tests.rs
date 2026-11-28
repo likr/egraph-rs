@@ -1,5 +1,5 @@
 use super::*;
-use egraph_core::{CoreError, IterativeSolver, Layout2d, SolverStatus};
+use egraph_core::{CoreError, Layout2d, LayoutTransform};
 use egraph_spatial_trees::StaticKdTree;
 
 #[test]
@@ -16,19 +16,13 @@ fn test_twin_declutter_config_defaults_and_validation() {
     cfg.validate().unwrap();
 
     assert!(matches!(
-        TwinDeclutterConfig {
-            min_pair_rel: -1.0,
-            ..Default::default()
-        }
-        .validate(),
+        TwinDeclutterConfig::new()
+            .with_min_pair_rel(-1.0)
+            .validate(),
         Err(CoreError::InvalidInput(_))
     ));
     assert!(matches!(
-        TwinDeclutterConfig {
-            eps_rel: f64::NAN,
-            ..Default::default()
-        }
-        .validate(),
+        TwinDeclutterConfig::new().with_eps_rel(f64::NAN).validate(),
         Err(CoreError::NonFiniteValue { .. })
     ));
 }
@@ -41,9 +35,9 @@ fn test_twin_declutter_empty_singleton_and_early_convergence() {
     assert_eq!(declutter_twins_2d(&mut empty, &cfg).unwrap(), 0);
 
     let mut single = Layout2d::from_xy(vec![3.5_f64], vec![-2.0_f64]).unwrap();
-    let mut solver = TwinDeclutterer::new(cfg).unwrap();
-    assert_eq!(solver.run(&mut single).unwrap(), SolverStatus::Converged);
-    assert_eq!(solver.iteration(), 0);
+    let mut transform = TwinDeclutterer::new(cfg.clone()).unwrap();
+    transform.apply(&mut single).unwrap();
+    assert_eq!(transform.last_pass_count(), 0);
 
     // Well-separated points: early convergence with 0 passes and zero displacement.
     let mut clean = Layout2d::from_xy(vec![0.0_f64, 1.0, 2.0], vec![0.0, 1.0, -1.0]).unwrap();
@@ -57,9 +51,9 @@ fn test_twin_declutter_degenerate_zero_diag_f64_and_f32() {
     let cfg = TwinDeclutterConfig::default();
 
     let mut collapsed64 = Layout2d::from_xy(vec![5.0_f64; 6], vec![-3.0_f64; 6]).unwrap();
-    let mut s64 = TwinDeclutterer::new(cfg).unwrap();
-    assert_eq!(s64.run(&mut collapsed64).unwrap(), SolverStatus::Converged);
-    assert_eq!(s64.iteration(), 1);
+    let mut t64 = TwinDeclutterer::new(cfg.clone()).unwrap();
+    t64.apply(&mut collapsed64).unwrap();
+    assert_eq!(t64.last_pass_count(), 1);
     collapsed64.validate_finite().unwrap();
 
     // Verify all nodes are distinct and bounded within unit radius around (5, -3).
@@ -90,11 +84,10 @@ fn test_twin_declutter_exact_and_near_twins_multi_cluster_f64_and_f32() {
     let xs = vec![0.0_f64, 0.0, 0.0, 0.0, 1e-7, 10.0, 10.0, 10.0, 0.0];
     let ys = vec![0.0_f64, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 10.0];
     let mut layout = Layout2d::from_xy(xs, ys).unwrap();
-    let mut solver = TwinDeclutterer::new(cfg).unwrap();
-    let status = solver.run(&mut layout).unwrap();
-    assert_eq!(status, SolverStatus::Converged);
-    assert!(solver.iteration() >= 1);
-    assert!(solver.iteration() <= cfg.iterations);
+    let mut transform = TwinDeclutterer::new(cfg.clone()).unwrap();
+    transform.apply(&mut layout).unwrap();
+    assert!(transform.last_pass_count() >= 1);
+    assert!(transform.last_pass_count() <= cfg.iterations);
 
     // Every pair must now exceed near-collision threshold `1e-7 * diag`.
     let min_x = layout.x().iter().copied().fold(f64::INFINITY, f64::min);
@@ -138,24 +131,30 @@ fn test_twin_declutter_exact_and_near_twins_multi_cluster_f64_and_f32() {
 }
 
 #[test]
-fn test_twin_declutter_step_matches_run_and_respects_iterations() {
-    let cfg = TwinDeclutterConfig {
-        iterations: 2,
-        ..Default::default()
-    };
-    let mut l_run = Layout2d::from_xy(vec![0.0_f64, 0.0, 5.0], vec![0.0, 0.0, 0.0]).unwrap();
-    let mut l_step = l_run.clone();
+fn test_twin_declutter_apply_matches_helper_and_respects_iterations() {
+    let cfg = TwinDeclutterConfig::new().with_iterations(2);
+    let mut l_apply = Layout2d::from_xy(vec![0.0_f64, 0.0, 5.0], vec![0.0, 0.0, 0.0]).unwrap();
+    let mut l_helper = l_apply.clone();
 
-    let mut s_run = TwinDeclutterer::new(cfg).unwrap();
-    let mut s_step = TwinDeclutterer::new(cfg).unwrap();
+    let mut t_apply = TwinDeclutterer::new(cfg.clone()).unwrap();
+    t_apply.apply(&mut l_apply).unwrap();
+    let passes = declutter_twins_2d(&mut l_helper, &cfg).unwrap();
+    assert_eq!(t_apply.last_pass_count(), passes);
+    assert_eq!(l_apply, l_helper);
 
-    let st_run = s_run.run(&mut l_run).unwrap();
-    while !s_step.status().is_finished() {
-        s_step.step(&mut l_step).unwrap();
-    }
-    assert_eq!(st_run, s_step.status());
-    assert_eq!(s_run.iteration(), s_step.iteration());
-    assert_eq!(l_run, l_step);
+    // Zero iterations validates finiteness without mutating target.
+    let mut l_zero = Layout2d::from_xy(vec![0.0_f64, 0.0], vec![0.0, 0.0]).unwrap();
+    let orig_zero = l_zero.clone();
+    let mut t_zero = TwinDeclutterer::new(TwinDeclutterConfig::new().with_iterations(0)).unwrap();
+    t_zero.apply(&mut l_zero).unwrap();
+    assert_eq!(t_zero.last_pass_count(), 0);
+    assert_eq!(l_zero, orig_zero);
+
+    let mut bad = Layout2d::from_xy(vec![0.0_f64, f64::NAN], vec![0.0, 0.0]).unwrap();
+    assert!(matches!(
+        t_zero.apply(&mut bad),
+        Err(CoreError::NonFiniteValue { .. })
+    ));
 }
 
 #[test]
@@ -164,11 +163,8 @@ fn test_twin_declutter_large_finite_coordinates_preserve_finiteness() {
 
     // Coincident nodes at `1e308`: degenerate fallback must divide before summing.
     let mut coincident = Layout2d::from_xy(vec![1e308_f64; 4], vec![1e308_f64; 4]).unwrap();
-    let mut solver_c = TwinDeclutterer::new(cfg).unwrap();
-    assert_eq!(
-        solver_c.run(&mut coincident).unwrap(),
-        SolverStatus::Converged
-    );
+    let mut transform_c = TwinDeclutterer::new(cfg.clone()).unwrap();
+    transform_c.apply(&mut coincident).unwrap();
     assert!(coincident.is_all_finite());
 
     // Multi-cluster twins spanning `[-1e308, +1e308]`: bbox/diag and centroid averaging stay finite.
@@ -177,12 +173,8 @@ fn test_twin_declutter_large_finite_coordinates_preserve_finiteness() {
         vec![-1e308_f64, -1e308_f64, 1e308_f64, 1e308_f64, 0.0],
     )
     .unwrap();
-    let mut solver_m = TwinDeclutterer::new(cfg).unwrap();
-    let status_m = solver_m.run(&mut multi).unwrap();
-    assert!(matches!(
-        status_m,
-        SolverStatus::Converged | SolverStatus::Completed
-    ));
+    let mut transform_m = TwinDeclutterer::new(cfg.clone()).unwrap();
+    transform_m.apply(&mut multi).unwrap();
     assert!(multi.is_all_finite());
 
     // f32 extreme coincident and multi-cluster coordinates stay finite as well.

@@ -1,11 +1,6 @@
 use egraph_core::{CoreError, CoreResult, Scalar};
-#[cfg(feature = "delaunay")]
 use egraph_spatial_trees::Delaunay2d;
-#[cfg(not(feature = "delaunay"))]
-use egraph_spatial_trees::StaticKdTree;
 
-#[cfg(not(feature = "delaunay"))]
-use super::K_FALLBACK_NEIGHBORS;
 use super::solver::PrismOverlapRemoval;
 use super::{
     INNER_MAJORIZATION_ITERS, MIN_EDGE_DIST, MIN_WEIGHT_DIST, OVERLAP_MICRO_DIST_RATIO,
@@ -76,37 +71,9 @@ impl<S: Scalar> PrismOverlapRemoval<S> {
     pub(super) fn build_proximity_edges(&mut self) -> CoreResult<()> {
         self.raw_edges.clear();
 
-        #[cfg(feature = "delaunay")]
-        {
-            Delaunay2d::triangulate_edges_into(&self.work_layout, &mut self.raw_edges)?;
-        }
+        Delaunay2d::triangulate_edges_into(&self.work_layout, &mut self.raw_edges)?;
 
-        #[cfg(not(feature = "delaunay"))]
-        {
-            let n = self.num_nodes;
-            let tree = StaticKdTree::<2, f64>::from_layout(&self.work_layout)?;
-            let k = K_FALLBACK_NEIGHBORS.min(n.saturating_sub(1));
-            for u in 0..n {
-                tree.k_nearest_excluding_self_with_scratch(
-                    u,
-                    k,
-                    &mut self.kd_scratch,
-                    &mut self.knn_out,
-                )?;
-                let u32_u = u as u32;
-                for &(v, _) in &self.knn_out {
-                    let v32 = v as u32;
-                    if u32_u < v32 {
-                        self.raw_edges.push((u32_u, v32));
-                    } else {
-                        self.raw_edges.push((v32, u32_u));
-                    }
-                }
-            }
-        }
-
-        // Merge in any non-Delaunay / non-kNN overlapping rectangle pairs so overlaps always
-        // converge to 0.
+        // Merge in any non-Delaunay overlapping rectangle pairs so overlaps always converge to 0.
         self.raw_edges.extend_from_slice(&self.active_overlaps);
         self.raw_edges.sort_unstable();
         self.raw_edges.dedup();

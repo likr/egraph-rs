@@ -1,24 +1,10 @@
 use std::marker::PhantomData;
 
-use egraph_core::{CoreError, CoreResult, CsrGraph, Layout2d, Scalar, VisitStamp};
+use egraph_core::{CoreError, CoreResult, Layout2d, PinMask, Scalar, VisitStamp};
+
+use super::separation::SeparationConstraint;
 
 pub(super) const VIOLATION_TOL: f64 = 1e-9;
-
-/// One-dimensional separation constraint enforcing `coord[left] + gap <= coord[right]`.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct SeparationConstraint<S: Scalar = f64> {
-    pub left: u32,
-    pub right: u32,
-    pub gap: S,
-}
-
-impl<S: Scalar> SeparationConstraint<S> {
-    /// Creates a new separation constraint `coord[left] + gap <= coord[right]`.
-    #[inline]
-    pub fn new(left: u32, right: u32, gap: S) -> Self {
-        Self { left, right, gap }
-    }
-}
 
 #[derive(Debug, Clone, Copy)]
 pub(super) struct InternalConstraint {
@@ -49,6 +35,8 @@ pub struct ConstraintProjector<S: Scalar = f64> {
     pub(super) block_tail: Vec<u32>,
     pub(super) block_len: Vec<u32>,
     pub(super) block_pos: Vec<f64>,
+    pub(super) block_pinned: Vec<bool>,
+    pub(super) block_pin_var: Vec<u32>,
     pub(super) free_blocks: Vec<u32>,
     // Per-solve constraint state and CSR adjacency.
     pub(super) constraints: Vec<InternalConstraint>,
@@ -81,6 +69,8 @@ impl<S: Scalar> ConstraintProjector<S> {
             block_tail: vec![u32::MAX; num_vars],
             block_len: vec![0; num_vars],
             block_pos: vec![0.0; num_vars],
+            block_pinned: vec![false; num_vars],
+            block_pin_var: vec![u32::MAX; num_vars],
             free_blocks: Vec::new(),
             constraints: Vec::new(),
             is_active: Vec::new(),
@@ -109,12 +99,46 @@ impl<S: Scalar> ConstraintProjector<S> {
         coords: &mut [S],
         constraints: &[SeparationConstraint<S>],
     ) -> CoreResult<()> {
+        self.project_1d_impl(coords, constraints, None)
+    }
+
+    /// Projects `coords` in-place onto the feasible region defined by `constraints` while
+    /// keeping every vertex marked `true` in `pins` fixed at its input coordinate.
+    ///
+    /// Minimizes $\sum_{i \notin \text{pins}} (x'_i - x_i)^2$ subject to $x'_{\text{left}} +
+    /// \text{gap} \le x'_{\text{right}}$. Rejects mismatched lengths, non-finite inputs, or
+    /// unsatisfiable pinned-pinned conflicts without mutating `coords`.
+    pub fn project_1d_with_pins(
+        &mut self,
+        coords: &mut [S],
+        constraints: &[SeparationConstraint<S>],
+        pins: &PinMask,
+    ) -> CoreResult<()> {
+        self.project_1d_impl(coords, constraints, Some(pins))
+    }
+
+    fn project_1d_impl(
+        &mut self,
+        coords: &mut [S],
+        constraints: &[SeparationConstraint<S>],
+        pins: Option<&PinMask>,
+    ) -> CoreResult<()> {
         let n = self.num_vars;
+        let ctx = if pins.is_some() {
+            "ConstraintProjector::project_1d_with_pins::coords"
+        } else {
+            "ConstraintProjector::project_1d::coords"
+        };
         if coords.len() != n {
+            return Err(CoreError::dimension_mismatch(n, coords.len(), ctx));
+        }
+        if let Some(pin_mask) = pins
+            && pin_mask.len() != n
+        {
             return Err(CoreError::dimension_mismatch(
                 n,
-                coords.len(),
-                "ConstraintProjector::project_1d::coords",
+                pin_mask.len(),
+                "ConstraintProjector::project_1d_with_pins::pins",
             ));
         }
         if u32::try_from(n).is_err() {
@@ -124,9 +148,7 @@ impl<S: Scalar> ConstraintProjector<S> {
         }
         for &v in coords.iter() {
             if !v.is_finite() {
-                return Err(CoreError::non_finite(
-                    "ConstraintProjector::project_1d::coords",
-                ));
+                return Err(CoreError::non_finite(ctx));
             }
         }
 
@@ -155,6 +177,19 @@ impl<S: Scalar> ConstraintProjector<S> {
                 if gap > VIOLATION_TOL {
                     return Err(CoreError::invalid_input(
                         "infeasible self-constraint with positive gap",
+                    ));
+                }
+                continue;
+            }
+            if let Some(pin_mask) = pins
+                && pin_mask.is_pinned(c.left as usize)
+                && pin_mask.is_pinned(c.right as usize)
+            {
+                let lhs = coords[c.left as usize].to_f64() + gap;
+                let rhs = coords[c.right as usize].to_f64();
+                if lhs > rhs + VIOLATION_TOL {
+                    return Err(CoreError::invalid_input(
+                        "unsatisfiable separation constraint between pinned nodes",
                     ));
                 }
                 continue;
@@ -190,11 +225,14 @@ impl<S: Scalar> ConstraintProjector<S> {
         self.block_tail.truncate(n);
         self.block_len.truncate(n);
         self.block_pos.truncate(n);
+        self.block_pinned.truncate(n);
+        self.block_pin_var.truncate(n);
         self.free_blocks.clear();
 
         for (i, &coord) in coords.iter().enumerate() {
             let x_val = coord.to_f64();
             let i_u32 = i as u32;
+            let is_pinned = pins.is_some_and(|p| p.is_pinned(i));
             self.desired_x[i] = x_val;
             self.block_of_var[i] = i_u32;
             self.var_offset[i] = 0.0;
@@ -203,13 +241,15 @@ impl<S: Scalar> ConstraintProjector<S> {
             self.block_tail[i] = i_u32;
             self.block_len[i] = 1;
             self.block_pos[i] = x_val;
+            self.block_pinned[i] = is_pinned;
+            self.block_pin_var[i] = if is_pinned { i_u32 } else { u32::MAX };
         }
 
         // Build static undirected CSR neighbor list over all constraints.
         self.build_constraint_csr()?;
 
         // QPSC outer loop: project violations and split negative-multiplier active edges.
-        let max_outer = 16usize;
+        let max_outer = if pins.is_some() { 64usize } else { 16usize };
         let max_expand_per_pass = (m + 1).saturating_mul(8);
 
         for _outer in 0..max_outer {
@@ -222,7 +262,9 @@ impl<S: Scalar> ConstraintProjector<S> {
         self.project_feasible(max_expand_per_pass)?;
 
         for (i, out) in coords.iter_mut().enumerate() {
-            *out = S::from_f64(self.var_pos(i));
+            if !pins.is_some_and(|p| p.is_pinned(i)) {
+                *out = S::from_f64(self.var_pos(i));
+            }
         }
 
         Ok(())
@@ -245,6 +287,31 @@ impl<S: Scalar> ConstraintProjector<S> {
         match axis {
             0 => self.project_1d(layout.x_mut(), constraints),
             1 => self.project_1d(layout.y_mut(), constraints),
+            _ => Err(CoreError::invalid_input(format!(
+                "layout axis must be 0 (x) or 1 (y), got {axis}"
+            ))),
+        }
+    }
+
+    /// Projects axis `axis` (`0` for X, `1` for Y) of `layout` in-place using `constraints` and
+    /// fixed-node mask `pins`.
+    pub fn project_layout_axis_with_pins(
+        &mut self,
+        layout: &mut Layout2d<S>,
+        axis: usize,
+        constraints: &[SeparationConstraint<S>],
+        pins: &PinMask,
+    ) -> CoreResult<()> {
+        if layout.len() != self.num_vars {
+            return Err(CoreError::dimension_mismatch(
+                self.num_vars,
+                layout.len(),
+                "ConstraintProjector::project_layout_axis_with_pins",
+            ));
+        }
+        match axis {
+            0 => self.project_1d_with_pins(layout.x_mut(), constraints, pins),
+            1 => self.project_1d_with_pins(layout.y_mut(), constraints, pins),
             _ => Err(CoreError::invalid_input(format!(
                 "layout axis must be 0 (x) or 1 (y), got {axis}"
             ))),
@@ -317,7 +384,17 @@ impl<S: Scalar> ConstraintProjector<S> {
             let bl = self.block_of_var[c.left as usize] as usize;
             let br = self.block_of_var[c.right as usize] as usize;
             if bl != br {
-                self.merge_block(bl, br, best_c);
+                if self.block_pinned[bl] && self.block_pinned[br] {
+                    expands += 1;
+                    if expands > max_expands {
+                        return Err(CoreError::invalid_input(
+                            "separation constraints failed to converge with pinned nodes",
+                        ));
+                    }
+                    self.split_two_pinned_blocks(bl, br, best_c)?;
+                } else {
+                    self.merge_block(bl, br, best_c);
+                }
             } else {
                 expands += 1;
                 if expands > max_expands {
@@ -333,6 +410,10 @@ impl<S: Scalar> ConstraintProjector<S> {
     }
 
     pub(super) fn optimal_position(&self, b: usize) -> f64 {
+        if self.block_pinned[b] {
+            let pin = self.block_pin_var[b] as usize;
+            return self.desired_x[pin] - self.var_offset[pin];
+        }
         let len = self.block_len[b];
         if len == 0 {
             return 0.0;
@@ -346,48 +427,4 @@ impl<S: Scalar> ConstraintProjector<S> {
         }
         sum / (len as f64)
     }
-}
-
-/// Generates hierarchical vertical separation constraints `y[u] + gap <= y[v]` for edges `(u, v)`
-/// spanning layers `layers[u] < layers[v]`, where `gap = min_layer_distance * (layers[v] - layers[u])`.
-pub fn generate_layered_constraints<W: Scalar, S: Scalar>(
-    graph: &CsrGraph<W>,
-    layers: &[usize],
-    min_layer_distance: S,
-) -> CoreResult<Vec<SeparationConstraint<S>>> {
-    if !graph.is_directed() {
-        return Err(CoreError::unsupported(
-            "generate_layered_constraints requires a directed CsrGraph",
-        ));
-    }
-    let n = graph.num_nodes();
-    if layers.len() != n {
-        return Err(CoreError::dimension_mismatch(
-            n,
-            layers.len(),
-            "generate_layered_constraints::layers",
-        ));
-    }
-    if !min_layer_distance.is_finite() {
-        return Err(CoreError::non_finite(
-            "generate_layered_constraints::min_layer_distance",
-        ));
-    }
-    if min_layer_distance < S::ZERO {
-        return Err(CoreError::invalid_input("min_layer_distance must be >= 0"));
-    }
-
-    let mut constraints = Vec::new();
-    for u in 0..n {
-        let lu = layers[u];
-        for &v in graph.neighbors(u) {
-            let lv = layers[v as usize];
-            if lu < lv {
-                let span = lv - lu;
-                let gap = min_layer_distance * S::from_usize(span);
-                constraints.push(SeparationConstraint::new(u as u32, v, gap));
-            }
-        }
-    }
-    Ok(constraints)
 }

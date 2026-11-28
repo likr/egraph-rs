@@ -11,7 +11,14 @@ impl<S: Scalar> ConstraintProjector<S> {
         let n_l = self.block_len[l] as f64;
         let n_r = self.block_len[r] as f64;
 
-        self.block_pos[l] = (self.block_pos[l] * n_l + (self.block_pos[r] - d) * n_r) / (n_l + n_r);
+        if !self.block_pinned[l] && !self.block_pinned[r] {
+            self.block_pos[l] =
+                (self.block_pos[l] * n_l + (self.block_pos[r] - d) * n_r) / (n_l + n_r);
+        } else if !self.block_pinned[l] && self.block_pinned[r] {
+            self.block_pos[l] = self.block_pos[r] - d;
+            self.block_pinned[l] = true;
+            self.block_pin_var[l] = self.block_pin_var[r];
+        }
         self.is_active[c_idx] = 1;
 
         // Walk r's intrusive list to update block_of_var and var_offset.
@@ -41,13 +48,15 @@ impl<S: Scalar> ConstraintProjector<S> {
         self.block_head[r] = u32::MAX;
         self.block_tail[r] = u32::MAX;
         self.block_len[r] = 0;
+        self.block_pinned[r] = false;
+        self.block_pin_var[r] = u32::MAX;
         self.free_blocks.push(r as u32);
     }
 
     /// Iteratively computes Lagrange multipliers on block `b`'s active spanning tree
     /// starting at `root`, returning the active constraint index with minimum multiplier
     /// `(c_idx, lm_val)` if the block has at least one active constraint.
-    fn compute_active_tree_lm(&mut self, b: usize, root: u32) -> Option<(usize, f64)> {
+    pub(super) fn compute_active_tree_lm(&mut self, b: usize, root: u32) -> Option<(usize, f64)> {
         self.block_pos[b] = self.optimal_position(b);
 
         self.stamp.clear();
@@ -113,7 +122,12 @@ impl<S: Scalar> ConstraintProjector<S> {
         let src = viol_c.left;
         let dst = viol_c.right;
 
-        self.compute_active_tree_lm(b, src);
+        let tree_root = if self.block_pinned[b] {
+            self.block_pin_var[b]
+        } else {
+            src
+        };
+        self.compute_active_tree_lm(b, tree_root);
 
         // BFS from src to dst along active edges to find the path and its minimum-lm forward edge.
         self.stamp.clear();
@@ -211,6 +225,66 @@ impl<S: Scalar> ConstraintProjector<S> {
         Ok(())
     }
 
+    pub(super) fn alloc_block(&mut self) -> usize {
+        if let Some(free_b) = self.free_blocks.pop() {
+            free_b as usize
+        } else {
+            let id = self.block_head.len();
+            self.block_head.push(u32::MAX);
+            self.block_tail.push(u32::MAX);
+            self.block_len.push(0);
+            self.block_pos.push(0.0);
+            self.block_pinned.push(false);
+            self.block_pin_var.push(u32::MAX);
+            id
+        }
+    }
+
+    pub(super) fn partition_block_by_stamp(&mut self, b: usize, new_b: usize) {
+        let mut cur = self.block_head[b];
+        let mut b_head = u32::MAX;
+        let mut b_tail = u32::MAX;
+        let mut b_len = 0u32;
+        let mut nb_head = u32::MAX;
+        let mut nb_tail = u32::MAX;
+        let mut nb_len = 0u32;
+        let b_u32 = b as u32;
+        let nb_u32 = new_b as u32;
+
+        while cur != u32::MAX {
+            let next = self.var_next[cur as usize];
+            self.var_next[cur as usize] = u32::MAX;
+            if self.stamp.is_visited(cur as usize) {
+                self.block_of_var[cur as usize] = nb_u32;
+                if nb_head == u32::MAX {
+                    nb_head = cur;
+                } else {
+                    self.var_next[nb_tail as usize] = cur;
+                }
+                nb_tail = cur;
+                nb_len += 1;
+            } else {
+                self.block_of_var[cur as usize] = b_u32;
+                if b_head == u32::MAX {
+                    b_head = cur;
+                } else {
+                    self.var_next[b_tail as usize] = cur;
+                }
+                b_tail = cur;
+                b_len += 1;
+            }
+            cur = next;
+        }
+
+        self.block_head[b] = b_head;
+        self.block_tail[b] = b_tail;
+        self.block_len[b] = b_len;
+
+        self.block_head[new_b] = nb_head;
+        self.block_tail[new_b] = nb_tail;
+        self.block_len[new_b] = nb_len;
+    }
+
     /// Splits blocks whose most negative active Lagrange multiplier is `< -SPLIT_LM_TOL`.
     /// Returns `true` if no blocks were split.
     pub(super) fn split_blocks(&mut self) -> bool {
@@ -221,7 +295,11 @@ impl<S: Scalar> ConstraintProjector<S> {
             if self.block_len[b] == 0 {
                 continue;
             }
-            let root = self.block_head[b];
+            let root = if self.block_pinned[b] {
+                self.block_pin_var[b]
+            } else {
+                self.block_head[b]
+            };
             let Some((sc_idx, min_lm)) = self.compute_active_tree_lm(b, root) else {
                 continue;
             };
@@ -257,61 +335,26 @@ impl<S: Scalar> ConstraintProjector<S> {
             }
 
             // Allocate a fresh or free block ID (never overwriting `blocks[s]`!).
-            let new_b = if let Some(free_b) = self.free_blocks.pop() {
-                free_b as usize
-            } else {
-                let id = self.block_head.len();
-                self.block_head.push(u32::MAX);
-                self.block_tail.push(u32::MAX);
-                self.block_len.push(0);
-                self.block_pos.push(0.0);
-                id
-            };
+            let new_b = self.alloc_block();
+            self.partition_block_by_stamp(b, new_b);
 
-            // Partition old block `b`'s linked list into `b` and `new_b`.
-            let mut cur = self.block_head[b];
-            let mut b_head = u32::MAX;
-            let mut b_tail = u32::MAX;
-            let mut b_len = 0u32;
-            let mut nb_head = u32::MAX;
-            let mut nb_tail = u32::MAX;
-            let mut nb_len = 0u32;
-            let b_u32 = b as u32;
-            let nb_u32 = new_b as u32;
-
-            while cur != u32::MAX {
-                let next = self.var_next[cur as usize];
-                self.var_next[cur as usize] = u32::MAX;
-                if self.stamp.is_visited(cur as usize) {
-                    self.block_of_var[cur as usize] = nb_u32;
-                    if nb_head == u32::MAX {
-                        nb_head = cur;
-                    } else {
-                        self.var_next[nb_tail as usize] = cur;
-                    }
-                    nb_tail = cur;
-                    nb_len += 1;
+            if self.block_pinned[b] {
+                let pin_var = self.block_pin_var[b];
+                if self.stamp.is_visited(pin_var as usize) {
+                    self.block_pinned[b] = false;
+                    self.block_pin_var[b] = u32::MAX;
+                    self.block_pinned[new_b] = true;
+                    self.block_pin_var[new_b] = pin_var;
                 } else {
-                    self.block_of_var[cur as usize] = b_u32;
-                    if b_head == u32::MAX {
-                        b_head = cur;
-                    } else {
-                        self.var_next[b_tail as usize] = cur;
-                    }
-                    b_tail = cur;
-                    b_len += 1;
+                    self.block_pinned[new_b] = false;
+                    self.block_pin_var[new_b] = u32::MAX;
                 }
-                cur = next;
+            } else {
+                self.block_pinned[new_b] = false;
+                self.block_pin_var[new_b] = u32::MAX;
             }
 
-            self.block_head[b] = b_head;
-            self.block_tail[b] = b_tail;
-            self.block_len[b] = b_len;
             self.block_pos[b] = self.optimal_position(b);
-
-            self.block_head[new_b] = nb_head;
-            self.block_tail[new_b] = nb_tail;
-            self.block_len[new_b] = nb_len;
             self.block_pos[new_b] = self.optimal_position(new_b);
         }
 

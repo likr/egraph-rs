@@ -1,15 +1,15 @@
 //! Separation constraints, layering, overlap removal, and proximity layout solvers for `egraph-rs`.
 
-pub mod constraints;
+mod constraints;
 #[cfg(feature = "baselines")]
-pub mod forbid;
+mod forbid;
 #[cfg(feature = "baselines")]
-pub mod gtree;
-pub mod layering;
+mod gtree;
+mod layering;
 #[cfg(feature = "baselines")]
-pub mod pfs_prime;
-pub mod prism;
-pub mod twin_declutter;
+mod pfs_prime;
+mod prism;
+mod twin_declutter;
 
 pub use constraints::{
     ConstraintProjector, SeparationConstraint, generate_layered_constraints,
@@ -26,18 +26,3 @@ pub use layering::{
 pub use pfs_prime::{PfsPrimeConfig, PfsPrimeOverlapRemoval};
 pub use prism::{PrismConfig, PrismOverlapRemoval, SparsePcgWorkspace};
 pub use twin_declutter::{TwinDeclutterConfig, TwinDeclutterer, declutter_twins_2d};
-
-/// Returns the crate version.
-pub fn crate_version() -> &'static str {
-    env!("CARGO_PKG_VERSION")
-}
-
-#[cfg(test)]
-mod tests {
-    use super::crate_version;
-
-    #[test]
-    fn layout_constraints_crate_version_non_empty() {
-        assert!(!crate_version().is_empty());
-    }
-}

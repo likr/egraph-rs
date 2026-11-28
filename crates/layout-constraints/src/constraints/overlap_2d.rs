@@ -1,10 +1,11 @@
 use std::cmp::Ordering;
 use std::collections::BTreeSet;
 
-use egraph_core::{CoreError, CoreResult, Layout2d, Scalar};
+use egraph_core::{CoreError, CoreResult, Layout2d, NodeExtents2d, Scalar};
 use egraph_spatial_trees::RectangleOverlapSweep;
 
-use super::projector::{ConstraintProjector, SeparationConstraint};
+use super::projector::ConstraintProjector;
+use super::separation::SeparationConstraint;
 
 #[derive(Debug, Clone, Copy)]
 struct OrdF64(f64);
@@ -43,41 +44,31 @@ struct SweepEvent {
 /// alternating X and Y projection passes until zero overlaps remain.
 pub fn project_rectangle_no_overlap_2d<S: Scalar>(
     layout: &mut Layout2d<S>,
-    half_widths: &[S],
-    half_heights: &[S],
+    extents: NodeExtents2d<'_, S>,
 ) -> CoreResult<()> {
     let n = layout.len();
-    if half_widths.len() != n {
+    if extents.len() != n {
         return Err(CoreError::dimension_mismatch(
             n,
-            half_widths.len(),
-            "project_rectangle_no_overlap_2d::half_widths",
-        ));
-    }
-    if half_heights.len() != n {
-        return Err(CoreError::dimension_mismatch(
-            n,
-            half_heights.len(),
-            "project_rectangle_no_overlap_2d::half_heights",
+            extents.len(),
+            "project_rectangle_no_overlap_2d::extents",
         ));
     }
     layout.validate_finite()?;
-    for i in 0..n {
-        if !half_widths[i].is_finite() || !half_heights[i].is_finite() {
-            return Err(CoreError::non_finite(
-                "project_rectangle_no_overlap_2d::extents",
-            ));
-        }
-        if half_widths[i] < S::ZERO || half_heights[i] < S::ZERO {
-            return Err(CoreError::invalid_input(
-                "half_widths and half_heights must be >= 0",
-            ));
-        }
-    }
+    extents.validate()?;
 
     if n < 2 {
         return Ok(());
     }
+
+    let owned_extents;
+    let (half_widths, half_heights) = match extents.as_slices() {
+        Some((hw, hh)) => (hw, hh),
+        None => {
+            owned_extents = extents.to_vecs();
+            (owned_extents.0.as_slice(), owned_extents.1.as_slice())
+        }
+    };
 
     let mut projector = ConstraintProjector::<S>::new(n);
     let mut x_constraints = Vec::new();
@@ -106,7 +97,7 @@ pub fn project_rectangle_no_overlap_2d<S: Scalar>(
             ulp_scale,
             ulp_abs,
             &mut x_constraints,
-        );
+        )?;
         if !x_constraints.is_empty() {
             projector.project_1d(layout.x_mut(), &x_constraints)?;
         }
@@ -127,7 +118,7 @@ pub fn project_rectangle_no_overlap_2d<S: Scalar>(
             ulp_scale,
             ulp_abs,
             &mut y_constraints,
-        );
+        )?;
         if !y_constraints.is_empty() {
             projector.project_1d(layout.y_mut(), &y_constraints)?;
         }
@@ -147,7 +138,7 @@ fn generate_x_pass_constraints<S: Scalar>(
     ulp_scale: f64,
     ulp_abs: f64,
     out: &mut Vec<SeparationConstraint<S>>,
-) {
+) -> CoreResult<()> {
     let n = xs.len();
     let mut events = Vec::with_capacity(n * 2);
     for i in 0..n {
@@ -189,7 +180,7 @@ fn generate_x_pass_constraints<S: Scalar>(
                 if xu - xv >= req_x {
                     let pair_ulp = ulp_abs * (1.0 + xu.abs().max(xv.abs()));
                     let gap = S::from_f64(req_x * ulp_scale + pair_ulp);
-                    out.push(SeparationConstraint::new(v as u32, u as u32, gap));
+                    out.push(SeparationConstraint::new(v as u32, u as u32, gap)?);
                     break;
                 }
             }
@@ -200,7 +191,7 @@ fn generate_x_pass_constraints<S: Scalar>(
                 if xv - xu >= req_x {
                     let pair_ulp = ulp_abs * (1.0 + xu.abs().max(xv.abs()));
                     let gap = S::from_f64(req_x * ulp_scale + pair_ulp);
-                    out.push(SeparationConstraint::new(u as u32, v as u32, gap));
+                    out.push(SeparationConstraint::new(u as u32, v as u32, gap)?);
                     break;
                 }
             }
@@ -226,9 +217,9 @@ fn generate_x_pass_constraints<S: Scalar>(
                 .total_cmp(&xs[j].to_f64())
                 .then_with(|| i.cmp(&j));
             if ord == Ordering::Less {
-                out.push(SeparationConstraint::new(i as u32, j as u32, gap));
+                out.push(SeparationConstraint::new(i as u32, j as u32, gap)?);
             } else {
-                out.push(SeparationConstraint::new(j as u32, i as u32, gap));
+                out.push(SeparationConstraint::new(j as u32, i as u32, gap)?);
             }
         }
     }
@@ -236,6 +227,7 @@ fn generate_x_pass_constraints<S: Scalar>(
     if !emitted_overlap {
         out.clear();
     }
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -248,7 +240,7 @@ fn generate_y_pass_constraints<S: Scalar>(
     ulp_scale: f64,
     ulp_abs: f64,
     out: &mut Vec<SeparationConstraint<S>>,
-) {
+) -> CoreResult<()> {
     let n = xs.len();
     let mut events = Vec::with_capacity(n * 2);
     for i in 0..n {
@@ -290,7 +282,7 @@ fn generate_y_pass_constraints<S: Scalar>(
                     let req_y = hh_v + half_heights[u].to_f64();
                     let pair_ulp = ulp_abs * (1.0 + yu.abs().max(yv.abs()));
                     let gap = S::from_f64(req_y * ulp_scale + pair_ulp);
-                    out.push(SeparationConstraint::new(v as u32, u as u32, gap));
+                    out.push(SeparationConstraint::new(v as u32, u as u32, gap)?);
                     if yu - yv >= req_y {
                         break;
                     }
@@ -302,7 +294,7 @@ fn generate_y_pass_constraints<S: Scalar>(
                     let req_y = hh_v + half_heights[u].to_f64();
                     let pair_ulp = ulp_abs * (1.0 + yu.abs().max(yv.abs()));
                     let gap = S::from_f64(req_y * ulp_scale + pair_ulp);
-                    out.push(SeparationConstraint::new(u as u32, v as u32, gap));
+                    out.push(SeparationConstraint::new(u as u32, v as u32, gap)?);
                     if yv - yu >= req_y {
                         break;
                     }
@@ -325,9 +317,10 @@ fn generate_y_pass_constraints<S: Scalar>(
             .total_cmp(&ys[j].to_f64())
             .then_with(|| i.cmp(&j));
         if ord == Ordering::Less {
-            out.push(SeparationConstraint::new(i as u32, j as u32, gap));
+            out.push(SeparationConstraint::new(i as u32, j as u32, gap)?);
         } else {
-            out.push(SeparationConstraint::new(j as u32, i as u32, gap));
+            out.push(SeparationConstraint::new(j as u32, i as u32, gap)?);
         }
     }
+    Ok(())
 }

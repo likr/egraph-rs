@@ -1,14 +1,11 @@
 use std::marker::PhantomData;
 
 use egraph_core::{
-    CoreError, CoreResult, DeterministicRng, IterativeSolver, Layout2d, Scalar, SolverStatus,
+    CoreError, CoreResult, DeterministicRng, IterativeSolver, Layout2d, NodeExtents2d, Scalar,
+    SolverStatus,
 };
-#[cfg(not(feature = "delaunay"))]
-use egraph_spatial_trees::KdQueryScratch;
 use egraph_spatial_trees::RectangleOverlapSweep;
 
-#[cfg(not(feature = "delaunay"))]
-use super::config::K_FALLBACK_NEIGHBORS;
 use super::config::{GTreeConfig, MAX_STAGE2_FINAL_ITERS};
 
 /// Cooperative Nachmanson et al. (2016) GTree proximity-MST node overlap removal solver.
@@ -44,10 +41,6 @@ pub struct GTreeOverlapRemoval<S: Scalar = f64> {
     pub(super) uf_parent: Vec<u32>,
     pub(super) uf_rank: Vec<u8>,
     pub(super) comp_rep: Vec<(u32, f64, f64)>,
-    #[cfg(not(feature = "delaunay"))]
-    pub(super) kd_scratch: KdQueryScratch,
-    #[cfg(not(feature = "delaunay"))]
-    pub(super) knn_out: Vec<(usize, f64)>,
     iter: usize,
     stage2_active: bool,
     last_overlap_count: usize,
@@ -56,18 +49,11 @@ pub struct GTreeOverlapRemoval<S: Scalar = f64> {
 }
 
 impl<S: Scalar> GTreeOverlapRemoval<S> {
-    /// Creates a [`GTreeOverlapRemoval`] solver for rectangular nodes with per-node half-widths
-    /// and half-heights.
-    pub fn new(half_widths: Vec<S>, half_heights: Vec<S>, config: GTreeConfig) -> CoreResult<Self> {
+    /// Creates a [`GTreeOverlapRemoval`] solver for rectangular nodes with per-node half-extents.
+    pub fn new(extents: NodeExtents2d<'_, S>, config: GTreeConfig) -> CoreResult<Self> {
         config.validate()?;
-        let n = half_widths.len();
-        if half_heights.len() != n {
-            return Err(CoreError::dimension_mismatch(
-                n,
-                half_heights.len(),
-                "GTreeOverlapRemoval::new::half_heights",
-            ));
-        }
+        extents.validate()?;
+        let n = extents.len();
         if u32::try_from(n).is_err() {
             return Err(CoreError::invalid_input(
                 "GTreeOverlapRemoval node count exceeds u32::MAX",
@@ -81,16 +67,7 @@ impl<S: Scalar> GTreeOverlapRemoval<S> {
         let mut eff_hh_s = Vec::with_capacity(n);
 
         for i in 0..n {
-            let hw = half_widths[i];
-            let hh = half_heights[i];
-            if !hw.is_finite() || !hh.is_finite() {
-                return Err(CoreError::non_finite("GTreeOverlapRemoval::new::extents"));
-            }
-            if hw < S::ZERO || hh < S::ZERO {
-                return Err(CoreError::invalid_input(
-                    "half_widths and half_heights must be >= 0",
-                ));
-            }
+            let (hw, hh) = extents.extents(i)?;
             let hw_f = hw.to_f64() + pad_half;
             let hh_f = hh.to_f64() + pad_half;
             let hw_s = S::from_f64(hw_f);
@@ -106,6 +83,7 @@ impl<S: Scalar> GTreeOverlapRemoval<S> {
             eff_hh_s.push(hh_s);
         }
 
+        let seed = config.seed;
         let status = if config.max_iterations == 0 {
             SolverStatus::Completed
         } else {
@@ -119,7 +97,7 @@ impl<S: Scalar> GTreeOverlapRemoval<S> {
             eff_hh_f64,
             eff_hw_s,
             eff_hh_s,
-            rng: DeterministicRng::from_seed_u64(config.seed),
+            rng: DeterministicRng::from_seed_u64(seed),
             work_layout: Layout2d::zeros(n),
             new_x: vec![0.0; n],
             new_y: vec![0.0; n],
@@ -136,10 +114,6 @@ impl<S: Scalar> GTreeOverlapRemoval<S> {
             uf_parent: (0..n as u32).collect(),
             uf_rank: vec![0; n],
             comp_rep: Vec::new(),
-            #[cfg(not(feature = "delaunay"))]
-            kd_scratch: KdQueryScratch::with_capacity(K_FALLBACK_NEIGHBORS),
-            #[cfg(not(feature = "delaunay"))]
-            knn_out: Vec::with_capacity(K_FALLBACK_NEIGHBORS),
             iter: 0,
             stage2_active: false,
             last_overlap_count: 0,
@@ -150,9 +124,8 @@ impl<S: Scalar> GTreeOverlapRemoval<S> {
 
     /// Creates a [`GTreeOverlapRemoval`] solver for circular/square nodes with equal half-width
     /// and half-height given by `radii`.
-    pub fn from_radii(radii: Vec<S>, config: GTreeConfig) -> CoreResult<Self> {
-        let half_heights = radii.clone();
-        Self::new(radii, half_heights, config)
+    pub fn from_radii(radii: &[S], config: GTreeConfig) -> CoreResult<Self> {
+        Self::new(NodeExtents2d::from_radii(radii)?, config)
     }
 
     /// Returns the solver configuration.
@@ -187,7 +160,7 @@ impl<S: Scalar> GTreeOverlapRemoval<S> {
             // Stage 1: proximity-graph MST + tree growth.
             let moved = self.run_mst_growth_pass(t_cap)?;
             if moved {
-                self.copy_work_to_layout(layout);
+                self.copy_work_to_layout(layout)?;
                 let overlaps = RectangleOverlapSweep::find_layout_overlaps(
                     layout,
                     &self.eff_hw_s,
@@ -218,28 +191,13 @@ impl<S: Scalar> GTreeOverlapRemoval<S> {
         self.raw_edges.dedup();
 
         let _ = self.run_mst_growth_pass(t_cap)?;
-        self.copy_work_to_layout(layout);
+        self.copy_work_to_layout(layout)?;
         let remaining =
             RectangleOverlapSweep::find_layout_overlaps(layout, &self.eff_hw_s, &self.eff_hh_s)?;
         Ok(remaining.len())
     }
-}
 
-impl<S: Scalar> IterativeSolver<S> for GTreeOverlapRemoval<S> {
-    fn step(&mut self, layout: &mut Layout2d<S>) -> CoreResult<SolverStatus> {
-        if layout.len() != self.num_nodes {
-            return Err(CoreError::dimension_mismatch(
-                self.num_nodes,
-                layout.len(),
-                "GTreeOverlapRemoval::step",
-            ));
-        }
-        layout.validate_finite()?;
-
-        if self.status.is_finished() {
-            return Ok(self.status);
-        }
-
+    fn execute_step_inner(&mut self, layout: &mut Layout2d<S>) -> CoreResult<SolverStatus> {
         let n = self.num_nodes;
         if n <= 1 {
             self.last_overlap_count = 0;
@@ -274,11 +232,8 @@ impl<S: Scalar> IterativeSolver<S> for GTreeOverlapRemoval<S> {
                 ov_count = self.execute_one_round(layout, true, None)?;
             }
             if ov_count > 0 {
-                crate::constraints::project_rectangle_no_overlap_2d(
-                    layout,
-                    &self.eff_hw_s,
-                    &self.eff_hh_s,
-                )?;
+                let eff_extents = NodeExtents2d::new(&self.eff_hw_s, &self.eff_hh_s)?;
+                crate::constraints::project_rectangle_no_overlap_2d(layout, eff_extents)?;
                 ov_count = RectangleOverlapSweep::find_layout_overlaps(
                     layout,
                     &self.eff_hw_s,
@@ -299,6 +254,42 @@ impl<S: Scalar> IterativeSolver<S> for GTreeOverlapRemoval<S> {
 
         Ok(self.status)
     }
+}
+
+impl<S: Scalar> IterativeSolver for GTreeOverlapRemoval<S> {
+    type Target = Layout2d<S>;
+
+    fn validate_target(&self, target: &Self::Target) -> CoreResult<()> {
+        if target.len() != self.num_nodes {
+            return Err(CoreError::dimension_mismatch(
+                self.num_nodes,
+                target.len(),
+                "GTreeOverlapRemoval::validate_target",
+            ));
+        }
+        target.validate_finite()
+    }
+
+    fn step(&mut self, target: &mut Self::Target) -> CoreResult<SolverStatus> {
+        self.validate_target(target)?;
+
+        if self.status.is_finished() {
+            return Ok(self.status);
+        }
+
+        match self.execute_step_inner(target) {
+            Ok(status) => Ok(status),
+            Err(err) => {
+                if matches!(
+                    err,
+                    CoreError::NumericalBreakdown(_) | CoreError::NonFiniteValue { .. }
+                ) {
+                    self.status = SolverStatus::Failed;
+                }
+                Err(err)
+            }
+        }
+    }
 
     #[inline]
     fn status(&self) -> SolverStatus {
@@ -311,7 +302,7 @@ impl<S: Scalar> IterativeSolver<S> for GTreeOverlapRemoval<S> {
     }
 
     #[inline]
-    fn total_iterations(&self) -> usize {
-        self.config.max_iterations
+    fn total_iterations(&self) -> Option<usize> {
+        Some(self.config.max_iterations)
     }
 }

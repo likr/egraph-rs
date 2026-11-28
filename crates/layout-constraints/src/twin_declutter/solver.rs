@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use egraph_core::{CoreResult, IterativeSolver, Layout2d, Scalar, SolverStatus};
+use egraph_core::{CoreResult, Layout2d, LayoutTransform, Scalar};
 use egraph_spatial_trees::StaticKdTree;
 
 use super::config::TwinDeclutterConfig;
@@ -11,14 +11,13 @@ const GOLDEN_ANGLE: f64 = 2.399_963_229_728_653_3;
 /// Degenerate bounding-box diagonal threshold below which all nodes are treated as coincident.
 const DEGENERATE_DIAG_EPS: f64 = 1e-12;
 
-/// Cooperative 2D solver that resolves exact duplicate and near-twin node overlaps using a
+/// In-place 2D layout transform that resolves exact duplicate and near-twin node overlaps using a
 /// 3x3 spatial hash, cluster-centroid `StaticKdTree` clearance queries, and golden-angle
 /// Vogel spiral micro-offsets.
 #[derive(Debug, Clone)]
 pub struct TwinDeclutterer<S: Scalar = f64> {
     config: TwinDeclutterConfig,
-    iter: usize,
-    status: SolverStatus,
+    last_pass_count: usize,
     last_cluster_count: usize,
     last_moved_count: usize,
     _marker: PhantomData<S>,
@@ -28,25 +27,25 @@ impl<S: Scalar> TwinDeclutterer<S> {
     /// Creates a new [`TwinDeclutterer`] validated against `config`.
     pub fn new(config: TwinDeclutterConfig) -> CoreResult<Self> {
         config.validate()?;
-        let status = if config.iterations == 0 {
-            SolverStatus::Completed
-        } else {
-            SolverStatus::Initialized
-        };
         Ok(Self {
             config,
-            iter: 0,
-            status,
+            last_pass_count: 0,
             last_cluster_count: 0,
             last_moved_count: 0,
             _marker: PhantomData,
         })
     }
 
-    /// Returns the configuration used by this solver.
+    /// Returns the configuration used by this transform.
     #[inline]
     pub fn config(&self) -> &TwinDeclutterConfig {
         &self.config
+    }
+
+    /// Returns the number of decluttering passes executed in the most recent `apply` call.
+    #[inline]
+    pub fn last_pass_count(&self) -> usize {
+        self.last_pass_count
     }
 
     /// Returns the number of twin clusters detected in the most recent pass.
@@ -67,9 +66,9 @@ pub fn declutter_twins_2d<S: Scalar>(
     layout: &mut Layout2d<S>,
     config: &TwinDeclutterConfig,
 ) -> CoreResult<usize> {
-    let mut solver = TwinDeclutterer::new(*config)?;
-    solver.run(layout)?;
-    Ok(solver.iteration())
+    let mut declutterer = TwinDeclutterer::new(config.clone())?;
+    declutterer.apply(layout)?;
+    Ok(declutterer.last_pass_count())
 }
 
 struct UnionFind {
@@ -124,19 +123,9 @@ fn clamp_finite_scalar<S: Scalar>(val: f64) -> S {
     S::from_f64(val.clamp(-max_abs, max_abs))
 }
 
-impl<S: Scalar> IterativeSolver<S> for TwinDeclutterer<S> {
-    fn step(&mut self, layout: &mut Layout2d<S>) -> CoreResult<SolverStatus> {
-        if self.status.is_finished() {
-            return Ok(self.status);
-        }
-        layout.validate_finite()?;
+impl<S: Scalar> TwinDeclutterer<S> {
+    fn run_single_pass(&mut self, layout: &mut Layout2d<S>) -> CoreResult<bool> {
         let n = layout.len();
-        if n <= 1 {
-            self.last_cluster_count = n;
-            self.last_moved_count = 0;
-            self.status = SolverStatus::Converged;
-            return Ok(self.status);
-        }
 
         // Canonicalize `-0.0 -> +0.0` in f64 workspace and detect bounding box.
         let mut fx = Vec::with_capacity(n);
@@ -207,9 +196,8 @@ impl<S: Scalar> IterativeSolver<S> for TwinDeclutterer<S> {
             }
             self.last_cluster_count = 1;
             self.last_moved_count = n;
-            self.iter += 1;
-            self.status = SolverStatus::Converged;
-            return Ok(self.status);
+            self.last_pass_count += 1;
+            return Ok(true);
         }
 
         // Step 1: Lexicographic exact deduplication into unique coordinate points.
@@ -327,8 +315,7 @@ impl<S: Scalar> IterativeSolver<S> for TwinDeclutterer<S> {
         let max_cluster_size = cluster_sizes.iter().copied().max().unwrap_or(0);
         if max_cluster_size < 2 {
             self.last_moved_count = 0;
-            self.status = SolverStatus::Converged;
-            return Ok(self.status);
+            return Ok(true);
         }
 
         // Step 4: Group vertices by cluster and compute cluster centroids for StaticKdTree.
@@ -419,24 +406,31 @@ impl<S: Scalar> IterativeSolver<S> for TwinDeclutterer<S> {
         }
 
         self.last_moved_count = moved;
-        self.iter += 1;
-        self.status = if self.iter >= self.config.iterations {
-            SolverStatus::Completed
-        } else {
-            SolverStatus::Running
-        };
-        Ok(self.status)
+        self.last_pass_count += 1;
+        Ok(false)
     }
+}
 
-    fn status(&self) -> SolverStatus {
-        self.status
-    }
+impl<S: Scalar> LayoutTransform for TwinDeclutterer<S> {
+    type Target = Layout2d<S>;
 
-    fn iteration(&self) -> usize {
-        self.iter
-    }
+    fn apply(&mut self, target: &mut Self::Target) -> CoreResult<()> {
+        target.validate_finite()?;
+        self.last_pass_count = 0;
+        self.last_cluster_count = 0;
+        self.last_moved_count = 0;
 
-    fn total_iterations(&self) -> usize {
-        self.config.iterations
+        let n = target.len();
+        if n <= 1 {
+            self.last_cluster_count = n;
+            return Ok(());
+        }
+
+        for _ in 0..self.config.iterations {
+            if self.run_single_pass(target)? {
+                break;
+            }
+        }
+        Ok(())
     }
 }

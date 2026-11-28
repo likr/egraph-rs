@@ -7,8 +7,11 @@
 mod block_ops;
 mod clustered;
 mod overlap_2d;
+mod pinned;
 mod projector;
+mod separation;
 
 pub use clustered::project_clustered_rectangle_no_overlap_2d;
 pub use overlap_2d::project_rectangle_no_overlap_2d;
-pub use projector::{ConstraintProjector, SeparationConstraint, generate_layered_constraints};
+pub use projector::ConstraintProjector;
+pub use separation::{SeparationConstraint, generate_layered_constraints};

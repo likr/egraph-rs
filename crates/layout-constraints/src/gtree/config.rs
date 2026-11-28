@@ -1,13 +1,11 @@
 use egraph_core::{CoreError, CoreResult};
 
-#[cfg(not(feature = "delaunay"))]
-pub(super) const K_FALLBACK_NEIGHBORS: usize = 12;
-
 pub(super) const MIN_EDGE_DIST: f64 = 1e-9;
 pub(super) const MAX_STAGE2_FINAL_ITERS: usize = 32;
 
 /// Hyperparameters for [`super::GTreeOverlapRemoval`].
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq)]
 pub struct GTreeConfig {
     /// Maximum number of outer GTree iterations (`default: 20`).
     pub max_iterations: usize,
@@ -31,6 +29,35 @@ impl Default for GTreeConfig {
 }
 
 impl GTreeConfig {
+    /// Creates a new [`GTreeConfig`] initialized with default values.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets the maximum number of outer GTree iterations.
+    pub fn with_max_iterations(mut self, max_iterations: usize) -> Self {
+        self.max_iterations = max_iterations;
+        self
+    }
+
+    /// Sets the extra minimum clearance added between rectangle borders.
+    pub fn with_padding(mut self, padding: f64) -> Self {
+        self.padding = padding;
+        self
+    }
+
+    /// Sets the optional compact per-step expansion cap $t_{\max} > 1.0$.
+    pub fn with_compact_t_max(mut self, compact_t_max: Option<f64>) -> Self {
+        self.compact_t_max = compact_t_max;
+        self
+    }
+
+    /// Sets the explicit deterministic seed used for coincident-point jitter.
+    pub fn with_seed(mut self, seed: u64) -> Self {
+        self.seed = seed;
+        self
+    }
+
     /// Validates all GTree configuration parameters.
     pub fn validate(&self) -> CoreResult<()> {
         if !self.padding.is_finite() {

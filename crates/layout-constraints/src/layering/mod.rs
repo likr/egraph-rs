@@ -9,12 +9,13 @@ mod transitive_reduction;
 
 use std::collections::VecDeque;
 
-use egraph_core::{CoreError, CoreResult, CsrGraph, Scalar};
+use egraph_core::{CoreError, CoreResult, CsrGraph};
 
 use network_simplex::network_simplex_on_dag;
 pub use transitive_reduction::transitive_reduction;
 
 /// Layer assignment algorithm for [`assign_layers`].
+#[non_exhaustive]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Default)]
 pub enum LayeringMethod {
     /// $O(V + E)$ topological longest-path layering from sources.
@@ -95,19 +96,17 @@ pub fn cycle_edges<W>(graph: &CsrGraph<W>) -> CoreResult<Vec<(u32, u32)>> {
     Ok(result)
 }
 
-/// Constructs a directed acyclic [`CsrGraph<W>`] by reversing cycle-closing back-edges.
+/// Constructs an unweighted directed acyclic [`CsrGraph<()>`] by reversing cycle-closing
+/// back-edges.
 ///
-/// Preserves edge weights (if present) and cleanly deduplicates any parallel edges created
-/// when reversing a 2-cycle.
-pub fn remove_cycles<W: Scalar>(graph: &CsrGraph<W>) -> CoreResult<CsrGraph<W>> {
+/// Cleanly deduplicates any parallel edges created when reversing a 2-cycle.
+pub fn remove_cycles<W>(graph: &CsrGraph<W>) -> CoreResult<CsrGraph<()>> {
     let is_back = find_back_edge_positions(graph)?;
     let n = graph.num_nodes();
     let indptr = graph.indptr();
     let indices = graph.indices();
-    let weights = graph.weights();
 
     let mut edges = Vec::with_capacity(indices.len());
-    let mut new_weights = weights.map(|_| Vec::with_capacity(indices.len()));
 
     for u in 0..n {
         let start = indptr[u] as usize;
@@ -120,13 +119,10 @@ pub fn remove_cycles<W: Scalar>(graph: &CsrGraph<W>) -> CoreResult<CsrGraph<W>> 
             } else {
                 edges.push((u32_u, v));
             }
-            if let (Some(w_src), Some(w_dst)) = (weights, new_weights.as_mut()) {
-                w_dst.push(w_src[pos]);
-            }
         }
     }
 
-    CsrGraph::from_edges(n, &edges, new_weights.as_deref(), true, true)
+    CsrGraph::from_unweighted_edges(n, &edges, true, true)
 }
 
 /// Builds a deduplicated directed acyclic CSR adjacency `(dag_indptr, dag_indices)`
@@ -169,13 +165,13 @@ fn build_internal_dag<W>(graph: &CsrGraph<W>) -> CoreResult<(Vec<u32>, Vec<u32>)
     Ok((dag_indptr, dag_indices))
 }
 
-fn longest_path_on_dag(n: usize, dag_indptr: &[u32], dag_indices: &[u32]) -> Vec<usize> {
+fn longest_path_on_dag(n: usize, dag_indptr: &[u32], dag_indices: &[u32]) -> Vec<u32> {
     let mut in_deg = vec![0u32; n];
     for &v in dag_indices {
         in_deg[v as usize] += 1;
     }
 
-    let mut layers = vec![0usize; n];
+    let mut layers = vec![0u32; n];
     let mut queue = VecDeque::new();
     for (u, &deg) in in_deg.iter().enumerate() {
         if deg == 0 {
@@ -207,7 +203,7 @@ fn longest_path_on_dag(n: usize, dag_indptr: &[u32], dag_indices: &[u32]) -> Vec
 /// Cycles are handled gracefully by internally reversing back-edges, and disconnected or
 /// sourceless components are all assigned valid layers with `layer[v] >= layer[u] + 1`
 /// for every DAG edge `(u, v)` and `min(layer) == 0` for non-empty graphs.
-pub fn assign_layers<W>(graph: &CsrGraph<W>, method: LayeringMethod) -> CoreResult<Vec<usize>> {
+pub fn assign_layers<W>(graph: &CsrGraph<W>, method: LayeringMethod) -> CoreResult<Vec<u32>> {
     let n = graph.num_nodes();
     if !graph.is_directed() {
         return Err(CoreError::unsupported(

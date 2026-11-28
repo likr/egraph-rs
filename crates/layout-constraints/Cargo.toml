@@ -2,12 +2,13 @@
 name = "egraph-layout-constraints"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+description = "Separation constraints, hierarchical layering, and 2D node overlap removal solvers for egraph-rs"
 
 [features]
 default = []
-delaunay = []
 baselines = []
 
 [dependencies]

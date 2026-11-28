@@ -1,15 +1,15 @@
 use std::collections::VecDeque;
 
-use egraph_core::{CoreResult, VisitStamp};
+use egraph_core::{CoreError, CoreResult, VisitStamp};
 
 pub(super) fn network_simplex_on_dag(
     n: usize,
     dag_indptr: &[u32],
     dag_indices: &[u32],
-    lp_layers: &[usize],
-) -> CoreResult<Vec<usize>> {
+    lp_layers: &[u32],
+) -> CoreResult<Vec<u32>> {
     if dag_indices.is_empty() {
-        return Ok(vec![0usize; n]);
+        return Ok(vec![0u32; n]);
     }
 
     // Build reverse CSR of the DAG for weakly connected component discovery.
@@ -36,7 +36,7 @@ pub(super) fn network_simplex_on_dag(
         }
     }
 
-    let mut out_layers = vec![0usize; n];
+    let mut out_layers = vec![0u32; n];
     let mut visited = VisitStamp::new(n);
     let mut global_to_local = vec![u32::MAX; n];
     let mut comp_nodes: Vec<u32> = Vec::new();
@@ -89,7 +89,9 @@ pub(super) fn network_simplex_on_dag(
 
         let min_rank = rank.iter().copied().min().unwrap_or(0);
         for (local_u, &global_u) in comp_nodes.iter().enumerate() {
-            out_layers[global_u as usize] = (rank[local_u] - min_rank) as usize;
+            let delta = rank[local_u] - min_rank;
+            out_layers[global_u as usize] = u32::try_from(delta)
+                .map_err(|_| CoreError::invalid_input("assigned layer index exceeds u32::MAX"))?;
             global_to_local[global_u as usize] = u32::MAX;
         }
     }

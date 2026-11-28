@@ -1,7 +1,8 @@
 use std::marker::PhantomData;
 
 use egraph_core::{
-    CoreError, CoreResult, DeterministicRng, IterativeSolver, Layout2d, Scalar, SolverStatus,
+    CoreError, CoreResult, DeterministicRng, IterativeSolver, Layout2d, NodeExtents2d, Scalar,
+    SolverStatus,
 };
 use egraph_spatial_trees::RectangleOverlapSweep;
 
@@ -46,22 +47,11 @@ pub struct ForbidOverlapRemoval<S: Scalar = f64> {
 }
 
 impl<S: Scalar> ForbidOverlapRemoval<S> {
-    /// Creates a [`ForbidOverlapRemoval`] solver for rectangular nodes with per-node half-widths
-    /// and half-heights.
-    pub fn new(
-        half_widths: Vec<S>,
-        half_heights: Vec<S>,
-        config: ForbidConfig,
-    ) -> CoreResult<Self> {
+    /// Creates a [`ForbidOverlapRemoval`] solver for rectangular nodes with per-node half-extents.
+    pub fn new(extents: NodeExtents2d<'_, S>, config: ForbidConfig) -> CoreResult<Self> {
         config.validate()?;
-        let n = half_widths.len();
-        if half_heights.len() != n {
-            return Err(CoreError::dimension_mismatch(
-                n,
-                half_heights.len(),
-                "ForbidOverlapRemoval::new::half_heights",
-            ));
-        }
+        extents.validate()?;
+        let n = extents.len();
         if u32::try_from(n).is_err() {
             return Err(CoreError::invalid_input(
                 "ForbidOverlapRemoval node count exceeds u32::MAX",
@@ -75,16 +65,7 @@ impl<S: Scalar> ForbidOverlapRemoval<S> {
         let mut eff_hh_s = Vec::with_capacity(n);
 
         for i in 0..n {
-            let hw = half_widths[i];
-            let hh = half_heights[i];
-            if !hw.is_finite() || !hh.is_finite() {
-                return Err(CoreError::non_finite("ForbidOverlapRemoval::new::extents"));
-            }
-            if hw < S::ZERO || hh < S::ZERO {
-                return Err(CoreError::invalid_input(
-                    "half_widths and half_heights must be >= 0",
-                ));
-            }
+            let (hw, hh) = extents.extents(i)?;
             let hw_f = hw.to_f64() + pad_half;
             let hh_f = hh.to_f64() + pad_half;
             let hw_s = S::from_f64(hw_f);
@@ -100,6 +81,7 @@ impl<S: Scalar> ForbidOverlapRemoval<S> {
             eff_hh_s.push(hh_s);
         }
 
+        let seed = config.seed;
         let status = if config.max_scale_iters == 0 {
             SolverStatus::Completed
         } else {
@@ -113,7 +95,7 @@ impl<S: Scalar> ForbidOverlapRemoval<S> {
             eff_hh_f64,
             eff_hw_s,
             eff_hh_s,
-            rng: DeterministicRng::from_seed_u64(config.seed),
+            rng: DeterministicRng::from_seed_u64(seed),
             initialized_state: false,
             orig_x: vec![0.0; n],
             orig_y: vec![0.0; n],
@@ -140,9 +122,8 @@ impl<S: Scalar> ForbidOverlapRemoval<S> {
 
     /// Creates a [`ForbidOverlapRemoval`] solver for circular/square nodes with equal half-width
     /// and half-height given by `radii`.
-    pub fn from_radii(radii: Vec<S>, config: ForbidConfig) -> CoreResult<Self> {
-        let half_heights = radii.clone();
-        Self::new(radii, half_heights, config)
+    pub fn from_radii(radii: &[S], config: ForbidConfig) -> CoreResult<Self> {
+        Self::new(NodeExtents2d::from_radii(radii)?, config)
     }
 
     /// Returns the solver configuration.
@@ -162,23 +143,8 @@ impl<S: Scalar> ForbidOverlapRemoval<S> {
     pub fn last_overlap_count(&self) -> usize {
         self.last_overlap_count
     }
-}
 
-impl<S: Scalar> IterativeSolver<S> for ForbidOverlapRemoval<S> {
-    fn step(&mut self, layout: &mut Layout2d<S>) -> CoreResult<SolverStatus> {
-        if layout.len() != self.num_nodes {
-            return Err(CoreError::dimension_mismatch(
-                self.num_nodes,
-                layout.len(),
-                "ForbidOverlapRemoval::step",
-            ));
-        }
-        layout.validate_finite()?;
-
-        if self.status.is_finished() {
-            return Ok(self.status);
-        }
-
+    fn execute_step_inner(&mut self, layout: &mut Layout2d<S>) -> CoreResult<SolverStatus> {
         let n = self.num_nodes;
         if n <= 1 {
             self.last_overlap_count = 0;
@@ -202,7 +168,7 @@ impl<S: Scalar> IterativeSolver<S> for ForbidOverlapRemoval<S> {
 
         self.apply_scale();
         self.sgd2_stress_opt()?;
-        self.copy_work_to_layout(layout);
+        self.copy_work_to_layout(layout)?;
 
         let mut ov_count =
             RectangleOverlapSweep::find_layout_overlaps(layout, &self.eff_hw_s, &self.eff_hh_s)?
@@ -246,11 +212,8 @@ impl<S: Scalar> IterativeSolver<S> for ForbidOverlapRemoval<S> {
                     .len();
                 }
                 if ov_count > 0 {
-                    crate::constraints::project_rectangle_no_overlap_2d(
-                        layout,
-                        &self.eff_hw_s,
-                        &self.eff_hh_s,
-                    )?;
+                    let eff_extents = NodeExtents2d::new(&self.eff_hw_s, &self.eff_hh_s)?;
+                    crate::constraints::project_rectangle_no_overlap_2d(layout, eff_extents)?;
                     ov_count = RectangleOverlapSweep::find_layout_overlaps(
                         layout,
                         &self.eff_hw_s,
@@ -272,6 +235,42 @@ impl<S: Scalar> IterativeSolver<S> for ForbidOverlapRemoval<S> {
 
         Ok(self.status)
     }
+}
+
+impl<S: Scalar> IterativeSolver for ForbidOverlapRemoval<S> {
+    type Target = Layout2d<S>;
+
+    fn validate_target(&self, target: &Self::Target) -> CoreResult<()> {
+        if target.len() != self.num_nodes {
+            return Err(CoreError::dimension_mismatch(
+                self.num_nodes,
+                target.len(),
+                "ForbidOverlapRemoval::validate_target",
+            ));
+        }
+        target.validate_finite()
+    }
+
+    fn step(&mut self, target: &mut Self::Target) -> CoreResult<SolverStatus> {
+        self.validate_target(target)?;
+
+        if self.status.is_finished() {
+            return Ok(self.status);
+        }
+
+        match self.execute_step_inner(target) {
+            Ok(status) => Ok(status),
+            Err(err) => {
+                if matches!(
+                    err,
+                    CoreError::NumericalBreakdown(_) | CoreError::NonFiniteValue { .. }
+                ) {
+                    self.status = SolverStatus::Failed;
+                }
+                Err(err)
+            }
+        }
+    }
 
     #[inline]
     fn status(&self) -> SolverStatus {
@@ -284,7 +283,7 @@ impl<S: Scalar> IterativeSolver<S> for ForbidOverlapRemoval<S> {
     }
 
     #[inline]
-    fn total_iterations(&self) -> usize {
-        self.config.max_scale_iters
+    fn total_iterations(&self) -> Option<usize> {
+        Some(self.config.max_scale_iters)
     }
 }

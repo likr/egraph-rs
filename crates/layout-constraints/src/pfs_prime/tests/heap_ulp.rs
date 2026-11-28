@@ -1,4 +1,4 @@
-use egraph_core::{IterativeSolver, Layout2d, SolverStatus};
+use egraph_core::{Layout2d, LayoutTransform, NodeExtents2d};
 
 use super::super::{PfsPrimeConfig, PfsPrimeOverlapRemoval};
 use super::{
@@ -57,67 +57,26 @@ fn test_pfs_prime_disjoint_column_heap_order_and_cancellation_f64_f32() {
                 hh.push(1e-7);
             }
 
-            let cfg = PfsPrimeConfig {
-                padding: 0.0,
-                seed: 42 + k as u64,
-            };
-            let mut solver_step =
-                PfsPrimeOverlapRemoval::<f64>::new(hw.clone(), hh.clone(), cfg).unwrap();
-            let mut solver_run =
-                PfsPrimeOverlapRemoval::<f64>::new(hw.clone(), hh.clone(), cfg).unwrap();
+            let cfg = PfsPrimeConfig::new()
+                .with_padding(0.0)
+                .with_seed(42 + k as u64);
+            let ext = NodeExtents2d::new(&hw, &hh).unwrap();
+            let mut solver_step = PfsPrimeOverlapRemoval::<f64>::new(ext, cfg.clone()).unwrap();
             let mut layout_step = Layout2d::from_xy(xs.clone(), ys.clone()).unwrap();
-            let mut layout_run = layout_step.clone();
 
-            assert_eq!(
-                solver_step.step(&mut layout_step).unwrap(),
-                SolverStatus::Converged,
-                "f64 Phase-1 step did not converge for scale={scale}, k={k}"
-            );
-            assert_eq!(
-                solver_run.run(&mut layout_run).unwrap(),
-                SolverStatus::Converged
-            );
+            solver_step.apply(&mut layout_step).unwrap();
             assert_eq!(solver_step.last_overlap_count(), 0);
-            assert_eq!(solver_run.last_overlap_count(), 0);
             assert_no_overlaps(&layout_step, &hw, &hh);
             assert_eq!(
                 count_orthogonal_inversions(&xs, &ys, layout_step.x(), layout_step.y()),
                 0
             );
-            assert_eq!(
-                layout_step
-                    .x()
-                    .iter()
-                    .map(|v| v.to_bits())
-                    .collect::<Vec<_>>(),
-                layout_run
-                    .x()
-                    .iter()
-                    .map(|v| v.to_bits())
-                    .collect::<Vec<_>>()
-            );
-            assert_eq!(
-                layout_step
-                    .y()
-                    .iter()
-                    .map(|v| v.to_bits())
-                    .collect::<Vec<_>>(),
-                layout_run
-                    .y()
-                    .iter()
-                    .map(|v| v.to_bits())
-                    .collect::<Vec<_>>()
-            );
 
             // Transposed orientation exercising Phase 2 (X-sweep) heap-order + cancellation.
-            let mut solver_t =
-                PfsPrimeOverlapRemoval::<f64>::new(hh.clone(), hw.clone(), cfg).unwrap();
+            let ext_t = NodeExtents2d::new(&hh, &hw).unwrap();
+            let mut solver_t = PfsPrimeOverlapRemoval::<f64>::new(ext_t, cfg).unwrap();
             let mut layout_t = Layout2d::from_xy(ys.clone(), xs.clone()).unwrap();
-            assert_eq!(
-                solver_t.step(&mut layout_t).unwrap(),
-                SolverStatus::Converged,
-                "f64 Phase-2 step did not converge for scale={scale}, k={k}"
-            );
+            solver_t.apply(&mut layout_t).unwrap();
             assert_eq!(solver_t.last_overlap_count(), 0);
             assert_no_overlaps(&layout_t, &hh, &hw);
             assert_eq!(
@@ -173,18 +132,13 @@ fn test_pfs_prime_disjoint_column_heap_order_and_cancellation_f64_f32() {
                 hh.push(1e-4_f32);
             }
 
-            let cfg = PfsPrimeConfig {
-                padding: 0.0,
-                seed: 42 + k as u64,
-            };
-            let mut solver_step =
-                PfsPrimeOverlapRemoval::<f32>::new(hw.clone(), hh.clone(), cfg).unwrap();
+            let cfg = PfsPrimeConfig::new()
+                .with_padding(0.0)
+                .with_seed(42 + k as u64);
+            let ext = NodeExtents2d::new(&hw, &hh).unwrap();
+            let mut solver_step = PfsPrimeOverlapRemoval::<f32>::new(ext, cfg.clone()).unwrap();
             let mut layout_step = Layout2d::from_xy(xs.clone(), ys.clone()).unwrap();
-            assert_eq!(
-                solver_step.step(&mut layout_step).unwrap(),
-                SolverStatus::Converged,
-                "f32 Phase-1 step did not converge for scale={scale}, k={k}"
-            );
+            solver_step.apply(&mut layout_step).unwrap();
             assert_eq!(solver_step.last_overlap_count(), 0);
             assert_no_overlaps(&layout_step, &hw, &hh);
             assert_eq!(
@@ -193,14 +147,10 @@ fn test_pfs_prime_disjoint_column_heap_order_and_cancellation_f64_f32() {
             );
 
             // Transposed f32 case exercising Phase 2.
-            let mut solver_t =
-                PfsPrimeOverlapRemoval::<f32>::new(hh.clone(), hw.clone(), cfg).unwrap();
+            let ext_t = NodeExtents2d::new(&hh, &hw).unwrap();
+            let mut solver_t = PfsPrimeOverlapRemoval::<f32>::new(ext_t, cfg).unwrap();
             let mut layout_t = Layout2d::from_xy(ys.clone(), xs.clone()).unwrap();
-            assert_eq!(
-                solver_t.step(&mut layout_t).unwrap(),
-                SolverStatus::Converged,
-                "f32 Phase-2 step did not converge for scale={scale}, k={k}"
-            );
+            solver_t.apply(&mut layout_t).unwrap();
             assert_eq!(solver_t.last_overlap_count(), 0);
             assert_no_overlaps(&layout_t, &hh, &hw);
             assert_eq!(
@@ -222,57 +172,31 @@ fn test_pfs_prime_3node_pfsp_force_ulp_x_and_y() {
         let cfg = PfsPrimeConfig::default();
 
         // X-axis scan-line orientation (50 trials).
-        let mut sx_step =
-            PfsPrimeOverlapRemoval::<f64>::new(hw_base.clone(), hh_base.clone(), cfg).unwrap();
-        let mut sx_run =
-            PfsPrimeOverlapRemoval::<f64>::new(hw_base.clone(), hh_base.clone(), cfg).unwrap();
-        let mut lx_step = Layout2d::from_xy(xs_base.clone(), ys_base.clone()).unwrap();
-        let mut lx_run = lx_step.clone();
+        let ext_x = NodeExtents2d::new(&hw_base, &hh_base).unwrap();
+        let mut sx = PfsPrimeOverlapRemoval::<f64>::new(ext_x, cfg.clone()).unwrap();
+        let mut lx = Layout2d::from_xy(xs_base.clone(), ys_base.clone()).unwrap();
 
-        assert_eq!(sx_step.step(&mut lx_step).unwrap(), SolverStatus::Converged);
-        assert_eq!(sx_run.run(&mut lx_run).unwrap(), SolverStatus::Converged);
-        assert_eq!(sx_step.last_overlap_count(), 0);
-        assert_eq!(sx_run.last_overlap_count(), 0);
-        assert_no_overlaps_all(&lx_step, &hw_base, &hh_base, 0.0);
+        sx.apply(&mut lx).unwrap();
+        assert_eq!(sx.last_overlap_count(), 0);
+        assert_no_overlaps_all(&lx, &hw_base, &hh_base, 0.0);
         assert_eq!(
-            count_orthogonal_inversions(&xs_base, &ys_base, lx_step.x(), lx_step.y()),
+            count_orthogonal_inversions(&xs_base, &ys_base, lx.x(), lx.y()),
             0,
             "3-node X oo_nni > 0 at k={k}"
         );
-        assert_eq!(
-            lx_step.x().iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
-            lx_run.x().iter().map(|v| v.to_bits()).collect::<Vec<_>>()
-        );
-        assert_eq!(
-            lx_step.y().iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
-            lx_run.y().iter().map(|v| v.to_bits()).collect::<Vec<_>>()
-        );
 
         // Y-axis transposed orientation (50 trials).
-        let mut sy_step =
-            PfsPrimeOverlapRemoval::<f64>::new(hh_base.clone(), hw_base.clone(), cfg).unwrap();
-        let mut sy_run =
-            PfsPrimeOverlapRemoval::<f64>::new(hh_base.clone(), hw_base.clone(), cfg).unwrap();
-        let mut ly_step = Layout2d::from_xy(ys_base.clone(), xs_base.clone()).unwrap();
-        let mut ly_run = ly_step.clone();
+        let ext_y = NodeExtents2d::new(&hh_base, &hw_base).unwrap();
+        let mut sy = PfsPrimeOverlapRemoval::<f64>::new(ext_y, cfg).unwrap();
+        let mut ly = Layout2d::from_xy(ys_base.clone(), xs_base.clone()).unwrap();
 
-        assert_eq!(sy_step.step(&mut ly_step).unwrap(), SolverStatus::Converged);
-        assert_eq!(sy_run.run(&mut ly_run).unwrap(), SolverStatus::Converged);
-        assert_eq!(sy_step.last_overlap_count(), 0);
-        assert_eq!(sy_run.last_overlap_count(), 0);
-        assert_no_overlaps_all(&ly_step, &hh_base, &hw_base, 0.0);
+        sy.apply(&mut ly).unwrap();
+        assert_eq!(sy.last_overlap_count(), 0);
+        assert_no_overlaps_all(&ly, &hh_base, &hw_base, 0.0);
         assert_eq!(
-            count_orthogonal_inversions(&ys_base, &xs_base, ly_step.x(), ly_step.y()),
+            count_orthogonal_inversions(&ys_base, &xs_base, ly.x(), ly.y()),
             0,
             "3-node Y oo_nni > 0 at k={k}"
-        );
-        assert_eq!(
-            ly_step.x().iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
-            ly_run.x().iter().map(|v| v.to_bits()).collect::<Vec<_>>()
-        );
-        assert_eq!(
-            ly_step.y().iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
-            ly_run.y().iter().map(|v| v.to_bits()).collect::<Vec<_>>()
         );
     }
 }

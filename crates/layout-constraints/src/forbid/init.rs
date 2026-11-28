@@ -1,4 +1,4 @@
-use egraph_core::{CoreResult, Layout2d, Scalar};
+use egraph_core::{CoreError, CoreResult, Layout2d, Scalar};
 use egraph_spatial_trees::{KdQueryScratch, RectangleOverlapSweep, StaticKdTree};
 
 use super::config::{ForbidVariant, MIN_EDGE_DIST};
@@ -212,19 +212,21 @@ impl<S: Scalar> ForbidOverlapRemoval<S> {
         }
     }
 
-    pub(super) fn copy_work_to_layout(&self, layout: &mut Layout2d<S>) {
+    pub(super) fn copy_work_to_layout(&self, layout: &mut Layout2d<S>) -> CoreResult<()> {
         let wx = self.work_layout.x();
         let wy = self.work_layout.y();
         let (xs_mut, ys_mut) = layout.xy_mut();
         for i in 0..self.num_nodes {
             let nx = S::from_f64(wx[i]);
             let ny = S::from_f64(wy[i]);
-            if nx.is_finite() {
-                xs_mut[i] = nx;
+            if !nx.is_finite() || !ny.is_finite() {
+                return Err(CoreError::numerical_breakdown(
+                    "FORBID produced non-finite coordinates",
+                ));
             }
-            if ny.is_finite() {
-                ys_mut[i] = ny;
-            }
+            xs_mut[i] = nx;
+            ys_mut[i] = ny;
         }
+        Ok(())
     }
 }

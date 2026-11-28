@@ -1,4 +1,4 @@
-use egraph_core::{DeterministicRng, IterativeSolver, Layout2d, SolverStatus};
+use egraph_core::{DeterministicRng, Layout2d, LayoutTransform, NodeExtents2d};
 use egraph_spatial_trees::RectangleOverlapSweep;
 
 use super::super::{PfsPrimeConfig, PfsPrimeOverlapRemoval};
@@ -16,13 +16,12 @@ fn test_pfs_prime_adversarial_ties_dynamic_range_and_sub_ulp_f32() {
     let hw_tie = vec![1.0_f64, 1.0, 0.5];
     let hh_tie = vec![2.0_f64, 2.0, 0.5];
     let mut s_tie = PfsPrimeOverlapRemoval::<f64>::new(
-        hw_tie.clone(),
-        hh_tie.clone(),
+        NodeExtents2d::new(&hw_tie, &hh_tie).unwrap(),
         PfsPrimeConfig::default(),
     )
     .unwrap();
     let mut l_tie = Layout2d::from_xy(xs_tie.clone(), ys_tie.clone()).unwrap();
-    assert_eq!(s_tie.run(&mut l_tie).unwrap(), SolverStatus::Converged);
+    s_tie.apply(&mut l_tie).unwrap();
     assert_eq!(s_tie.last_overlap_count(), 0);
     assert_no_overlaps(&l_tie, &hw_tie, &hh_tie);
     assert_eq!(
@@ -36,13 +35,12 @@ fn test_pfs_prime_adversarial_ties_dynamic_range_and_sub_ulp_f32() {
     let hw_dyn = vec![1.0_f64; 5];
     let hh_dyn = vec![1.0_f64; 5];
     let mut s_dyn = PfsPrimeOverlapRemoval::<f64>::new(
-        hw_dyn.clone(),
-        hh_dyn.clone(),
+        NodeExtents2d::new(&hw_dyn, &hh_dyn).unwrap(),
         PfsPrimeConfig::default(),
     )
     .unwrap();
     let mut l_dyn = Layout2d::from_xy(xs_dyn.clone(), ys_dyn.clone()).unwrap();
-    assert_eq!(s_dyn.run(&mut l_dyn).unwrap(), SolverStatus::Converged);
+    s_dyn.apply(&mut l_dyn).unwrap();
     assert_eq!(s_dyn.last_overlap_count(), 0);
     assert_no_overlaps(&l_dyn, &hw_dyn, &hh_dyn);
     assert_eq!(
@@ -66,12 +64,11 @@ fn test_pfs_prime_adversarial_ties_dynamic_range_and_sub_ulp_f32() {
     );
     assert!(!brute_f64_exact_overlaps(&l_sub, &hw_sub, &hh_sub, 0.0).is_empty());
     let mut s_sub = PfsPrimeOverlapRemoval::<f32>::new(
-        hw_sub.clone(),
-        hh_sub.clone(),
+        NodeExtents2d::new(&hw_sub, &hh_sub).unwrap(),
         PfsPrimeConfig::default(),
     )
     .unwrap();
-    assert_eq!(s_sub.run(&mut l_sub).unwrap(), SolverStatus::Converged);
+    s_sub.apply(&mut l_sub).unwrap();
     assert_eq!(s_sub.last_overlap_count(), 0);
     assert_no_overlaps(&l_sub, &hw_sub, &hh_sub);
     assert_eq!(
@@ -82,13 +79,12 @@ fn test_pfs_prime_adversarial_ties_dynamic_range_and_sub_ulp_f32() {
     // 4. Zero-extent boxes (hw=0, hh=0) with padding=0 remain untouched.
     let zero_ext = vec![0.0_f64; 3];
     let mut s_zero = PfsPrimeOverlapRemoval::<f64>::new(
-        zero_ext.clone(),
-        zero_ext.clone(),
+        NodeExtents2d::new(&zero_ext, &zero_ext).unwrap(),
         PfsPrimeConfig::default(),
     )
     .unwrap();
     let mut l_zero = Layout2d::zeros(3);
-    assert_eq!(s_zero.run(&mut l_zero).unwrap(), SolverStatus::Converged);
+    s_zero.apply(&mut l_zero).unwrap();
     assert_eq!(s_zero.last_overlap_count(), 0);
     assert_eq!(l_zero.x(), &[0.0, 0.0, 0.0]);
     assert_eq!(l_zero.y(), &[0.0, 0.0, 0.0]);
@@ -130,57 +126,41 @@ fn test_pfs_prime_tight_cluster_outlier_and_multiscale_fuzz() {
         1.0, 1.0, 1.0, 1e-7, 0.5, 1.0, 2.0, 3.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1e-8, 1.0,
         1.0,
     ];
-    let cfg_cluster = PfsPrimeConfig {
-        padding: 0.25,
-        seed: 42,
-    };
-    let mut s_cluster_step =
-        PfsPrimeOverlapRemoval::<f64>::new(cluster_hw.clone(), cluster_hh.clone(), cfg_cluster)
-            .unwrap();
-    let mut s_cluster_run =
-        PfsPrimeOverlapRemoval::<f64>::new(cluster_hw.clone(), cluster_hh.clone(), cfg_cluster)
-            .unwrap();
-    let mut l_cluster_step = Layout2d::from_xy(cluster_xs.clone(), cluster_ys.clone()).unwrap();
-    let mut l_cluster_run = l_cluster_step.clone();
+    let cfg_cluster = PfsPrimeConfig::new().with_padding(0.25).with_seed(42);
+    let ext_cluster = NodeExtents2d::new(&cluster_hw, &cluster_hh).unwrap();
+    let mut s_cluster_a =
+        PfsPrimeOverlapRemoval::<f64>::new(ext_cluster, cfg_cluster.clone()).unwrap();
+    let mut s_cluster_b = PfsPrimeOverlapRemoval::<f64>::new(ext_cluster, cfg_cluster).unwrap();
+    let mut l_cluster_a = Layout2d::from_xy(cluster_xs.clone(), cluster_ys.clone()).unwrap();
+    let mut l_cluster_b = l_cluster_a.clone();
+    s_cluster_a.apply(&mut l_cluster_a).unwrap();
+    s_cluster_b.apply(&mut l_cluster_b).unwrap();
+    assert_eq!(s_cluster_a.last_overlap_count(), 0);
+    assert_eq!(s_cluster_b.last_overlap_count(), 0);
+    assert_no_overlaps_all(&l_cluster_a, &cluster_hw, &cluster_hh, 0.25);
     assert_eq!(
-        s_cluster_step.step(&mut l_cluster_step).unwrap(),
-        SolverStatus::Converged
-    );
-    assert_eq!(
-        s_cluster_run.run(&mut l_cluster_run).unwrap(),
-        SolverStatus::Converged
-    );
-    assert_eq!(s_cluster_step.last_overlap_count(), 0);
-    assert_eq!(s_cluster_run.last_overlap_count(), 0);
-    assert_no_overlaps_all(&l_cluster_step, &cluster_hw, &cluster_hh, 0.25);
-    assert_eq!(
-        count_orthogonal_inversions(
-            &cluster_xs,
-            &cluster_ys,
-            l_cluster_step.x(),
-            l_cluster_step.y()
-        ),
+        count_orthogonal_inversions(&cluster_xs, &cluster_ys, l_cluster_a.x(), l_cluster_a.y()),
         0
     );
     assert_eq!(
-        l_cluster_step
+        l_cluster_a
             .x()
             .iter()
             .map(|v| v.to_bits())
             .collect::<Vec<_>>(),
-        l_cluster_run
+        l_cluster_b
             .x()
             .iter()
             .map(|v| v.to_bits())
             .collect::<Vec<_>>()
     );
     assert_eq!(
-        l_cluster_step
+        l_cluster_a
             .y()
             .iter()
             .map(|v| v.to_bits())
             .collect::<Vec<_>>(),
-        l_cluster_run
+        l_cluster_b
             .y()
             .iter()
             .map(|v| v.to_bits())
@@ -229,36 +209,20 @@ fn test_pfs_prime_tight_cluster_outlier_and_multiscale_fuzz() {
             hh.push(10.0_f64.powf(exp_h).min(500.0));
         }
 
-        let cfg = PfsPrimeConfig {
-            padding,
-            seed: 1000 + trial as u64,
-        };
-        let mut s_step = PfsPrimeOverlapRemoval::<f64>::new(hw.clone(), hh.clone(), cfg).unwrap();
-        let mut s_run = PfsPrimeOverlapRemoval::<f64>::new(hw.clone(), hh.clone(), cfg).unwrap();
+        let cfg = PfsPrimeConfig::new()
+            .with_padding(padding)
+            .with_seed(1000 + trial as u64);
+        let ext = NodeExtents2d::new(&hw, &hh).unwrap();
+        let mut s_step = PfsPrimeOverlapRemoval::<f64>::new(ext, cfg).unwrap();
         let mut l_step = Layout2d::from_xy(xs.clone(), ys.clone()).unwrap();
-        let mut l_run = l_step.clone();
 
-        assert_eq!(
-            s_step.step(&mut l_step).unwrap(),
-            SolverStatus::Converged,
-            "f64 multiscale fuzz step failed at trial={trial}"
-        );
-        assert_eq!(s_run.run(&mut l_run).unwrap(), SolverStatus::Converged);
+        s_step.apply(&mut l_step).unwrap();
         assert_eq!(s_step.last_overlap_count(), 0);
-        assert_eq!(s_run.last_overlap_count(), 0);
         assert_no_overlaps_all(&l_step, &hw, &hh, padding);
         assert_eq!(
             count_orthogonal_inversions(&xs, &ys, l_step.x(), l_step.y()),
             0,
             "f64 multiscale fuzz oo_nni > 0 at trial={trial}"
-        );
-        assert_eq!(
-            l_step.x().iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
-            l_run.x().iter().map(|v| v.to_bits()).collect::<Vec<_>>()
-        );
-        assert_eq!(
-            l_step.y().iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
-            l_run.y().iter().map(|v| v.to_bits()).collect::<Vec<_>>()
         );
     }
 
@@ -302,36 +266,20 @@ fn test_pfs_prime_tight_cluster_outlier_and_multiscale_fuzz() {
             hh.push((10.0_f64.powf(exp_h).min(300.0)) as f32);
         }
 
-        let cfg = PfsPrimeConfig {
-            padding,
-            seed: 2000 + trial as u64,
-        };
-        let mut s_step = PfsPrimeOverlapRemoval::<f32>::new(hw.clone(), hh.clone(), cfg).unwrap();
-        let mut s_run = PfsPrimeOverlapRemoval::<f32>::new(hw.clone(), hh.clone(), cfg).unwrap();
+        let cfg = PfsPrimeConfig::new()
+            .with_padding(padding)
+            .with_seed(2000 + trial as u64);
+        let ext = NodeExtents2d::new(&hw, &hh).unwrap();
+        let mut s_step = PfsPrimeOverlapRemoval::<f32>::new(ext, cfg).unwrap();
         let mut l_step = Layout2d::from_xy(xs.clone(), ys.clone()).unwrap();
-        let mut l_run = l_step.clone();
 
-        assert_eq!(
-            s_step.step(&mut l_step).unwrap(),
-            SolverStatus::Converged,
-            "f32 multiscale fuzz step failed at trial={trial}"
-        );
-        assert_eq!(s_run.run(&mut l_run).unwrap(), SolverStatus::Converged);
+        s_step.apply(&mut l_step).unwrap();
         assert_eq!(s_step.last_overlap_count(), 0);
-        assert_eq!(s_run.last_overlap_count(), 0);
         assert_no_overlaps_all(&l_step, &hw, &hh, padding);
         assert_eq!(
             count_orthogonal_inversions_scalar(&xs, &ys, l_step.x(), l_step.y()),
             0,
             "f32 multiscale fuzz oo_nni > 0 at trial={trial}"
-        );
-        assert_eq!(
-            l_step.x().iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
-            l_run.x().iter().map(|v| v.to_bits()).collect::<Vec<_>>()
-        );
-        assert_eq!(
-            l_step.y().iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
-            l_run.y().iter().map(|v| v.to_bits()).collect::<Vec<_>>()
         );
     }
 }

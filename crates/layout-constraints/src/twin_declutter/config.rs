@@ -1,7 +1,8 @@
 use egraph_core::{CoreError, CoreResult};
 
 /// Hyperparameters for [`super::TwinDeclutterer`] and [`super::declutter_twins_2d`].
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TwinDeclutterConfig {
     /// Relative spatial-hash merge tolerance as a fraction of layout bounding-box diagonal (`default: 1e-6`).
     pub eps_rel: f64,
@@ -28,6 +29,41 @@ impl Default for TwinDeclutterConfig {
 }
 
 impl TwinDeclutterConfig {
+    /// Creates a new [`TwinDeclutterConfig`] initialized with default values.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets the relative spatial-hash merge tolerance `eps_rel`.
+    pub fn with_eps_rel(mut self, eps_rel: f64) -> Self {
+        self.eps_rel = eps_rel;
+        self
+    }
+
+    /// Sets the fraction `r_frac` of nearest external cluster clearance used as spiral radius budget.
+    pub fn with_r_frac(mut self, r_frac: f64) -> Self {
+        self.r_frac = r_frac;
+        self
+    }
+
+    /// Sets the hard upper cap `r_cap_rel` on cluster spiral radius relative to diagonal.
+    pub fn with_r_cap_rel(mut self, r_cap_rel: f64) -> Self {
+        self.r_cap_rel = r_cap_rel;
+        self
+    }
+
+    /// Sets the minimum pairwise separation target `min_pair_rel` relative to diagonal.
+    pub fn with_min_pair_rel(mut self, min_pair_rel: f64) -> Self {
+        self.min_pair_rel = min_pair_rel;
+        self
+    }
+
+    /// Sets the maximum number of decluttering passes.
+    pub fn with_iterations(mut self, iterations: usize) -> Self {
+        self.iterations = iterations;
+        self
+    }
+
     /// Validates all twin decluttering configuration parameters.
     pub fn validate(&self) -> CoreResult<()> {
         let checks = [

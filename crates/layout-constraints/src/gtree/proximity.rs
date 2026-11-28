@@ -1,11 +1,6 @@
-use egraph_core::{CoreResult, Layout2d, Scalar};
-#[cfg(feature = "delaunay")]
+use egraph_core::{CoreError, CoreResult, Layout2d, Scalar};
 use egraph_spatial_trees::Delaunay2d;
-#[cfg(not(feature = "delaunay"))]
-use egraph_spatial_trees::StaticKdTree;
 
-#[cfg(not(feature = "delaunay"))]
-use super::config::K_FALLBACK_NEIGHBORS;
 use super::config::MIN_EDGE_DIST;
 use super::solver::GTreeOverlapRemoval;
 
@@ -179,34 +174,7 @@ impl<S: Scalar> GTreeOverlapRemoval<S> {
     pub(super) fn build_proximity_graph(&mut self) -> CoreResult<()> {
         self.raw_edges.clear();
 
-        #[cfg(feature = "delaunay")]
-        {
-            Delaunay2d::triangulate_edges_into(&self.work_layout, &mut self.raw_edges)?;
-        }
-
-        #[cfg(not(feature = "delaunay"))]
-        {
-            let n = self.num_nodes;
-            let tree = StaticKdTree::<2, f64>::from_layout(&self.work_layout)?;
-            let k = K_FALLBACK_NEIGHBORS.min(n.saturating_sub(1));
-            for u in 0..n {
-                tree.k_nearest_excluding_self_with_scratch(
-                    u,
-                    k,
-                    &mut self.kd_scratch,
-                    &mut self.knn_out,
-                )?;
-                let u32_u = u as u32;
-                for &(v, _) in &self.knn_out {
-                    let v32 = v as u32;
-                    self.raw_edges.push(if u32_u < v32 {
-                        (u32_u, v32)
-                    } else {
-                        (v32, u32_u)
-                    });
-                }
-            }
-        }
+        Delaunay2d::triangulate_edges_into(&self.work_layout, &mut self.raw_edges)?;
 
         self.bridge_disconnected_components();
         self.raw_edges.sort_unstable();
@@ -224,19 +192,21 @@ impl<S: Scalar> GTreeOverlapRemoval<S> {
         }
     }
 
-    pub(super) fn copy_work_to_layout(&self, layout: &mut Layout2d<S>) {
+    pub(super) fn copy_work_to_layout(&self, layout: &mut Layout2d<S>) -> CoreResult<()> {
         let wx = self.work_layout.x();
         let wy = self.work_layout.y();
         let (xs_mut, ys_mut) = layout.xy_mut();
         for i in 0..self.num_nodes {
             let nx = S::from_f64(wx[i]);
             let ny = S::from_f64(wy[i]);
-            if nx.is_finite() {
-                xs_mut[i] = nx;
+            if !nx.is_finite() || !ny.is_finite() {
+                return Err(CoreError::numerical_breakdown(
+                    "GTree produced non-finite coordinates",
+                ));
             }
-            if ny.is_finite() {
-                ys_mut[i] = ny;
-            }
+            xs_mut[i] = nx;
+            ys_mut[i] = ny;
         }
+        Ok(())
     }
 }

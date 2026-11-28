@@ -1,4 +1,4 @@
-use egraph_core::{DeterministicRng, IterativeSolver, Layout2d, SolverStatus};
+use egraph_core::{DeterministicRng, Layout2d, LayoutTransform, NodeExtents2d};
 
 use super::super::{PfsPrimeConfig, PfsPrimeOverlapRemoval};
 use super::{
@@ -42,60 +42,46 @@ fn test_pfs_prime_f32_large_offsets_zero_overlap_and_oo_nni() {
                 }
             }
 
-            let cfg = PfsPrimeConfig {
-                padding,
-                seed: 42 + trial as u64,
-            };
-            let mut solver_step = if use_equal_radii {
-                PfsPrimeOverlapRemoval::<f32>::from_radii(hw.clone(), cfg).unwrap()
+            let cfg = PfsPrimeConfig::new()
+                .with_padding(padding)
+                .with_seed(42 + trial as u64);
+            let mut solver_a = if use_equal_radii {
+                PfsPrimeOverlapRemoval::<f32>::from_radii(&hw, cfg.clone()).unwrap()
             } else {
-                PfsPrimeOverlapRemoval::<f32>::new(hw.clone(), hh.clone(), cfg).unwrap()
+                PfsPrimeOverlapRemoval::<f32>::new(
+                    NodeExtents2d::new(&hw, &hh).unwrap(),
+                    cfg.clone(),
+                )
+                .unwrap()
             };
-            let mut solver_run = if use_equal_radii {
-                PfsPrimeOverlapRemoval::<f32>::from_radii(hw.clone(), cfg).unwrap()
+            let mut solver_b = if use_equal_radii {
+                PfsPrimeOverlapRemoval::<f32>::from_radii(&hw, cfg).unwrap()
             } else {
-                PfsPrimeOverlapRemoval::<f32>::new(hw.clone(), hh.clone(), cfg).unwrap()
+                PfsPrimeOverlapRemoval::<f32>::new(NodeExtents2d::new(&hw, &hh).unwrap(), cfg)
+                    .unwrap()
             };
 
-            let mut layout_step = Layout2d::from_xy(xs.clone(), ys.clone()).unwrap();
-            let mut layout_run = layout_step.clone();
+            let mut layout_a = Layout2d::from_xy(xs.clone(), ys.clone()).unwrap();
+            let mut layout_b = layout_a.clone();
 
-            let status_step = solver_step.step(&mut layout_step).unwrap();
-            let status_run = solver_run.run(&mut layout_run).unwrap();
-            assert_eq!(status_step, SolverStatus::Converged);
-            assert_eq!(status_run, SolverStatus::Converged);
-            assert_eq!(solver_step.last_overlap_count(), 0);
-            assert_eq!(solver_run.last_overlap_count(), 0);
+            solver_a.apply(&mut layout_a).unwrap();
+            solver_b.apply(&mut layout_b).unwrap();
+            assert_eq!(solver_a.last_overlap_count(), 0);
+            assert_eq!(solver_b.last_overlap_count(), 0);
 
-            assert_no_overlaps_all(&layout_step, &hw, &hh, padding);
+            assert_no_overlaps_all(&layout_a, &hw, &hh, padding);
             assert_eq!(
-                count_orthogonal_inversions_scalar(&xs, &ys, layout_step.x(), layout_step.y()),
+                count_orthogonal_inversions_scalar(&xs, &ys, layout_a.x(), layout_a.y()),
                 0,
                 "oo_nni > 0 for f32 offset={offset} trial={trial}"
             );
             assert_eq!(
-                layout_step
-                    .x()
-                    .iter()
-                    .map(|v| v.to_bits())
-                    .collect::<Vec<_>>(),
-                layout_run
-                    .x()
-                    .iter()
-                    .map(|v| v.to_bits())
-                    .collect::<Vec<_>>()
+                layout_a.x().iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
+                layout_b.x().iter().map(|v| v.to_bits()).collect::<Vec<_>>()
             );
             assert_eq!(
-                layout_step
-                    .y()
-                    .iter()
-                    .map(|v| v.to_bits())
-                    .collect::<Vec<_>>(),
-                layout_run
-                    .y()
-                    .iter()
-                    .map(|v| v.to_bits())
-                    .collect::<Vec<_>>()
+                layout_a.y().iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
+                layout_b.y().iter().map(|v| v.to_bits()).collect::<Vec<_>>()
             );
         }
     }
@@ -134,56 +120,20 @@ fn test_pfs_prime_f64_large_offset_1e10_zero_overlap_and_oo_nni() {
             }
         }
 
-        let cfg = PfsPrimeConfig {
-            padding,
-            seed: 100 + trial as u64,
-        };
-        let mut solver_step =
-            PfsPrimeOverlapRemoval::<f64>::new(hw.clone(), hh.clone(), cfg).unwrap();
-        let mut solver_run =
-            PfsPrimeOverlapRemoval::<f64>::new(hw.clone(), hh.clone(), cfg).unwrap();
+        let cfg = PfsPrimeConfig::new()
+            .with_padding(padding)
+            .with_seed(100 + trial as u64);
+        let mut solver =
+            PfsPrimeOverlapRemoval::<f64>::new(NodeExtents2d::new(&hw, &hh).unwrap(), cfg).unwrap();
 
-        let mut layout_step = Layout2d::from_xy(xs.clone(), ys.clone()).unwrap();
-        let mut layout_run = layout_step.clone();
-
+        let mut layout = Layout2d::from_xy(xs.clone(), ys.clone()).unwrap();
+        solver.apply(&mut layout).unwrap();
+        assert_eq!(solver.last_overlap_count(), 0);
+        assert_no_overlaps_all(&layout, &hw, &hh, padding);
         assert_eq!(
-            solver_step.step(&mut layout_step).unwrap(),
-            SolverStatus::Converged
-        );
-        assert_eq!(
-            solver_run.run(&mut layout_run).unwrap(),
-            SolverStatus::Converged
-        );
-        assert_eq!(solver_step.last_overlap_count(), 0);
-        assert_no_overlaps_all(&layout_step, &hw, &hh, padding);
-        assert_eq!(
-            count_orthogonal_inversions(&xs, &ys, layout_step.x(), layout_step.y()),
+            count_orthogonal_inversions(&xs, &ys, layout.x(), layout.y()),
             0,
             "oo_nni > 0 for f64 offset=1e10 trial={trial}"
-        );
-        assert_eq!(
-            layout_step
-                .x()
-                .iter()
-                .map(|v| v.to_bits())
-                .collect::<Vec<_>>(),
-            layout_run
-                .x()
-                .iter()
-                .map(|v| v.to_bits())
-                .collect::<Vec<_>>()
-        );
-        assert_eq!(
-            layout_step
-                .y()
-                .iter()
-                .map(|v| v.to_bits())
-                .collect::<Vec<_>>(),
-            layout_run
-                .y()
-                .iter()
-                .map(|v| v.to_bits())
-                .collect::<Vec<_>>()
         );
     }
 }
@@ -196,10 +146,11 @@ fn test_pfs_prime_near_coincident_distinct_points_oo_nni_zero() {
     let hh = vec![0.5_f64, 0.9, 0.4, 0.7];
 
     for &padding in &[0.0_f64, 0.25] {
-        let cfg = PfsPrimeConfig { padding, seed: 42 };
-        let mut solver = PfsPrimeOverlapRemoval::<f64>::new(hw.clone(), hh.clone(), cfg).unwrap();
+        let cfg = PfsPrimeConfig::new().with_padding(padding).with_seed(42);
+        let mut solver =
+            PfsPrimeOverlapRemoval::<f64>::new(NodeExtents2d::new(&hw, &hh).unwrap(), cfg).unwrap();
         let mut layout = Layout2d::from_xy(xs.clone(), ys.clone()).unwrap();
-        assert_eq!(solver.run(&mut layout).unwrap(), SolverStatus::Converged);
+        solver.apply(&mut layout).unwrap();
         assert_eq!(solver.last_overlap_count(), 0);
         assert_no_overlaps_all(&layout, &hw, &hh, padding);
         assert_eq!(
@@ -213,13 +164,9 @@ fn test_pfs_prime_near_coincident_distinct_points_oo_nni_zero() {
     let ys_mixed = vec![0.0_f64, 0.0, 5e-10, 1e-9, 1.5e-9];
     let radii_mixed = vec![0.75_f64; 5];
     let mut solver_mixed =
-        PfsPrimeOverlapRemoval::<f64>::from_radii(radii_mixed.clone(), PfsPrimeConfig::default())
-            .unwrap();
+        PfsPrimeOverlapRemoval::<f64>::from_radii(&radii_mixed, PfsPrimeConfig::default()).unwrap();
     let mut layout_mixed = Layout2d::from_xy(xs_mixed.clone(), ys_mixed.clone()).unwrap();
-    assert_eq!(
-        solver_mixed.run(&mut layout_mixed).unwrap(),
-        SolverStatus::Converged
-    );
+    solver_mixed.apply(&mut layout_mixed).unwrap();
     assert_eq!(solver_mixed.last_overlap_count(), 0);
     assert_no_overlaps(&layout_mixed, &radii_mixed, &radii_mixed);
     assert_eq!(
@@ -229,59 +176,50 @@ fn test_pfs_prime_near_coincident_distinct_points_oo_nni_zero() {
 }
 
 #[test]
-fn test_pfs_prime_step_run_bit_exact_f64_and_f32() {
+fn test_pfs_prime_repeat_apply_deterministic_f64_and_f32() {
     let xs64 = vec![0.0_f64, 0.0, 0.2, 0.5, 1.1];
     let ys64 = vec![0.0_f64, 0.0, -0.1, 0.3, 0.0];
     let hw64 = vec![0.9_f64, 0.7, 0.8, 0.6, 1.0];
     let hh64 = vec![0.5_f64, 0.8, 0.6, 0.7, 0.4];
-    let cfg = PfsPrimeConfig {
-        padding: 0.25,
-        seed: 1234,
-    };
-    let mut s64_step = PfsPrimeOverlapRemoval::<f64>::new(hw64.clone(), hh64.clone(), cfg).unwrap();
-    let mut s64_run = PfsPrimeOverlapRemoval::<f64>::new(hw64.clone(), hh64.clone(), cfg).unwrap();
-    let mut l64_step = Layout2d::from_xy(xs64.clone(), ys64.clone()).unwrap();
-    let mut l64_run = l64_step.clone();
+    let cfg = PfsPrimeConfig::new().with_padding(0.25).with_seed(1234);
+    let ext64 = NodeExtents2d::new(&hw64, &hh64).unwrap();
+    let mut s64_a = PfsPrimeOverlapRemoval::<f64>::new(ext64, cfg.clone()).unwrap();
+    let mut l64_a = Layout2d::from_xy(xs64.clone(), ys64.clone()).unwrap();
+    let mut l64_b = l64_a.clone();
 
+    s64_a.apply(&mut l64_a).unwrap();
+    s64_a.apply(&mut l64_b).unwrap();
     assert_eq!(
-        s64_step.step(&mut l64_step).unwrap(),
-        SolverStatus::Converged
-    );
-    assert_eq!(s64_run.run(&mut l64_run).unwrap(), SolverStatus::Converged);
-    assert_eq!(
-        l64_step.x().iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
-        l64_run.x().iter().map(|v| v.to_bits()).collect::<Vec<_>>()
+        l64_a.x().iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
+        l64_b.x().iter().map(|v| v.to_bits()).collect::<Vec<_>>()
     );
     assert_eq!(
-        l64_step.y().iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
-        l64_run.y().iter().map(|v| v.to_bits()).collect::<Vec<_>>()
+        l64_a.y().iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
+        l64_b.y().iter().map(|v| v.to_bits()).collect::<Vec<_>>()
     );
 
     let xs32 = vec![-1000.0_f32, -1000.0, -999.8, -999.5, -1000.3];
     let ys32 = vec![500.0_f32, 500.0, 500.2, 499.9, 500.1];
     let hw32 = vec![0.9_f32, 0.7, 0.8, 0.6, 1.0];
     let hh32 = vec![0.5_f32, 0.8, 0.6, 0.7, 0.4];
-    let mut s32_step = PfsPrimeOverlapRemoval::<f32>::new(hw32.clone(), hh32.clone(), cfg).unwrap();
-    let mut s32_run = PfsPrimeOverlapRemoval::<f32>::new(hw32.clone(), hh32.clone(), cfg).unwrap();
-    let mut l32_step = Layout2d::from_xy(xs32.clone(), ys32.clone()).unwrap();
-    let mut l32_run = l32_step.clone();
+    let ext32 = NodeExtents2d::new(&hw32, &hh32).unwrap();
+    let mut s32_a = PfsPrimeOverlapRemoval::<f32>::new(ext32, cfg.clone()).unwrap();
+    let mut l32_a = Layout2d::from_xy(xs32.clone(), ys32.clone()).unwrap();
+    let mut l32_b = l32_a.clone();
 
+    s32_a.apply(&mut l32_a).unwrap();
+    s32_a.apply(&mut l32_b).unwrap();
+    assert_no_overlaps_all(&l32_a, &hw32, &hh32, cfg.padding);
     assert_eq!(
-        s32_step.step(&mut l32_step).unwrap(),
-        SolverStatus::Converged
-    );
-    assert_eq!(s32_run.run(&mut l32_run).unwrap(), SolverStatus::Converged);
-    assert_no_overlaps_all(&l32_step, &hw32, &hh32, cfg.padding);
-    assert_eq!(
-        count_orthogonal_inversions_scalar(&xs32, &ys32, l32_step.x(), l32_step.y()),
+        count_orthogonal_inversions_scalar(&xs32, &ys32, l32_a.x(), l32_a.y()),
         0
     );
     assert_eq!(
-        l32_step.x().iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
-        l32_run.x().iter().map(|v| v.to_bits()).collect::<Vec<_>>()
+        l32_a.x().iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
+        l32_b.x().iter().map(|v| v.to_bits()).collect::<Vec<_>>()
     );
     assert_eq!(
-        l32_step.y().iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
-        l32_run.y().iter().map(|v| v.to_bits()).collect::<Vec<_>>()
+        l32_a.y().iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
+        l32_b.y().iter().map(|v| v.to_bits()).collect::<Vec<_>>()
     );
 }

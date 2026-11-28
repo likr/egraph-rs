@@ -1,10 +1,8 @@
-use egraph_core::{CoreError, CsrGraph, DeterministicRng, Layout2d};
-use egraph_layout_constraints::constraints::{
-    ConstraintProjector, SeparationConstraint, generate_layered_constraints,
-    project_clustered_rectangle_no_overlap_2d, project_rectangle_no_overlap_2d,
-};
-use egraph_layout_constraints::layering::{
-    LayeringMethod, assign_layers, cycle_edges, remove_cycles,
+use egraph_core::{CoreError, CsrGraph, DeterministicRng, Layout2d, NodeExtents2d};
+use egraph_layout_constraints::{
+    ConstraintProjector, LayeringMethod, SeparationConstraint, assign_layers, cycle_edges,
+    generate_layered_constraints, project_clustered_rectangle_no_overlap_2d,
+    project_rectangle_no_overlap_2d, remove_cycles,
 };
 use egraph_spatial_trees::RectangleOverlapSweep;
 
@@ -34,8 +32,8 @@ fn test_constraint_projector_split_expand_merge_and_errors() {
     let mut proj = ConstraintProjector::<f64>::new(3);
     let mut coords = [0.0_f64, 1.0, 3.0];
     let c = [
-        SeparationConstraint::new(0, 1, 2.0),
-        SeparationConstraint::new(1, 2, 1.0),
+        SeparationConstraint::new(0, 1, 2.0).unwrap(),
+        SeparationConstraint::new(1, 2, 1.0).unwrap(),
     ];
     proj.project_1d(&mut coords, &c).unwrap();
     assert!((coords[0] - (-0.5)).abs() < 1e-8);
@@ -47,14 +45,14 @@ fn test_constraint_projector_split_expand_merge_and_errors() {
     let mut proj5 = ConstraintProjector::<f64>::new(5);
     let mut x5 = [0.0_f64, 0.0, 10.0, 10.0, 9.5];
     let c5 = [
-        SeparationConstraint::new(0, 1, 1.0), // block 0: no split needed
-        SeparationConstraint::new(2, 3, 2.0),
-        SeparationConstraint::new(3, 4, 2.0),
-        SeparationConstraint::new(2, 4, 3.0),
+        SeparationConstraint::new(0, 1, 1.0).unwrap(), // block 0: no split needed
+        SeparationConstraint::new(2, 3, 2.0).unwrap(),
+        SeparationConstraint::new(3, 4, 2.0).unwrap(),
+        SeparationConstraint::new(2, 4, 3.0).unwrap(),
     ];
     proj5.project_1d(&mut x5, &c5).unwrap();
     for sc in &c5 {
-        assert!(x5[sc.left as usize] + sc.gap <= x5[sc.right as usize] + 1e-8);
+        assert!(x5[sc.left() as usize] + sc.gap() <= x5[sc.right() as usize] + 1e-8);
     }
 
     // 3. Layout axis helper + f32 support.
@@ -64,15 +62,15 @@ fn test_constraint_projector_split_expand_merge_and_errors() {
         .project_layout_axis(
             &mut layout32,
             0,
-            &[SeparationConstraint::new(0, 1, 1.0_f32)],
+            &[SeparationConstraint::new(0, 1, 1.0_f32).unwrap()],
         )
         .unwrap();
     assert!(layout32.x()[0] + 1.0 <= layout32.x()[1] + 1e-6);
 
     // 4. Infeasible cycle guard (must return error cleanly, never infinite loop).
     let cycle_c = [
-        SeparationConstraint::new(0, 1, 2.0),
-        SeparationConstraint::new(1, 0, 2.0),
+        SeparationConstraint::new(0, 1, 2.0).unwrap(),
+        SeparationConstraint::new(1, 0, 2.0).unwrap(),
     ];
     let mut cx = [0.0_f64, 0.5];
     let mut proj2 = ConstraintProjector::<f64>::new(2);
@@ -87,7 +85,7 @@ fn test_constraint_projector_split_expand_merge_and_errors() {
         Err(CoreError::InvalidInput(_))
     ));
     assert!(matches!(
-        proj2.project_1d(&mut cx, &[SeparationConstraint::new(0, 5, 1.0)]),
+        proj2.project_1d(&mut cx, &[SeparationConstraint::new(0, 5, 1.0).unwrap()]),
         Err(CoreError::IndexOutOfBounds { .. })
     ));
 }
@@ -103,7 +101,7 @@ fn test_project_rectangle_no_overlap_2d_and_clustered_f64_f32() {
         hw64.push(0.4 + (i % 5) as f64 * 0.25);
         hh64.push(0.3 + (i % 3) as f64 * 0.2);
     }
-    project_rectangle_no_overlap_2d(&mut l64, &hw64, &hh64).unwrap();
+    project_rectangle_no_overlap_2d(&mut l64, NodeExtents2d::new(&hw64, &hh64).unwrap()).unwrap();
     assert!(
         !RectangleOverlapSweep::has_layout_overlaps(&l64, &hw64, &hh64).unwrap(),
         "f64 rectangle overlap removal left overlaps"
@@ -113,7 +111,7 @@ fn test_project_rectangle_no_overlap_2d_and_clustered_f64_f32() {
     let mut l32 = seeded_layout_f32(40, 1.5, 555);
     let hw32 = vec![0.5_f32; 40];
     let hh32 = vec![0.4_f32; 40];
-    project_rectangle_no_overlap_2d(&mut l32, &hw32, &hh32).unwrap();
+    project_rectangle_no_overlap_2d(&mut l32, NodeExtents2d::new(&hw32, &hh32).unwrap()).unwrap();
     assert!(
         !RectangleOverlapSweep::has_layout_overlaps(&l32, &hw32, &hh32).unwrap(),
         "f32 rectangle overlap removal left overlaps"
@@ -130,7 +128,12 @@ fn test_project_rectangle_no_overlap_2d_and_clustered_f64_f32() {
     let dx1_before = cl.x()[3] - cl.x()[2];
     let dy1_before = cl.y()[3] - cl.y()[2];
 
-    project_clustered_rectangle_no_overlap_2d(&mut cl, &cluster_ids, &chw, &chh).unwrap();
+    project_clustered_rectangle_no_overlap_2d(
+        &mut cl,
+        &cluster_ids,
+        NodeExtents2d::new(&chw, &chh).unwrap(),
+    )
+    .unwrap();
     assert!(((cl.x()[1] - cl.x()[0]) - dx0_before).abs() < 1e-12);
     assert!(((cl.y()[1] - cl.y()[0]) - dy0_before).abs() < 1e-12);
     assert!(((cl.x()[3] - cl.x()[2]) - dx1_before).abs() < 1e-12);
@@ -152,8 +155,9 @@ fn test_project_rectangle_no_overlap_2d_and_clustered_f64_f32() {
 
 #[test]
 fn test_generate_layered_constraints() {
-    let dag = CsrGraph::<f64>::from_edges(4, &[(0, 1), (1, 2), (0, 3)], None, true, false).unwrap();
-    let layers = assign_layers(&dag, LayeringMethod::LongestPath).unwrap();
+    let dag =
+        CsrGraph::<()>::from_unweighted_edges(4, &[(0, 1), (1, 2), (0, 3)], true, false).unwrap();
+    let layers: Vec<u32> = assign_layers(&dag, LayeringMethod::LongestPath).unwrap();
     let constraints = generate_layered_constraints(&dag, &layers, 2.5_f64).unwrap();
     assert_eq!(constraints.len(), 3);
 
@@ -174,10 +178,9 @@ fn test_layering_longest_path_network_simplex_and_cycles() {
     // 1. Graph where NetworkSimplex strictly beats LongestPath total edge span:
     // Long chain 0->1->2->3->4, plus node 5 with 1 incoming (0->5) and 2 outgoing (5->3, 5->4).
     // LongestPath: r[5]=1 (spans: 1+2+3=6). NetworkSimplex: r[5]=2 (spans: 2+1+2=5).
-    let g = CsrGraph::<f64>::from_edges(
+    let g = CsrGraph::<()>::from_unweighted_edges(
         6,
         &[(0, 1), (1, 2), (2, 3), (3, 4), (0, 5), (5, 3), (5, 4)],
-        None,
         true,
         false,
     )
@@ -185,12 +188,12 @@ fn test_layering_longest_path_network_simplex_and_cycles() {
     let lp = assign_layers(&g, LayeringMethod::LongestPath).unwrap();
     let ns = assign_layers(&g, LayeringMethod::NetworkSimplex).unwrap();
 
-    let span = |layers: &[usize]| -> usize {
+    let span = |layers: &[u32]| -> u64 {
         (0..g.num_nodes())
             .flat_map(|u| {
                 g.neighbors(u)
                     .iter()
-                    .map(move |&v| layers[v as usize] - layers[u])
+                    .map(move |&v| u64::from(layers[v as usize] - layers[u]))
             })
             .sum()
     };
@@ -220,22 +223,22 @@ fn test_layering_longest_path_network_simplex_and_cycles() {
             }
         }
     }
-    let rand_dag = CsrGraph::<f64>::from_edges(n_rand, &dag_edges, None, true, false).unwrap();
+    let rand_dag = CsrGraph::<()>::from_unweighted_edges(n_rand, &dag_edges, true, false).unwrap();
     let rand_lp = assign_layers(&rand_dag, LayeringMethod::LongestPath).unwrap();
     let rand_ns = assign_layers(&rand_dag, LayeringMethod::NetworkSimplex).unwrap();
-    let rand_span = |layers: &[usize]| -> usize {
+    let rand_span = |layers: &[u32]| -> u64 {
         (0..rand_dag.num_nodes())
             .flat_map(|u| {
                 rand_dag
                     .neighbors(u)
                     .iter()
-                    .map(move |&v| layers[v as usize] - layers[u])
+                    .map(move |&v| u64::from(layers[v as usize] - layers[u]))
             })
             .sum()
     };
     assert!(rand_span(&rand_ns) <= rand_span(&rand_lp));
 
-    // 3. Cycle removal + sourceless / disconnected components.
+    // 3. Cycle removal + sourceless / disconnected components (returns unweighted CsrGraph<()>).
     let cyclic = CsrGraph::<f64>::from_edges(
         6,
         &[(0, 1), (1, 2), (2, 0), (3, 4), (4, 3)], // 2 disconnected pure cycles + isolated node 5
@@ -246,7 +249,7 @@ fn test_layering_longest_path_network_simplex_and_cycles() {
     .unwrap();
     let back = cycle_edges(&cyclic).unwrap();
     assert_eq!(back.len(), 2);
-    let dag = remove_cycles(&cyclic).unwrap();
+    let dag: CsrGraph<()> = remove_cycles(&cyclic).unwrap();
     assert!(cycle_edges(&dag).unwrap().is_empty());
 
     let cyc_lp = assign_layers(&cyclic, LayeringMethod::LongestPath).unwrap();
@@ -265,20 +268,20 @@ fn test_layering_longest_path_network_simplex_and_cycles() {
     let deep_edges: Vec<(u32, u32)> = (0..(deep_n - 1))
         .map(|i| (i as u32, (i + 1) as u32))
         .collect();
-    let deep = CsrGraph::<f64>::from_edges(deep_n, &deep_edges, None, true, false).unwrap();
+    let deep = CsrGraph::<()>::from_unweighted_edges(deep_n, &deep_edges, true, false).unwrap();
     assert!(cycle_edges(&deep).unwrap().is_empty());
     let deep_layers = assign_layers(&deep, LayeringMethod::LongestPath).unwrap();
     assert_eq!(deep_layers[0], 0);
-    assert_eq!(deep_layers[deep_n - 1], deep_n - 1);
+    assert_eq!(deep_layers[deep_n - 1], (deep_n - 1) as u32);
 
     // 5. Undirected graph rejected cleanly across layering and layered constraint generation.
-    let undir = CsrGraph::<f64>::from_edges(2, &[(0, 1)], None, false, false).unwrap();
+    let undir = CsrGraph::<()>::from_unweighted_edges(2, &[(0, 1)], false, false).unwrap();
     assert!(matches!(
         cycle_edges(&undir),
         Err(CoreError::UnsupportedOperation(_))
     ));
     assert!(matches!(
-        generate_layered_constraints(&undir, &[0, 1], 1.0_f64),
+        generate_layered_constraints(&undir, &[0u32, 1], 1.0_f64),
         Err(CoreError::UnsupportedOperation(_))
     ));
 }

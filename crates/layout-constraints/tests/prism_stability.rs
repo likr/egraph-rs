@@ -1,6 +1,7 @@
-use egraph_core::{DeterministicRng, IterativeSolver, Layout2d, SolverStatus};
-use egraph_layout_constraints::constraints::project_rectangle_no_overlap_2d;
-use egraph_layout_constraints::prism::{PrismConfig, PrismOverlapRemoval};
+use egraph_core::{DeterministicRng, IterativeSolver, Layout2d, NodeExtents2d, SolverStatus};
+use egraph_layout_constraints::{
+    PrismConfig, PrismOverlapRemoval, project_rectangle_no_overlap_2d,
+};
 use egraph_spatial_trees::RectangleOverlapSweep;
 
 fn seeded_layout_f64(n: usize, scale: f64, seed: u64) -> Layout2d<f64> {
@@ -78,8 +79,11 @@ fn test_prism_f32_large_coordinate_offsets_converge_zero_overlaps() {
                 y.push(-offset + (rng.next_f64() as f32 * 4.0 - 2.0));
             }
             let mut layout = Layout2d::from_xy(x, y).unwrap();
-            let mut solver =
-                PrismOverlapRemoval::new(hw.clone(), hh.clone(), PrismConfig::default()).unwrap();
+            let mut solver = PrismOverlapRemoval::new(
+                NodeExtents2d::new(&hw, &hh).unwrap(),
+                PrismConfig::default(),
+            )
+            .unwrap();
             let status = solver.run(&mut layout).unwrap();
             assert_eq!(
                 status,
@@ -110,7 +114,11 @@ fn test_prism_f32_large_coordinate_offsets_converge_zero_overlaps() {
             y.push(-offset + (rng.next_f64() as f32 * 4.0 - 2.0));
         }
         let mut layout = Layout2d::from_xy(x, y).unwrap();
-        project_rectangle_no_overlap_2d(&mut layout, &hw_nonpow, &hh_nonpow).unwrap();
+        project_rectangle_no_overlap_2d(
+            &mut layout,
+            NodeExtents2d::new(&hw_nonpow, &hh_nonpow).unwrap(),
+        )
+        .unwrap();
         assert_eq!(naive_overlap_count_f32(&layout, &hw_nonpow, &hh_nonpow), 0);
         assert!(
             !RectangleOverlapSweep::has_layout_overlaps(&layout, &hw_nonpow, &hh_nonpow).unwrap()
@@ -123,12 +131,13 @@ fn check_prism_case_f64(
     init: Layout2d<f64>,
     hw: &[f64],
     hh: &[f64],
-    cfg: PrismConfig,
+    cfg: &PrismConfig,
 ) -> usize {
     let mut l_run = init.clone();
     let mut l_step = init;
-    let mut s_run = PrismOverlapRemoval::new(hw.to_vec(), hh.to_vec(), cfg).unwrap();
-    let mut s_step = PrismOverlapRemoval::new(hw.to_vec(), hh.to_vec(), cfg).unwrap();
+    let ext = NodeExtents2d::new(hw, hh).unwrap();
+    let mut s_run = PrismOverlapRemoval::new(ext, cfg.clone()).unwrap();
+    let mut s_step = PrismOverlapRemoval::new(ext, cfg.clone()).unwrap();
 
     let st_run = s_run.run(&mut l_run).unwrap();
     assert_eq!(
@@ -176,12 +185,13 @@ fn check_prism_case_f32(
     init: Layout2d<f32>,
     hw: &[f32],
     hh: &[f32],
-    cfg: PrismConfig,
+    cfg: &PrismConfig,
 ) -> usize {
     let mut l_run = init.clone();
     let mut l_step = init;
-    let mut s_run = PrismOverlapRemoval::new(hw.to_vec(), hh.to_vec(), cfg).unwrap();
-    let mut s_step = PrismOverlapRemoval::new(hw.to_vec(), hh.to_vec(), cfg).unwrap();
+    let ext = NodeExtents2d::new(hw, hh).unwrap();
+    let mut s_run = PrismOverlapRemoval::new(ext, cfg.clone()).unwrap();
+    let mut s_step = PrismOverlapRemoval::new(ext, cfg.clone()).unwrap();
 
     let st_run = s_run.run(&mut l_run).unwrap();
     assert_eq!(
@@ -257,14 +267,14 @@ fn test_prism_aspect_100_to_1_and_mixed_sizes_converge_bit_exact() {
             Layout2d::from_xy(x64.clone(), y64.clone()).unwrap(),
             &hw50_64,
             &hh50_64,
-            default_cfg,
+            &default_cfg,
         );
         check_prism_case_f32(
             &label,
             Layout2d::from_xy(x32, y32).unwrap(),
             &hw50_32,
             &hh50_32,
-            default_cfg,
+            &default_cfg,
         );
 
         // Also verify oscillation detection stops early well before max_iterations=200.
@@ -274,10 +284,7 @@ fn test_prism_aspect_100_to_1_and_mixed_sizes_converge_bit_exact() {
                 Layout2d::from_xy(x64, y64).unwrap(),
                 &hw50_64,
                 &hh50_64,
-                PrismConfig {
-                    max_iterations: 200,
-                    ..default_cfg
-                },
+                &default_cfg.clone().with_max_iterations(200),
             );
             assert!(
                 iters < 100,
@@ -305,8 +312,8 @@ fn test_prism_aspect_100_to_1_and_mixed_sizes_converge_bit_exact() {
         )
         .unwrap();
         let label = format!("aspect_100:1_n80_wide_seed={seed}");
-        check_prism_case_f64(&label, l64, &hw80_64, &hh80_64, default_cfg);
-        check_prism_case_f32(&label, l32, &hw80_32, &hh80_32, default_cfg);
+        check_prism_case_f64(&label, l64, &hw80_64, &hh80_64, &default_cfg);
+        check_prism_case_f32(&label, l32, &hw80_32, &hh80_32, &default_cfg);
     }
 
     // 3. Mixed-size boxes at offsets 1000, 50_000, 1_000_000 (plus 0) for both f64 and f32.
@@ -343,14 +350,14 @@ fn test_prism_aspect_100_to_1_and_mixed_sizes_converge_bit_exact() {
                 Layout2d::from_xy(x64, y64).unwrap(),
                 &mixed_hw64,
                 &mixed_hh64,
-                default_cfg,
+                &default_cfg,
             );
             check_prism_case_f32(
                 &label,
                 Layout2d::from_xy(x32, y32).unwrap(),
                 &mixed_hw32,
                 &mixed_hh32,
-                default_cfg,
+                &default_cfg,
             );
         }
     }

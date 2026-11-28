@@ -1,13 +1,10 @@
 use std::marker::PhantomData;
 
 use egraph_core::{
-    CoreError, CoreResult, DeterministicRng, IterativeSolver, Layout2d, Scalar, SolverStatus,
+    CoreError, CoreResult, DeterministicRng, IterativeSolver, Layout2d, NodeExtents2d, Scalar,
+    SolverStatus,
 };
-#[cfg(not(feature = "delaunay"))]
-use egraph_spatial_trees::KdQueryScratch;
 
-#[cfg(not(feature = "delaunay"))]
-use super::K_FALLBACK_NEIGHBORS;
 use super::pcg::SparsePcgWorkspace;
 use super::proximity::PrismEdge;
 use super::sap::{SapRect, sap_find_overlaps};
@@ -55,10 +52,6 @@ pub struct PrismOverlapRemoval<S: Scalar = f64> {
     pub(super) u_indices: Vec<u32>,
     pub(super) u_values: Vec<f64>,
     pub(super) sort_pts: Vec<(f64, f64, u32)>,
-    #[cfg(not(feature = "delaunay"))]
-    pub(super) kd_scratch: KdQueryScratch,
-    #[cfg(not(feature = "delaunay"))]
-    pub(super) knn_out: Vec<(usize, f64)>,
     iter: usize,
     last_overlap_count: usize,
     best_overlap_count: usize,
@@ -68,18 +61,11 @@ pub struct PrismOverlapRemoval<S: Scalar = f64> {
 }
 
 impl<S: Scalar> PrismOverlapRemoval<S> {
-    /// Creates a [`PrismOverlapRemoval`] solver for rectangular nodes with per-node half-widths
-    /// and half-heights.
-    pub fn new(half_widths: Vec<S>, half_heights: Vec<S>, config: PrismConfig) -> CoreResult<Self> {
+    /// Creates a [`PrismOverlapRemoval`] solver for rectangular nodes with per-node half-extents.
+    pub fn new(extents: NodeExtents2d<'_, S>, config: PrismConfig) -> CoreResult<Self> {
         config.validate()?;
-        let n = half_widths.len();
-        if half_heights.len() != n {
-            return Err(CoreError::dimension_mismatch(
-                n,
-                half_heights.len(),
-                "PrismOverlapRemoval::new::half_heights",
-            ));
-        }
+        extents.validate()?;
+        let n = extents.len();
         if u32::try_from(n).is_err() {
             return Err(CoreError::invalid_input(
                 "PrismOverlapRemoval node count exceeds u32::MAX",
@@ -93,24 +79,23 @@ impl<S: Scalar> PrismOverlapRemoval<S> {
         let mut eff_hh_s = Vec::with_capacity(n);
 
         for i in 0..n {
-            let hw = half_widths[i];
-            let hh = half_heights[i];
-            if !hw.is_finite() || !hh.is_finite() {
-                return Err(CoreError::non_finite("PrismOverlapRemoval::new::extents"));
-            }
-            if hw < S::ZERO || hh < S::ZERO {
-                return Err(CoreError::invalid_input(
-                    "half_widths and half_heights must be >= 0",
-                ));
-            }
+            let (hw, hh) = extents.extents(i)?;
             let hw_f = hw.to_f64() + pad_half;
             let hh_f = hh.to_f64() + pad_half;
+            let hw_s = S::from_f64(hw_f);
+            let hh_s = S::from_f64(hh_f);
+            if !hw_s.is_finite() || !hh_s.is_finite() {
+                return Err(CoreError::non_finite(
+                    "PrismOverlapRemoval::new::padded_extents",
+                ));
+            }
             eff_hw_f64.push(hw_f);
             eff_hh_f64.push(hh_f);
-            eff_hw_s.push(S::from_f64(hw_f));
-            eff_hh_s.push(S::from_f64(hh_f));
+            eff_hw_s.push(hw_s);
+            eff_hh_s.push(hh_s);
         }
 
+        let seed = config.seed;
         let status = if config.max_iterations == 0 {
             SolverStatus::Completed
         } else {
@@ -124,7 +109,7 @@ impl<S: Scalar> PrismOverlapRemoval<S> {
             eff_hh_f64,
             eff_hw_s,
             eff_hh_s,
-            rng: DeterministicRng::from_seed_u64(config.seed),
+            rng: DeterministicRng::from_seed_u64(seed),
             pcg: SparsePcgWorkspace::new(n),
             work_layout: Layout2d::zeros(n),
             x_next: vec![0.0; n],
@@ -152,10 +137,6 @@ impl<S: Scalar> PrismOverlapRemoval<S> {
             u_indices: Vec::new(),
             u_values: Vec::new(),
             sort_pts: Vec::with_capacity(n),
-            #[cfg(not(feature = "delaunay"))]
-            kd_scratch: KdQueryScratch::with_capacity(K_FALLBACK_NEIGHBORS),
-            #[cfg(not(feature = "delaunay"))]
-            knn_out: Vec::with_capacity(K_FALLBACK_NEIGHBORS),
             iter: 0,
             last_overlap_count: 0,
             best_overlap_count: usize::MAX,
@@ -167,9 +148,8 @@ impl<S: Scalar> PrismOverlapRemoval<S> {
 
     /// Creates a [`PrismOverlapRemoval`] solver for circular/square nodes with equal half-width
     /// and half-height given by `radii`.
-    pub fn from_radii(radii: Vec<S>, config: PrismConfig) -> CoreResult<Self> {
-        let half_heights = radii.clone();
-        Self::new(radii, half_heights, config)
+    pub fn from_radii(radii: &[S], config: PrismConfig) -> CoreResult<Self> {
+        Self::new(NodeExtents2d::from_radii(radii)?, config)
     }
 
     /// Returns the solver configuration.
@@ -191,21 +171,8 @@ impl<S: Scalar> PrismOverlapRemoval<S> {
     }
 }
 
-impl<S: Scalar> IterativeSolver<S> for PrismOverlapRemoval<S> {
-    fn step(&mut self, layout: &mut Layout2d<S>) -> CoreResult<SolverStatus> {
-        if layout.len() != self.num_nodes {
-            return Err(CoreError::dimension_mismatch(
-                self.num_nodes,
-                layout.len(),
-                "PrismOverlapRemoval::step",
-            ));
-        }
-        layout.validate_finite()?;
-
-        if self.status.is_finished() {
-            return Ok(self.status);
-        }
-
+impl<S: Scalar> PrismOverlapRemoval<S> {
+    fn execute_step_inner(&mut self, layout: &mut Layout2d<S>) -> CoreResult<SolverStatus> {
         let n = self.num_nodes;
         if n <= 1 {
             self.last_overlap_count = 0;
@@ -283,12 +250,13 @@ impl<S: Scalar> IterativeSolver<S> for PrismOverlapRemoval<S> {
             for i in 0..n {
                 let nx = S::from_f64(self.x_next[i]);
                 let ny = S::from_f64(self.y_next[i]);
-                if nx.is_finite() {
-                    xs_mut[i] = nx;
+                if !nx.is_finite() || !ny.is_finite() {
+                    return Err(CoreError::numerical_breakdown(
+                        "PRISM majorization produced non-finite coordinates",
+                    ));
                 }
-                if ny.is_finite() {
-                    ys_mut[i] = ny;
-                }
+                xs_mut[i] = nx;
+                ys_mut[i] = ny;
                 self.last_out_x[i] = xs_mut[i].to_f64();
                 self.last_out_y[i] = ys_mut[i].to_f64();
             }
@@ -320,11 +288,8 @@ impl<S: Scalar> IterativeSolver<S> for PrismOverlapRemoval<S> {
             && (self.no_improve_streak >= STALL_NO_IMPROVE_STREAK
                 || self.iter >= self.config.max_iterations)
         {
-            crate::constraints::project_rectangle_no_overlap_2d(
-                layout,
-                &self.eff_hw_s,
-                &self.eff_hh_s,
-            )?;
+            let eff_extents = NodeExtents2d::new(&self.eff_hw_s, &self.eff_hh_s)?;
+            crate::constraints::project_rectangle_no_overlap_2d(layout, eff_extents)?;
             let xs = layout.x();
             let ys = layout.y();
             for i in 0..n {
@@ -356,6 +321,42 @@ impl<S: Scalar> IterativeSolver<S> for PrismOverlapRemoval<S> {
 
         Ok(self.status)
     }
+}
+
+impl<S: Scalar> IterativeSolver for PrismOverlapRemoval<S> {
+    type Target = Layout2d<S>;
+
+    fn validate_target(&self, target: &Self::Target) -> CoreResult<()> {
+        if target.len() != self.num_nodes {
+            return Err(CoreError::dimension_mismatch(
+                self.num_nodes,
+                target.len(),
+                "PrismOverlapRemoval::validate_target",
+            ));
+        }
+        target.validate_finite()
+    }
+
+    fn step(&mut self, target: &mut Self::Target) -> CoreResult<SolverStatus> {
+        self.validate_target(target)?;
+
+        if self.status.is_finished() {
+            return Ok(self.status);
+        }
+
+        match self.execute_step_inner(target) {
+            Ok(status) => Ok(status),
+            Err(err) => {
+                if matches!(
+                    err,
+                    CoreError::NumericalBreakdown(_) | CoreError::NonFiniteValue { .. }
+                ) {
+                    self.status = SolverStatus::Failed;
+                }
+                Err(err)
+            }
+        }
+    }
 
     #[inline]
     fn status(&self) -> SolverStatus {
@@ -368,7 +369,7 @@ impl<S: Scalar> IterativeSolver<S> for PrismOverlapRemoval<S> {
     }
 
     #[inline]
-    fn total_iterations(&self) -> usize {
-        self.config.max_iterations
+    fn total_iterations(&self) -> Option<usize> {
+        Some(self.config.max_iterations)
     }
 }

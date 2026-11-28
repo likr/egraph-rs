@@ -1,5 +1,7 @@
 use super::*;
-use egraph_core::{CoreError, DeterministicRng, IterativeSolver, Layout2d, Scalar, SolverStatus};
+use egraph_core::{
+    CoreError, DeterministicRng, IterativeSolver, Layout2d, NodeExtents2d, Scalar, SolverStatus,
+};
 use egraph_spatial_trees::RectangleOverlapSweep;
 
 fn assert_no_overlaps<S: Scalar>(layout: &Layout2d<S>, hw: &[S], hh: &[S]) {
@@ -15,72 +17,66 @@ fn assert_no_overlaps<S: Scalar>(layout: &Layout2d<S>, hw: &[S], hh: &[S]) {
 #[test]
 fn test_gtree_validation_and_degenerate_inputs() {
     assert!(matches!(
-        GTreeConfig {
-            padding: -0.1,
-            ..Default::default()
-        }
-        .validate(),
+        GTreeConfig::new().with_padding(-0.1).validate(),
         Err(CoreError::InvalidInput(_))
     ));
     assert!(matches!(
-        GTreeConfig {
-            padding: f64::NAN,
-            ..Default::default()
-        }
-        .validate(),
+        GTreeConfig::new().with_padding(f64::NAN).validate(),
         Err(CoreError::NonFiniteValue { .. })
     ));
     assert!(matches!(
-        GTreeConfig {
-            compact_t_max: Some(1.0),
-            ..Default::default()
-        }
-        .validate(),
+        GTreeConfig::new().with_compact_t_max(Some(1.0)).validate(),
         Err(CoreError::InvalidInput(_))
     ));
     assert!(matches!(
-        GTreeConfig {
-            compact_t_max: Some(f64::INFINITY),
-            ..Default::default()
-        }
-        .validate(),
+        GTreeConfig::new()
+            .with_compact_t_max(Some(f64::INFINITY))
+            .validate(),
         Err(CoreError::NonFiniteValue { .. })
     ));
     assert!(matches!(
-        GTreeOverlapRemoval::new(vec![1.0], vec![1.0, 2.0], GTreeConfig::default()),
+        NodeExtents2d::new(&[1.0_f64], &[1.0, 2.0]),
         Err(CoreError::DimensionMismatch { .. })
     ));
     assert!(matches!(
-        GTreeOverlapRemoval::new(vec![-1.0], vec![1.0], GTreeConfig::default()),
+        NodeExtents2d::new(&[-1.0_f64], &[1.0]),
         Err(CoreError::InvalidInput(_))
     ));
     assert!(matches!(
-        GTreeOverlapRemoval::new(vec![f64::NAN], vec![1.0], GTreeConfig::default()),
+        NodeExtents2d::new(&[f64::NAN], &[1.0]),
         Err(CoreError::NonFiniteValue { .. })
     ));
 
     // Empty (N=0) and singleton (N=1).
     for n in [0usize, 1] {
+        let radii = vec![1.0; n];
         let mut solver =
-            GTreeOverlapRemoval::<f64>::from_radii(vec![1.0; n], GTreeConfig::default()).unwrap();
+            GTreeOverlapRemoval::<f64>::from_radii(&radii, GTreeConfig::default()).unwrap();
         let mut layout = Layout2d::zeros(n);
         assert_eq!(solver.run(&mut layout).unwrap(), SolverStatus::Converged);
         assert_eq!(solver.last_overlap_count(), 0);
+        assert_eq!(solver.total_iterations(), Some(20));
     }
 
-    // Layout mismatch and non-finite coordinates.
+    // Layout mismatch, zero-step check, and non-finite coordinates.
     let mut solver =
-        GTreeOverlapRemoval::<f64>::from_radii(vec![1.0; 2], GTreeConfig::default()).unwrap();
+        GTreeOverlapRemoval::<f64>::from_radii(&[1.0, 1.0], GTreeConfig::default()).unwrap();
     let mut wrong = Layout2d::zeros(3);
     assert!(matches!(
         solver.step(&mut wrong),
         Err(CoreError::DimensionMismatch { .. })
     ));
+    assert!(matches!(
+        solver.run_steps(&mut wrong, 0),
+        Err(CoreError::DimensionMismatch { .. })
+    ));
+    assert_eq!(solver.status(), SolverStatus::Initialized);
     let mut bad = Layout2d::from_xy(vec![0.0, f64::NAN], vec![0.0, 0.0]).unwrap();
     assert!(matches!(
         solver.step(&mut bad),
         Err(CoreError::NonFiniteValue { .. })
     ));
+    assert_eq!(solver.status(), SolverStatus::Initialized);
 }
 
 #[test]
@@ -100,20 +96,20 @@ fn test_gtree_zero_overlaps_f64_f32_and_step_eq_run() {
         hh64.push(0.6 + ((i + 2) % 4) as f64 * 0.35);
     }
 
-    let cfg = GTreeConfig {
-        max_iterations: 20,
-        padding: 0.2,
-        compact_t_max: None,
-        seed: 42,
-    };
+    let cfg = GTreeConfig::new()
+        .with_max_iterations(20)
+        .with_padding(0.2)
+        .with_compact_t_max(None)
+        .with_seed(42);
     let pad_half = 0.5 * cfg.padding;
     let eff_hw64: Vec<f64> = hw64.iter().map(|&w| w + pad_half).collect();
     let eff_hh64: Vec<f64> = hh64.iter().map(|&h| h + pad_half).collect();
 
     let mut l64_run = Layout2d::from_xy(xs64.clone(), ys64.clone()).unwrap();
     let mut l64_step = l64_run.clone();
-    let mut s64_run = GTreeOverlapRemoval::<f64>::new(hw64.clone(), hh64.clone(), cfg).unwrap();
-    let mut s64_step = GTreeOverlapRemoval::<f64>::new(hw64.clone(), hh64.clone(), cfg).unwrap();
+    let ext64 = NodeExtents2d::new(&hw64, &hh64).unwrap();
+    let mut s64_run = GTreeOverlapRemoval::<f64>::new(ext64, cfg.clone()).unwrap();
+    let mut s64_step = GTreeOverlapRemoval::<f64>::new(ext64, cfg).unwrap();
 
     assert_eq!(s64_run.run(&mut l64_run).unwrap(), SolverStatus::Converged);
     assert_eq!(s64_run.last_overlap_count(), 0);
@@ -130,12 +126,11 @@ fn test_gtree_zero_overlaps_f64_f32_and_step_eq_run() {
     }
 
     // Compact mode & f32 precision.
-    let cfg_compact = GTreeConfig {
-        max_iterations: 10,
-        padding: 0.1,
-        compact_t_max: Some(1.5),
-        seed: 77,
-    };
+    let cfg_compact = GTreeConfig::new()
+        .with_max_iterations(10)
+        .with_padding(0.1)
+        .with_compact_t_max(Some(1.5))
+        .with_seed(77);
     let xs32: Vec<f32> = xs64.iter().map(|&v| v as f32 + 500.0).collect();
     let ys32: Vec<f32> = ys64.iter().map(|&v| v as f32 - 500.0).collect();
     let hw32: Vec<f32> = hw64.iter().map(|&v| v as f32).collect();
@@ -151,9 +146,9 @@ fn test_gtree_zero_overlaps_f64_f32_and_step_eq_run() {
 
     let mut l32_run = Layout2d::from_xy(xs32, ys32).unwrap();
     let mut l32_step = l32_run.clone();
-    let mut s32_run =
-        GTreeOverlapRemoval::<f32>::new(hw32.clone(), hh32.clone(), cfg_compact).unwrap();
-    let mut s32_step = GTreeOverlapRemoval::<f32>::new(hw32, hh32, cfg_compact).unwrap();
+    let ext32 = NodeExtents2d::new(&hw32, &hh32).unwrap();
+    let mut s32_run = GTreeOverlapRemoval::<f32>::new(ext32, cfg_compact.clone()).unwrap();
+    let mut s32_step = GTreeOverlapRemoval::<f32>::new(ext32, cfg_compact).unwrap();
 
     assert_eq!(s32_run.run(&mut l32_run).unwrap(), SolverStatus::Converged);
     assert_eq!(s32_run.last_overlap_count(), 0);
@@ -175,9 +170,9 @@ fn test_gtree_coincident_collinear_and_zero_size_edge_cases() {
     let n = 16usize;
     let hw = vec![1.0; n];
     let hh = vec![0.5; n];
+    let ext = NodeExtents2d::new(&hw, &hh).unwrap();
     let mut coincident = Layout2d::zeros(n);
-    let mut s_coin =
-        GTreeOverlapRemoval::new(hw.clone(), hh.clone(), GTreeConfig::default()).unwrap();
+    let mut s_coin = GTreeOverlapRemoval::new(ext, GTreeConfig::default()).unwrap();
     assert_eq!(
         s_coin.run(&mut coincident).unwrap(),
         SolverStatus::Converged
@@ -188,8 +183,7 @@ fn test_gtree_coincident_collinear_and_zero_size_edge_cases() {
     // 2. Strictly collinear layout along y = 0.
     let mut collinear =
         Layout2d::from_xy((0..n).map(|i| (i as f64) * 0.25).collect(), vec![0.0; n]).unwrap();
-    let mut s_coll =
-        GTreeOverlapRemoval::new(hw.clone(), hh.clone(), GTreeConfig::default()).unwrap();
+    let mut s_coll = GTreeOverlapRemoval::new(ext, GTreeConfig::default()).unwrap();
     assert_eq!(s_coll.run(&mut collinear).unwrap(), SolverStatus::Converged);
     assert_eq!(s_coll.last_overlap_count(), 0);
     assert_no_overlaps(&collinear, &hw, &hh);
@@ -197,8 +191,7 @@ fn test_gtree_coincident_collinear_and_zero_size_edge_cases() {
     // 3. Zero-size nodes (no interior overlap possible).
     let zero_r = vec![0.0; n];
     let mut zero_layout = Layout2d::zeros(n);
-    let mut s_zero =
-        GTreeOverlapRemoval::from_radii(zero_r.clone(), GTreeConfig::default()).unwrap();
+    let mut s_zero = GTreeOverlapRemoval::from_radii(&zero_r, GTreeConfig::default()).unwrap();
     assert_eq!(
         s_zero.run(&mut zero_layout).unwrap(),
         SolverStatus::Converged
@@ -218,8 +211,11 @@ fn test_gtree_coincident_collinear_and_zero_size_edge_cases() {
     let c_hw = vec![1.0; m];
     let c_hh = vec![1.0; m];
     let mut c_layout = Layout2d::from_xy(c_xs, c_ys).unwrap();
-    let mut s_clust =
-        GTreeOverlapRemoval::new(c_hw.clone(), c_hh.clone(), GTreeConfig::default()).unwrap();
+    let mut s_clust = GTreeOverlapRemoval::new(
+        NodeExtents2d::new(&c_hw, &c_hh).unwrap(),
+        GTreeConfig::default(),
+    )
+    .unwrap();
     assert_eq!(s_clust.run(&mut c_layout).unwrap(), SolverStatus::Converged);
     assert_eq!(s_clust.last_overlap_count(), 0);
     assert_no_overlaps(&c_layout, &c_hw, &c_hh);
