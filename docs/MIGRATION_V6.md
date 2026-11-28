@@ -13,7 +13,7 @@ For background on the v6 architecture, see [the v6 release plan](archive/V6_RELE
 | **Graph representation** | `Graph` / `DiGraph` storing `Py<PyAny>` or `JsValue` payloads | `CsrGraph` (`u32` CSR indices + numeric weights) + host-side metadata arrays + `egraph.interop` |
 | **Coordinate buffers** | `DrawingEuclidean2d` / `DrawingHyperbolic2d` / `DrawingSpherical2d` / `DrawingTorus2d` | `Layout2d`, `Layout3d`, `LayoutNd` (zero-copy `coords(copy=False)` / `coordsView()`), `ManifoldLayout2d`, `EdgePolylines` |
 | **Overlap removal** | `OverwrapRemoval` ($O(N^2)$) | `PrismOverlapRemoval` ($O(N \log N)$ Delaunay + bounded CG), `PfsPrimeOverlapRemoval` / `TwinDeclutterer` (`LayoutTransform.apply()`) |
-| **tsNET family** | `TsNet`, `BhTsNet`, `FitTsNet`, `LTsNet` | Unified `TsNetSolver` (`pure_2hop` / `pure2Hop`, `from_graph_row_normalized` / `fromGraphRowNormalized`, `from_knn`, `from_probabilities`, `from_graph_partial_bfs`) with Option 1 typed backends (`auto2d`/`auto3d`, `fit_fft`/`fitFft`, `linear_fft`/`linearFft`, `barnes_hut`/`barnesHut`, `exact`) |
+| **tsNET family** | `TsNet`, `BhTsNet`, `FitTsNet`, `LTsNet` | Unified `TsNetSolver` (`pure_2hop` / `pure2Hop`, `from_graph_row_normalized` / `fromGraphRowNormalized`, `from_knn`, `from_probabilities`, `from_graph_partial_bfs`) with Option 1 typed backends (`auto`, `auto2d` [2D], `auto3d` [3D], `fit_fft`/`fitFft`, `linear_fft`/`linearFft`, `barnes_hut`/`barnesHut`, `exact`) |
 | **Stress metric** | Unscaled `stress(drawing, dm)` (`NS`) | Scale-Normalized Stress (`scale_normalized_stress` / `scaleNormalizedStress`, `evaluate_metrics` / `evaluateMetrics`) |
 | **WASM packaging** | `egraph/dist/web/egraph_wasm`, UMD/Rollup, $2N$ `x(u)`/`y(u)` FFI loops | Pure ESM (`"type": "module"`), `await init()`, `CsrGraph.fromCsr`, `coordsView()`, `runProgressive()` |
 | **Community detection** | `Louvain`, `LabelPropagation`, `SpectralClustering`, `InfoMap` | `louvain_communities`, `label_propagation`, `spectral_clustering`, `kmeans_plus_plus`, `coarsen_graph` (`InfoMap` removed) |
@@ -184,7 +184,7 @@ console.log(prism.lastOverlapCount, sigmaDist, sigmaDisp);
 
 ## 3. `TsNet` / `BhTsNet` / `FitTsNet` / `LTsNet` -> `TsNetSolver`
 
-Legacy v5/alpha split tsNET across four separate classes (`TsNet`, `BhTsNet`, `FitTsNet`, `LTsNet`) with fixed $0.05 N$ perplexity and separate builders. v6 unifies them into **`TsNetSolver`**, supporting `"auto"` (`"auto2d"` / `"auto3d"`), `"fit_fft"` / `"fitFft"` (`"fft"` alias accepted), `"linear_fft"` / `"linearFft"`, `"barnes_hut"` / `"barnesHut"`, and `"exact"` backends, cooperative `step()` / `run_steps()` / `run()` execution, and the validated Track A preset **`pure_2hop` / `pure2Hop`** (pure 1+2-hop CSR + node-wise adaptive perplexity).
+Legacy v5/alpha split tsNET across four separate classes (`TsNet`, `BhTsNet`, `FitTsNet`, `LTsNet`) with fixed $0.05 N$ perplexity and separate builders. v6 unifies them into **`TsNetSolver`**, supporting `"auto"`, `"auto2d"` (2D / `target="layout2d"`), `"auto3d"` (3D / `target="layout3d"`), `"fit_fft"` / `"fitFft"` (`"fft"` alias accepted), `"linear_fft"` / `"linearFft"`, `"barnes_hut"` / `"barnesHut"`, and `"exact"` backends, cooperative `step()` / `run_steps()` / `run()` execution, and the validated Track A preset **`pure_2hop` / `pure2Hop`** (pure 1+2-hop CSR + node-wise adaptive perplexity).
 
 ### Python: Before & After
 
@@ -431,7 +431,7 @@ Between `alpha.8` and `6.0.0-alpha.9` (`6.0.0a9`), all cross-target API inconsis
 - **`TsNetSolver`**:
   - Default `"fft"` backend uses `interpolation_order = 3` (cubic) and `learning_rate_divisor = 3.0`.
   - New `backend="auto"` (`TsNetBackend::Auto`) automatically selects `"exact"` for `N <= 256` and `"linear_fft"` for `N > 256` (inspect via `.resolved_backend` / `.resolvedBackend`).
-  - New `TsNetSolver.from_graph_row_normalized` (`fromGraphRowNormalized`) defaults to `mode="two_step_random_walk"` (`TwoStepRandomWalk`), and `TsNetStage` + `from_probabilities_with_stages` enable custom multi-stage schedules.
+  - New `TsNetSolver.from_graph_row_normalized` (`fromGraphRowNormalized`) defaults to `mode="degree_ordered_hub_suppressed"` (`DegreeOrderedHubSuppressed`, with `"two_step_random_walk"` / `"twoStepRandomWalk"` available as an explicit option), and `TsNetStage` + `from_probabilities_with_stages` enable custom multi-stage schedules.
 - **`ScreenedPoissonField2d` & `ScreenedPoissonRefiner`**: Default `grid_size = 512` (`gridSize = 512`), `density_grid()` / `densityGrid()` accessor, and 4-scalar `evaluate_in_bounds(layout, min_x, min_y, max_x, max_y)` (`evaluateInBounds(layout, minX, minY, maxX, maxY)`).
 - **`compute_effective_resistances` & `resistance_curvature_flow`**: Safer default exact cutoff `exact_max_nodes = 256` and `jl_dim = 128`.
 - **`SgdSolver` Pair Constructors & `max_mu`**:
