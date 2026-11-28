@@ -280,6 +280,14 @@ impl TsNetConfig {
             .unwrap_or_else(|| 10.0_f64.max((num_nodes as f64) / self.learning_rate_divisor))
     }
 
+    /// Computes the stability-capped learning rate for `stage` on a graph with `num_nodes`
+    /// vertices using this configuration's resolved base learning rate and `momentum`.
+    #[inline]
+    pub fn compute_stage_lr(&self, stage: &TsNetStage, num_nodes: usize) -> f64 {
+        let base_lr = self.resolve_learning_rate(num_nodes);
+        compute_stage_lr(stage, num_nodes, base_lr, self.momentum)
+    }
+
     /// Returns the optimization stages defined by this configuration.
     #[inline]
     pub fn stages(&self) -> &[TsNetStage] {

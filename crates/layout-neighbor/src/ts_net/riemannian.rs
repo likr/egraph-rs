@@ -1,6 +1,6 @@
 use egraph_core::{CoreError, CoreResult, RiemannianLayout};
 
-use super::config::{MIN_LAMBDA_SUM, compute_stage_lr};
+use super::config::MIN_LAMBDA_SUM;
 use super::repulsion::{TsNetCore, TsNetRepulsion, TsNetSpaceKind, TsNetWorkspace};
 
 #[derive(Debug, Clone)]
@@ -109,8 +109,7 @@ pub(super) fn step_riemannian<L: RiemannianLayout + ?Sized, B: TsNetRepulsion<L>
     let compute_entropy = stage.lambda_r > 0.0;
 
     if !core.stage_entered {
-        let base_lr = core.config.resolve_learning_rate(core.num_nodes);
-        let stage_lr = compute_stage_lr(&stage, core.num_nodes, base_lr, core.config.momentum);
+        let stage_lr = core.config.compute_stage_lr(&stage, core.num_nodes);
         if stage_lr < core.prev_stage_lr {
             let vel_scale = stage_lr / core.prev_stage_lr;
             for v in &mut ws.vel {

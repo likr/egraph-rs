@@ -6,8 +6,9 @@ use std::rc::Rc;
 
 use egraph_core::{CoreError, CoreResult, CsrGraph, IterativeSolver, Layout2d, SolverStatus};
 use egraph_layout_neighbor::{
-    BarnesHut, DefaultIbUmapBackend, Exact, IbFft, IbUmapBackend2d, IbUmapConfig, IbUmapRepulsion,
-    IbUmapSolver,
+    BarnesHut, DEFAULT_IB_UMAP_REPULSIVE_EPS, DefaultIbUmapBackend, Exact, IbFft, IbUmapBackend2d,
+    IbUmapConfig, IbUmapRepulsion, IbUmapSolver, TFdpConfig, TFdpRepulsion, TFdpSolver,
+    TsNetConfig, TsNetRepulsion, TsNetSolver, TsNetStage,
 };
 use egraph_neighborhood::{
     DogVaradhanConfig, build_pure_2hop_knn, compute_fuzzy_simplicial_set,
@@ -70,6 +71,7 @@ impl IbUmapRepulsion<Layout2d<f64>> for CountingZeroRepulsion {
         _a: f64,
         _b: f64,
         _c_k: f64,
+        _repulsive_eps: f64,
         rep_forces: &mut [f64],
     ) -> CoreResult<()> {
         self.compute_calls.set(self.compute_calls.get() + 1);
@@ -127,6 +129,7 @@ impl IbUmapRepulsion<Layout2d<f64>> for FaultingIbUmapRepulsion {
         _a: f64,
         _b: f64,
         _c_k: f64,
+        _repulsive_eps: f64,
         rep_forces: &mut [f64],
     ) -> CoreResult<()> {
         let count = self.compute_calls.get() + 1;
@@ -424,9 +427,15 @@ fn ib_umap_config_builders_resolve_ab_and_backend_stats() {
         .with_a(Some(1.75))
         .with_b(Some(0.9))
         .with_c_k(3.5)
+        .with_repulsive_eps(0.12)
         .with_tau_scale(2.5)
         .with_hub_damping(false)
         .with_seed(99);
+    assert_eq!(
+        IbUmapConfig::new().repulsive_eps,
+        DEFAULT_IB_UMAP_REPULSIVE_EPS
+    );
+    assert_eq!(cfg.repulsive_eps, 0.12);
     assert_eq!(cfg.resolve_ab().unwrap(), (1.75, 0.9));
     cfg.validate().unwrap();
 
@@ -454,4 +463,156 @@ fn ib_umap_config_builders_resolve_ab_and_backend_stats() {
     assert!(s_fft.total_fft_2d_calls() > 0);
     assert!(s_bh.last_fft_stats().is_none());
     assert!(s_ex.last_fft_stats().is_none());
+}
+
+#[test]
+fn neighbor_repulsion_traits_support_non_clone_state_and_conditional_solver_clone() {
+    #[derive(Debug)]
+    struct NonCloneState {
+        calls: usize,
+        last_eps: f64,
+    }
+
+    #[derive(Debug, Default)]
+    struct NonCloneBackend;
+
+    impl IbUmapRepulsion<Layout2d<f64>> for NonCloneBackend {
+        type State = NonCloneState;
+
+        fn validate_config(&self) -> CoreResult<()> {
+            Ok(())
+        }
+
+        fn init_state(&self, _num_nodes: usize) -> CoreResult<Self::State> {
+            Ok(NonCloneState {
+                calls: 0,
+                last_eps: 0.0,
+            })
+        }
+
+        fn compute_repulsion(
+            &self,
+            state: &mut Self::State,
+            _layout: &Layout2d<f64>,
+            _a: f64,
+            _b: f64,
+            _c_k: f64,
+            repulsive_eps: f64,
+            rep_forces: &mut [f64],
+        ) -> CoreResult<()> {
+            state.calls += 1;
+            state.last_eps = repulsive_eps;
+            rep_forces.fill(0.0);
+            Ok(())
+        }
+    }
+
+    impl TFdpRepulsion<Layout2d<f64>> for NonCloneBackend {
+        type State = NonCloneState;
+
+        fn validate_config(&self) -> CoreResult<()> {
+            Ok(())
+        }
+
+        fn init_state(&self, _num_nodes: usize) -> CoreResult<Self::State> {
+            Ok(NonCloneState {
+                calls: 0,
+                last_eps: 0.0,
+            })
+        }
+
+        fn compute_repulsion(
+            &self,
+            state: &mut Self::State,
+            _layout: &Layout2d<f64>,
+            _gamma: f64,
+            rep_forces: &mut [f64],
+        ) -> CoreResult<()> {
+            state.calls += 1;
+            rep_forces.fill(0.0);
+            Ok(())
+        }
+    }
+
+    impl TsNetRepulsion<Layout2d<f64>> for NonCloneBackend {
+        type State = NonCloneState;
+
+        fn validate_config(&self) -> CoreResult<()> {
+            Ok(())
+        }
+
+        fn init_state(
+            &self,
+            _num_nodes: usize,
+            _epsilon_r: f64,
+            _any_entropy: bool,
+            _init_entropy: bool,
+        ) -> CoreResult<Self::State> {
+            Ok(NonCloneState {
+                calls: 0,
+                last_eps: 0.0,
+            })
+        }
+
+        fn compute_repulsion(
+            &self,
+            state: &mut Self::State,
+            _layout: &Layout2d<f64>,
+            epsilon_r: f64,
+            _compute_entropy: bool,
+            rep_forces: &mut [f64],
+            ent_forces: &mut [f64],
+        ) -> CoreResult<()> {
+            state.calls += 1;
+            state.last_eps = epsilon_r;
+            rep_forces.fill(0.0);
+            ent_forces.fill(0.0);
+            Ok(())
+        }
+    }
+
+    fn assert_clone<T: Clone>(v: &T) -> T {
+        v.clone()
+    }
+
+    let g = make_grid(3, 3);
+    let mut l_ib = Layout2d::<f64>::init(9, 1, 1.0).unwrap();
+    let mut s_ib = IbUmapSolver::<Layout2d<f64>, NonCloneBackend>::new_with_backend(
+        &g,
+        IbUmapConfig::new()
+            .with_iterations(3)
+            .with_repulsive_eps(0.25),
+        NonCloneBackend,
+    )
+    .unwrap();
+    assert_eq!(s_ib.run(&mut l_ib).unwrap(), SolverStatus::Completed);
+    assert!(l_ib.is_all_finite());
+
+    let mut l_tf = Layout2d::<f64>::init(9, 2, 1.0).unwrap();
+    let mut s_tf = TFdpSolver::<Layout2d<f64>, NonCloneBackend>::new_with_backend(
+        &g,
+        TFdpConfig::new().with_iterations(3),
+        NonCloneBackend,
+    )
+    .unwrap();
+    assert_eq!(s_tf.run(&mut l_tf).unwrap(), SolverStatus::Completed);
+    assert!(l_tf.is_all_finite());
+
+    let mut l_ts = Layout2d::<f64>::init(9, 3, 1.0).unwrap();
+    let mut s_ts = TsNetSolver::<Layout2d<f64>, NonCloneBackend>::new_with_backend(
+        &g,
+        TsNetConfig::pure_2hop().with_stages(vec![TsNetStage::new().with_iterations(3)]),
+        NonCloneBackend,
+    )
+    .unwrap();
+    assert_eq!(s_ts.run(&mut l_ts).unwrap(), SolverStatus::Completed);
+    assert!(l_ts.is_all_finite());
+
+    // Solvers whose backends and states implement Clone remain Clone.
+    let s_ib_clone = IbUmapSolver::<Layout2d<f64>, Exact>::new(&g, IbUmapConfig::new()).unwrap();
+    let _ = assert_clone(&s_ib_clone);
+    let s_tf_clone = TFdpSolver::<Layout2d<f64>, Exact>::new(&g, TFdpConfig::new()).unwrap();
+    let _ = assert_clone(&s_tf_clone);
+    let s_ts_clone = TsNetSolver::<Layout2d<f64>, Exact>::new(&g, TsNetConfig::new()).unwrap();
+    let _ = assert_clone(&s_ts_clone);
 }

@@ -108,6 +108,7 @@ pub(super) fn step_2d<S: Scalar, B: IbUmapRepulsion<Layout2d<S>>>(
         a,
         b,
         core.config.c_k,
+        core.config.repulsive_eps,
         &mut ws.rep,
     )?;
     if let Some(rng_copy) = next_rng {

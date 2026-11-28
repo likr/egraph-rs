@@ -20,7 +20,7 @@ use super::step2d::{TsNet2dWorkspace, step_2d, validate_2d};
 /// modifying `egraph-layout-neighbor`.
 pub trait TsNetRepulsion<L: LayoutStorage + ?Sized> {
     /// Per-solver mutable workspace state owned exclusively by this backend.
-    type State: Clone;
+    type State;
 
     /// Validates backend parameters before solver construction.
     fn validate_config(&self) -> CoreResult<()>;

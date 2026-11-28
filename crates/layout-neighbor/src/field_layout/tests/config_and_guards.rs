@@ -4,7 +4,7 @@ use egraph_neighborhood::{
     compute_regularized_dog_varadhan_landmarks,
 };
 
-use crate::backends::{BarnesHut, IbFft};
+use crate::backends::{BarnesHut, Exact, IbFft};
 
 use super::super::{IbUmapConfig, IbUmapSolver, RhoSchedule, TFdpConfig, TFdpSolver};
 use super::{grid_graph, seeded_layout};
@@ -180,6 +180,10 @@ fn test_field_layout_edge_cases_and_error_guards() {
         ib_cfg.clone().with_min_dist(-0.1),
         ib_cfg.clone().with_spread(0.0),
         ib_cfg.clone().with_c_k(-1.0),
+        ib_cfg.clone().with_repulsive_eps(0.0),
+        ib_cfg.clone().with_repulsive_eps(-0.05),
+        ib_cfg.clone().with_repulsive_eps(f64::NAN),
+        ib_cfg.clone().with_repulsive_eps(f64::INFINITY),
         ib_cfg.clone().with_tau_scale(0.0),
         ib_cfg.clone().with_a(Some(0.0)),
         ib_cfg.clone().with_b(Some(f64::NAN)),
@@ -250,4 +254,109 @@ fn test_ib_umap_from_landmarks_bit_exact_and_validation() {
         IbUmapSolver::<Layout2d<f64>>::from_landmarks(&g, &bad_empty_lm, 32, cfg),
         Err(CoreError::InvalidInput(_))
     ));
+}
+
+#[test]
+fn test_ib_umap_and_tfdp_unit_weight_csr_graph_parity() {
+    let g_f64 = grid_graph(4, 4);
+    let n = g_f64.num_nodes();
+    let g_unit =
+        CsrGraph::<()>::from_unweighted_csr(g_f64.indptr(), g_f64.indices(), false, false).unwrap();
+    let dog_cfg = DogVaradhanConfig::default();
+    let ib_cfg = IbUmapConfig::new().with_iterations(12).with_seed(42);
+    let tf_cfg = TFdpConfig::new().with_iterations(12).with_seed(42);
+
+    // IbUmapSolver::{new, new_with_backend, from_graph_dog, from_graph_dog_with_backend}
+    let mut ib_f64 = IbUmapSolver::<Layout2d<f64>>::new(&g_f64, ib_cfg.clone()).unwrap();
+    let mut ib_u = IbUmapSolver::<Layout2d<f64>>::new(&g_unit, ib_cfg.clone()).unwrap();
+    let mut ib_u_ex = IbUmapSolver::<Layout2d<f64>, Exact>::new_with_backend(
+        &g_unit,
+        ib_cfg.clone(),
+        Exact::new(),
+    )
+    .unwrap();
+    let mut ib_f64_ex = IbUmapSolver::<Layout2d<f64>, Exact>::new_with_backend(
+        &g_f64,
+        ib_cfg.clone(),
+        Exact::new(),
+    )
+    .unwrap();
+    let mut ib_dog_f64 =
+        IbUmapSolver::<Layout2d<f64>>::from_graph_dog(&g_f64, 16, &dog_cfg, ib_cfg.clone())
+            .unwrap();
+    let mut ib_dog_u =
+        IbUmapSolver::<Layout2d<f64>>::from_graph_dog(&g_unit, 16, &dog_cfg, ib_cfg.clone())
+            .unwrap();
+    let mut ib_dog_bh_f64 = IbUmapSolver::<Layout2d<f64>, BarnesHut>::from_graph_dog_with_backend(
+        &g_f64,
+        16,
+        &dog_cfg,
+        ib_cfg.clone(),
+        BarnesHut::default(),
+    )
+    .unwrap();
+    let mut ib_dog_bh_u = IbUmapSolver::<Layout2d<f64>, BarnesHut>::from_graph_dog_with_backend(
+        &g_unit,
+        16,
+        &dog_cfg,
+        ib_cfg,
+        BarnesHut::default(),
+    )
+    .unwrap();
+
+    assert_eq!(ib_f64.edge_csr(), ib_u.edge_csr());
+    assert_eq!(ib_f64_ex.edge_csr(), ib_u_ex.edge_csr());
+    assert_eq!(ib_dog_f64.edge_csr(), ib_dog_u.edge_csr());
+    assert_eq!(ib_dog_bh_f64.edge_csr(), ib_dog_bh_u.edge_csr());
+
+    let base = seeded_layout::<f64>(n, 1.0, 99);
+    let mut l1 = base.clone();
+    let mut l2 = base.clone();
+    ib_f64.run(&mut l1).unwrap();
+    ib_u.run(&mut l2).unwrap();
+    assert_eq!(l1, l2);
+
+    let mut l3 = base.clone();
+    let mut l4 = base.clone();
+    ib_f64_ex.run(&mut l3).unwrap();
+    ib_u_ex.run(&mut l4).unwrap();
+    assert_eq!(l3, l4);
+
+    let mut l5 = base.clone();
+    let mut l6 = base.clone();
+    ib_dog_f64.run(&mut l5).unwrap();
+    ib_dog_u.run(&mut l6).unwrap();
+    assert_eq!(l5, l6);
+
+    let mut l7 = base.clone();
+    let mut l8 = base.clone();
+    ib_dog_bh_f64.run(&mut l7).unwrap();
+    ib_dog_bh_u.run(&mut l8).unwrap();
+    assert_eq!(l7, l8);
+
+    // TFdpSolver::{new, new_with_backend}
+    let mut tf_f64 = TFdpSolver::<Layout2d<f64>>::new(&g_f64, tf_cfg.clone()).unwrap();
+    let mut tf_u = TFdpSolver::<Layout2d<f64>>::new(&g_unit, tf_cfg.clone()).unwrap();
+    let mut tf_f64_ex =
+        TFdpSolver::<Layout2d<f64>, Exact>::new_with_backend(&g_f64, tf_cfg.clone(), Exact::new())
+            .unwrap();
+    let mut tf_u_ex =
+        TFdpSolver::<Layout2d<f64>, Exact>::new_with_backend(&g_unit, tf_cfg, Exact::new())
+            .unwrap();
+
+    assert_eq!(tf_f64.edge_csr(), tf_u.edge_csr());
+    assert_eq!(tf_f64.rep_scale(), tf_u.rep_scale());
+    assert_eq!(tf_f64_ex.edge_csr(), tf_u_ex.edge_csr());
+
+    let mut lt1 = base.clone();
+    let mut lt2 = base.clone();
+    tf_f64.run(&mut lt1).unwrap();
+    tf_u.run(&mut lt2).unwrap();
+    assert_eq!(lt1, lt2);
+
+    let mut lt3 = base.clone();
+    let mut lt4 = base;
+    tf_f64_ex.run(&mut lt3).unwrap();
+    tf_u_ex.run(&mut lt4).unwrap();
+    assert_eq!(lt3, lt4);
 }

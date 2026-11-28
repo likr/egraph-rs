@@ -2,8 +2,8 @@ use std::fmt;
 use std::marker::PhantomData;
 
 use egraph_core::{
-    CoreError, CoreResult, CsrGraph, DeterministicRng, EuclideanLayout, IterativeSolver, Layout2d,
-    Scalar, SolverStatus,
+    CoreError, CoreResult, CsrGraph, DeterministicRng, EdgeWeight, EuclideanLayout,
+    IterativeSolver, Layout2d, SolverStatus,
 };
 use egraph_neighborhood::KnnGraph;
 
@@ -12,7 +12,7 @@ use super::repulsion::{DefaultTFdpBackend, TFdpCore, TFdpRepulsion, TFdpWorkspac
 use super::t_fdp_edges::{extract_symmetric_csr_edges, symmetrize_pair_list};
 
 /// Cooperative, zero-per-step-allocation `t-FDP` (bounded Student-$t$ force-directed
-/// placement) solver.
+/// placement, `Zhong et al., 2023`) solver.
 ///
 /// The repulsion backend `B` is bound at the type level via [`TFdpRepulsion<L>`], rejecting
 /// unsupported `(layout, backend)` combinations at compile time:
@@ -63,6 +63,7 @@ impl<L, B> Clone for TFdpSolver<L, B>
 where
     L: EuclideanLayout + DefaultTFdpBackend,
     B: TFdpRepulsion<L> + Clone,
+    B::State: Clone,
 {
     fn clone(&self) -> Self {
         Self {
@@ -98,7 +99,7 @@ where
 {
     /// Constructs a `t-FDP` [`TFdpSolver`] directly from a [`CsrGraph`] using `B::default()`.
     #[inline]
-    pub fn new<W: Scalar>(graph: &CsrGraph<W>, config: TFdpConfig) -> CoreResult<Self> {
+    pub fn new<W: EdgeWeight>(graph: &CsrGraph<W>, config: TFdpConfig) -> CoreResult<Self> {
         Self::new_with_backend(graph, config, B::default())
     }
 
@@ -117,7 +118,7 @@ where
 {
     /// Constructs a `t-FDP` [`TFdpSolver`] directly from a [`CsrGraph`] with an explicit
     /// repulsion `backend`.
-    pub fn new_with_backend<W: Scalar>(
+    pub fn new_with_backend<W: EdgeWeight>(
         graph: &CsrGraph<W>,
         config: TFdpConfig,
         backend: B,
@@ -130,12 +131,12 @@ where
         }
         if let Some(ws) = graph.weights() {
             for &w in ws {
-                let wf = w.to_f64();
-                if !wf.is_finite() {
+                if !w.weight_is_finite() {
                     return Err(CoreError::non_finite(
                         "TFdpSolver::new_with_backend::weights",
                     ));
                 }
+                let wf = w.weight_to_f64();
                 if wf < 0.0 {
                     return Err(CoreError::invalid_input(format!(
                         "graph edge weights must be >= 0.0, got {wf}"
@@ -277,6 +278,12 @@ where
             &self.core.indices,
             &self.core.edge_weights,
         )
+    }
+
+    /// Returns the precomputed repulsion normalization scale $\max(1, \bar{d}_w) / (N - 1)$.
+    #[inline]
+    pub fn rep_scale(&self) -> f64 {
+        self.core.rep_scale
     }
 
     /// Returns the cumulative number of `fft_2d` calls executed across all steps.

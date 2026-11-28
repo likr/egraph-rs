@@ -1,6 +1,6 @@
-use egraph_core::{CoreError, CoreResult, CsrGraph, Scalar};
+use egraph_core::{CoreError, CoreResult, CsrGraph, EdgeWeight};
 
-pub(super) fn extract_symmetric_csr_edges<W: Scalar>(
+pub(super) fn extract_symmetric_csr_edges<W: EdgeWeight>(
     graph: &CsrGraph<W>,
 ) -> CoreResult<(Vec<u32>, Vec<u32>, Vec<f32>)> {
     let n = graph.num_nodes();
@@ -21,7 +21,7 @@ pub(super) fn extract_symmetric_csr_edges<W: Scalar>(
             if v_usize == u || v_usize >= n {
                 continue;
             }
-            let w = w_opt.map_or(1.0, |ws| ws[idx].to_f64());
+            let w = w_opt.map_or(1.0, |ws| ws[idx].weight_to_f64());
             if w <= 0.0 {
                 continue;
             }

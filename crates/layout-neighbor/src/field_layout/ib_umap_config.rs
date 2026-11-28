@@ -1,6 +1,9 @@
 use egraph_core::{CoreError, CoreResult};
 use egraph_neighborhood::find_ab_params;
 
+/// Default repulsive distance-squared softening $\varepsilon$ for [`IbUmapConfig`] (`0.05`).
+pub const DEFAULT_IB_UMAP_REPULSIVE_EPS: f64 = 0.05;
+
 /// Space-independent configuration for [`IbUmapSolver`](super::IbUmapSolver) (`ibUMAP`
 /// interpolation-based batch Graph UMAP).
 ///
@@ -24,6 +27,8 @@ pub struct IbUmapConfig {
     pub b: Option<f64>,
     /// Repulsion calibration constant $c_K$ (`default: 4.0`).
     pub c_k: f64,
+    /// Repulsive distance-squared softening $\varepsilon > 0$ (`default: 0.05`).
+    pub repulsive_eps: f64,
     /// Per-node step clipping multiplier $\tau_t = \tau_{\mathrm{scale}} \alpha_t$ (`default: 4.0`).
     pub tau_scale: f64,
     /// Whether to apply inverse-degree hub damping $\eta_i$ (`default: true`).
@@ -42,6 +47,7 @@ impl Default for IbUmapConfig {
             a: None,
             b: None,
             c_k: 4.0,
+            repulsive_eps: DEFAULT_IB_UMAP_REPULSIVE_EPS,
             tau_scale: 4.0,
             hub_damping: true,
             seed: 42,
@@ -94,6 +100,12 @@ impl IbUmapConfig {
     /// Sets the repulsion calibration constant `c_k`.
     pub fn with_c_k(mut self, c_k: f64) -> Self {
         self.c_k = c_k;
+        self
+    }
+
+    /// Sets the repulsive distance-squared softening `repulsive_eps`.
+    pub fn with_repulsive_eps(mut self, repulsive_eps: f64) -> Self {
+        self.repulsive_eps = repulsive_eps;
         self
     }
 
@@ -190,6 +202,15 @@ impl IbUmapConfig {
             return Err(CoreError::invalid_input(format!(
                 "c_k must be >= 0.0, got {}",
                 self.c_k
+            )));
+        }
+        if !self.repulsive_eps.is_finite() {
+            return Err(CoreError::non_finite("IbUmapConfig::repulsive_eps"));
+        }
+        if self.repulsive_eps <= 0.0 {
+            return Err(CoreError::invalid_input(format!(
+                "repulsive_eps must be > 0.0, got {}",
+                self.repulsive_eps
             )));
         }
         if !self.tau_scale.is_finite() {

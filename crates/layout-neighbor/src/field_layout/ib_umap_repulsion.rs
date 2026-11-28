@@ -11,7 +11,7 @@ use super::ib_umap_step::{IbUmap2dWorkspace, step_2d, validate_2d};
 /// Open pluggable repulsion backend trait for [`IbUmapSolver`](super::IbUmapSolver).
 pub trait IbUmapRepulsion<L: LayoutStorage + ?Sized> {
     /// Per-solver mutable workspace state owned exclusively by this backend.
-    type State: Clone;
+    type State;
 
     /// Validates backend parameters before solver construction.
     fn validate_config(&self) -> CoreResult<()>;
@@ -21,7 +21,9 @@ pub trait IbUmapRepulsion<L: LayoutStorage + ?Sized> {
 
     /// Evaluates UMAP field repulsion forces
     /// $2 b c_K \sum_{j \neq i} (x_i - x_j) / ((\varepsilon + d_{ij}^2)(1 + a d_{ij}^{2b}))$
-    /// into `rep_forces` (row-major `layout.len() * dims`).
+    /// into `rep_forces` (row-major `layout.len() * dims`), where $\varepsilon$ is
+    /// `repulsive_eps > 0`.
+    #[allow(clippy::too_many_arguments)]
     fn compute_repulsion(
         &self,
         state: &mut Self::State,
@@ -29,6 +31,7 @@ pub trait IbUmapRepulsion<L: LayoutStorage + ?Sized> {
         a: f64,
         b: f64,
         c_k: f64,
+        repulsive_eps: f64,
         rep_forces: &mut [f64],
     ) -> CoreResult<()>;
 

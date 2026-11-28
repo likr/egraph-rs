@@ -1,6 +1,6 @@
 use egraph_core::{CoreError, CoreResult, LayoutNd, LayoutStorage, Scalar};
 
-use super::config::{MIN_LAMBDA_SUM, TsNetStage, compute_stage_lr};
+use super::config::{MIN_LAMBDA_SUM, TsNetStage};
 use super::repulsion::{TsNetCore, TsNetRepulsion, TsNetSpaceKind, TsNetWorkspace};
 
 /// Lazily allocated N-D scratch buffers for [`TsNetSolver`](super::TsNetSolver) on [`LayoutNd`].
@@ -201,8 +201,7 @@ pub(super) fn step_nd<S: Scalar, B: TsNetRepulsion<LayoutNd<S>>>(
     let compute_entropy = stage.lambda_r > 0.0;
 
     if !core.stage_entered {
-        let base_lr = core.config.resolve_learning_rate(core.num_nodes);
-        let stage_lr = compute_stage_lr(&stage, core.num_nodes, base_lr, core.config.momentum);
+        let stage_lr = core.config.compute_stage_lr(&stage, core.num_nodes);
         if stage_lr < core.prev_stage_lr {
             let vel_scale = stage_lr / core.prev_stage_lr;
             for v in &mut ws.vel {

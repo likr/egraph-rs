@@ -14,7 +14,7 @@ use super::t_fdp_step3d::{TFdp3dWorkspace, step_3d, validate_3d};
 /// Open pluggable repulsion backend trait for [`TFdpSolver`](super::TFdpSolver).
 pub trait TFdpRepulsion<L: LayoutStorage + ?Sized> {
     /// Per-solver mutable workspace state owned exclusively by this backend.
-    type State: Clone;
+    type State;
 
     /// Validates backend parameters before solver construction.
     fn validate_config(&self) -> CoreResult<()>;

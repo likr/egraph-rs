@@ -12,9 +12,9 @@ pub use backends::{
     LinearFft, TFdpBackend2d, TFdpBackend3d, TsNetBackend2d, TsNetBackend3d,
 };
 pub use field_layout::{
-    DEFAULT_MAX_2HOP_PER_NODE, DefaultIbUmapBackend, DefaultTFdpBackend, FieldFftStats,
-    IbUmapConfig, IbUmapRepulsion, IbUmapSolver, RhoSchedule, TFdpConfig, TFdpRepulsion,
-    TFdpSolver,
+    DEFAULT_IB_UMAP_REPULSIVE_EPS, DEFAULT_MAX_2HOP_PER_NODE, DefaultIbUmapBackend,
+    DefaultTFdpBackend, FieldFftStats, IbUmapConfig, IbUmapRepulsion, IbUmapSolver, RhoSchedule,
+    TFdpConfig, TFdpRepulsion, TFdpSolver,
 };
 #[doc(hidden)]
 pub use field_layout::{

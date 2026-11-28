@@ -108,6 +108,59 @@ fn tsnet_probabilities_csr_invariants_and_pointer_stability() {
 }
 
 #[test]
+fn tsnet_and_tfdp_new_ir_accessors_and_stage_lr() {
+    let g = make_grid(4, 4);
+    let n = g.num_nodes();
+    let stages = vec![
+        TsNetStage::new()
+            .with_iterations(2)
+            .with_exaggeration(4.0)
+            .with_lambda_c(0.1),
+        TsNetStage::new()
+            .with_iterations(3)
+            .with_exaggeration(1.0)
+            .with_lambda_r(0.2),
+    ];
+    let ts_cfg = TsNetConfig::pure_2hop()
+        .with_stages(stages.clone())
+        .with_learning_rate(Some(100.0))
+        .with_momentum(0.8);
+
+    let expected_s0_lr = ts_cfg.compute_stage_lr(&stages[0], n);
+    let expected_s1_lr = ts_cfg.compute_stage_lr(&stages[1], n);
+    assert!(expected_s0_lr > 0.0);
+    assert!(expected_s1_lr > 0.0);
+
+    let mut ts = TsNetSolver::<Layout2d<f64>, Exact>::pure_2hop(&g, ts_cfg).unwrap();
+    assert_eq!(ts.num_edges(), ts.probabilities_csr().1.len());
+    assert!(ts.num_edges() > 0);
+    assert_eq!(ts.stage_index(), 0);
+    assert_eq!(ts.stage_iteration(), 0);
+    assert!((ts.current_stage_lr() - expected_s0_lr).abs() < 1e-12);
+
+    let mut layout = Layout2d::<f64>::init(n, 5, 1.0).unwrap();
+    ts.step(&mut layout).unwrap();
+    assert_eq!(ts.stage_index(), 0);
+    assert_eq!(ts.stage_iteration(), 1);
+    assert!((ts.current_stage_lr() - expected_s0_lr).abs() < 1e-12);
+
+    ts.step(&mut layout).unwrap();
+    assert_eq!(ts.stage_index(), 1);
+    assert_eq!(ts.stage_iteration(), 0);
+
+    ts.step(&mut layout).unwrap();
+    assert_eq!(ts.stage_index(), 1);
+    assert_eq!(ts.stage_iteration(), 1);
+    assert!((ts.current_stage_lr() - expected_s1_lr).abs() < 1e-12);
+
+    let tf = TFdpSolver::<Layout2d<f64>, Exact>::new(&g, TFdpConfig::new()).unwrap();
+    let (_, _, w) = tf.edge_csr();
+    let total_w: f64 = w.iter().map(|&v| v as f64).sum();
+    let expected_rep_scale = (total_w / (n as f64)).max(1.0) / ((n - 1) as f64);
+    assert!((tf.rep_scale() - expected_rep_scale).abs() < 1e-12);
+}
+
+#[test]
 fn tfdp_edge_csr_from_graph_and_knn_and_pointer_stability() {
     let g = make_grid(3, 4);
     let n = g.num_nodes();

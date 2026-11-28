@@ -308,6 +308,7 @@ impl IbUmapRepulsion<Layout2d<f64>> for FailingRepulsionBackend {
         _a: f64,
         _b: f64,
         _c_k: f64,
+        _repulsive_eps: f64,
         rep_forces: &mut [f64],
     ) -> CoreResult<()> {
         state.calls += 1;
@@ -391,4 +392,65 @@ fn test_ib_umap_terminal_failure_sets_failed_status_and_makes_step_noop() {
             }
         }
     }
+}
+
+#[test]
+fn test_ib_umap_repulsive_eps_propagates_and_matches_across_backends() {
+    let grid = grid_graph(3, 3);
+    let n = grid.num_nodes();
+    let init = seeded_layout::<f64>(n, 0.5, 41);
+
+    let cfg_small_eps = IbUmapConfig::new()
+        .with_iterations(4)
+        .with_repulsive_eps(0.01)
+        .with_seed(42);
+    let cfg_large_eps = IbUmapConfig::new()
+        .with_iterations(4)
+        .with_repulsive_eps(0.5)
+        .with_seed(42);
+
+    let mut s_ex_small =
+        IbUmapSolver::<Layout2d<f64>, Exact>::new(&grid, cfg_small_eps.clone()).unwrap();
+    let mut s_ex_large =
+        IbUmapSolver::<Layout2d<f64>, Exact>::new(&grid, cfg_large_eps.clone()).unwrap();
+    let mut s_bh_large = IbUmapSolver::<Layout2d<f64>, BarnesHut>::new_with_backend(
+        &grid,
+        cfg_large_eps.clone(),
+        BarnesHut::new(0.0),
+    )
+    .unwrap();
+    let mut s_fft_large = IbUmapSolver::<Layout2d<f64>, IbFft>::new(&grid, cfg_large_eps).unwrap();
+
+    let mut l_ex_small = init.clone();
+    let mut l_ex_large = init.clone();
+    let mut l_bh_large = init.clone();
+    let mut l_fft_large = init.clone();
+
+    s_ex_small.run(&mut l_ex_small).unwrap();
+    s_ex_large.run(&mut l_ex_large).unwrap();
+    s_bh_large.run(&mut l_bh_large).unwrap();
+    s_fft_large.run(&mut l_fft_large).unwrap();
+
+    assert_ne!(l_ex_small, l_ex_large);
+    for i in 0..n {
+        let bh_err =
+            (l_bh_large.x()[i] - l_ex_large.x()[i]).hypot(l_bh_large.y()[i] - l_ex_large.y()[i]);
+        assert!(bh_err < 1e-10, "BH(theta=0) vs Exact err={bh_err}");
+        let fft_err =
+            (l_fft_large.x()[i] - l_ex_large.x()[i]).hypot(l_fft_large.y()[i] - l_ex_large.y()[i]);
+        assert!(fft_err < 0.08, "IbFft vs Exact err={fft_err}");
+    }
+
+    // Direct IbUmapRepulsion::compute_repulsion rejects non-finite or non-positive repulsive_eps.
+    let mut forces = vec![0.0_f64; n * 2];
+    let mut ex_state =
+        <Exact as IbUmapRepulsion<Layout2d<f64>>>::init_state(&Exact::new(), n).unwrap();
+    assert!(matches!(
+        Exact::new().compute_repulsion(&mut ex_state, &init, 1.5, 0.9, 4.0, 0.0, &mut forces),
+        Err(CoreError::InvalidInput(_))
+    ));
+    assert!(matches!(
+        Exact::new().compute_repulsion(&mut ex_state, &init, 1.5, 0.9, 4.0, f64::NAN, &mut forces),
+        Err(CoreError::NonFiniteValue { .. })
+    ));
 }

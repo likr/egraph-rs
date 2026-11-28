@@ -195,6 +195,7 @@ fn workflow_multi_solver_zero_copy_ir_and_custom_ib_umap_plugin() {
             Ok(num_nodes)
         }
 
+        #[allow(clippy::too_many_arguments)]
         fn compute_repulsion(
             &self,
             _state: &mut Self::State,
@@ -202,6 +203,7 @@ fn workflow_multi_solver_zero_copy_ir_and_custom_ib_umap_plugin() {
             a: f64,
             b: f64,
             c_k: f64,
+            repulsive_eps: f64,
             rep_forces: &mut [f64],
         ) -> CoreResult<()> {
             let n = layout.len();
@@ -216,7 +218,7 @@ fn workflow_multi_solver_zero_copy_ir_and_custom_ib_umap_plugin() {
                     let dx = layout.x()[i] - layout.x()[j];
                     let dy = layout.y()[i] - layout.y()[j];
                     let d2 = dx * dx + dy * dy;
-                    let k = two_b_ck / ((0.05 + d2) * (1.0 + a * d2.powf(b)));
+                    let k = two_b_ck / ((repulsive_eps + d2) * (1.0 + a * d2.powf(b)));
                     fx += k * dx;
                     fy += k * dy;
                 }

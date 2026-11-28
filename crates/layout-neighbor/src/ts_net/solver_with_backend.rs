@@ -9,7 +9,7 @@ use egraph_neighborhood::{
 
 use crate::validation::validate_sparse_probabilities;
 
-use super::config::{TsNetConfig, compute_stage_lr};
+use super::config::TsNetConfig;
 use super::repulsion::{DefaultTsNetBackend, TsNetCore, TsNetRepulsion};
 use super::solver::TsNetSolver;
 
@@ -76,7 +76,7 @@ where
 
         let base_lr = config.resolve_learning_rate(n);
         let initial_stage_lr = first_active
-            .map(|idx| compute_stage_lr(&config.stages[idx], n, base_lr, config.momentum))
+            .map(|idx| config.compute_stage_lr(&config.stages[idx], n))
             .unwrap_or(base_lr);
 
         let (_n, indptr, indices, values) = probs.into_parts();

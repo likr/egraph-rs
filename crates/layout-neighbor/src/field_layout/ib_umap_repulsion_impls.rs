@@ -8,7 +8,17 @@ use super::ib_umap_repulsion::IbUmapRepulsion;
 use super::quadtree::FieldQuadtree;
 use super::repulsion_impls::check_rep_slice;
 
-const REPULSIVE_DIST_SQ_EPS: f64 = 0.05;
+fn validate_repulsive_eps(repulsive_eps: f64, ctx: &'static str) -> CoreResult<()> {
+    if !repulsive_eps.is_finite() {
+        return Err(CoreError::non_finite(ctx));
+    }
+    if repulsive_eps <= 0.0 {
+        return Err(CoreError::invalid_input(format!(
+            "{ctx}: repulsive_eps must be > 0.0, got {repulsive_eps}"
+        )));
+    }
+    Ok(())
+}
 
 /// Workspace state for [`Exact`] repulsion in [`IbUmapSolver`](super::IbUmapSolver).
 #[doc(hidden)]
@@ -73,8 +83,13 @@ impl<S: Scalar> IbUmapRepulsion<Layout2d<S>> for Exact {
         a: f64,
         b: f64,
         c_k: f64,
+        repulsive_eps: f64,
         rep_forces: &mut [f64],
     ) -> CoreResult<()> {
+        validate_repulsive_eps(
+            repulsive_eps,
+            "Exact::compute_repulsion(IbUmap 2d)::repulsive_eps",
+        )?;
         let n = layout.len();
         check_rep_slice(n, 2, rep_forces, "Exact::compute_repulsion(IbUmap 2d)")?;
         if n < 2 {
@@ -96,7 +111,7 @@ impl<S: Scalar> IbUmapRepulsion<Layout2d<S>> for Exact {
                 let dx = xi - xs[j].to_f64();
                 let dy = yi - ys[j].to_f64();
                 let d2 = dx * dx + dy * dy;
-                let k = two_b_ck / ((REPULSIVE_DIST_SQ_EPS + d2) * (1.0 + a * d2.powf(b)));
+                let k = two_b_ck / ((repulsive_eps + d2) * (1.0 + a * d2.powf(b)));
                 fx += k * dx;
                 fy += k * dy;
             }
@@ -129,8 +144,13 @@ impl<S: Scalar> IbUmapRepulsion<Layout2d<S>> for BarnesHut {
         a: f64,
         b: f64,
         c_k: f64,
+        repulsive_eps: f64,
         rep_forces: &mut [f64],
     ) -> CoreResult<()> {
+        validate_repulsive_eps(
+            repulsive_eps,
+            "BarnesHut::compute_repulsion(IbUmap 2d)::repulsive_eps",
+        )?;
         let n = layout.len();
         check_rep_slice(n, 2, rep_forces, "BarnesHut::compute_repulsion(IbUmap 2d)")?;
         if n < 2 {
@@ -147,7 +167,7 @@ impl<S: Scalar> IbUmapRepulsion<Layout2d<S>> for BarnesHut {
             self.theta,
             |d2| {
                 let d2_pos = d2.max(0.0);
-                two_b_ck / ((REPULSIVE_DIST_SQ_EPS + d2_pos) * (1.0 + a * d2_pos.powf(b)))
+                two_b_ck / ((repulsive_eps + d2_pos) * (1.0 + a * d2_pos.powf(b)))
             },
             &mut state.rep_x,
             &mut state.rep_y,
@@ -185,8 +205,13 @@ impl<S: Scalar> IbUmapRepulsion<Layout2d<S>> for IbFft {
         a: f64,
         b: f64,
         c_k: f64,
+        repulsive_eps: f64,
         rep_forces: &mut [f64],
     ) -> CoreResult<()> {
+        validate_repulsive_eps(
+            repulsive_eps,
+            "IbFft::compute_repulsion(IbUmap 2d)::repulsive_eps",
+        )?;
         let n = layout.len();
         check_rep_slice(n, 2, rep_forces, "IbFft::compute_repulsion(IbUmap 2d)")?;
         if n < 2 {
@@ -207,7 +232,7 @@ impl<S: Scalar> IbUmapRepulsion<Layout2d<S>> for IbFft {
             .ibfft
             .grid_spec()
             .map_or(0.0, |spec| spec.softening_sq);
-        let eps_eff = REPULSIVE_DIST_SQ_EPS + soft;
+        let eps_eff = repulsive_eps + soft;
         state.ibfft.evaluate_isotropic_kernel(
             &mut state.fft_ws,
             |d2| {
@@ -281,17 +306,18 @@ impl<S: Scalar> IbUmapRepulsion<Layout2d<S>> for IbUmapBackend2d {
         a: f64,
         b: f64,
         c_k: f64,
+        repulsive_eps: f64,
         rep_forces: &mut [f64],
     ) -> CoreResult<()> {
         match (self, &mut state.0) {
             (Self::IbFft(backend), IbUmapBackend2dStateInner::IbFft(st)) => {
-                backend.compute_repulsion(st, layout, a, b, c_k, rep_forces)
+                backend.compute_repulsion(st, layout, a, b, c_k, repulsive_eps, rep_forces)
             }
             (Self::BarnesHut(backend), IbUmapBackend2dStateInner::BarnesHut(st)) => {
-                backend.compute_repulsion(st.as_mut(), layout, a, b, c_k, rep_forces)
+                backend.compute_repulsion(st.as_mut(), layout, a, b, c_k, repulsive_eps, rep_forces)
             }
             (Self::Exact(backend), IbUmapBackend2dStateInner::Exact(st)) => {
-                backend.compute_repulsion(st, layout, a, b, c_k, rep_forces)
+                backend.compute_repulsion(st, layout, a, b, c_k, repulsive_eps, rep_forces)
             }
             _ => Err(CoreError::numerical_breakdown(
                 "IbUmapBackend2d variant mismatch",

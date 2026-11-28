@@ -19,10 +19,11 @@ use super::target::{GuMapCore, GuMapTarget, GuMapWorkspace};
 
 const DEFAULT_TIER2_MARGIN: f64 = 1.1;
 
-/// Cooperative, zero-per-step-allocation Graph UMAP (`GuMap`) layout solver supporting any
-/// [`GuMapTarget`] ([`Layout2d`], [`Layout3d`](egraph_core::Layout3d),
-/// [`LayoutNd`](egraph_core::LayoutNd), [`ManifoldLayout2d`](egraph_core::ManifoldLayout2d), and
-/// external [`RiemannianLayout`](egraph_core::RiemannianLayout) targets).
+/// Cooperative, zero-per-step-allocation Graph UMAP (`GuMap`, `Meidiana & Hong, 2025`,
+/// `arXiv:2509.19703`) layout solver supporting any [`GuMapTarget`] ([`Layout2d`],
+/// [`Layout3d`](egraph_core::Layout3d), [`LayoutNd`](egraph_core::LayoutNd),
+/// [`ManifoldLayout2d`](egraph_core::ManifoldLayout2d), and external
+/// [`RiemannianLayout`](egraph_core::RiemannianLayout) targets).
 ///
 /// Uses the `dist_sq.powf(b)` identity ($d^{2b} = (d^2)^b$, $d^{2b-2} = (d^2)^b / d^2$)
 /// to avoid per-pair square roots in both attractive and repulsive gradient evaluations.

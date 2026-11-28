@@ -47,6 +47,7 @@ impl<L: LayoutStorage + ?Sized> IbUmapRepulsion<L> for FailingNeighborBackend {
         _a: f64,
         _b: f64,
         _c_k: f64,
+        _repulsive_eps: f64,
         rep_forces: &mut [f64],
     ) -> CoreResult<()> {
         *state += 1;

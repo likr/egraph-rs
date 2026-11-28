@@ -86,6 +86,8 @@ fn ib_umap_invalid_config_and_backend_params_fail_fast() {
         IbUmapConfig::new().with_learning_rate(0.0),
         IbUmapConfig::new().with_learning_rate(-1.0),
         IbUmapConfig::new().with_c_k(-0.1),
+        IbUmapConfig::new().with_repulsive_eps(0.0),
+        IbUmapConfig::new().with_repulsive_eps(-0.05),
         IbUmapConfig::new().with_tau_scale(0.0),
         IbUmapConfig::new().with_min_dist(-0.05),
         IbUmapConfig::new().with_spread(0.0),
@@ -105,6 +107,8 @@ fn ib_umap_invalid_config_and_backend_params_fail_fast() {
     for nf_cfg in [
         IbUmapConfig::new().with_learning_rate(f64::NAN),
         IbUmapConfig::new().with_c_k(f64::INFINITY),
+        IbUmapConfig::new().with_repulsive_eps(f64::NAN),
+        IbUmapConfig::new().with_repulsive_eps(f64::INFINITY),
         IbUmapConfig::new().with_tau_scale(f64::NAN),
         IbUmapConfig::new().with_min_dist(f64::NAN),
         IbUmapConfig::new().with_spread(f64::INFINITY),

@@ -10,7 +10,8 @@ use egraph_spatial_fft::FitFieldStats;
 use super::config::{TsNetConfig, TsNetStage};
 use super::repulsion::{DefaultTsNetBackend, TsNetCore, TsNetRepulsion, TsNetWorkspace};
 
-/// Cooperative, zero-allocation-per-step unified tsNET solver implementing [`IterativeSolver`].
+/// Cooperative, zero-allocation-per-step unified tsNET solver (`Kruiger et al., 2017`) with
+/// FFT-accelerated repulsion (`Linderman et al., 2019`) implementing [`IterativeSolver`].
 ///
 /// The repulsion backend `B` is bound at the type level via [`TsNetRepulsion<L>`], rejecting
 /// unsupported `(layout, backend)` combinations at compile time:
@@ -92,6 +93,7 @@ impl<L, B> Clone for TsNetSolver<L, B>
 where
     L: RiemannianLayout + DefaultTsNetBackend,
     B: TsNetRepulsion<L> + Clone,
+    B::State: Clone,
 {
     fn clone(&self) -> Self {
         Self {
@@ -291,6 +293,18 @@ where
     #[inline]
     pub fn num_nodes(&self) -> usize {
         self.core.num_nodes
+    }
+
+    /// Returns the number of stored directed non-zero probability entries.
+    #[inline]
+    pub fn num_edges(&self) -> usize {
+        self.core.indices.len()
+    }
+
+    /// Returns the number of completed iterations within the active stage.
+    #[inline]
+    pub fn stage_iteration(&self) -> usize {
+        self.core.stage_iter
     }
 
     /// Returns the symmetric high-dimensional joint probabilities `(indptr, indices, p_vals)` in CSR format.

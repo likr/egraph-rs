@@ -85,6 +85,7 @@ fn test_auto_lr_scaling_stage3_small_n_cap_and_row_normalized_pure_2hop() {
     assert!((base_3000 - 1000.0).abs() < 1e-12);
     let stage3_lr_3000 = compute_stage_lr(&stage3, 3000, base_3000, cfg_auto.momentum);
     assert!((stage3_lr_3000 - 1000.0).abs() < 1e-12);
+    assert!((cfg_auto.compute_stage_lr(&stage3, 3000) - 1000.0).abs() < 1e-12);
 
     let stage1_c = TsNetStage::new()
         .with_iterations(10)

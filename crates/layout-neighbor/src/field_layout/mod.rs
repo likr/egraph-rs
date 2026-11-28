@@ -21,7 +21,7 @@ mod tests;
 
 pub use config::{FieldFftStats, RhoSchedule, TFdpConfig};
 pub use ib_umap::{DEFAULT_MAX_2HOP_PER_NODE, IbUmapSolver};
-pub use ib_umap_config::IbUmapConfig;
+pub use ib_umap_config::{DEFAULT_IB_UMAP_REPULSIVE_EPS, IbUmapConfig};
 pub use ib_umap_repulsion::{DefaultIbUmapBackend, IbUmapRepulsion};
 #[doc(hidden)]
 pub use ib_umap_repulsion::{IbUmapCore, IbUmapWorkspace};

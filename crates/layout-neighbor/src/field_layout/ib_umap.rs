@@ -2,7 +2,7 @@ use std::fmt;
 use std::marker::PhantomData;
 
 use egraph_core::{
-    CoreError, CoreResult, CsrGraph, EuclideanLayout, IterativeSolver, Layout2d, Scalar,
+    CoreError, CoreResult, CsrGraph, EdgeWeight, EuclideanLayout, IterativeSolver, Layout2d,
     SolverStatus,
 };
 use egraph_neighborhood::{DogVaradhanConfig, DogVaradhanLandmarks, KnnGraph, SparseProbabilities};
@@ -16,8 +16,8 @@ use super::ib_umap_repulsion::{
 /// Default per-node 2-hop cap used across 1+2-hop priority CSR builders (`32`).
 pub const DEFAULT_MAX_2HOP_PER_NODE: usize = 32;
 
-/// Cooperative, zero-per-step-allocation `ibUMAP` (interpolation-based batch Graph UMAP)
-/// solver.
+/// Cooperative, zero-per-step-allocation `ibUMAP` (interpolation-based batch Graph UMAP,
+/// `Chen et al., 2026`, `arXiv:2610.01445v1`; cf. `McInnes, Healy, & Melville, 2018`) solver.
 ///
 /// The repulsion backend `B` is bound at the type level via [`IbUmapRepulsion<L>`], rejecting
 /// unsupported `(layout, backend)` combinations at compile time:
@@ -73,6 +73,7 @@ impl<L, B> Clone for IbUmapSolver<L, B>
 where
     L: EuclideanLayout + DefaultIbUmapBackend,
     B: IbUmapRepulsion<L> + Clone,
+    B::State: Clone,
 {
     fn clone(&self) -> Self {
         Self {
@@ -109,7 +110,7 @@ where
     /// Constructs an [`IbUmapSolver`] from a [`CsrGraph`] using default regularized DoG
     /// Varadhan parameters, [`DEFAULT_MAX_2HOP_PER_NODE`], and `B::default()`.
     #[inline]
-    pub fn new<W: Scalar>(graph: &CsrGraph<W>, config: IbUmapConfig) -> CoreResult<Self> {
+    pub fn new<W: EdgeWeight>(graph: &CsrGraph<W>, config: IbUmapConfig) -> CoreResult<Self> {
         Self::new_with_backend(graph, config, B::default())
     }
 
@@ -128,7 +129,7 @@ where
     /// Constructs an [`IbUmapSolver`] from a [`CsrGraph`] using $O(|E|)$ 1+2-hop pair
     /// sampling, regularized DoG Varadhan landmark ALT distances, and `B::default()`.
     #[inline]
-    pub fn from_graph_dog<W: Scalar>(
+    pub fn from_graph_dog<W: EdgeWeight>(
         graph: &CsrGraph<W>,
         max_2hop_per_node: usize,
         dog_cfg: &DogVaradhanConfig,

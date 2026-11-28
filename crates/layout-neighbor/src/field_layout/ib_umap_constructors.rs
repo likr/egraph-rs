@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use egraph_core::{
-    CoreError, CoreResult, CsrGraph, DeterministicRng, EuclideanLayout, Scalar, SolverStatus,
+    CoreError, CoreResult, CsrGraph, DeterministicRng, EdgeWeight, EuclideanLayout, SolverStatus,
 };
 use egraph_neighborhood::{
     DogVaradhanConfig, DogVaradhanLandmarks, KnnGraph, Sparse12HopPairs, SparseProbabilities,
@@ -70,7 +70,7 @@ where
     /// Constructs an [`IbUmapSolver`] from a [`CsrGraph`] using default regularized DoG
     /// Varadhan parameters, [`DEFAULT_MAX_2HOP_PER_NODE`], and an explicit repulsion `backend`.
     #[inline]
-    pub fn new_with_backend<W: Scalar>(
+    pub fn new_with_backend<W: EdgeWeight>(
         graph: &CsrGraph<W>,
         config: IbUmapConfig,
         backend: B,
@@ -121,7 +121,7 @@ where
     /// Constructs an [`IbUmapSolver`] from a [`CsrGraph`] using $O(|E|)$ 1+2-hop pair
     /// sampling, regularized DoG Varadhan landmark ALT distances, and an explicit repulsion
     /// `backend`.
-    pub fn from_graph_dog_with_backend<W: Scalar>(
+    pub fn from_graph_dog_with_backend<W: EdgeWeight>(
         graph: &CsrGraph<W>,
         max_2hop_per_node: usize,
         dog_cfg: &DogVaradhanConfig,
