@@ -340,3 +340,134 @@ fn test_layout_center_and_normalize_to_std_f32_overflow_no_mutation() {
     assert_eq!(nd, orig_nd);
     assert!(nd.is_all_finite());
 }
+
+#[test]
+fn test_layout_permute_unpermute_2d_3d_nd_and_errors() {
+    let perm = [2u32, 0, 3, 1];
+
+    // Layout2d (f64 & f32)
+    let l2 = Layout2d::from_xy(vec![10.0_f64, 20.0, 30.0, 40.0], vec![1.0, 2.0, 3.0, 4.0]).unwrap();
+    let l2_p = l2.permute(&perm).unwrap();
+    for (old_i, &new_i) in perm.iter().enumerate() {
+        assert_eq!(l2_p.get(new_i as usize).unwrap(), l2.get(old_i).unwrap());
+    }
+    assert_eq!(l2_p.unpermute(&perm).unwrap(), l2);
+    assert_eq!(l2.unpermute(&perm).unwrap().permute(&perm).unwrap(), l2);
+
+    let l2_32 = Layout2d::from_xy(vec![1.0_f32, 2.0], vec![3.0, 4.0]).unwrap();
+    assert_eq!(
+        l2_32.permute(&[1, 0]).unwrap().unpermute(&[1, 0]).unwrap(),
+        l2_32
+    );
+
+    // Layout3d (f64 & f32)
+    let l3 = Layout3d::from_xyz(
+        vec![1.0_f64, 2.0, 3.0, 4.0],
+        vec![5.0, 6.0, 7.0, 8.0],
+        vec![9.0, 10.0, 11.0, 12.0],
+    )
+    .unwrap();
+    let l3_p = l3.permute(&perm).unwrap();
+    for (old_i, &new_i) in perm.iter().enumerate() {
+        assert_eq!(l3_p.get(new_i as usize).unwrap(), l3.get(old_i).unwrap());
+    }
+    assert_eq!(l3_p.unpermute(&perm).unwrap(), l3);
+    assert_eq!(l3.unpermute(&perm).unwrap().permute(&perm).unwrap(), l3);
+
+    let l3_32 = Layout3d::from_xyz(vec![1.0_f32], vec![2.0], vec![3.0]).unwrap();
+    assert_eq!(l3_32.permute(&[0]).unwrap(), l3_32);
+    assert_eq!(l3_32.unpermute(&[0]).unwrap(), l3_32);
+
+    // LayoutNd (f64 & f32) preserving dims (including n == 0).
+    let lnd = LayoutNd::from_flat(4, 5, &(0..20).map(|v| v as f64).collect::<Vec<f64>>()).unwrap();
+    let lnd_p = lnd.permute(&perm).unwrap();
+    assert_eq!(lnd_p.dims(), 5);
+    for (old_i, &new_i) in perm.iter().enumerate() {
+        assert_eq!(
+            lnd_p.node(new_i as usize).unwrap(),
+            lnd.node(old_i).unwrap()
+        );
+    }
+    assert_eq!(lnd_p.unpermute(&perm).unwrap(), lnd);
+    assert_eq!(lnd.unpermute(&perm).unwrap().permute(&perm).unwrap(), lnd);
+
+    let lnd_empty = LayoutNd::<f32>::zeros(0, 5).unwrap();
+    let lnd_empty_p = lnd_empty.permute(&[]).unwrap();
+    assert_eq!(lnd_empty_p.dims(), 5);
+    assert_eq!(lnd_empty_p, lnd_empty);
+    assert_eq!(lnd_empty.unpermute(&[]).unwrap(), lnd_empty);
+
+    // Error contracts across all 3 layout types (both permute & unpermute).
+    let empty2 = Layout2d::<f64>::zeros(0);
+    let empty3 = Layout3d::<f64>::zeros(0);
+    assert!(matches!(
+        empty2.permute(&[0]),
+        Err(CoreError::DimensionMismatch {
+            expected: 0,
+            actual: 1,
+            ..
+        })
+    ));
+    assert!(matches!(
+        empty3.unpermute(&[0]),
+        Err(CoreError::DimensionMismatch {
+            expected: 0,
+            actual: 1,
+            ..
+        })
+    ));
+    assert!(matches!(
+        lnd_empty.permute(&[0]),
+        Err(CoreError::DimensionMismatch {
+            expected: 0,
+            actual: 1,
+            ..
+        })
+    ));
+
+    for bad_len in [&[][..], &[0, 1, 2][..]] {
+        assert!(matches!(
+            l2.permute(bad_len),
+            Err(CoreError::DimensionMismatch { .. })
+        ));
+        assert!(matches!(
+            l2.unpermute(bad_len),
+            Err(CoreError::DimensionMismatch { .. })
+        ));
+        assert!(matches!(
+            l3.permute(bad_len),
+            Err(CoreError::DimensionMismatch { .. })
+        ));
+        assert!(matches!(
+            lnd.unpermute(bad_len),
+            Err(CoreError::DimensionMismatch { .. })
+        ));
+    }
+
+    for bad_perm in [&[0, 0, 2, 3][..], &[0, 1, 2, 4][..], &[0, 1, 2, 99][..]] {
+        assert!(matches!(
+            l2.permute(bad_perm),
+            Err(CoreError::InvalidInput(_))
+        ));
+        assert!(matches!(
+            l2.unpermute(bad_perm),
+            Err(CoreError::InvalidInput(_))
+        ));
+        assert!(matches!(
+            l3.permute(bad_perm),
+            Err(CoreError::InvalidInput(_))
+        ));
+        assert!(matches!(
+            l3.unpermute(bad_perm),
+            Err(CoreError::InvalidInput(_))
+        ));
+        assert!(matches!(
+            lnd.permute(bad_perm),
+            Err(CoreError::InvalidInput(_))
+        ));
+        assert!(matches!(
+            lnd.unpermute(bad_perm),
+            Err(CoreError::InvalidInput(_))
+        ));
+    }
+}

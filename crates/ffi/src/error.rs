@@ -16,6 +16,8 @@ pub enum ErrorKind {
     NonFiniteValue = 5,
     UnsupportedOperation = 6,
     NumericalBreakdown = 7,
+    BackendUnavailable = 8,
+    DeviceLimitExceeded = 9,
 }
 
 impl ErrorKind {
@@ -30,6 +32,8 @@ impl ErrorKind {
             CoreError::NonFiniteValue { .. } => Self::NonFiniteValue,
             CoreError::UnsupportedOperation(_) => Self::UnsupportedOperation,
             CoreError::NumericalBreakdown(_) => Self::NumericalBreakdown,
+            CoreError::BackendUnavailable(_) => Self::BackendUnavailable,
+            CoreError::DeviceLimitExceeded(_) => Self::DeviceLimitExceeded,
             _ => Self::InvalidInput,
         }
     }
@@ -45,6 +49,8 @@ impl ErrorKind {
             Self::NonFiniteValue => "NonFiniteValue",
             Self::UnsupportedOperation => "UnsupportedOperation",
             Self::NumericalBreakdown => "NumericalBreakdown",
+            Self::BackendUnavailable => "BackendUnavailable",
+            Self::DeviceLimitExceeded => "DeviceLimitExceeded",
         }
     }
 }
@@ -144,6 +150,16 @@ mod tests {
                 CoreError::numerical_breakdown("singular"),
                 ErrorKind::NumericalBreakdown,
                 "NumericalBreakdown",
+            ),
+            (
+                CoreError::backend_unavailable("no GPU adapter"),
+                ErrorKind::BackendUnavailable,
+                "BackendUnavailable",
+            ),
+            (
+                CoreError::device_limit_exceeded("buffer too large"),
+                ErrorKind::DeviceLimitExceeded,
+                "DeviceLimitExceeded",
             ),
         ];
 

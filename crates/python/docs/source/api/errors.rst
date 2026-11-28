@@ -34,3 +34,11 @@ Structured exceptions raised across ``egraph`` bindings, rooted at :class:`egrap
 .. autoexception:: egraph.NumericalBreakdownError
    :members:
    :show-inheritance:
+
+.. autoexception:: egraph.BackendUnavailableError
+   :members:
+   :show-inheritance:
+
+.. autoexception:: egraph.DeviceLimitExceededError
+   :members:
+   :show-inheritance:

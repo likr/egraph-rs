@@ -64,7 +64,7 @@ def run_cross_target_error_contracts_parity(
     for lbl, fn in illegal_pairs:
         _assert_py_error(f"py/illegal/{lbl}", eg.UnsupportedOperationError, fn)
 
-    # 2. Python EgraphError hierarchy & all 7 subclasses
+    # 2. Python EgraphError hierarchy & all 9 subclasses
     subclasses = (
         eg.InvalidInputError,
         eg.DimensionMismatchError,
@@ -73,6 +73,8 @@ def run_cross_target_error_contracts_parity(
         eg.NonFiniteValueError,
         eg.UnsupportedOperationError,
         eg.NumericalBreakdownError,
+        eg.BackendUnavailableError,
+        eg.DeviceLimitExceededError,
     )
     for sub in subclasses:
         assert issubclass(sub, eg.EgraphError)

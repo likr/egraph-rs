@@ -16,8 +16,10 @@ from ._core_types import (
 
 __all__ = [
     "ArenaOctree3d",
+    "BackendUnavailableError",
     "CsrGraph",
     "DatasetInfo",
+    "DeviceLimitExceededError",
     "DimensionMismatchError",
     "DynamicKdTree",
     "EdgePolylines",
@@ -56,6 +58,8 @@ class InvalidCsrError(EgraphError): ...
 class NonFiniteValueError(EgraphError): ...
 class UnsupportedOperationError(EgraphError): ...
 class NumericalBreakdownError(EgraphError): ...
+class BackendUnavailableError(EgraphError): ...
+class DeviceLimitExceededError(EgraphError): ...
 
 @final
 class CsrGraph:

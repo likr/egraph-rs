@@ -1,3 +1,4 @@
+use super::validate_bijection;
 use crate::error::{CoreError, CoreResult};
 use crate::rng::DeterministicRng;
 use crate::scalar::Scalar;
@@ -287,5 +288,40 @@ impl<S: Scalar> LayoutNd<S> {
             }
         }
         Ok(())
+    }
+
+    /// Returns a vertex-permuted layout where `out[old_to_new[old_i]] = self[old_i]`.
+    pub fn permute(&self, old_to_new: &[u32]) -> CoreResult<Self> {
+        let n = self.num_nodes;
+        let d = self.dims;
+        validate_bijection(n, old_to_new, "LayoutNd::permute")?;
+        let mut coords = vec![S::ZERO; n * d];
+        for (old_i, &new_i_u32) in old_to_new.iter().enumerate() {
+            let src = old_i * d;
+            let dst = (new_i_u32 as usize) * d;
+            coords[dst..dst + d].copy_from_slice(&self.coords[src..src + d]);
+        }
+        Ok(Self {
+            coords,
+            num_nodes: n,
+            dims: d,
+        })
+    }
+
+    /// Restores original vertex ordering from a permuted layout: `out[old_i] = self[old_to_new[old_i]]`.
+    pub fn unpermute(&self, old_to_new: &[u32]) -> CoreResult<Self> {
+        let n = self.num_nodes;
+        let d = self.dims;
+        validate_bijection(n, old_to_new, "LayoutNd::unpermute")?;
+        let mut coords = Vec::with_capacity(n * d);
+        for &new_i_u32 in old_to_new {
+            let src = (new_i_u32 as usize) * d;
+            coords.extend_from_slice(&self.coords[src..src + d]);
+        }
+        Ok(Self {
+            coords,
+            num_nodes: n,
+            dims: d,
+        })
     }
 }

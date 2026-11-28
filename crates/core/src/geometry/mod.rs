@@ -2,12 +2,13 @@
 //! `EuclideanLayout`) and repulsion backend abstraction (`RepulsionBackend`).
 
 mod euclidean_impls;
+mod layout2d_impl;
+mod layout_nd_impl;
 
 #[cfg(test)]
 mod tests;
 
 use crate::error::{CoreError, CoreResult};
-use crate::layout::Layout2d;
 use crate::scalar::Scalar;
 
 /// Minimal storage contract shared by all node coordinate containers.
@@ -64,6 +65,74 @@ pub trait RiemannianLayout: MetricSpace {
         self.exp_map(i, delta)
     }
 
+    /// Performs a simultaneous pairwise radial update along the geodesic connecting `i` and `j`.
+    ///
+    /// Positive `delta_r_i` moves vertex `i` along the unit geodesic tangent toward `j`, and
+    /// positive `delta_r_j` moves vertex `j` along the unit geodesic tangent toward `i`
+    /// (negative values move each endpoint away from the other).
+    fn move_pair_radial(
+        &mut self,
+        i: usize,
+        j: usize,
+        delta_r_i: f64,
+        delta_r_j: f64,
+    ) -> CoreResult<()> {
+        let n = self.len();
+        validate_radial_args(
+            n,
+            i,
+            j,
+            delta_r_i,
+            delta_r_j,
+            "RiemannianLayout::move_pair_radial",
+        )?;
+        if i == j {
+            return Ok(());
+        }
+        let d = self.distance(i, j);
+        if !d.is_finite() {
+            return Err(CoreError::non_finite("RiemannianLayout::move_pair_radial"));
+        }
+        if d <= 1e-15 || (delta_r_i == 0.0 && delta_r_j == 0.0) {
+            return Ok(());
+        }
+        let si = delta_r_i / d;
+        let sj = delta_r_j / d;
+        if !si.is_finite() || !sj.is_finite() {
+            return Err(CoreError::non_finite("RiemannianLayout::move_pair_radial"));
+        }
+        let dim = self.tangent_dim();
+        let mut delta_i = Vec::new();
+        if delta_r_i != 0.0 {
+            delta_i.resize(dim, 0.0_f64);
+            self.log_map_into(i, j, &mut delta_i)?;
+            for v in &mut delta_i {
+                *v *= si;
+                if !v.is_finite() {
+                    return Err(CoreError::non_finite("RiemannianLayout::move_pair_radial"));
+                }
+            }
+        }
+        let mut delta_j = Vec::new();
+        if delta_r_j != 0.0 {
+            delta_j.resize(dim, 0.0_f64);
+            self.log_map_into(j, i, &mut delta_j)?;
+            for v in &mut delta_j {
+                *v *= sj;
+                if !v.is_finite() {
+                    return Err(CoreError::non_finite("RiemannianLayout::move_pair_radial"));
+                }
+            }
+        }
+        if delta_r_i != 0.0 {
+            self.exp_map(i, &delta_i)?;
+        }
+        if delta_r_j != 0.0 {
+            self.exp_map(j, &delta_j)?;
+        }
+        Ok(())
+    }
+
     /// Performs a simultaneous pairwise SGD update along the geodesic connecting `i` and `j`.
     fn move_pair_toward(
         &mut self,
@@ -74,23 +143,15 @@ pub trait RiemannianLayout: MetricSpace {
         step_weight_j: f64,
     ) -> CoreResult<()> {
         let n = self.len();
-        if i >= n {
-            return Err(CoreError::index_out_of_bounds(
-                i,
-                n,
-                "RiemannianLayout::move_pair_toward",
-            ));
-        }
-        if j >= n {
-            return Err(CoreError::index_out_of_bounds(
-                j,
-                n,
-                "RiemannianLayout::move_pair_toward",
-            ));
-        }
-        if !target_dist.is_finite() || !step_weight_i.is_finite() || !step_weight_j.is_finite() {
-            return Err(CoreError::non_finite("RiemannianLayout::move_pair_toward"));
-        }
+        validate_pair_and_weights(
+            n,
+            i,
+            j,
+            target_dist,
+            step_weight_i,
+            step_weight_j,
+            "RiemannianLayout::move_pair_toward",
+        )?;
         if i == j {
             return Ok(());
         }
@@ -101,22 +162,13 @@ pub trait RiemannianLayout: MetricSpace {
         if d <= 1e-15 {
             return Ok(());
         }
-        let dim = self.tangent_dim();
-        let mut delta_i = vec![0.0_f64; dim];
-        let mut delta_j = vec![0.0_f64; dim];
-        self.log_map_into(i, j, &mut delta_i)?;
-        self.log_map_into(j, i, &mut delta_j)?;
-        let coeff = (d - target_dist) / d;
-        let si = step_weight_i * coeff;
-        let sj = step_weight_j * coeff;
-        for v in &mut delta_i {
-            *v *= si;
+        let diff = d - target_dist;
+        let delta_r_i = step_weight_i * diff;
+        let delta_r_j = step_weight_j * diff;
+        if !delta_r_i.is_finite() || !delta_r_j.is_finite() {
+            return Err(CoreError::non_finite("RiemannianLayout::move_pair_toward"));
         }
-        for v in &mut delta_j {
-            *v *= sj;
-        }
-        self.exp_map(i, &delta_i)?;
-        self.exp_map(j, &delta_j)
+        self.move_pair_radial(i, j, delta_r_i, delta_r_j)
     }
 }
 
@@ -165,7 +217,7 @@ pub enum EuclideanStorageMut<'a, S: Scalar> {
     },
 }
 
-/// Sealed flat Euclidean layout trait restricted to [`Layout2d`], [`crate::Layout3d`], and
+/// Sealed flat Euclidean layout trait restricted to [`crate::Layout2d`], [`crate::Layout3d`], and
 /// [`crate::LayoutNd`].
 ///
 /// Sealing permits simultaneous multi-axis `&mut` borrows and zero-overhead spatial tree/FFT
@@ -196,10 +248,21 @@ pub trait EuclideanLayout: RiemannianLayout + sealed::Sealed {
         Self: Sized;
 }
 
-/// Pluggable repulsion/gradient backend for iterative force-directed and neighbor-embedding solvers.
+/// Pluggable single-channel repulsion evaluator for scalar-objective solvers.
+///
+/// This trait targets solvers whose repulsive step accumulates a single row-major gradient/force
+/// buffer (`forces`) alongside an optional scalar objective contribution such as the partition
+/// function $Z$ (for example, `MaxentRepulsion::Evaluator` in `egraph-layout-stress` for
+/// `MaxentStressSolver`).
+///
+/// Solvers requiring multi-channel force outputs, solver-specific per-step hyperparameters,
+/// multilevel level views, or telemetry instead define dedicated repulsion traits in their solver
+/// crates (`TsNetRepulsion`, `TFdpRepulsion`, `ForceRepulsion`, `LinLogRepulsionBackend`,
+/// `YifanHuRepulsion`, and `FrRepulsion`).
 pub trait RepulsionBackend<L: LayoutStorage + ?Sized> {
-    /// Accumulates repulsive forces/gradients into `forces` (row-major `layout.len() * dim`)
-    /// and returns an optional scalar objective contribution (e.g., partition function $Z$).
+    /// Accumulates single-channel repulsive forces/gradients into `forces` (row-major
+    /// `layout.len() * dim`) and returns an optional scalar objective contribution
+    /// (e.g., partition function $Z$).
     fn accumulate_repulsion(&mut self, layout: &L, forces: &mut [f64]) -> CoreResult<Option<f64>>;
 }
 
@@ -218,7 +281,28 @@ impl<L: LayoutStorage + ?Sized, T: RepulsionBackend<L> + ?Sized> RepulsionBacken
 }
 
 #[inline]
-fn validate_pair_and_weights(
+pub(super) fn validate_radial_args(
+    n: usize,
+    i: usize,
+    j: usize,
+    delta_r_i: f64,
+    delta_r_j: f64,
+    ctx: &'static str,
+) -> CoreResult<()> {
+    if i >= n {
+        return Err(CoreError::index_out_of_bounds(i, n, ctx));
+    }
+    if j >= n {
+        return Err(CoreError::index_out_of_bounds(j, n, ctx));
+    }
+    if !delta_r_i.is_finite() || !delta_r_j.is_finite() {
+        return Err(CoreError::non_finite(ctx));
+    }
+    Ok(())
+}
+
+#[inline]
+pub(super) fn validate_pair_and_weights(
     n: usize,
     i: usize,
     j: usize,
@@ -240,7 +324,7 @@ fn validate_pair_and_weights(
 }
 
 #[inline]
-fn validate_euclidean_tangent_args(
+pub(super) fn validate_euclidean_tangent_args(
     n: usize,
     dim: usize,
     i: usize,
@@ -257,221 +341,4 @@ fn validate_euclidean_tangent_args(
         return Err(CoreError::non_finite(ctx));
     }
     Ok(())
-}
-
-impl<S: Scalar> LayoutStorage for Layout2d<S> {
-    type Scalar = S;
-
-    #[inline]
-    fn len(&self) -> usize {
-        self.len()
-    }
-
-    #[inline]
-    fn validate_finite(&self) -> CoreResult<()> {
-        self.validate_finite()
-    }
-}
-
-impl<S: Scalar> MetricSpace for Layout2d<S> {
-    #[inline]
-    fn distance(&self, i: usize, j: usize) -> f64 {
-        let dx = self.x()[i].to_f64() - self.x()[j].to_f64();
-        let dy = self.y()[i].to_f64() - self.y()[j].to_f64();
-        dx.hypot(dy)
-    }
-}
-
-impl<S: Scalar> RiemannianLayout for Layout2d<S> {
-    #[inline]
-    fn tangent_dim(&self) -> usize {
-        2
-    }
-
-    fn log_map_into(&self, i: usize, j: usize, out: &mut [f64]) -> CoreResult<()> {
-        let n = self.len();
-        if i >= n {
-            return Err(CoreError::index_out_of_bounds(
-                i,
-                n,
-                "Layout2d::log_map_into",
-            ));
-        }
-        if j >= n {
-            return Err(CoreError::index_out_of_bounds(
-                j,
-                n,
-                "Layout2d::log_map_into",
-            ));
-        }
-        if out.len() < 2 {
-            return Err(CoreError::dimension_mismatch(
-                2,
-                out.len(),
-                "Layout2d::log_map_into",
-            ));
-        }
-        out[0] = self.x()[j].to_f64() - self.x()[i].to_f64();
-        out[1] = self.y()[j].to_f64() - self.y()[i].to_f64();
-        Ok(())
-    }
-
-    fn exp_map(&mut self, i: usize, delta: &[f64]) -> CoreResult<()> {
-        validate_euclidean_tangent_args(self.len(), 2, i, delta, "Layout2d::exp_map")?;
-        let nx = S::from_f64(self.x()[i].to_f64() + delta[0]);
-        let ny = S::from_f64(self.y()[i].to_f64() + delta[1]);
-        if !nx.is_finite() || !ny.is_finite() {
-            return Err(CoreError::non_finite("Layout2d::exp_map"));
-        }
-        self.x_mut()[i] = nx;
-        self.y_mut()[i] = ny;
-        Ok(())
-    }
-
-    fn parallel_transport_into(&self, i: usize, delta: &[f64], vec: &mut [f64]) -> CoreResult<()> {
-        validate_euclidean_tangent_args(
-            self.len(),
-            2,
-            i,
-            delta,
-            "Layout2d::parallel_transport_into",
-        )?;
-        if vec.len() != 2 {
-            return Err(CoreError::dimension_mismatch(
-                2,
-                vec.len(),
-                "Layout2d::parallel_transport_into",
-            ));
-        }
-        if !vec.iter().all(|v| v.is_finite()) {
-            return Err(CoreError::non_finite("Layout2d::parallel_transport_into"));
-        }
-        Ok(())
-    }
-
-    #[inline]
-    fn move_pair_toward(
-        &mut self,
-        i: usize,
-        j: usize,
-        target_dist: f64,
-        step_weight_i: f64,
-        step_weight_j: f64,
-    ) -> CoreResult<()> {
-        let n = self.len();
-        validate_pair_and_weights(
-            n,
-            i,
-            j,
-            target_dist,
-            step_weight_i,
-            step_weight_j,
-            "Layout2d::move_pair_toward",
-        )?;
-        let (xs, ys) = self.xy_mut();
-        let xi = xs[i].to_f64();
-        let yi = ys[i].to_f64();
-        let xj = xs[j].to_f64();
-        let yj = ys[j].to_f64();
-        if !xi.is_finite() || !yi.is_finite() || !xj.is_finite() || !yj.is_finite() {
-            return Err(CoreError::non_finite("Layout2d::move_pair_toward"));
-        }
-        if i == j {
-            return Ok(());
-        }
-        let dx = xj - xi;
-        let dy = yj - yi;
-        let d = dx.hypot(dy);
-        if !d.is_finite() {
-            return Err(CoreError::non_finite("Layout2d::move_pair_toward"));
-        }
-        if d <= 1e-15 {
-            return Ok(());
-        }
-        let coeff = (d - target_dist) / d;
-        let si = step_weight_i * coeff;
-        let sj = step_weight_j * coeff;
-        let nxi = S::from_f64(xi + si * dx);
-        let nyi = S::from_f64(yi + si * dy);
-        let nxj = S::from_f64(xj - sj * dx);
-        let nyj = S::from_f64(yj - sj * dy);
-        if !nxi.is_finite() || !nyi.is_finite() || !nxj.is_finite() || !nyj.is_finite() {
-            return Err(CoreError::non_finite("Layout2d::move_pair_toward"));
-        }
-        xs[i] = nxi;
-        ys[i] = nyi;
-        xs[j] = nxj;
-        ys[j] = nyj;
-        Ok(())
-    }
-}
-
-impl<S: Scalar> EuclideanLayout for Layout2d<S> {
-    #[inline]
-    fn dims(&self) -> usize {
-        2
-    }
-
-    #[inline]
-    fn coord(&self, node: usize, axis: usize) -> CoreResult<f64> {
-        if node >= self.len() {
-            return Err(CoreError::index_out_of_bounds(
-                node,
-                self.len(),
-                "Layout2d::coord",
-            ));
-        }
-        match axis {
-            0 => Ok(self.x()[node].to_f64()),
-            1 => Ok(self.y()[node].to_f64()),
-            _ => Err(CoreError::index_out_of_bounds(axis, 2, "Layout2d::coord")),
-        }
-    }
-
-    #[inline]
-    fn set_coord(&mut self, node: usize, axis: usize, value: f64) -> CoreResult<()> {
-        if node >= self.len() {
-            return Err(CoreError::index_out_of_bounds(
-                node,
-                self.len(),
-                "Layout2d::set_coord",
-            ));
-        }
-        if axis >= 2 {
-            return Err(CoreError::index_out_of_bounds(
-                axis,
-                2,
-                "Layout2d::set_coord",
-            ));
-        }
-        let converted = S::from_f64(value);
-        if !value.is_finite() || !converted.is_finite() {
-            return Err(CoreError::non_finite("Layout2d::set_coord"));
-        }
-        if axis == 0 {
-            self.x_mut()[node] = converted;
-        } else {
-            self.y_mut()[node] = converted;
-        }
-        Ok(())
-    }
-
-    #[inline]
-    fn as_euclidean_storage(&self) -> EuclideanStorageRef<'_, Self::Scalar> {
-        EuclideanStorageRef::Soa2d {
-            x: self.x(),
-            y: self.y(),
-        }
-    }
-
-    #[inline]
-    fn as_euclidean_storage_mut(&mut self) -> EuclideanStorageMut<'_, Self::Scalar> {
-        let (x, y) = self.xy_mut();
-        EuclideanStorageMut::Soa2d { x, y }
-    }
-
-    #[inline]
-    fn zeros_like(&self, num_nodes: usize) -> CoreResult<Self> {
-        Ok(Self::zeros(num_nodes))
-    }
 }

@@ -49,6 +49,18 @@ pyo3::create_exception!(
     EgraphError,
     "Raised when a solver or linear algebra routine encounters numerical breakdown."
 );
+pyo3::create_exception!(
+    egraph._core,
+    BackendUnavailableError,
+    EgraphError,
+    "Raised when a requested compute or acceleration backend is unavailable."
+);
+pyo3::create_exception!(
+    egraph._core,
+    DeviceLimitExceededError,
+    EgraphError,
+    "Raised when a workload or buffer allocation exceeds backend device limits."
+);
 
 static INDEX_OUT_OF_BOUNDS_TYPE: PyOnceLock<Py<PyType>> = PyOnceLock::new();
 
@@ -123,6 +135,8 @@ pub(crate) fn ffi_error_to_py(err: FfiError) -> PyErr {
         ErrorKind::NonFiniteValue => non_finite_value_err(err.message),
         ErrorKind::UnsupportedOperation => unsupported_operation_err(err.message),
         ErrorKind::NumericalBreakdown => numerical_breakdown_err(err.message),
+        ErrorKind::BackendUnavailable => BackendUnavailableError::new_err(err.message),
+        ErrorKind::DeviceLimitExceeded => DeviceLimitExceededError::new_err(err.message),
         _ => EgraphError::new_err(err.message),
     }
 }
@@ -137,6 +151,8 @@ pub(crate) fn core_error_to_py(err: CoreError) -> PyErr {
         CoreError::NonFiniteValue { .. } => non_finite_value_err(msg),
         CoreError::UnsupportedOperation(_) => unsupported_operation_err(msg),
         CoreError::NumericalBreakdown(_) => numerical_breakdown_err(msg),
+        CoreError::BackendUnavailable(_) => BackendUnavailableError::new_err(msg),
+        CoreError::DeviceLimitExceeded(_) => DeviceLimitExceededError::new_err(msg),
         _ => EgraphError::new_err(msg),
     }
 }
@@ -160,6 +176,14 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add(
         "NumericalBreakdownError",
         py.get_type::<NumericalBreakdownError>(),
+    )?;
+    m.add(
+        "BackendUnavailableError",
+        py.get_type::<BackendUnavailableError>(),
+    )?;
+    m.add(
+        "DeviceLimitExceededError",
+        py.get_type::<DeviceLimitExceededError>(),
     )?;
     Ok(())
 }

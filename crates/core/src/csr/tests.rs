@@ -260,3 +260,131 @@ fn test_csr_unweighted_unit_type_builder_and_undirected_simple() {
     let wg = wb.build(true).unwrap();
     assert_eq!(wg.edge_weight(0, 1), Some(4.0));
 }
+
+#[test]
+fn test_csr_permute_nodes_exhaustive_and_errors() {
+    let assert_edge_oracle = |orig: &CsrGraph<f64>, permuted: &CsrGraph<f64>, perm: &[u32]| {
+        let n = orig.num_nodes();
+        assert_eq!(permuted.num_nodes(), n);
+        assert_eq!(permuted.num_edges(), orig.num_edges());
+        assert_eq!(permuted.is_directed(), orig.is_directed());
+        assert_eq!(permuted.is_weighted(), orig.is_weighted());
+        for new_u in 0..n {
+            assert!(permuted.neighbors(new_u).windows(2).all(|w| w[0] < w[1]));
+        }
+        for u in 0..n {
+            for v in 0..n {
+                assert_eq!(
+                    orig.has_edge(u, v),
+                    permuted.has_edge(perm[u] as usize, perm[v] as usize)
+                );
+                assert_eq!(
+                    orig.edge_weight(u, v),
+                    permuted.edge_weight(perm[u] as usize, perm[v] as usize)
+                );
+            }
+        }
+    };
+
+    // Undirected unweighted CsrGraph<()> with isolated vertex (node 4).
+    let uu =
+        CsrGraph::<()>::from_unweighted_edges(5, &[(0, 2), (2, 3), (1, 3)], false, true).unwrap();
+    let perm5 = [3, 0, 4, 1, 2];
+    let uu_p = uu.permute_nodes(&perm5).unwrap();
+    assert!(!uu_p.is_weighted());
+    assert!(!uu_p.is_directed());
+    assert_eq!(uu_p.num_edges(), uu.num_edges());
+    for new_u in 0..5 {
+        assert!(uu_p.neighbors(new_u).windows(2).all(|w| w[0] < w[1]));
+    }
+    for u in 0..5 {
+        for v in 0..5 {
+            assert_eq!(
+                uu.has_edge(u, v),
+                uu_p.has_edge(perm5[u] as usize, perm5[v] as usize)
+            );
+        }
+    }
+    let mut inv5 = vec![0u32; 5];
+    for (old_i, &new_i) in perm5.iter().enumerate() {
+        inv5[new_i as usize] = old_i as u32;
+    }
+    assert_eq!(uu_p.permute_nodes(&inv5).unwrap(), uu);
+
+    // Undirected weighted f64 with unsorted rows (sanitize = false) -> output rows sorted!
+    let unsorted = CsrGraph::<f64>::from_csr(
+        &[0, 2, 4, 6],
+        &[2, 1, 2, 0, 1, 0],
+        Some(&[10.0, 5.0, 20.0, 5.0, 20.0, 10.0]),
+        false,
+        false,
+    )
+    .unwrap();
+    let perm3 = [2, 0, 1];
+    let unsorted_p = unsorted.permute_nodes(&perm3).unwrap();
+    assert_edge_oracle(&unsorted, &unsorted_p, &perm3);
+
+    // Directed weighted f64 graph + identity + reversal permutations.
+    let dir = CsrGraph::<f64>::from_edges(
+        4,
+        &[(0, 3), (0, 1), (2, 0), (3, 1)],
+        Some(&[1.25, 2.5, 3.75, 4.5]),
+        true,
+        true,
+    )
+    .unwrap();
+    assert_eq!(dir.permute_nodes(&[0, 1, 2, 3]).unwrap(), dir);
+    let rev4 = [3, 2, 1, 0];
+    let dir_rev = dir.permute_nodes(&rev4).unwrap();
+    assert_edge_oracle(&dir, &dir_rev, &rev4);
+    assert_eq!(dir_rev.permute_nodes(&rev4).unwrap(), dir);
+
+    // Weighted f32.
+    let wf32 = CsrGraph::<f32>::from_edges(3, &[(0, 2)], Some(&[7.5_f32]), false, true).unwrap();
+    let wf32_p = wf32.permute_nodes(&[1, 2, 0]).unwrap();
+    assert_eq!(wf32_p.edge_weight(1, 0), Some(7.5_f32));
+
+    // Empty (n == 0) weighted & unweighted, and singleton (n == 1).
+    let empty_w = CsrGraph::<f64>::from_edges(0, &[], Some(&[]), false, false).unwrap();
+    let empty_wp = empty_w.permute_nodes(&[]).unwrap();
+    assert_eq!(empty_wp, empty_w);
+    assert!(empty_wp.is_weighted());
+
+    let empty_u = CsrGraph::<()>::from_unweighted_edges(0, &[], false, false).unwrap();
+    let empty_up = empty_u.permute_nodes(&[]).unwrap();
+    assert_eq!(empty_up, empty_u);
+    assert!(!empty_up.is_weighted());
+
+    let single = CsrGraph::<f64>::from_edges(1, &[], None, false, false).unwrap();
+    assert_eq!(single.permute_nodes(&[0]).unwrap(), single);
+
+    // Error contracts: DimensionMismatch on length mismatch, InvalidInput on duplicate or >= n.
+    assert!(matches!(
+        dir.permute_nodes(&[]),
+        Err(CoreError::DimensionMismatch {
+            expected: 4,
+            actual: 0,
+            ..
+        })
+    ));
+    assert!(matches!(
+        empty_u.permute_nodes(&[0]),
+        Err(CoreError::DimensionMismatch {
+            expected: 0,
+            actual: 1,
+            ..
+        })
+    ));
+    assert!(matches!(
+        dir.permute_nodes(&[0, 0, 2, 3]),
+        Err(CoreError::InvalidInput(_))
+    ));
+    assert!(matches!(
+        dir.permute_nodes(&[0, 1, 2, 4]),
+        Err(CoreError::InvalidInput(_))
+    ));
+    assert!(matches!(
+        dir.permute_nodes(&[0, 1, 2, 99]),
+        Err(CoreError::InvalidInput(_))
+    ));
+}

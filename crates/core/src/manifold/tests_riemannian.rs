@@ -377,3 +377,118 @@ fn test_lorentz_parallel_transport_intermediate_theta_and_continuity() {
         }
     }
 }
+
+#[test]
+fn test_manifold_move_pair_radial_all_kinds_f64_f32_and_guards() {
+    let cases = [
+        (
+            ManifoldKind::HyperbolicPoincare,
+            [-0.35, 0.30],
+            [0.15, -0.20],
+            2.25,
+            1.0,
+        ),
+        (
+            ManifoldKind::HyperbolicLorentz,
+            [-1.4, 2.1],
+            [0.6, -0.9],
+            1.75,
+            1.0,
+        ),
+        (ManifoldKind::Spherical, [0.4, 2.0], [0.9, 1.5], 2.5, 1.0),
+        (ManifoldKind::Torus2d, [0.85, 0.15], [0.20, 0.80], 2.0, 1.75),
+    ];
+
+    for (kind, xs, ys, scale, aspect) in cases {
+        let mut m64_t = ManifoldLayout2d::<f64>::from_xy(kind, xs.to_vec(), ys.to_vec()).unwrap();
+        if kind == ManifoldKind::Torus2d {
+            m64_t.set_torus_extents(scale * aspect, scale).unwrap();
+        } else {
+            m64_t.set_scale(scale).unwrap();
+        }
+        let mut m64_r = m64_t.clone();
+        let d0 = m64_t.distance(0, 1);
+        let target = d0 * 0.45;
+        m64_t.move_pair_toward(0, 1, target, 0.3, 0.2).unwrap();
+        m64_r
+            .move_pair_radial(0, 1, 0.3 * (d0 - target), 0.2 * (d0 - target))
+            .unwrap();
+        for k in 0..2 {
+            assert!((m64_t.x()[k] - m64_r.x()[k]).abs() <= 1e-13);
+            assert!((m64_t.y()[k] - m64_r.y()[k]).abs() <= 1e-13);
+        }
+        let d_mid = m64_r.distance(0, 1);
+        m64_r.move_pair_radial(0, 1, -0.15, -0.1).unwrap();
+        assert!(m64_r.distance(0, 1) > d_mid);
+
+        let (x0_bits, y0_bits) = (m64_r.x()[0].to_bits(), m64_r.y()[0].to_bits());
+        m64_r.move_pair_radial(0, 1, 0.0, 0.05).unwrap();
+        assert_eq!(
+            (m64_r.x()[0].to_bits(), m64_r.y()[0].to_bits()),
+            (x0_bits, y0_bits)
+        );
+        let snap = m64_r.clone();
+        m64_r.move_pair_radial(0, 1, 0.0, 0.0).unwrap();
+        assert_eq!(m64_r, snap);
+
+        let mut m32_t = ManifoldLayout2d::<f32>::from_xy(
+            kind,
+            xs.map(|v| v as f32).to_vec(),
+            ys.map(|v| v as f32).to_vec(),
+        )
+        .unwrap();
+        if kind == ManifoldKind::Torus2d {
+            m32_t.set_torus_extents(scale * aspect, scale).unwrap();
+        } else {
+            m32_t.set_scale(scale).unwrap();
+        }
+        let mut m32_r = m32_t.clone();
+        let d32 = m32_t.distance(0, 1);
+        m32_t.move_pair_toward(0, 1, d32 * 0.5, 0.25, 0.25).unwrap();
+        m32_r
+            .move_pair_radial(0, 1, 0.25 * (d32 * 0.5), 0.25 * (d32 * 0.5))
+            .unwrap();
+        assert!((m32_t.x()[0] - m32_r.x()[0]).abs() <= 1e-5);
+        assert!((m32_t.y()[1] - m32_r.y()[1]).abs() <= 1e-5);
+
+        m64_r.move_pair_radial(0, 1, 25.0, -25.0).unwrap();
+        m64_r.validate_finite().unwrap();
+        for k in 0..2 {
+            match kind {
+                ManifoldKind::HyperbolicPoincare => assert!(m64_r.x()[k].hypot(m64_r.y()[k]) < 1.0),
+                ManifoldKind::Spherical => assert!(
+                    (0.0..2.0 * PI).contains(&m64_r.x()[k]) && (0.0..=PI).contains(&m64_r.y()[k])
+                ),
+                ManifoldKind::Torus2d => assert!(
+                    (0.0..1.0).contains(&m64_r.x()[k]) && (0.0..1.0).contains(&m64_r.y()[k])
+                ),
+                ManifoldKind::HyperbolicLorentz => {}
+            }
+        }
+    }
+
+    let mut m =
+        ManifoldLayout2d::<f64>::from_xy(ManifoldKind::Torus2d, vec![0.1, 0.6], vec![0.2, 0.2])
+            .unwrap();
+    let m_snap = m.clone();
+    assert!(matches!(
+        m.move_pair_radial(2, 0, 0.1, 0.1),
+        Err(CoreError::IndexOutOfBounds { .. })
+    ));
+    assert!(matches!(
+        m.move_pair_radial(0, 1, f64::INFINITY, 0.1),
+        Err(CoreError::NonFiniteValue { .. })
+    ));
+    assert!(matches!(
+        m.move_pair_radial(0, 1, 1e308, 0.0),
+        Err(CoreError::NonFiniteValue { .. })
+    ));
+    assert_eq!(m, m_snap);
+
+    let mut bad_pt = ManifoldLayout2d::<f64>::zeros(ManifoldKind::HyperbolicLorentz, 2);
+    bad_pt.xy_mut().0[0] = f64::NAN;
+    assert!(matches!(
+        bad_pt.move_pair_radial(0, 0, 0.1, 0.1),
+        Err(CoreError::NonFiniteValue { .. })
+    ));
+}

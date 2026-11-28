@@ -43,10 +43,22 @@ class TestLayout3dPolylinesAndErrors(unittest.TestCase):
             eg.NonFiniteValueError,
             eg.UnsupportedOperationError,
             eg.NumericalBreakdownError,
+            eg.BackendUnavailableError,
+            eg.DeviceLimitExceededError,
         ):
             self.assertTrue(issubclass(exc_cls, eg.EgraphError))
             self.assertTrue(issubclass(exc_cls, ValueError))
         self.assertTrue(issubclass(eg.IndexOutOfBoundsError, IndexError))
+
+        for new_exc_cls, msg in (
+            (eg.BackendUnavailableError, "no adapter"),
+            (eg.DeviceLimitExceededError, "buffer exceeds limit"),
+        ):
+            with self.assertRaises(eg.EgraphError) as ctx_new:
+                raise new_exc_cls(msg)
+            self.assertIsInstance(ctx_new.exception, new_exc_cls)
+            self.assertIsInstance(ctx_new.exception, ValueError)
+            self.assertEqual(str(ctx_new.exception), msg)
 
         g = _make_grid(3, 3)
 

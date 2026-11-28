@@ -13,7 +13,9 @@ export type EgraphErrorCode =
     | "InvalidCsr"
     | "NonFiniteValue"
     | "UnsupportedOperation"
-    | "NumericalBreakdown";
+    | "NumericalBreakdown"
+    | "BackendUnavailable"
+    | "DeviceLimitExceeded";
 
 /**
  * Canonical target coordinate storage kind accepted by solvers and generators.

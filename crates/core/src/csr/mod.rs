@@ -283,4 +283,79 @@ impl<W> CsrGraph<W> {
         }
         Ok(self.edge_weight(u, v))
     }
+
+    /// Returns a vertex-permuted graph where `old_to_new[old_id] = new_id`, keeping CSR rows
+    /// sorted in ascending neighbor order.
+    pub fn permute_nodes(&self, old_to_new: &[u32]) -> CoreResult<Self>
+    where
+        W: Clone,
+    {
+        let n = self.num_nodes;
+        if old_to_new.len() != n {
+            return Err(CoreError::dimension_mismatch(
+                n,
+                old_to_new.len(),
+                "CsrGraph::permute_nodes",
+            ));
+        }
+        let mut new_to_old = vec![u32::MAX; n];
+        for (old_u, &new_u) in old_to_new.iter().enumerate() {
+            let idx = new_u as usize;
+            if idx >= n || new_to_old[idx] != u32::MAX {
+                return Err(CoreError::invalid_input(format!(
+                    "CsrGraph::permute_nodes: permutation must be a bijection on 0..{n}"
+                )));
+            }
+            new_to_old[idx] = old_u as u32;
+        }
+
+        let mut out_indptr = Vec::with_capacity(n + 1);
+        out_indptr.push(0u32);
+        let mut out_indices = Vec::with_capacity(self.indices.len());
+        let mut out_weights = self.weights.as_ref().map(|w| Vec::with_capacity(w.len()));
+
+        if let (Some(w_src), Some(w_dst)) = (&self.weights, &mut out_weights) {
+            let mut row_buf: Vec<(u32, W)> = Vec::new();
+            for &old_u_u32 in &new_to_old {
+                let old_u = old_u_u32 as usize;
+                let start = self.indptr[old_u] as usize;
+                let end = self.indptr[old_u + 1] as usize;
+                row_buf.clear();
+                for pos in start..end {
+                    let new_v = old_to_new[self.indices[pos] as usize];
+                    row_buf.push((new_v, w_src[pos].clone()));
+                }
+                row_buf.sort_unstable_by_key(|&(v, _)| v);
+                for (v, w) in row_buf.drain(..) {
+                    out_indices.push(v);
+                    w_dst.push(w);
+                }
+                let ptr = u32::try_from(out_indices.len())
+                    .map_err(|_| CoreError::invalid_csr("CSR nnz exceeds u32::MAX"))?;
+                out_indptr.push(ptr);
+            }
+        } else {
+            for &old_u_u32 in &new_to_old {
+                let old_u = old_u_u32 as usize;
+                let start = self.indptr[old_u] as usize;
+                let end = self.indptr[old_u + 1] as usize;
+                let row_start = out_indices.len();
+                for pos in start..end {
+                    out_indices.push(old_to_new[self.indices[pos] as usize]);
+                }
+                out_indices[row_start..].sort_unstable();
+                let ptr = u32::try_from(out_indices.len())
+                    .map_err(|_| CoreError::invalid_csr("CSR nnz exceeds u32::MAX"))?;
+                out_indptr.push(ptr);
+            }
+        }
+
+        Ok(Self {
+            num_nodes: n,
+            directed: self.directed,
+            indptr: out_indptr,
+            indices: out_indices,
+            weights: out_weights,
+        })
+    }
 }

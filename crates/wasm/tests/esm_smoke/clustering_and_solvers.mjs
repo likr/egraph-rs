@@ -79,6 +79,8 @@ export async function runClusteringAndSolversSmoke({ eg }) {
   assert(dtsText.includes("static fromLandmarks("));
   assert(dtsText.includes('"sampledNp1"'));
   assert(dtsText.includes("export type EgraphErrorCode ="));
+  assert(dtsText.includes('"BackendUnavailable"'));
+  assert(dtsText.includes('"DeviceLimitExceeded"'));
   assert(dtsText.includes("export interface LayoutStorage {"));
   assert(dtsText.includes("export interface IterativeSolver<TTarget"));
   assert(dtsText.includes("export interface LayoutGenerator<TOutput"));

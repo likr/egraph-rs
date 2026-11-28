@@ -18,6 +18,27 @@ use crate::error::{CoreError, CoreResult};
 use crate::rng::DeterministicRng;
 use crate::scalar::Scalar;
 
+pub(crate) fn validate_bijection(
+    n: usize,
+    old_to_new: &[u32],
+    ctx: &'static str,
+) -> CoreResult<()> {
+    if old_to_new.len() != n {
+        return Err(CoreError::dimension_mismatch(n, old_to_new.len(), ctx));
+    }
+    let mut seen = vec![false; n];
+    for &new_id in old_to_new {
+        let idx = new_id as usize;
+        if idx >= n || seen[idx] {
+            return Err(CoreError::invalid_input(format!(
+                "{ctx}: permutation must be a bijection on 0..{n}"
+            )));
+        }
+        seen[idx] = true;
+    }
+    Ok(())
+}
+
 /// Structure-of-Arrays (SoA) 2D node layout storing contiguous `x` and `y` coordinate slices.
 ///
 /// Storing `x` and `y` in separate contiguous vectors improves cache locality and SIMD
@@ -298,5 +319,33 @@ impl<S: Scalar> Layout2d<S> {
             self.y[i] = S::from_f64((self.y[i].to_f64() - mean_y) * scale);
         }
         Ok(())
+    }
+
+    /// Returns a vertex-permuted layout where `out[old_to_new[old_i]] = self[old_i]`.
+    pub fn permute(&self, old_to_new: &[u32]) -> CoreResult<Self> {
+        let n = self.len();
+        validate_bijection(n, old_to_new, "Layout2d::permute")?;
+        let mut x = vec![S::ZERO; n];
+        let mut y = vec![S::ZERO; n];
+        for (old_i, &new_i_u32) in old_to_new.iter().enumerate() {
+            let new_i = new_i_u32 as usize;
+            x[new_i] = self.x[old_i];
+            y[new_i] = self.y[old_i];
+        }
+        Ok(Self { x, y })
+    }
+
+    /// Restores original vertex ordering from a permuted layout: `out[old_i] = self[old_to_new[old_i]]`.
+    pub fn unpermute(&self, old_to_new: &[u32]) -> CoreResult<Self> {
+        let n = self.len();
+        validate_bijection(n, old_to_new, "Layout2d::unpermute")?;
+        let mut x = Vec::with_capacity(n);
+        let mut y = Vec::with_capacity(n);
+        for &new_i_u32 in old_to_new {
+            let new_i = new_i_u32 as usize;
+            x.push(self.x[new_i]);
+            y.push(self.y[new_i]);
+        }
+        Ok(Self { x, y })
     }
 }

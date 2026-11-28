@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from egraph._core import (
     ArenaOctree3d as ArenaOctree3d,
+    BackendUnavailableError as BackendUnavailableError,
     CsrGraph as CsrGraph,
     DatasetInfo as DatasetInfo,
+    DeviceLimitExceededError as DeviceLimitExceededError,
     DimensionMismatchError as DimensionMismatchError,
     DynamicKdTree as DynamicKdTree,
     EdgePolylines as EdgePolylines,
@@ -36,8 +38,10 @@ from egraph._core import (
 
 __all__ = [
     "ArenaOctree3d",
+    "BackendUnavailableError",
     "CsrGraph",
     "DatasetInfo",
+    "DeviceLimitExceededError",
     "DimensionMismatchError",
     "DynamicKdTree",
     "EdgePolylines",

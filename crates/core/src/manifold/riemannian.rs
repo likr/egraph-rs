@@ -213,6 +213,87 @@ impl<S: Scalar> MetricSpace for ManifoldLayout2d<S> {
     }
 }
 
+#[inline]
+fn move_pair_manifold_with<S: Scalar>(
+    layout: &mut ManifoldLayout2d<S>,
+    i: usize,
+    j: usize,
+    ctx: &'static str,
+    compute_scales: impl FnOnce(f64) -> (f64, f64),
+) -> CoreResult<()> {
+    let (xi, yi) = validate_index_and_point(layout, i, ctx)?;
+    let (xj, yj) = validate_index_and_point(layout, j, ctx)?;
+    if i == j {
+        return Ok(());
+    }
+    let d = layout.distance(i, j);
+    if !d.is_finite() {
+        return Err(CoreError::non_finite(ctx));
+    }
+    if d <= 1e-15 {
+        return Ok(());
+    }
+    let (si, sj) = compute_scales(d);
+    if !si.is_finite() || !sj.is_finite() {
+        return Err(CoreError::non_finite(ctx));
+    }
+    if si == 0.0 && sj == 0.0 {
+        return Ok(());
+    }
+    let mut log_ij = [0.0_f64; 2];
+    let mut log_ji = [0.0_f64; 2];
+    let (di0, di1) = if si != 0.0 {
+        layout.log_map_into(i, j, &mut log_ij)?;
+        let d0 = si * log_ij[0];
+        let d1 = si * log_ij[1];
+        if !d0.is_finite() || !d1.is_finite() {
+            return Err(CoreError::non_finite(ctx));
+        }
+        (d0, d1)
+    } else {
+        (0.0, 0.0)
+    };
+    let (dj0, dj1) = if sj != 0.0 {
+        layout.log_map_into(j, i, &mut log_ji)?;
+        let d0 = sj * log_ji[0];
+        let d1 = sj * log_ji[1];
+        if !d0.is_finite() || !d1.is_finite() {
+            return Err(CoreError::non_finite(ctx));
+        }
+        (d0, d1)
+    } else {
+        (0.0, 0.0)
+    };
+    let next_i = if si != 0.0 {
+        let (nxi, nyi) = step_point_f64(layout, xi, yi, di0, di1, None);
+        if !nxi.is_finite() || !nyi.is_finite() {
+            return Err(CoreError::non_finite(ctx));
+        }
+        Some((nxi, nyi))
+    } else {
+        None
+    };
+    let next_j = if sj != 0.0 {
+        let (nxj, nyj) = step_point_f64(layout, xj, yj, dj0, dj1, None);
+        if !nxj.is_finite() || !nyj.is_finite() {
+            return Err(CoreError::non_finite(ctx));
+        }
+        Some((nxj, nyj))
+    } else {
+        None
+    };
+    let (xs, ys) = layout.xy_mut();
+    if let Some((nxi, nyi)) = next_i {
+        xs[i] = nxi;
+        ys[i] = nyi;
+    }
+    if let Some((nxj, nyj)) = next_j {
+        xs[j] = nxj;
+        ys[j] = nyj;
+    }
+    Ok(())
+}
+
 impl<S: Scalar> RiemannianLayout for ManifoldLayout2d<S> {
     #[inline]
     fn tangent_dim(&self) -> usize {
@@ -307,6 +388,36 @@ impl<S: Scalar> RiemannianLayout for ManifoldLayout2d<S> {
         Ok(())
     }
 
+    fn move_pair_radial(
+        &mut self,
+        i: usize,
+        j: usize,
+        delta_r_i: f64,
+        delta_r_j: f64,
+    ) -> CoreResult<()> {
+        let n = self.len();
+        if i >= n {
+            return Err(CoreError::index_out_of_bounds(
+                i,
+                n,
+                "ManifoldLayout2d::move_pair_radial",
+            ));
+        }
+        if j >= n {
+            return Err(CoreError::index_out_of_bounds(
+                j,
+                n,
+                "ManifoldLayout2d::move_pair_radial",
+            ));
+        }
+        if !delta_r_i.is_finite() || !delta_r_j.is_finite() {
+            return Err(CoreError::non_finite("ManifoldLayout2d::move_pair_radial"));
+        }
+        move_pair_manifold_with(self, i, j, "ManifoldLayout2d::move_pair_radial", |d| {
+            (delta_r_i / d, delta_r_j / d)
+        })
+    }
+
     fn move_pair_toward(
         &mut self,
         i: usize,
@@ -315,35 +426,27 @@ impl<S: Scalar> RiemannianLayout for ManifoldLayout2d<S> {
         step_weight_i: f64,
         step_weight_j: f64,
     ) -> CoreResult<()> {
+        let n = self.len();
+        if i >= n {
+            return Err(CoreError::index_out_of_bounds(
+                i,
+                n,
+                "ManifoldLayout2d::move_pair_toward",
+            ));
+        }
+        if j >= n {
+            return Err(CoreError::index_out_of_bounds(
+                j,
+                n,
+                "ManifoldLayout2d::move_pair_toward",
+            ));
+        }
         if !target_dist.is_finite() || !step_weight_i.is_finite() || !step_weight_j.is_finite() {
             return Err(CoreError::non_finite("ManifoldLayout2d::move_pair_toward"));
         }
-        let (xi, yi) = validate_index_and_point(self, i, "ManifoldLayout2d::move_pair_toward")?;
-        let (xj, yj) = validate_index_and_point(self, j, "ManifoldLayout2d::move_pair_toward")?;
-        if i == j {
-            return Ok(());
-        }
-        let d = self.distance(i, j);
-        if !d.is_finite() {
-            return Err(CoreError::non_finite("ManifoldLayout2d::move_pair_toward"));
-        }
-        if d <= 1e-15 {
-            return Ok(());
-        }
-        let mut log_ij = [0.0_f64; 2];
-        let mut log_ji = [0.0_f64; 2];
-        self.log_map_into(i, j, &mut log_ij)?;
-        self.log_map_into(j, i, &mut log_ji)?;
-        let coeff = (d - target_dist) / d;
-        let si = step_weight_i * coeff;
-        let sj = step_weight_j * coeff;
-        let (nxi, nyi) = step_point_f64(self, xi, yi, si * log_ij[0], si * log_ij[1], None);
-        let (nxj, nyj) = step_point_f64(self, xj, yj, sj * log_ji[0], sj * log_ji[1], None);
-        let (xs, ys) = self.xy_mut();
-        xs[i] = nxi;
-        ys[i] = nyi;
-        xs[j] = nxj;
-        ys[j] = nyj;
-        Ok(())
+        move_pair_manifold_with(self, i, j, "ManifoldLayout2d::move_pair_toward", |d| {
+            let coeff = (d - target_dist) / d;
+            (step_weight_i * coeff, step_weight_j * coeff)
+        })
     }
 }

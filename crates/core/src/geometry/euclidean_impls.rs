@@ -1,10 +1,11 @@
 use crate::error::{CoreError, CoreResult};
-use crate::layout::{Layout3d, LayoutNd};
+use crate::layout::Layout3d;
 use crate::scalar::Scalar;
 
 use super::{
     EuclideanLayout, EuclideanStorageMut, EuclideanStorageRef, LayoutStorage, MetricSpace,
     RiemannianLayout, validate_euclidean_tangent_args, validate_pair_and_weights,
+    validate_radial_args,
 };
 
 #[inline]
@@ -20,26 +21,82 @@ fn norm3_f64(dx: f64, dy: f64, dz: f64) -> f64 {
 }
 
 #[inline]
-fn norm_slice_diff_f64<S: Scalar>(a: &[S], b: &[S]) -> f64 {
-    let mut m = 0.0_f64;
-    for (&va, &vb) in a.iter().zip(b.iter()) {
-        let d = (va.to_f64() - vb.to_f64()).abs();
-        if !d.is_finite() {
-            return d;
+fn move_pair_3d_with<S: Scalar>(
+    layout: &mut Layout3d<S>,
+    i: usize,
+    j: usize,
+    ctx: &'static str,
+    compute_scales: impl FnOnce(f64) -> (f64, f64),
+) -> CoreResult<()> {
+    let (xs, ys, zs) = layout.xyz_mut();
+    let xi = xs[i].to_f64();
+    let yi = ys[i].to_f64();
+    let zi = zs[i].to_f64();
+    let xj = xs[j].to_f64();
+    let yj = ys[j].to_f64();
+    let zj = zs[j].to_f64();
+    if !xi.is_finite()
+        || !yi.is_finite()
+        || !zi.is_finite()
+        || !xj.is_finite()
+        || !yj.is_finite()
+        || !zj.is_finite()
+    {
+        return Err(CoreError::non_finite(ctx));
+    }
+    if i == j {
+        return Ok(());
+    }
+    let dx = xj - xi;
+    let dy = yj - yi;
+    let dz = zj - zi;
+    let d = norm3_f64(dx, dy, dz);
+    if !d.is_finite() {
+        return Err(CoreError::non_finite(ctx));
+    }
+    if d <= 1e-15 {
+        return Ok(());
+    }
+    let (si, sj) = compute_scales(d);
+    if !si.is_finite() || !sj.is_finite() {
+        return Err(CoreError::non_finite(ctx));
+    }
+    if si == 0.0 && sj == 0.0 {
+        return Ok(());
+    }
+    let next_i = if si != 0.0 {
+        let nxi = S::from_f64(xi + si * dx);
+        let nyi = S::from_f64(yi + si * dy);
+        let nzi = S::from_f64(zi + si * dz);
+        if !nxi.is_finite() || !nyi.is_finite() || !nzi.is_finite() {
+            return Err(CoreError::non_finite(ctx));
         }
-        if d > m {
-            m = d;
+        Some((nxi, nyi, nzi))
+    } else {
+        None
+    };
+    let next_j = if sj != 0.0 {
+        let nxj = S::from_f64(xj - sj * dx);
+        let nyj = S::from_f64(yj - sj * dy);
+        let nzj = S::from_f64(zj - sj * dz);
+        if !nxj.is_finite() || !nyj.is_finite() || !nzj.is_finite() {
+            return Err(CoreError::non_finite(ctx));
         }
+        Some((nxj, nyj, nzj))
+    } else {
+        None
+    };
+    if let Some((nxi, nyi, nzi)) = next_i {
+        xs[i] = nxi;
+        ys[i] = nyi;
+        zs[i] = nzi;
     }
-    if m == 0.0 {
-        return 0.0;
+    if let Some((nxj, nyj, nzj)) = next_j {
+        xs[j] = nxj;
+        ys[j] = nyj;
+        zs[j] = nzj;
     }
-    let mut sum_sq = 0.0_f64;
-    for (&va, &vb) in a.iter().zip(b.iter()) {
-        let s = (va.to_f64() - vb.to_f64()) / m;
-        sum_sq += s * s;
-    }
-    m * sum_sq.sqrt()
+    Ok(())
 }
 
 impl<S: Scalar> LayoutStorage for Layout3d<S> {
@@ -137,6 +194,27 @@ impl<S: Scalar> RiemannianLayout for Layout3d<S> {
     }
 
     #[inline]
+    fn move_pair_radial(
+        &mut self,
+        i: usize,
+        j: usize,
+        delta_r_i: f64,
+        delta_r_j: f64,
+    ) -> CoreResult<()> {
+        validate_radial_args(
+            self.len(),
+            i,
+            j,
+            delta_r_i,
+            delta_r_j,
+            "Layout3d::move_pair_radial",
+        )?;
+        move_pair_3d_with(self, i, j, "Layout3d::move_pair_radial", |d| {
+            (delta_r_i / d, delta_r_j / d)
+        })
+    }
+
+    #[inline]
     fn move_pair_toward(
         &mut self,
         i: usize,
@@ -145,9 +223,8 @@ impl<S: Scalar> RiemannianLayout for Layout3d<S> {
         step_weight_i: f64,
         step_weight_j: f64,
     ) -> CoreResult<()> {
-        let n = self.len();
         validate_pair_and_weights(
-            n,
+            self.len(),
             i,
             j,
             target_dist,
@@ -155,60 +232,10 @@ impl<S: Scalar> RiemannianLayout for Layout3d<S> {
             step_weight_j,
             "Layout3d::move_pair_toward",
         )?;
-        let (xs, ys, zs) = self.xyz_mut();
-        let xi = xs[i].to_f64();
-        let yi = ys[i].to_f64();
-        let zi = zs[i].to_f64();
-        let xj = xs[j].to_f64();
-        let yj = ys[j].to_f64();
-        let zj = zs[j].to_f64();
-        if !xi.is_finite()
-            || !yi.is_finite()
-            || !zi.is_finite()
-            || !xj.is_finite()
-            || !yj.is_finite()
-            || !zj.is_finite()
-        {
-            return Err(CoreError::non_finite("Layout3d::move_pair_toward"));
-        }
-        if i == j {
-            return Ok(());
-        }
-        let dx = xj - xi;
-        let dy = yj - yi;
-        let dz = zj - zi;
-        let d = norm3_f64(dx, dy, dz);
-        if !d.is_finite() {
-            return Err(CoreError::non_finite("Layout3d::move_pair_toward"));
-        }
-        if d <= 1e-15 {
-            return Ok(());
-        }
-        let coeff = (d - target_dist) / d;
-        let si = step_weight_i * coeff;
-        let sj = step_weight_j * coeff;
-        let nxi = S::from_f64(xi + si * dx);
-        let nyi = S::from_f64(yi + si * dy);
-        let nzi = S::from_f64(zi + si * dz);
-        let nxj = S::from_f64(xj - sj * dx);
-        let nyj = S::from_f64(yj - sj * dy);
-        let nzj = S::from_f64(zj - sj * dz);
-        if !nxi.is_finite()
-            || !nyi.is_finite()
-            || !nzi.is_finite()
-            || !nxj.is_finite()
-            || !nyj.is_finite()
-            || !nzj.is_finite()
-        {
-            return Err(CoreError::non_finite("Layout3d::move_pair_toward"));
-        }
-        xs[i] = nxi;
-        ys[i] = nyi;
-        zs[i] = nzi;
-        xs[j] = nxj;
-        ys[j] = nyj;
-        zs[j] = nzj;
-        Ok(())
+        move_pair_3d_with(self, i, j, "Layout3d::move_pair_toward", |d| {
+            let coeff = (d - target_dist) / d;
+            (step_weight_i * coeff, step_weight_j * coeff)
+        })
     }
 }
 
@@ -281,204 +308,5 @@ impl<S: Scalar> EuclideanLayout for Layout3d<S> {
     #[inline]
     fn zeros_like(&self, num_nodes: usize) -> CoreResult<Self> {
         Ok(Self::zeros(num_nodes))
-    }
-}
-
-impl<S: Scalar> LayoutStorage for LayoutNd<S> {
-    type Scalar = S;
-
-    #[inline]
-    fn len(&self) -> usize {
-        self.num_nodes()
-    }
-
-    #[inline]
-    fn validate_finite(&self) -> CoreResult<()> {
-        self.validate_finite()
-    }
-}
-
-impl<S: Scalar> MetricSpace for LayoutNd<S> {
-    #[inline]
-    fn distance(&self, i: usize, j: usize) -> f64 {
-        let d = self.dims();
-        let coords = self.coords();
-        let si = i * d;
-        let sj = j * d;
-        norm_slice_diff_f64(&coords[si..si + d], &coords[sj..sj + d])
-    }
-}
-
-impl<S: Scalar> RiemannianLayout for LayoutNd<S> {
-    #[inline]
-    fn tangent_dim(&self) -> usize {
-        self.dims()
-    }
-
-    fn log_map_into(&self, i: usize, j: usize, out: &mut [f64]) -> CoreResult<()> {
-        let n = self.num_nodes();
-        let d = self.dims();
-        if i >= n {
-            return Err(CoreError::index_out_of_bounds(
-                i,
-                n,
-                "LayoutNd::log_map_into",
-            ));
-        }
-        if j >= n {
-            return Err(CoreError::index_out_of_bounds(
-                j,
-                n,
-                "LayoutNd::log_map_into",
-            ));
-        }
-        if out.len() < d {
-            return Err(CoreError::dimension_mismatch(
-                d,
-                out.len(),
-                "LayoutNd::log_map_into",
-            ));
-        }
-        let coords = self.coords();
-        let si = i * d;
-        let sj = j * d;
-        for axis in 0..d {
-            out[axis] = coords[sj + axis].to_f64() - coords[si + axis].to_f64();
-        }
-        Ok(())
-    }
-
-    fn exp_map(&mut self, i: usize, delta: &[f64]) -> CoreResult<()> {
-        let n = self.num_nodes();
-        let d = self.dims();
-        validate_euclidean_tangent_args(n, d, i, delta, "LayoutNd::exp_map")?;
-        let base = i * d;
-        let coords = self.coords_mut();
-        for axis in 0..d {
-            let next = S::from_f64(coords[base + axis].to_f64() + delta[axis]);
-            if !next.is_finite() {
-                return Err(CoreError::non_finite("LayoutNd::exp_map"));
-            }
-            coords[base + axis] = next;
-        }
-        Ok(())
-    }
-
-    fn parallel_transport_into(&self, i: usize, delta: &[f64], vec: &mut [f64]) -> CoreResult<()> {
-        let n = self.num_nodes();
-        let d = self.dims();
-        validate_euclidean_tangent_args(n, d, i, delta, "LayoutNd::parallel_transport_into")?;
-        if vec.len() != d {
-            return Err(CoreError::dimension_mismatch(
-                d,
-                vec.len(),
-                "LayoutNd::parallel_transport_into",
-            ));
-        }
-        if !vec.iter().all(|v| v.is_finite()) {
-            return Err(CoreError::non_finite("LayoutNd::parallel_transport_into"));
-        }
-        Ok(())
-    }
-
-    fn move_pair_toward(
-        &mut self,
-        i: usize,
-        j: usize,
-        target_dist: f64,
-        step_weight_i: f64,
-        step_weight_j: f64,
-    ) -> CoreResult<()> {
-        let n = self.num_nodes();
-        let d = self.dims();
-        validate_pair_and_weights(
-            n,
-            i,
-            j,
-            target_dist,
-            step_weight_i,
-            step_weight_j,
-            "LayoutNd::move_pair_toward",
-        )?;
-        let coords = self.coords_mut();
-        let si = i * d;
-        let sj = j * d;
-        if !coords[si..si + d].iter().all(|v| v.is_finite())
-            || !coords[sj..sj + d].iter().all(|v| v.is_finite())
-        {
-            return Err(CoreError::non_finite("LayoutNd::move_pair_toward"));
-        }
-        if i == j {
-            return Ok(());
-        }
-        let dist = norm_slice_diff_f64(&coords[si..si + d], &coords[sj..sj + d]);
-        if !dist.is_finite() {
-            return Err(CoreError::non_finite("LayoutNd::move_pair_toward"));
-        }
-        if dist <= 1e-15 {
-            return Ok(());
-        }
-        let coeff = (dist - target_dist) / dist;
-        let wi = step_weight_i * coeff;
-        let wj = step_weight_j * coeff;
-        for axis in 0..d {
-            let xi = coords[si + axis].to_f64();
-            let xj = coords[sj + axis].to_f64();
-            let delta = xj - xi;
-            let nxi = S::from_f64(xi + wi * delta);
-            let nxj = S::from_f64(xj - wj * delta);
-            if !nxi.is_finite() || !nxj.is_finite() {
-                return Err(CoreError::non_finite("LayoutNd::move_pair_toward"));
-            }
-            coords[si + axis] = nxi;
-            coords[sj + axis] = nxj;
-        }
-        Ok(())
-    }
-}
-
-impl<S: Scalar> EuclideanLayout for LayoutNd<S> {
-    #[inline]
-    fn dims(&self) -> usize {
-        self.dims()
-    }
-
-    #[inline]
-    fn coord(&self, node: usize, axis: usize) -> CoreResult<f64> {
-        self.get(node, axis).map(Scalar::to_f64)
-    }
-
-    #[inline]
-    fn set_coord(&mut self, node: usize, axis: usize, value: f64) -> CoreResult<()> {
-        let converted = S::from_f64(value);
-        if !value.is_finite() || !converted.is_finite() {
-            return Err(CoreError::non_finite("LayoutNd::set_coord"));
-        }
-        self.set(node, axis, converted)
-    }
-
-    #[inline]
-    fn as_euclidean_storage(&self) -> EuclideanStorageRef<'_, Self::Scalar> {
-        EuclideanStorageRef::FlatNd {
-            coords: self.coords(),
-            num_nodes: self.num_nodes(),
-            dims: self.dims(),
-        }
-    }
-
-    #[inline]
-    fn as_euclidean_storage_mut(&mut self) -> EuclideanStorageMut<'_, Self::Scalar> {
-        let num_nodes = self.num_nodes();
-        let dims = self.dims();
-        EuclideanStorageMut::FlatNd {
-            coords: self.coords_mut(),
-            num_nodes,
-            dims,
-        }
-    }
-
-    #[inline]
-    fn zeros_like(&self, num_nodes: usize) -> CoreResult<Self> {
-        Self::zeros(num_nodes, self.dims())
     }
 }

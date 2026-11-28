@@ -31,6 +31,10 @@ pub enum CoreError {
     UnsupportedOperation(String),
     /// An iterative solver encountered a numerical breakdown.
     NumericalBreakdown(String),
+    /// A requested compute or acceleration backend is unavailable on the current host or runtime.
+    BackendUnavailable(String),
+    /// A workload or buffer allocation exceeded a compute backend's device limits.
+    DeviceLimitExceeded(String),
 }
 
 impl CoreError {
@@ -76,6 +80,16 @@ impl CoreError {
     pub fn numerical_breakdown(message: impl Into<String>) -> Self {
         Self::NumericalBreakdown(message.into())
     }
+
+    /// Constructs a [`CoreError::BackendUnavailable`] error.
+    pub fn backend_unavailable(message: impl Into<String>) -> Self {
+        Self::BackendUnavailable(message.into())
+    }
+
+    /// Constructs a [`CoreError::DeviceLimitExceeded`] error.
+    pub fn device_limit_exceeded(message: impl Into<String>) -> Self {
+        Self::DeviceLimitExceeded(message.into())
+    }
 }
 
 impl fmt::Display for CoreError {
@@ -104,6 +118,8 @@ impl fmt::Display for CoreError {
             }
             Self::UnsupportedOperation(msg) => write!(f, "unsupported operation: {msg}"),
             Self::NumericalBreakdown(msg) => write!(f, "numerical breakdown: {msg}"),
+            Self::BackendUnavailable(msg) => write!(f, "backend unavailable: {msg}"),
+            Self::DeviceLimitExceeded(msg) => write!(f, "device limit exceeded: {msg}"),
         }
     }
 }
@@ -124,6 +140,8 @@ mod tests {
             CoreError::non_finite("Layout2d::center_and_normalize_std"),
             CoreError::unsupported("directed graph unsupported"),
             CoreError::numerical_breakdown("zero pivot norm"),
+            CoreError::backend_unavailable("no GPU adapter found"),
+            CoreError::device_limit_exceeded("buffer exceeds max storage binding size"),
         ];
 
         for err in &cases {

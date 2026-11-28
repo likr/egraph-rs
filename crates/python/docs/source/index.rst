@@ -19,7 +19,7 @@ Features
 * 3D and $N$-dimensional spatial engine (``Layout3d``, ``ArenaOctree3d``, ``DynamicKdTree``, explicit ``target="layout3d" | "layout_nd"`` solvers, $N$-D quality metrics)
 * Non-Euclidean manifold engine (Poincaré hyperbolic disk ``"hyperbolic"``, Lorentz hyperboloid ``"hyperbolic_lorentz"``, sphere ``"spherical"``, periodic torus ``"torus"`` with ``ManifoldMetric``, ``torus_spectral_phase_init``, ``torus_auto_pan``, ``target="manifold2d"`` solvers, and geodesic crossings)
 * Ecosystem interoperability via ``egraph.interop`` (``scipy.sparse``, ``networkx``, ``igraph`` via ``to_igraph`` / ``to_networkx``)
-* Structured ``EgraphError(ValueError)`` exception hierarchy (7 typed subclasses matching ``CoreError``) and keyword-only ``*`` hyperparameters
+* Structured ``EgraphError(ValueError)`` exception hierarchy (9 typed subclasses matching ``CoreError``) and keyword-only ``*`` hyperparameters
 * SOTA & unified layout solvers:
 
   * **Track A**: ``TsNetSolver`` (Pure 1+2-Hop ``pure_2hop`` & row-normalized ``from_graph_row_normalized`` with ``backend="auto"`` / ``"fit_fft"`` / ``"linear_fft"`` / ``"barnes_hut"`` / ``"exact"``)

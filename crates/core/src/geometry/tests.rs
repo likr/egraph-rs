@@ -143,3 +143,194 @@ fn test_euclidean_storage_views_and_repulsion_backend_blanket() {
         Some(2.0)
     );
 }
+
+#[test]
+fn test_riemannian_default_move_pair_radial_and_delegation() {
+    struct Wrapper2d(Layout2d<f64>);
+
+    impl LayoutStorage for Wrapper2d {
+        type Scalar = f64;
+
+        fn len(&self) -> usize {
+            LayoutStorage::len(&self.0)
+        }
+
+        fn validate_finite(&self) -> CoreResult<()> {
+            LayoutStorage::validate_finite(&self.0)
+        }
+    }
+
+    impl MetricSpace for Wrapper2d {
+        fn distance(&self, i: usize, j: usize) -> f64 {
+            MetricSpace::distance(&self.0, i, j)
+        }
+    }
+
+    impl RiemannianLayout for Wrapper2d {
+        fn tangent_dim(&self) -> usize {
+            2
+        }
+
+        fn log_map_into(&self, i: usize, j: usize, out: &mut [f64]) -> CoreResult<()> {
+            RiemannianLayout::log_map_into(&self.0, i, j, out)
+        }
+
+        fn exp_map(&mut self, i: usize, delta: &[f64]) -> CoreResult<()> {
+            RiemannianLayout::exp_map(&mut self.0, i, delta)
+        }
+
+        fn parallel_transport_into(
+            &self,
+            i: usize,
+            delta: &[f64],
+            vec: &mut [f64],
+        ) -> CoreResult<()> {
+            RiemannianLayout::parallel_transport_into(&self.0, i, delta, vec)
+        }
+    }
+
+    // Positive, negative, asymmetric, zero, self-pair, and near-coincident steps.
+    let base = Layout2d::from_xy(vec![1.0, 4.0], vec![2.0, 6.0]).unwrap();
+    let mut wrapped = Wrapper2d(base.clone());
+    let mut direct = base.clone();
+    wrapped.move_pair_radial(0, 1, 1.25, 0.75).unwrap();
+    direct.move_pair_radial(0, 1, 1.25, 0.75).unwrap();
+    assert!((wrapped.distance(0, 1) - 3.0).abs() < 1e-12);
+    assert!((wrapped.0.x()[0] - direct.x()[0]).abs() < 1e-12);
+    assert!((wrapped.0.y()[1] - direct.y()[1]).abs() < 1e-12);
+
+    // Negative radial step pushes endpoints apart.
+    wrapped.move_pair_radial(0, 1, -0.5, -1.5).unwrap();
+    assert!((wrapped.distance(0, 1) - 5.0).abs() < 1e-12);
+
+    // Asymmetric one-sided step leaves endpoint 0 bit-exact untouched.
+    let before_x0 = wrapped.0.x()[0].to_bits();
+    let before_y0 = wrapped.0.y()[0].to_bits();
+    wrapped.move_pair_radial(0, 1, 0.0, 1.0).unwrap();
+    assert_eq!(wrapped.0.x()[0].to_bits(), before_x0);
+    assert_eq!(wrapped.0.y()[0].to_bits(), before_y0);
+    assert!((wrapped.distance(0, 1) - 4.0).abs() < 1e-12);
+
+    // Zero delta and self-pair are clean no-ops.
+    let snap = wrapped.0.clone();
+    wrapped.move_pair_radial(0, 1, 0.0, 0.0).unwrap();
+    wrapped.move_pair_radial(0, 0, 1.0, 1.0).unwrap();
+    assert_eq!(wrapped.0, snap);
+
+    // Near-coincident d <= 1e-15 is a clean no-op.
+    let mut tiny = Wrapper2d(Layout2d::from_xy(vec![1.0, 1.0 + 1e-16], vec![2.0, 2.0]).unwrap());
+    let tiny_snap = tiny.0.clone();
+    tiny.move_pair_radial(0, 1, 0.5, 0.5).unwrap();
+    assert_eq!(tiny.0, tiny_snap);
+
+    // Default move_pair_toward delegates to move_pair_radial and matches Layout2d.
+    let mut w_toward = Wrapper2d(base.clone());
+    let mut d_toward = base;
+    w_toward.move_pair_toward(0, 1, 2.0, 0.3, 0.2).unwrap();
+    d_toward.move_pair_toward(0, 1, 2.0, 0.3, 0.2).unwrap();
+    assert!((w_toward.0.x()[0] - d_toward.x()[0]).abs() < 1e-12);
+    assert!((w_toward.0.y()[0] - d_toward.y()[0]).abs() < 1e-12);
+    assert!((w_toward.0.x()[1] - d_toward.x()[1]).abs() < 1e-12);
+    assert!((w_toward.0.y()[1] - d_toward.y()[1]).abs() < 1e-12);
+
+    // Validation errors on default impl.
+    assert!(matches!(
+        w_toward.move_pair_radial(2, 0, 0.1, 0.1),
+        Err(CoreError::IndexOutOfBounds { .. })
+    ));
+    assert!(matches!(
+        w_toward.move_pair_radial(0, 1, f64::NAN, 0.1),
+        Err(CoreError::NonFiniteValue { .. })
+    ));
+    let mut short = Wrapper2d(Layout2d::from_xy(vec![0.0, 0.5], vec![0.0, 0.0]).unwrap());
+    assert!(matches!(
+        short.move_pair_radial(0, 1, 1e308, 0.0),
+        Err(CoreError::NonFiniteValue { .. })
+    ));
+}
+
+#[test]
+fn test_euclidean_move_pair_radial_parity_and_atomic_guards() {
+    // Equivalence between move_pair_toward and move_pair_radial on 2D, 3D, and ND (f64 & f32).
+    let mut l2_t = Layout2d::from_xy(vec![1.0_f64, 4.0], vec![-2.0, 2.0]).unwrap();
+    let mut l2_r = l2_t.clone();
+    let d2 = l2_t.distance(0, 1);
+    l2_t.move_pair_toward(0, 1, 2.0, 0.3, 0.2).unwrap();
+    l2_r.move_pair_radial(0, 1, 0.3 * (d2 - 2.0), 0.2 * (d2 - 2.0))
+        .unwrap();
+    assert!((l2_t.x()[0] - l2_r.x()[0]).abs() <= 1e-13);
+    assert!((l2_t.y()[1] - l2_r.y()[1]).abs() <= 1e-13);
+
+    let mut l3_t = Layout3d::from_xyz(vec![0.0_f32, 2.0], vec![1.0, 4.0], vec![-1.0, 5.0]).unwrap();
+    let mut l3_r = l3_t.clone();
+    let d3 = l3_t.distance(0, 1);
+    l3_t.move_pair_toward(0, 1, 3.0, 0.4, 0.1).unwrap();
+    l3_r.move_pair_radial(0, 1, 0.4 * (d3 - 3.0), 0.1 * (d3 - 3.0))
+        .unwrap();
+    assert!((l3_t.x()[0] - l3_r.x()[0]).abs() <= 1e-5);
+    assert!((l3_t.z()[1] - l3_r.z()[1]).abs() <= 1e-5);
+
+    let mut lnd_t =
+        LayoutNd::from_flat(2, 4, &[0.0_f64, 1.0, -1.0, 2.0, 3.0, 5.0, -1.0, 2.0]).unwrap();
+    let mut lnd_r = lnd_t.clone();
+    let dnd = lnd_t.distance(0, 1);
+    lnd_t.move_pair_toward(0, 1, 2.5, 0.25, 0.35).unwrap();
+    lnd_r
+        .move_pair_radial(0, 1, 0.25 * (dnd - 2.5), 0.35 * (dnd - 2.5))
+        .unwrap();
+    for axis in 0..4 {
+        assert!((lnd_t.get(0, axis).unwrap() - lnd_r.get(0, axis).unwrap()).abs() <= 1e-13);
+        assert!((lnd_t.get(1, axis).unwrap() - lnd_r.get(1, axis).unwrap()).abs() <= 1e-13);
+    }
+
+    // One-sided update preserves -0.0 bit-exact on stationary endpoint.
+    let mut neg_zero = Layout2d::from_xy(vec![-0.0_f64, 3.0], vec![-0.0, 4.0]).unwrap();
+    let x0_bits = neg_zero.x()[0].to_bits();
+    let y0_bits = neg_zero.y()[0].to_bits();
+    neg_zero.move_pair_radial(0, 1, 0.0, 1.0).unwrap();
+    assert_eq!(neg_zero.x()[0].to_bits(), x0_bits);
+    assert_eq!(neg_zero.y()[0].to_bits(), y0_bits);
+    assert!((neg_zero.distance(0, 1) - 4.0).abs() < 1e-12);
+
+    // Pre-i==j coordinate finiteness checks.
+    let mut nan_2d = Layout2d::from_xy(vec![f64::NAN, 1.0], vec![0.0, 1.0]).unwrap();
+    assert!(matches!(
+        nan_2d.move_pair_radial(0, 0, 0.1, 0.1),
+        Err(CoreError::NonFiniteValue { .. })
+    ));
+    let mut nan_3d =
+        Layout3d::from_xyz(vec![0.0, 1.0], vec![f64::INFINITY, 1.0], vec![0.0, 1.0]).unwrap();
+    assert!(matches!(
+        nan_3d.move_pair_radial(0, 0, 0.1, 0.1),
+        Err(CoreError::NonFiniteValue { .. })
+    ));
+    let mut nan_nd = LayoutNd::from_flat(2, 2, &[0.0, f64::NAN, 1.0, 1.0]).unwrap();
+    assert!(matches!(
+        nan_nd.move_pair_radial(0, 0, 0.1, 0.1),
+        Err(CoreError::NonFiniteValue { .. })
+    ));
+
+    // Empty and OOB guards.
+    let mut empty2 = Layout2d::<f64>::zeros(0);
+    assert!(matches!(
+        empty2.move_pair_radial(0, 0, 0.1, 0.1),
+        Err(CoreError::IndexOutOfBounds { .. })
+    ));
+
+    // Atomic no-mutation when LayoutNd axis 1 overflows f32 (axis 0 must remain untouched).
+    let mut nd32 = LayoutNd::from_flat(2, 2, &[1.0_f32, 0.0_f32, 2.0_f32, 3.0e38_f32]).unwrap();
+    let nd32_snap = nd32.clone();
+    assert!(matches!(
+        nd32.move_pair_radial(0, 1, 0.0, -3.0e38),
+        Err(CoreError::NonFiniteValue { .. })
+    ));
+    assert_eq!(nd32, nd32_snap);
+
+    let mut l2_32 = Layout2d::from_xy(vec![0.0_f32, 1.0], vec![0.0, 3.0e38]).unwrap();
+    let l2_32_snap = l2_32.clone();
+    assert!(matches!(
+        l2_32.move_pair_radial(0, 1, 0.0, -3.0e38),
+        Err(CoreError::NonFiniteValue { .. })
+    ));
+    assert_eq!(l2_32, l2_32_snap);
+}

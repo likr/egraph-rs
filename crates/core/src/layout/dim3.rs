@@ -1,3 +1,4 @@
+use super::validate_bijection;
 use crate::error::{CoreError, CoreResult};
 use crate::rng::DeterministicRng;
 use crate::scalar::Scalar;
@@ -325,5 +326,37 @@ impl<S: Scalar> Layout3d<S> {
             self.z[i] = S::from_f64((self.z[i].to_f64() - mean_z) * scale);
         }
         Ok(())
+    }
+
+    /// Returns a vertex-permuted layout where `out[old_to_new[old_i]] = self[old_i]`.
+    pub fn permute(&self, old_to_new: &[u32]) -> CoreResult<Self> {
+        let n = self.len();
+        validate_bijection(n, old_to_new, "Layout3d::permute")?;
+        let mut x = vec![S::ZERO; n];
+        let mut y = vec![S::ZERO; n];
+        let mut z = vec![S::ZERO; n];
+        for (old_i, &new_i_u32) in old_to_new.iter().enumerate() {
+            let new_i = new_i_u32 as usize;
+            x[new_i] = self.x[old_i];
+            y[new_i] = self.y[old_i];
+            z[new_i] = self.z[old_i];
+        }
+        Ok(Self { x, y, z })
+    }
+
+    /// Restores original vertex ordering from a permuted layout: `out[old_i] = self[old_to_new[old_i]]`.
+    pub fn unpermute(&self, old_to_new: &[u32]) -> CoreResult<Self> {
+        let n = self.len();
+        validate_bijection(n, old_to_new, "Layout3d::unpermute")?;
+        let mut x = Vec::with_capacity(n);
+        let mut y = Vec::with_capacity(n);
+        let mut z = Vec::with_capacity(n);
+        for &new_i_u32 in old_to_new {
+            let new_i = new_i_u32 as usize;
+            x.push(self.x[new_i]);
+            y.push(self.y[new_i]);
+            z.push(self.z[new_i]);
+        }
+        Ok(Self { x, y, z })
     }
 }
