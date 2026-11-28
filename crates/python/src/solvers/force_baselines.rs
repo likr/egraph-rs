@@ -230,6 +230,7 @@ fn parse_sel_fr_config(
 
 fn parse_sel_t_fdp_config(dict: &Bound<'_, PyDict>) -> PyResult<(TFdpConfig, TFdpBackend2d)> {
     let def = TFdpConfig::default();
+    let ibfft_def = IbFftConfig::default();
     let mut backend = "ibfft".to_string();
     let mut iterations = def.iterations;
     let mut learning_rate = def.learning_rate;
@@ -240,10 +241,10 @@ fn parse_sel_t_fdp_config(dict: &Bound<'_, PyDict>) -> PyResult<(TFdpConfig, TFd
     let mut rho_start = def.rho.start_weight;
     let mut rho_end = def.rho.end_weight;
     let mut rho_power = def.rho.power;
-    let mut interpolation_order = 1usize;
-    let mut intervals = 1usize;
-    let mut min_grid_dim = 50usize;
-    let mut max_grid_dim = 100usize;
+    let mut interpolation_order = ibfft_def.order.order();
+    let mut intervals = ibfft_def.intervals;
+    let mut min_grid_dim = ibfft_def.min_grid_dim;
+    let mut max_grid_dim = ibfft_def.max_grid_dim;
     let mut seed = def.seed;
     for (k_any, v_any) in dict.iter() {
         let key: String = k_any.extract()?;

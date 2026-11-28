@@ -198,6 +198,47 @@ class TestGripGemSelPfsSfc(unittest.TestCase):
         self.assert_no_panic_raises(
             (ValueError,), lambda: eg.SelLayoutSolver(graph, layout_backend="bad")
         )
+        # Nested t_fdp_config must inherit valid IbFftConfig::default() grid settings
+        for dtype_str in ("float64", "float32"):
+            l_cfg = eg.Layout2d.from_coords(_to_float_array(base, dtype_str))
+            s_cfg = eg.SelLayoutSolver(
+                graph,
+                layout_backend="t_fdp",
+                t_fdp_config={"alpha": 1.2, "iterations": 6},
+                dtype=dtype_str,
+            )
+            s_cfg.run(l_cfg)
+            self.assertTrue(s_cfg.is_finished)
+            self.assertTrue(l_cfg.is_all_finite())
+        l_custom = eg.Layout2d.from_coords(_to_float_array(base, "float64"))
+        s_custom = eg.SelLayoutSolver(
+            graph,
+            layout_backend="t_fdp",
+            t_fdp_config={
+                "backend": "ib_fft",
+                "iterations": 4,
+                "alpha": 1.2,
+                "interpolation_order": 3,
+                "intervals": 16,
+                "min_grid_dim": 32,
+                "max_grid_dim": 128,
+            },
+        )
+        s_custom.run(l_custom)
+        self.assertTrue(s_custom.is_finished)
+        self.assertTrue(l_custom.is_all_finite())
+        self.assert_no_panic_raises(
+            (ValueError,),
+            lambda: eg.SelLayoutSolver(
+                graph, layout_backend="t_fdp", t_fdp_config={"min_grid_dim": 50}
+            ),
+        )
+        self.assert_no_panic_raises(
+            (ValueError,),
+            lambda: eg.SelLayoutSolver(
+                graph, layout_backend="t_fdp", t_fdp_config={"unknown_key": 1}
+            ),
+        )
 
         # 4. PfsPrimeOverlapRemoval (new + from_radii, zero overlap, strict oo_nni == 0.0)
         hw = np.full(n, 0.8, dtype=np.float64)
