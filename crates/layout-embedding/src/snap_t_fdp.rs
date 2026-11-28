@@ -12,7 +12,8 @@ use crate::sampling_utils::{
 };
 use crate::snap_t_fdp_edges::extract_snap_edges;
 
-/// Compact-memory edge-incident negative sampling `SNAP-tFDP` solver.
+/// Compact-memory edge-incident negative sampling `SNAP-tFDP` solver (`Chen et al., 2026`,
+/// `arXiv:2608.01907v1`).
 ///
 /// Stores only canonical undirected 1-hop edges (`edges_u`, `edges_v`, `edge_order`, and
 /// optional `f32` weights / degree scales) and draws `negatives_per_edge` uniform random

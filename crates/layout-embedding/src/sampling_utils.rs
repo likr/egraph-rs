@@ -68,6 +68,11 @@ impl AliasTable {
     }
 
     #[inline]
+    pub(crate) fn as_slices(&self) -> (&[f64], &[u32]) {
+        (&self.prob, &self.alias)
+    }
+
+    #[inline]
     pub(crate) fn sample(&self, rng: &mut DeterministicRng) -> usize {
         let k = self.prob.len();
         let col = rng.gen_range_usize(k);

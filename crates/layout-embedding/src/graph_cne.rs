@@ -130,6 +130,18 @@ impl<L: RiemannianLayout> GraphCneSolver<L> {
         &self.config
     }
 
+    /// Returns the positive undirected edge endpoint slices `(edges_u, edges_v)`.
+    #[inline]
+    pub fn edges(&self) -> (&[u32], &[u32]) {
+        (&self.edges_u, &self.edges_v)
+    }
+
+    /// Returns the Vose edge alias table `(prob, alias)` if positive edges exist.
+    #[inline]
+    pub fn edge_alias_table(&self) -> Option<(&[f64], &[u32])> {
+        self.edge_alias.as_ref().map(AliasTable::as_slices)
+    }
+
     /// Returns the learning rate for the upcoming iteration (`0.0` if finished).
     #[inline]
     pub fn current_lr(&self) -> f64 {

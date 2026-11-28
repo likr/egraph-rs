@@ -94,6 +94,67 @@ impl<L: RiemannianLayout> DrGraphSolver<L> {
         &self.config
     }
 
+    /// Returns the positive similarity pair endpoint slices `(pos_u, pos_v)`.
+    #[inline]
+    pub fn pos_edges(&self) -> (&[u32], &[u32]) {
+        (&self.pos_u, &self.pos_v)
+    }
+
+    /// Returns the Vose edge alias table `(prob, alias)` if positive pairs exist.
+    #[inline]
+    pub fn edge_alias_table(&self) -> Option<(&[f64], &[u32])> {
+        self.edge_alias.as_ref().map(AliasTable::as_slices)
+    }
+
+    /// Returns the index of the currently active coarsening level (`0` is finest).
+    #[inline]
+    pub fn current_level(&self) -> usize {
+        self.current_level
+    }
+
+    /// Returns the number of vertices at coarsening `level`, or `None` if out of bounds.
+    #[inline]
+    pub fn level_num_nodes(&self, level: usize) -> Option<usize> {
+        self.levels.get(level).map(|l| l.num_nodes)
+    }
+
+    /// Returns the iteration budget assigned to each coarsening level (finest-to-coarsest).
+    #[inline]
+    pub fn level_iters(&self) -> &[usize] {
+        &self.level_iters
+    }
+
+    /// Returns the fine-graph representative vertex IDs for `level`, or `None` if out of bounds.
+    #[inline]
+    pub fn level_reps(&self, level: usize) -> Option<&[u32]> {
+        self.level_reps.get(level).map(Vec::as_slice)
+    }
+
+    /// Returns the mapping from finest-level vertices to cluster IDs at `level`, or `None` if
+    /// out of bounds (`level == 0` returns an empty identity sentinel slice).
+    #[inline]
+    pub fn fine_to_level(&self, level: usize) -> Option<&[u32]> {
+        self.fine_to_level.get(level).map(Vec::as_slice)
+    }
+
+    /// Returns the mapping from `level` vertices to `level + 1` coarse cluster IDs, or `None`
+    /// for the coarsest level or out-of-bounds indices.
+    #[inline]
+    pub fn level_coarse_of_finer(&self, level: usize) -> Option<&[u32]> {
+        self.levels
+            .get(level)
+            .and_then(|l| l.coarse_of_finer.as_deref())
+    }
+
+    /// Returns the fine vertex counts per `level + 1` cluster, or `None` for the coarsest level
+    /// or out-of-bounds indices.
+    #[inline]
+    pub fn level_cluster_counts_of_finer(&self, level: usize) -> Option<&[u32]> {
+        self.levels
+            .get(level)
+            .and_then(|l| l.cluster_counts_of_finer.as_deref())
+    }
+
     /// Returns the learning rate for the upcoming iteration (`0.0` if finished).
     #[inline]
     pub fn current_lr(&self) -> f64 {

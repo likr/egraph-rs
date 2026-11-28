@@ -345,3 +345,116 @@ fn cne_cfg_clone(objective: GraphCneObjective, row_normalize: bool) -> GraphCneC
         .with_row_normalize(row_normalize)
         .with_seed(42)
 }
+
+#[test]
+fn test_negative_sampling_ir_getters_and_hierarchy_invariants() {
+    let grid = grid_graph(4, 4);
+    let ng = grid.num_nodes();
+
+    // LargeVis IR getters
+    let lv = LargeVisSolver::<Layout2d<f64>>::new(&grid, LargeVisConfig::default()).unwrap();
+    let (lv_u, lv_v) = lv.edges();
+    assert_eq!(lv_u.len(), lv.num_springs());
+    assert_eq!(lv_v.len(), lv.num_springs());
+    assert_eq!(lv_u.len(), grid.num_edges());
+    assert!(
+        lv_u.iter()
+            .zip(lv_v.iter())
+            .all(|(&u, &v)| u < v && (v as usize) < ng)
+    );
+    let (lv_e_prob, lv_e_alias) = lv.edge_alias_table().unwrap();
+    assert_eq!(lv_e_prob.len(), lv.num_springs());
+    assert_eq!(lv_e_alias.len(), lv.num_springs());
+    assert!(
+        lv_e_prob
+            .iter()
+            .all(|&p| p.is_finite() && (0.0..=1.0).contains(&p))
+    );
+    assert!(lv_e_alias.iter().all(|&a| (a as usize) < lv.num_springs()));
+    let (lv_n_prob, lv_n_alias) = lv.neg_alias_table().unwrap();
+    assert_eq!(lv_n_prob.len(), ng);
+    assert_eq!(lv_n_alias.len(), ng);
+
+    // GraphCne IR getters
+    let cne = GraphCneSolver::<Layout2d<f64>>::new(&grid, GraphCneConfig::default()).unwrap();
+    let (cne_u, cne_v) = cne.edges();
+    assert_eq!(cne_u.len(), cne.num_springs());
+    assert_eq!(cne_v.len(), cne.num_springs());
+    assert_eq!(cne_u.len(), grid.num_edges());
+    let (cne_prob, cne_alias) = cne.edge_alias_table().unwrap();
+    assert_eq!(cne_prob.len(), cne.num_springs());
+    assert_eq!(cne_alias.len(), cne.num_springs());
+
+    // DRGraph IR getters (multilevel hierarchy + level transitions)
+    let dr_cfg = DrGraphConfig::new()
+        .with_k_order(2)
+        .with_iterations(12)
+        .with_coarsen_stop_ratio(0.85)
+        .with_seed(42);
+    let mut dr = DrGraphSolver::<Layout2d<f64>>::new(&grid, dr_cfg).unwrap();
+    let l_count = dr.num_levels();
+    assert!(l_count >= 2);
+    let (dr_u, dr_v) = dr.pos_edges();
+    assert_eq!(dr_u.len(), dr.num_springs());
+    assert_eq!(dr_v.len(), dr.num_springs());
+    let (dr_prob, dr_alias) = dr.edge_alias_table().unwrap();
+    assert_eq!(dr_prob.len(), dr.num_springs());
+    assert_eq!(dr_alias.len(), dr.num_springs());
+
+    let iters = dr.level_iters();
+    assert_eq!(iters.len(), l_count);
+    assert_eq!(iters.iter().sum::<usize>(), 12);
+    assert_eq!(dr.current_level(), l_count - 1);
+    assert_eq!(dr.level_num_nodes(0), Some(ng));
+    assert_eq!(dr.level_num_nodes(l_count), None);
+    assert_eq!(dr.fine_to_level(0), Some(&[][..]));
+    assert_eq!(dr.fine_to_level(l_count), None);
+    assert_eq!(dr.level_reps(l_count), None);
+    assert_eq!(dr.level_coarse_of_finer(l_count - 1), None);
+    assert_eq!(dr.level_cluster_counts_of_finer(l_count - 1), None);
+    assert_eq!(dr.level_coarse_of_finer(l_count), None);
+    assert_eq!(dr.level_cluster_counts_of_finer(l_count), None);
+
+    for l in 0..l_count {
+        let ln = dr.level_num_nodes(l).unwrap();
+        let reps = dr.level_reps(l).unwrap();
+        assert_eq!(reps.len(), ln);
+        assert!(reps.iter().all(|&r| (r as usize) < ng));
+        if l > 0 {
+            let f2l = dr.fine_to_level(l).unwrap();
+            assert_eq!(f2l.len(), ng);
+            assert!(f2l.iter().all(|&c| (c as usize) < ln));
+        }
+        if l + 1 < l_count {
+            let next_ln = dr.level_num_nodes(l + 1).unwrap();
+            let coarse_of = dr.level_coarse_of_finer(l).unwrap();
+            let counts = dr.level_cluster_counts_of_finer(l).unwrap();
+            assert_eq!(coarse_of.len(), ln);
+            assert!(coarse_of.iter().all(|&c| (c as usize) < next_ln));
+            assert_eq!(counts.len(), next_ln);
+        }
+    }
+
+    let mut layout = Layout2d::<f64>::zeros(ng);
+    assert_eq!(dr.run(&mut layout).unwrap(), SolverStatus::Completed);
+    assert_eq!(dr.current_level(), 0);
+
+    // Edgeless graph returns None for alias tables.
+    let edgeless = CsrGraph::<f64>::from_edges(4, &[], None, false, false).unwrap();
+    let lv_empty =
+        LargeVisSolver::<Layout2d<f64>>::new(&edgeless, LargeVisConfig::default()).unwrap();
+    assert_eq!(lv_empty.edges(), (&[][..], &[][..]));
+    assert!(lv_empty.edge_alias_table().is_none());
+    assert!(lv_empty.neg_alias_table().is_none());
+
+    let dr_empty =
+        DrGraphSolver::<Layout2d<f64>>::new(&edgeless, DrGraphConfig::default()).unwrap();
+    assert_eq!(dr_empty.pos_edges(), (&[][..], &[][..]));
+    assert!(dr_empty.edge_alias_table().is_none());
+    assert_eq!(dr_empty.level_num_nodes(0), Some(4));
+
+    let cne_empty =
+        GraphCneSolver::<Layout2d<f64>>::new(&edgeless, GraphCneConfig::default()).unwrap();
+    assert_eq!(cne_empty.edges(), (&[][..], &[][..]));
+    assert!(cne_empty.edge_alias_table().is_none());
+}
