@@ -1,4 +1,4 @@
-use egraph_core::{CoreError, CoreResult, CsrGraph, RiemannianLayout, Scalar};
+use egraph_core::{CoreError, CoreResult, CsrGraph, EdgeWeight, RiemannianLayout, Scalar};
 use egraph_neighborhood::{DogVaradhanConfig, DogVaradhanLandmarks, DogVaradhanStats};
 
 use super::config::{
@@ -7,7 +7,9 @@ use super::config::{
 use super::graph_helpers::{
     build_symmetric_csr_from_sorted_pairs, extract_canonical_undirected_edges,
 };
-use super::ortmann::{build_ortmann_sparse_problem, ortmann_problem_into_storage};
+use super::ortmann::{
+    OrtmannSparseProblem, build_ortmann_sparse_problem, ortmann_problem_into_storage,
+};
 use super::pairs::{
     PackedSymPair, compute_eta_bounds, validate_graph_weights, validate_schedule_config,
 };
@@ -38,7 +40,7 @@ impl<L: RiemannianLayout> SgdSolver<L> {
 
     /// Computes regularized Chebyshev DoG Varadhan landmarks and constructs a 3-tier Sparse
     /// Barrier SGD solver in one call.
-    pub fn sparse_barrier_dog<W: Scalar>(
+    pub fn sparse_barrier_dog<W: EdgeWeight>(
         graph: &CsrGraph<W>,
         dog_config: &DogVaradhanConfig,
         barrier_config: &SparseBarrierConfig,
@@ -58,7 +60,7 @@ impl<L: RiemannianLayout> SgdSolver<L> {
     /// Constructs a minimal-RAM SGD solver storing only 1-hop edges in flat packed pairs and
     /// sampling $O(|V| \cdot \mathrm{negatives\_per\_node})$ non-edge negative updates on-the-fly
     /// each step without preallocating negative pair buffers.
-    pub fn streaming_negatives<W: Scalar>(
+    pub fn streaming_negatives<W: EdgeWeight>(
         graph: &CsrGraph<W>,
         neg_config: StreamingNegativeConfig,
         schedule: SgdScheduleConfig,
@@ -151,23 +153,35 @@ impl<L: RiemannianLayout> SgdSolver<L> {
     /// Constructs an Ortmann et al. (2016) Sparse Stress SGD solver using graph Voronoi
     /// partitioning $R(p)$ (breaking distance ties in favor of the smallest current $|R(p)|$)
     /// and directional region-adapted weights $w'_{ip} = |\{j \in R(p) : 2 d_{jp} \le d_{ip}\}| / d_{ip}^2$.
-    pub fn ortmann_sparse_stress<W: Scalar>(
+    pub fn ortmann_sparse_stress<W: EdgeWeight>(
         graph: &CsrGraph<W>,
         config: OrtmannSparseStressConfig,
     ) -> CoreResult<Self> {
+        let problem = build_ortmann_sparse_problem::<W, L::Scalar>(graph, config.clone())?;
+        Self::ortmann_sparse_stress_from_problem(&problem, config)
+    }
+
+    /// Constructs an Ortmann et al. (2016) Sparse Stress SGD solver directly from a prebuilt
+    /// [`OrtmannSparseProblem`] IR, applying `config`'s `seed`, `eta_max`, `eta_min`, and `eps`
+    /// overrides.
+    pub fn ortmann_sparse_stress_from_problem(
+        problem: &OrtmannSparseProblem<L::Scalar>,
+        config: OrtmannSparseStressConfig,
+    ) -> CoreResult<Self> {
+        config.validate()?;
+        problem.schedule_cfg.validate()?;
         let seed = config.seed;
         let eta_max_ovr = config.eta_max;
         let eta_min_ovr = config.eta_min;
         let eps = config.eps;
-        let problem = build_ortmann_sparse_problem::<W, L::Scalar>(graph, config)?;
-        let storage = ortmann_problem_into_storage(&problem)?;
+        let storage = ortmann_problem_into_storage(problem)?;
         let n_springs = storage.len();
         let mut solver = Self::from_pair_storage(
             problem.num_nodes,
             storage,
             n_springs,
             0,
-            problem.schedule_cfg,
+            problem.schedule_cfg.clone(),
             seed,
         )?;
         if solver.eta_max > 0.0 {
@@ -189,5 +203,23 @@ impl<L: RiemannianLayout> SgdSolver<L> {
             solver.eta_max = 0.0;
         }
         Ok(solver)
+    }
+
+    /// Constructs an Ortmann et al. (2016) Sparse Stress SGD solver from preselected `pivots` and
+    /// a precomputed row-major `(pivots.len(), num_nodes)` pivot-to-all-nodes distance slice
+    /// (`pivot_distances_kn[k * num_nodes + j]`).
+    pub fn ortmann_sparse_stress_from_pivots<W: EdgeWeight>(
+        graph: &CsrGraph<W>,
+        pivots: &[u32],
+        pivot_distances_kn: &[f64],
+        config: OrtmannSparseStressConfig,
+    ) -> CoreResult<Self> {
+        let problem = OrtmannSparseProblem::<L::Scalar>::from_pivots(
+            graph,
+            pivots,
+            pivot_distances_kn,
+            config.clone(),
+        )?;
+        Self::ortmann_sparse_stress_from_problem(&problem, config)
     }
 }

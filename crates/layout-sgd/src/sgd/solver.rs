@@ -5,7 +5,7 @@ use egraph_core::{
     SolverStatus,
 };
 
-use super::config::SgdScheduleConfig;
+use super::config::{SgdScheduleConfig, StreamingNegativeConfig};
 use super::pair_buffer::{SgdPairBuffer, SgdPairRecord};
 use super::pairs::{
     INDEX_MASK, MAX_PACKED_NODES, PackedSymPair, PairStorage, compute_eta_bounds,
@@ -26,10 +26,14 @@ pub(super) struct StreamingState<S: Scalar> {
 /// Contiguous packed Stochastic Gradient Descent (SGD) layout solver parameterized over any
 /// [`RiemannianLayout`] target (`Layout2d`, `Layout3d`, `LayoutNd`, `ManifoldLayout2d`).
 ///
-/// Supports symmetric and general two-sided spring pairs, one-sided hinge repulsion pairs,
-/// Ortmann (2016) sparse stress (`ortmann_sparse_stress`), 3-tier sparse barrier schedules
-/// (`sparse_barrier_dog`, `sparse_barrier_from_landmarks`), cache-blocked L2-resident shuffling,
-/// streaming negative sampling, and zero-copy [`SgdPairBuffer`] construction.
+/// Implements graph drawing by stochastic gradient descent following Zheng, Pawar, and Goodman
+/// (*"Graph Drawing by Stochastic Gradient Descent"*, *IEEE TVCG* 2019), and additionally
+/// supports Ortmann, Klimenta, and Brandes (*"A Sparse Stress Model"*, GD 2016) sparse stress
+/// (`ortmann_sparse_stress`, `ortmann_sparse_stress_from_pivots`), Onoue (*"Graph Drawing Stress
+/// Model with Resistance Distances"*, `arXiv:2512.21901`, 2025) spectral-distance SGD (`omega`),
+/// 3-tier sparse barrier schedules (`sparse_barrier_dog`, `sparse_barrier_from_landmarks`),
+/// cache-blocked L2-resident shuffling, streaming negative sampling, and zero-copy
+/// [`SgdPairBuffer`] construction.
 #[derive(Debug, Clone)]
 pub struct SgdSolver<L: RiemannianLayout = Layout2d<f64>> {
     pub(super) num_nodes: usize,
@@ -216,6 +220,35 @@ impl<L: RiemannianLayout> SgdSolver<L> {
     #[inline]
     pub fn num_hinges(&self) -> usize {
         self.num_hinges
+    }
+
+    /// Returns the total number of materialized pairs stored (`num_springs() + num_hinges()`).
+    #[inline]
+    pub fn num_pairs(&self) -> usize {
+        self.pairs.len()
+    }
+
+    /// Returns the canonical symmetric CSR `(indptr, indices)` adjacency used to exclude 1-hop
+    /// neighbors during on-the-fly negative sampling, or `None` when streaming negatives are
+    /// inactive.
+    #[inline]
+    pub fn streaming_negative_adjacency(&self) -> Option<(&[u32], &[u32])> {
+        self.streaming
+            .as_ref()
+            .map(|s| (s.adj_indptr.as_slice(), s.adj_indices.as_slice()))
+    }
+
+    /// Returns the active streaming negative sampling configuration, or `None` when streaming
+    /// negatives are inactive.
+    #[inline]
+    pub fn streaming_negative_config(&self) -> Option<StreamingNegativeConfig> {
+        self.streaming.as_ref().map(|s| {
+            StreamingNegativeConfig::new()
+                .with_negatives_per_node(s.negatives_per_node)
+                .with_target_distance(s.target_distance.to_f64())
+                .with_weight(s.weight.to_f64())
+                .with_hinge_only(s.hinge_only)
+        })
     }
 
     /// Returns the current solver execution status.

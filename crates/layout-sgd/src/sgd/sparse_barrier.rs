@@ -1,4 +1,4 @@
-use egraph_core::{CoreError, CoreResult, CsrGraph, Scalar, VisitStamp};
+use egraph_core::{CoreError, CoreResult, CsrGraph, EdgeWeight, Scalar, VisitStamp};
 use egraph_linalg::select_maxmin_sp_pivots;
 use egraph_neighborhood::{
     DogVaradhanConfig, DogVaradhanLandmarks, DogVaradhanStats, apply_relative_distance_floor,
@@ -272,7 +272,7 @@ pub(super) fn build_sparse_barrier_from_landmarks<W, S: Scalar>(
     })
 }
 
-pub(super) fn build_sparse_barrier_dog<W: Scalar, S: Scalar>(
+pub(super) fn build_sparse_barrier_dog<W: EdgeWeight, S: Scalar>(
     graph: &CsrGraph<W>,
     dog_config: &DogVaradhanConfig,
     barrier_config: &SparseBarrierConfig,

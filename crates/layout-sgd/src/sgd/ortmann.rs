@@ -1,12 +1,15 @@
-use egraph_core::{CoreError, CoreResult, CsrGraph, Scalar};
+use egraph_core::{CoreError, CoreResult, CsrGraph, EdgeWeight, Scalar, VisitStamp};
 use egraph_linalg::select_maxmin_sp_pivots;
 
 use super::config::{SgdScheduleConfig, SgdScheduleKind};
-use super::graph_helpers::{build_positive_canonical_csr, compute_mssp_dists};
+use super::graph_helpers::{
+    build_positive_canonical_csr, compute_mssp_dists, extract_positive_canonical_edges,
+};
 use super::ortmann_pivots::{select_maxmin_random_sp_pivots, select_weighted_maxmin_sp_pivots};
 use super::pair_buffer::{SgdPairKind, SgdPairRecord};
 use super::pairs::{
     DirectedPairAccumulator, MAX_PACKED_NODES, PairStorage, validate_graph_weights,
+    validate_pair_endpoints,
 };
 use super::variant_config::{OrtmannPivotStrategy, OrtmannSparseStressConfig};
 
@@ -209,12 +212,102 @@ fn record_positive_weight<S: Scalar>(w: S, w_min: &mut f64, w_max: &mut f64) {
     }
 }
 
+impl<S: Scalar> OrtmannSparseProblem<S> {
+    /// Builds a decoupled [`OrtmannSparseProblem`] from preselected `pivots` and a precomputed
+    /// row-major `(pivots.len(), num_nodes)` pivot-to-all-nodes distance slice
+    /// (`pivot_distances_kn[k * num_nodes + j]`).
+    ///
+    /// Validates unique in-bounds `pivots`, exact slice length `pivots.len() * num_nodes`, and
+    /// non-NaN non-negative distances (`+f64::INFINITY` denotes unreachable pairs).
+    pub fn from_pivots<W: EdgeWeight>(
+        graph: &CsrGraph<W>,
+        pivots: &[u32],
+        pivot_distances_kn: &[f64],
+        config: OrtmannSparseStressConfig,
+    ) -> CoreResult<Self> {
+        config.validate()?;
+        validate_graph_weights(graph, "OrtmannSparseProblem::from_pivots")?;
+
+        let n = graph.num_nodes();
+        if n > MAX_PACKED_NODES {
+            return Err(CoreError::invalid_input(format!(
+                "num_nodes ({n}) exceeds packed u32 index limit {MAX_PACKED_NODES}"
+            )));
+        }
+
+        let mut seen = VisitStamp::new(n);
+        for &p in pivots {
+            let pi = p as usize;
+            if pi >= n {
+                return Err(CoreError::index_out_of_bounds(
+                    pi,
+                    n,
+                    "OrtmannSparseProblem::from_pivots::pivots",
+                ));
+            }
+            if !seen.visit(pi) {
+                return Err(CoreError::invalid_input(format!(
+                    "OrtmannSparseProblem::from_pivots: duplicate pivot vertex {p}"
+                )));
+            }
+        }
+
+        let expected_len = pivots.len().checked_mul(n).ok_or_else(|| {
+            CoreError::invalid_input("OrtmannSparseProblem::from_pivots distance buffer overflow")
+        })?;
+        if pivot_distances_kn.len() != expected_len {
+            return Err(CoreError::dimension_mismatch(
+                expected_len,
+                pivot_distances_kn.len(),
+                "OrtmannSparseProblem::from_pivots::pivot_distances_kn",
+            ));
+        }
+        for &d in pivot_distances_kn {
+            if d.is_nan() {
+                return Err(CoreError::non_finite(
+                    "OrtmannSparseProblem::from_pivots::pivot_distances_kn",
+                ));
+            }
+            if d < 0.0 {
+                return Err(CoreError::invalid_input(format!(
+                    "OrtmannSparseProblem::from_pivots: pivot distances must be >= 0.0 (or +inf), got {d}"
+                )));
+            }
+        }
+
+        let schedule_cfg = SgdScheduleConfig::new(config.iterations)
+            .with_eps(config.eps)
+            .with_kind(SgdScheduleKind::Exponential)
+            .with_step_scale(1.0);
+        let positive_edges = extract_positive_canonical_edges(graph);
+        if n <= 1 || positive_edges.is_empty() {
+            return Ok(Self {
+                num_nodes: n,
+                pivots: pivots.to_vec(),
+                one_sided: Vec::new(),
+                two_sided: Vec::new(),
+                w_min: 0.0,
+                w_max: 0.0,
+                schedule_cfg,
+            });
+        }
+
+        build_ortmann_problem_from_pivots_inner(
+            n,
+            &positive_edges,
+            pivots.to_vec(),
+            pivot_distances_kn,
+            schedule_cfg,
+        )
+    }
+}
+
 /// Builds the decoupled [`OrtmannSparseProblem`] Problem IR for Ortmann et al. (2016) Sparse Stress.
 ///
 /// Separates read-only pivot-to-non-pivot pairs (`one_sided`) from 1-hop edges and merged
 /// non-edge pivot-pivot pairs (`two_sided`), preserving 1-hop edge precedence and Voronoi region
 /// weights $w'_{ip} = |\{j \in R(p) : 2 d_{jp} \le d_{ip}\}| / d_{ip}^2$.
-pub fn build_ortmann_sparse_problem<W: Scalar, S: Scalar>(
+pub fn build_ortmann_sparse_problem<W: EdgeWeight, S: Scalar>(
     graph: &CsrGraph<W>,
     config: OrtmannSparseStressConfig,
 ) -> CoreResult<OrtmannSparseProblem<S>> {
@@ -260,6 +353,16 @@ pub fn build_ortmann_sparse_problem<W: Scalar, S: Scalar>(
     let target_k = config.num_pivots.min(n);
     let (pivots, piv_dists) =
         select_ortmann_pivots_and_dists(&sym_graph, target_k, config.pivot_strategy, config.seed)?;
+    build_ortmann_problem_from_pivots_inner(n, &positive_edges, pivots, &piv_dists, schedule_cfg)
+}
+
+fn build_ortmann_problem_from_pivots_inner<S: Scalar>(
+    n: usize,
+    positive_edges: &[(u32, u32, f64)],
+    pivots: Vec<u32>,
+    piv_dists: &[f64],
+    schedule_cfg: SgdScheduleConfig,
+) -> CoreResult<OrtmannSparseProblem<S>> {
     let h = pivots.len();
 
     let mut pivot_slot: Vec<Option<usize>> = vec![None; n];
@@ -273,7 +376,7 @@ pub fn build_ortmann_sparse_problem<W: Scalar, S: Scalar>(
     let mut two_sided: Vec<SgdPairRecord<S>> =
         Vec::with_capacity(positive_edges.len() + h.saturating_mul(h.saturating_sub(1)) / 2);
     let mut edges_1hop: Vec<(u32, u32)> = Vec::with_capacity(positive_edges.len());
-    for &(u, v, d_uv) in &positive_edges {
+    for &(u, v, d_uv) in positive_edges {
         let d_s = S::from_f64(d_uv);
         let w_s = S::from_f64(1.0 / (d_uv * d_uv));
         if !d_s.is_finite() || d_s <= S::ZERO || !w_s.is_finite() || w_s <= S::ZERO {
@@ -449,10 +552,28 @@ pub fn build_ortmann_sparse_problem<W: Scalar, S: Scalar>(
 pub(super) fn ortmann_problem_into_storage<S: Scalar>(
     problem: &OrtmannSparseProblem<S>,
 ) -> CoreResult<PairStorage<S>> {
+    if problem.num_nodes > MAX_PACKED_NODES {
+        return Err(CoreError::invalid_input(format!(
+            "num_nodes ({}) exceeds packed u32 index limit {MAX_PACKED_NODES}",
+            problem.num_nodes
+        )));
+    }
     let mut acc = DirectedPairAccumulator::<S>::with_capacity(
         problem.two_sided.len() + problem.one_sided.len(),
     );
-    for rec in problem.two_sided.iter().chain(problem.one_sided.iter()) {
+    for (idx, rec) in problem
+        .two_sided
+        .iter()
+        .chain(problem.one_sided.iter())
+        .enumerate()
+    {
+        validate_pair_endpoints(
+            rec.u as usize,
+            rec.v as usize,
+            problem.num_nodes,
+            idx,
+            "ortmann_problem_into_storage",
+        )?;
         acc.push_s(rec.u, rec.v, rec.d_uv, rec.d_vu, rec.w_uv, rec.w_vu)?;
     }
     Ok(acc.into_storage())

@@ -1,4 +1,4 @@
-use egraph_core::{CoreError, CoreResult, CsrGraph, RiemannianLayout, Scalar};
+use egraph_core::{CoreError, CoreResult, CsrGraph, EdgeWeight, RiemannianLayout, Scalar};
 use egraph_linalg::{BfsWorkspace, DijkstraWorkspace};
 
 use super::config::SgdScheduleConfig;
@@ -10,7 +10,7 @@ use super::pairs::{
 };
 use super::solver::SgdSolver;
 
-pub(super) fn build_full_pair_storage<W: Scalar, S: Scalar>(
+pub(super) fn build_full_pair_storage<W: EdgeWeight, S: Scalar>(
     graph: &CsrGraph<W>,
 ) -> CoreResult<PairStorage<S>> {
     let n = graph.num_nodes();
@@ -72,7 +72,7 @@ pub(super) fn build_full_pair_storage<W: Scalar, S: Scalar>(
     Ok(acc.into_storage())
 }
 
-pub(super) fn build_random_pair_storage<W: Scalar, S: Scalar>(
+pub(super) fn build_random_pair_storage<W: EdgeWeight, S: Scalar>(
     graph: &CsrGraph<W>,
     pairs_per_node: usize,
     seed: u64,
@@ -349,7 +349,7 @@ impl<L: RiemannianLayout> SgdSolver<L> {
 
     /// Constructs a full all-pairs shortest-path SGD solver using [`BfsWorkspace`] for
     /// unweighted graphs and [`DijkstraWorkspace`] for weighted graphs.
-    pub fn full<W: Scalar>(
+    pub fn full<W: EdgeWeight>(
         graph: &CsrGraph<W>,
         schedule: SgdScheduleConfig,
         seed: u64,
@@ -365,7 +365,7 @@ impl<L: RiemannianLayout> SgdSolver<L> {
 
     /// Constructs a random-pair sparse SGD solver combining all 1-hop edges with up to
     /// `pairs_per_node` sampled node pairs per vertex using exact shortest-path distances.
-    pub fn random_pair<W: Scalar>(
+    pub fn random_pair<W: EdgeWeight>(
         graph: &CsrGraph<W>,
         pairs_per_node: usize,
         schedule: SgdScheduleConfig,
@@ -382,6 +382,9 @@ impl<L: RiemannianLayout> SgdSolver<L> {
 
     /// Constructs an Omega SGD solver using Euclidean distances in a precomputed row-major
     /// `(num_nodes, dims)` spectral embedding for all 1-hop edges and `k` random partners per node.
+    ///
+    /// Reference: Onoue, Y. (2025), *"Graph Drawing Stress Model with Resistance Distances"*,
+    /// `arXiv:2512.21901`.
     pub fn omega<W>(
         graph: &CsrGraph<W>,
         embedding_flat: &[f64],

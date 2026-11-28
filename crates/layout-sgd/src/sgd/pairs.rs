@@ -1,4 +1,4 @@
-use egraph_core::{CoreError, CoreResult, CsrGraph, DeterministicRng, Scalar};
+use egraph_core::{CoreError, CoreResult, CsrGraph, DeterministicRng, EdgeWeight, Scalar};
 
 use super::config::{SgdScheduleConfig, SparseBarrierConfig};
 use super::pair_buffer::{SgdPairKind, SgdPairRecord};
@@ -281,16 +281,16 @@ pub(super) fn validate_barrier_config(
     Ok(())
 }
 
-pub(super) fn validate_graph_weights<W: Scalar>(
+pub(super) fn validate_graph_weights<W: EdgeWeight>(
     graph: &CsrGraph<W>,
     ctx: &'static str,
 ) -> CoreResult<()> {
     if let Some(ws) = graph.weights() {
         for &w in ws {
-            if !w.is_finite() {
+            if !w.weight_is_finite() {
                 return Err(CoreError::non_finite(ctx));
             }
-            if w.to_f64() < 0.0 {
+            if w.weight_to_f64() < 0.0 {
                 return Err(CoreError::invalid_input(format!(
                     "{ctx}: edge weights must be non-negative"
                 )));

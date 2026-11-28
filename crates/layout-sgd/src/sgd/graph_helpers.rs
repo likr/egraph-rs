@@ -1,4 +1,4 @@
-use egraph_core::{CoreResult, CsrGraph, DeterministicRng, Scalar, VisitStamp};
+use egraph_core::{CoreResult, CsrGraph, DeterministicRng, EdgeWeight, VisitStamp};
 use egraph_linalg::{BfsWorkspace, DijkstraWorkspace};
 use egraph_neighborhood::Sparse12HopPairs;
 
@@ -95,7 +95,7 @@ pub(super) fn extract_canonical_undirected_edge_pairs<W>(graph: &CsrGraph<W>) ->
 }
 
 /// Extracts canonical deduplicated undirected 1-hop edges `(u, v, weight)` (`u < v`) from `graph`.
-pub(super) fn extract_canonical_undirected_edges<W: Scalar>(
+pub(super) fn extract_canonical_undirected_edges<W: EdgeWeight>(
     graph: &CsrGraph<W>,
 ) -> Vec<(u32, u32, f64)> {
     let n = graph.num_nodes();
@@ -120,7 +120,7 @@ pub(super) fn extract_canonical_undirected_edges<W: Scalar>(
                 }
                 prev_v = Some(v);
                 if u32_u < v {
-                    let w = weights_opt.map_or(1.0, |ws| ws[pos].to_f64());
+                    let w = weights_opt.map_or(1.0, |ws| ws[pos].weight_to_f64());
                     edges.push((u32_u, v, w));
                 }
             }
@@ -142,7 +142,7 @@ pub(super) fn extract_canonical_undirected_edges<W: Scalar>(
                 continue;
             }
             let (a, b) = if u32_u < v { (u32_u, v) } else { (v, u32_u) };
-            let w = weights_opt.map_or(1.0, |ws| ws[pos].to_f64());
+            let w = weights_opt.map_or(1.0, |ws| ws[pos].weight_to_f64());
             raw.push((a, b, w));
         }
     }
@@ -345,10 +345,9 @@ pub(super) fn sample_non2hop_pairs(
 
 pub(super) type CanonicalPositiveGraph = (CsrGraph<f64>, Vec<(u32, u32, f64)>);
 
-pub(super) fn build_positive_canonical_csr<W: Scalar>(
+pub(super) fn extract_positive_canonical_edges<W: EdgeWeight>(
     graph: &CsrGraph<W>,
-) -> CoreResult<CanonicalPositiveGraph> {
-    let n = graph.num_nodes();
+) -> Vec<(u32, u32, f64)> {
     let raw_edges = extract_canonical_undirected_edges(graph);
     let weighted = graph.is_weighted();
     let mut positive_edges = Vec::with_capacity(raw_edges.len());
@@ -358,6 +357,15 @@ pub(super) fn build_positive_canonical_csr<W: Scalar>(
             positive_edges.push((u, v, w_pos));
         }
     }
+    positive_edges
+}
+
+pub(super) fn build_positive_canonical_csr<W: EdgeWeight>(
+    graph: &CsrGraph<W>,
+) -> CoreResult<CanonicalPositiveGraph> {
+    let n = graph.num_nodes();
+    let weighted = graph.is_weighted();
+    let positive_edges = extract_positive_canonical_edges(graph);
     let mut pair_uv = Vec::with_capacity(positive_edges.len());
     let mut pair_w = Vec::with_capacity(positive_edges.len());
     for &(u, v, w) in &positive_edges {
