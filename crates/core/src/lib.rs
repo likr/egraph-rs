@@ -4,6 +4,8 @@
 //! WebAssembly (`wasm-bindgen`) targets without host bindings, `petgraph`, or threading
 //! dependencies.
 
+#![cfg_attr(docsrs, feature(doc_cfg))]
+
 mod csr;
 mod error;
 mod extents;

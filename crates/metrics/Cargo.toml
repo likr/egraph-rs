@@ -7,10 +7,11 @@ license.workspace = true
 repository.workspace = true
 description = "Unified single-threaded graph layout evaluation metrics dispatcher for egraph-rs"
 homepage.workspace = true
-readme.workspace = true
+readme = "README.md"
 documentation = "https://docs.rs/egraph-metrics"
 keywords = ["graph-metrics", "evaluation", "layout", "stress", "neighborhood"]
 categories = ["algorithms", "science"]
+include = ["Cargo.toml", "LICENSE", "README.md", "src/**/*.rs", "tests/**/*.rs"]
 
 [package.metadata.docs.rs]
 all-features = true

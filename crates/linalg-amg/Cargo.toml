@@ -7,10 +7,11 @@ license.workspace = true
 repository.workspace = true
 description = "Single-threaded algebraic multigrid PCG solvers and effective resistance curvature for egraph-rs"
 homepage.workspace = true
-readme.workspace = true
+readme = "README.md"
 documentation = "https://docs.rs/egraph-linalg-amg"
 keywords = ["amg", "pcg", "laplacian", "graph", "resistance"]
 categories = ["algorithms", "mathematics", "science"]
+include = ["Cargo.toml", "LICENSE", "README.md", "src/**/*.rs"]
 
 [package.metadata.docs.rs]
 all-features = true

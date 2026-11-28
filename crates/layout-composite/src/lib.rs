@@ -1,6 +1,7 @@
 //! Single-threaded, pure-Rust composite multi-solver graph layout algorithms for `egraph-rs`.
 
 #![warn(missing_docs)]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 
 #[cfg(feature = "baselines")]
 mod backbone;
@@ -10,17 +11,21 @@ mod group_in_a_box;
 mod sel;
 
 #[cfg(feature = "baselines")]
+#[cfg_attr(docsrs, doc(cfg(feature = "baselines")))]
 pub use backbone::{
     BackboneConfig, BackboneLayoutMode, BackboneResult, BackboneSolver,
     extract_quadrilateral_backbone, extract_quadrilateral_backbone_unweighted,
 };
 #[cfg(feature = "baselines")]
+#[cfg_attr(docsrs, doc(cfg(feature = "baselines")))]
 pub use egraph_spatial_trees::squarified_treemap;
 #[cfg(feature = "baselines")]
+#[cfg_attr(docsrs, doc(cfg(feature = "baselines")))]
 pub use group_in_a_box::{
     GibBox, GibBoxLayoutMode, GibIntraLayoutMode, GroupInABoxConfig, GroupInABoxSolver,
 };
 #[cfg(feature = "baselines")]
+#[cfg_attr(docsrs, doc(cfg(feature = "baselines")))]
 pub use sel::{SelConfig, SelLayoutBackend, SelLayoutSolver, SelWeightMapping};
 
 #[cfg(all(test, not(feature = "baselines")))]

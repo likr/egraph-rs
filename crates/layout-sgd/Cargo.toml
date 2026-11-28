@@ -7,10 +7,11 @@ license.workspace = true
 repository.workspace = true
 description = "Single-threaded stochastic gradient descent stress and sparse barrier layout solvers for egraph-rs"
 homepage.workspace = true
-readme.workspace = true
+readme = "README.md"
 documentation = "https://docs.rs/egraph-layout-sgd"
 keywords = ["graph-drawing", "sgd", "stress", "layout", "sparse"]
 categories = ["algorithms", "mathematics", "science"]
+include = ["Cargo.toml", "LICENSE", "README.md", "src/**/*.rs", "tests/**/*.rs"]
 
 [package.metadata.docs.rs]
 all-features = true

@@ -145,6 +145,7 @@ impl<S: Scalar> DefaultForceBackend for LayoutNd<S> {
 /// Supported on [`Layout2d`] and [`Layout3d`]; rejected at compile time on [`LayoutNd`] and
 /// [`ManifoldLayout2d`](egraph_core::ManifoldLayout2d).
 #[cfg(feature = "baselines")]
+#[cfg_attr(docsrs, doc(cfg(feature = "baselines")))]
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub struct Grid {}
@@ -165,6 +166,7 @@ impl Grid {
 /// passing `FrBackend` to a [`LayoutNd`] or [`ManifoldLayout2d`](egraph_core::ManifoldLayout2d)
 /// solver fails at compile time.
 #[cfg(feature = "baselines")]
+#[cfg_attr(docsrs, doc(cfg(feature = "baselines")))]
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq)]
 pub enum FrBackend {
@@ -217,6 +219,7 @@ impl FrBackend {
 /// Maps each supported [`RiemannianLayout`](egraph_core::RiemannianLayout) space `L` to its
 /// default Fruchterman–Reingold repulsion backend ([`Exact`]).
 #[cfg(feature = "baselines")]
+#[cfg_attr(docsrs, doc(cfg(feature = "baselines")))]
 pub trait DefaultFrBackend {
     /// Default repulsion backend type for `Self`.
     type Backend;

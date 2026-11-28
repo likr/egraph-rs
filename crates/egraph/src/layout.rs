@@ -74,6 +74,7 @@ pub use egraph_layout_sgd as sgd;
 pub use egraph_layout_stress as stress;
 
 #[cfg(feature = "baselines")]
+#[cfg_attr(docsrs, doc(cfg(feature = "baselines")))]
 pub use egraph_layout_composite::{
     BackboneConfig, BackboneLayoutMode, BackboneResult, BackboneSolver, GibBox, GibBoxLayoutMode,
     GibIntraLayoutMode, GroupInABoxConfig, GroupInABoxSolver, SelConfig, SelLayoutBackend,
@@ -88,6 +89,7 @@ pub use egraph_layout_constraints::{
     transitive_reduction_weighted,
 };
 #[cfg(feature = "baselines")]
+#[cfg_attr(docsrs, doc(cfg(feature = "baselines")))]
 pub use egraph_layout_constraints::{
     ForbidConfig, ForbidOverlapRemoval, ForbidVariant, GTreeConfig, GTreeOverlapRemoval,
     PfsPrimeConfig, PfsPrimeOverlapRemoval,
@@ -102,6 +104,7 @@ pub use egraph_layout_force::{
     ForceRepulsionParams, YifanHuConfig, YifanHuLevelCoords, YifanHuRepulsion, YifanHuSolver,
 };
 #[cfg(feature = "baselines")]
+#[cfg_attr(docsrs, doc(cfg(feature = "baselines")))]
 pub use egraph_layout_force::{
     DefaultFrBackend, FrBackend, FrRepulsion, FruchtermanReingoldConfig, FruchtermanReingoldSolver,
     GemConfig, GemSolver, Grid, LinLogConfig, LinLogRepulsion, LinLogRepulsionBackend,
@@ -112,6 +115,7 @@ pub use egraph_layout_multilevel::{
     CoarseDistanceBackend, CoarseEdgeLengthMode,
 };
 #[cfg(feature = "baselines")]
+#[cfg_attr(docsrs, doc(cfg(feature = "baselines")))]
 pub use egraph_layout_multilevel::{GripConfig, GripSolver, SfcConfig, SfcCurveKind, SfcLayout};
 pub use egraph_layout_neighbor::{
     Auto2d, Auto3d, DEFAULT_AUTO_EXACT_THRESHOLD, DEFAULT_MAX_2HOP_PER_NODE, DefaultIbUmapBackend,
@@ -121,6 +125,7 @@ pub use egraph_layout_neighbor::{
     TsNetBackend2d, TsNetBackend3d, TsNetConfig, TsNetRepulsion, TsNetSolver, TsNetStage,
 };
 #[cfg(feature = "baselines")]
+#[cfg_attr(docsrs, doc(cfg(feature = "baselines")))]
 pub use egraph_layout_refine::{
     ClusterRefineConfig, ClusterRefineMethod, ClusterRefineSolver, refine_cluster_layout,
 };
@@ -135,6 +140,7 @@ pub use egraph_layout_sgd::{
     build_ortmann_sparse_problem,
 };
 #[cfg(feature = "baselines")]
+#[cfg_attr(docsrs, doc(cfg(feature = "baselines")))]
 pub use egraph_layout_stress::{
     DefaultMaxentBackend, MaxentRepulsion, MaxentStressConfig, MaxentStressSolver,
 };

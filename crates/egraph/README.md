@@ -2,7 +2,7 @@
 
 Unified, strictly single-threaded pure-Rust graph drawing and layout facade crate.
 
-> **Package vs. Library Name**: Install from crates.io as **`egraph-rs`** (`Cargo.toml`: `egraph-rs = "6.0.0-beta.2"`) and import in Rust code as **`use egraph::prelude::*;`**.
+> **Package vs. Library Name**: Install from crates.io as **`egraph-rs`** (`Cargo.toml`: `egraph-rs = "=6.0.0-beta.3"`) and import in Rust code as **`use egraph::prelude::*;`**.
 
 ## Quick Start
 
@@ -10,7 +10,7 @@ Add `egraph-rs` to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-egraph-rs = "6.0.0-beta.2"
+egraph-rs = "=6.0.0-beta.3"
 ```
 
 Then construct a zero-copy `CsrGraph`, initialize with `PivotMds`, run a cooperative `IterativeSolver`, and evaluate selective layout metrics:
@@ -67,7 +67,7 @@ fn run_3d_and_polylines(graph: &CsrGraph<f64>) -> Result<(), CoreError> {
 
 ## Feature Flags
 
-`default` enables `spatial`, `edge-routing`, `linalg`, `neighborhood`, `layout`, `clustering`, `metrics`, `dataset`, and `dataset-embedded`.
+`default` enables `spatial`, `edge-routing`, `linalg`, `neighborhood`, `layout`, `clustering`, `metrics`, and `dataset`. (`dataset-embedded`, `baselines`, `eval-baselines`, and `serde` are opt-in.)
 
 | Feature | Purpose |
 |---|---|
@@ -79,11 +79,11 @@ fn run_3d_and_polylines(graph: &CsrGraph<f64>) -> Result<(), CoreError> {
 | `clustering` | Louvain, Leiden, Spectral Clustering, Label Propagation, K-Means++, graph coarsening |
 | `metrics` | Selective `MetricReport` / `evaluate_metrics` (SNS, geodesic distortion, NP1/NP2, crossings, G-CAF, RTA, NOR) |
 | `dataset` | Dataset loaders and synthetic graph generators |
-| `dataset-embedded` | Embedded CSR benchmark fixtures (`karate`, `lesmis`, `1138_bus`, etc.) |
+| `dataset-embedded` | Opt-in embedded CSR benchmark fixtures (`karate`, `lesmis`, `1138_bus`, etc.) |
 | `baselines` | Opt-in comparative layout algorithms (`LinLogSolver`, `FruchtermanReingoldSolver`, `GemSolver`, `GripSolver`, etc.) |
 | `eval-baselines` | Opt-in cluster separation and baseline quality metrics (`ARI`, `AMI`, `Silhouette`, `Sprawlter-NN`, etc.) |
 | `serde` | `serde` serialization support on `egraph-core` types |
-| `full` | Enables all domain, baseline, and dataset features |
+| `full` | Enables all domain, baseline, dataset (including `dataset-embedded`), and `serde` features |
 
 ## Guarantees & Requirements
 
@@ -91,4 +91,5 @@ fn run_3d_and_polylines(graph: &CsrGraph<f64>) -> Result<(), CoreError> {
 - **Strictly Single-Threaded Pure Rust**: Zero `rayon`, `std::thread`, Web Workers, GPU, or C/Fortran FFI dependencies.
 - **Deterministic**: All stochastic initializers, solvers, and metrics accept explicit `u64` seeds (`DeterministicRng`).
 - **Cooperative Execution**: Iterative solvers implement `IterativeSolver` (`step()`, `run_steps(k)`, `run()`, `status()`).
-- **License**: MIT ([LICENSE](LICENSE)).
+- **Documentation**: [API docs on docs.rs](https://docs.rs/egraph-rs) | [Repository](https://github.com/likr/egraph-rs/tree/master/crates/egraph)
+- **License**: MIT ([LICENSE](https://github.com/likr/egraph-rs/blob/master/crates/egraph/LICENSE)).

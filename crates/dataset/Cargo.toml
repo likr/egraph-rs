@@ -7,10 +7,11 @@ license.workspace = true
 repository.workspace = true
 description = "Embedded benchmark datasets and synthetic graph generators for egraph-rs"
 homepage.workspace = true
-readme.workspace = true
+readme = "README.md"
 documentation = "https://docs.rs/egraph-dataset"
 keywords = ["graph", "dataset", "benchmark", "csr", "generator"]
 categories = ["algorithms", "data-structures", "science"]
+include = ["Cargo.toml", "LICENSE", "README.md", "src/**/*.rs", "src/data/*.csv"]
 
 [package.metadata.docs.rs]
 all-features = true

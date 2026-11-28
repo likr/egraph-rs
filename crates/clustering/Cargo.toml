@@ -7,10 +7,11 @@ license.workspace = true
 repository.workspace = true
 description = "Single-threaded graph community detection, K-Means++ clustering, and multilevel coarsening for egraph-rs"
 homepage.workspace = true
-readme.workspace = true
+readme = "README.md"
 documentation = "https://docs.rs/egraph-clustering"
 keywords = ["clustering", "community", "louvain", "leiden", "coarsening"]
 categories = ["algorithms", "science"]
+include = ["Cargo.toml", "LICENSE", "README.md", "src/**/*.rs"]
 
 [package.metadata.docs.rs]
 all-features = true
@@ -19,3 +20,6 @@ rustdoc-args = ["--cfg", "docsrs"]
 [dependencies]
 egraph-core.workspace = true
 egraph-linalg.workspace = true
+
+[dev-dependencies]
+egraph-dataset = { workspace = true, features = ["1138_bus", "karate", "lesmis"] }

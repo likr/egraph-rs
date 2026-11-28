@@ -68,61 +68,80 @@ pub enum MetricTarget {
     LandmarkStratifiedRta,
     /// Distance Consistency (`DSC`); requires `labels`.
     #[cfg(feature = "eval-baselines")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "eval-baselines")))]
     DistanceConsistency,
     /// Distribution Consistency (`DC`); requires `labels`.
     #[cfg(feature = "eval-baselines")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "eval-baselines")))]
     DistributionConsistency,
     /// Class Density Measure (`CDM`); requires `labels`.
     #[cfg(feature = "eval-baselines")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "eval-baselines")))]
     ClassDensityMeasure,
     /// 2D Histogram Density Measure (`2D-HDM`); requires `labels`.
     #[cfg(feature = "eval-baselines")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "eval-baselines")))]
     HistogramDensityMeasure,
     /// SepMe $k$-NN graph DIR CPT; requires `labels`.
     #[cfg(feature = "eval-baselines")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "eval-baselines")))]
     SepmeKnng,
     /// SepMe Relative Neighborhood Graph DIR CPT; requires `labels`.
     #[cfg(feature = "eval-baselines")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "eval-baselines")))]
     SepmeRng,
     /// SepMe Gabriel Graph DIR CPT; requires `labels`.
     #[cfg(feature = "eval-baselines")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "eval-baselines")))]
     SepmeGab,
     /// SepMe $\gamma$-Observable Neighbor Graph DIR CPT; requires `labels`.
     #[cfg(feature = "eval-baselines")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "eval-baselines")))]
     SepmeGong,
     /// Neighborhood Hit ($M_{\mathrm{NH}}$); requires `labels`.
     #[cfg(feature = "eval-baselines")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "eval-baselines")))]
     NeighborhoodHit,
     /// Silhouette coefficient; requires `labels`.
     #[cfg(feature = "eval-baselines")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "eval-baselines")))]
     SilhouetteScore,
     /// Calinski-Harabasz Index; requires `labels`.
     #[cfg(feature = "eval-baselines")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "eval-baselines")))]
     CalinskiHarabaszScore,
     /// Davies-Bouldin Index; requires `labels`.
     #[cfg(feature = "eval-baselines")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "eval-baselines")))]
     DaviesBouldinScore,
     /// $k$-means Cluster Quality (`CQ-kmeans` ARI); requires `labels`.
     #[cfg(feature = "eval-baselines")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "eval-baselines")))]
     CqKmeansAri,
     /// $k$-means Cluster Quality (`CQ-kmeans` AMI); requires `labels`.
     #[cfg(feature = "eval-baselines")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "eval-baselines")))]
     CqKmeansAmi,
     /// Average-linkage HAC Cluster Quality (`CQ-HAC` Homogeneity); requires `labels`.
     #[cfg(feature = "eval-baselines")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "eval-baselines")))]
     CqHacHom,
     /// Average-linkage HAC Cluster Quality (`CQ-HAC` AMI); requires `labels`.
     #[cfg(feature = "eval-baselines")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "eval-baselines")))]
     CqHacAmi,
     /// Pairwise Distance-Overlap Error (`PDOE`); requires `labels`.
     #[cfg(feature = "eval-baselines")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "eval-baselines")))]
     PairwiseDistanceOverlapError,
     /// Sprawlter-NN composite overlap clutter measure using per-node `sprawlter_extents` or uniform `sprawlter_node_radius`.
     #[cfg(feature = "eval-baselines")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "eval-baselines")))]
     SprawlterNn,
     /// Chen et al. (2020) 5-metric Node Overlap Removal (`NOR`) summary;
     /// requires `original_layout` in [`super::MetricInputs`].
     #[cfg(feature = "eval-baselines")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "eval-baselines")))]
     NorMetrics,
 }
 

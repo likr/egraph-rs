@@ -1,3 +1,5 @@
+#![cfg_attr(docsrs, feature(doc_cfg))]
+
 mod catalog;
 mod synthetic;
 
@@ -202,6 +204,7 @@ fn parse_embedded_csr<W>(input: &str) -> CsrGraph<W> {
 ///
 /// Requires the `1138_bus` feature flag to be enabled.
 #[cfg(feature = "1138_bus")]
+#[cfg_attr(docsrs, doc(cfg(feature = "1138_bus")))]
 pub fn dataset_1138_bus() -> CsrGraph<f64> {
     parse_embedded_csr(include_str!("data/1138_bus.csv"))
 }
@@ -211,6 +214,7 @@ pub fn dataset_1138_bus() -> CsrGraph<f64> {
 ///
 /// Requires the `3elt` feature flag to be enabled.
 #[cfg(feature = "3elt")]
+#[cfg_attr(docsrs, doc(cfg(feature = "3elt")))]
 pub fn dataset_3_elt() -> CsrGraph<f64> {
     parse_embedded_csr(include_str!("data/3elt.csv"))
 }
@@ -220,6 +224,7 @@ pub fn dataset_3_elt() -> CsrGraph<f64> {
 ///
 /// Requires the `dwt_1005` feature flag to be enabled.
 #[cfg(feature = "dwt_1005")]
+#[cfg_attr(docsrs, doc(cfg(feature = "dwt_1005")))]
 pub fn dataset_dwt_1005() -> CsrGraph<f64> {
     parse_embedded_csr(include_str!("data/dwt_1005.csv"))
 }
@@ -229,6 +234,7 @@ pub fn dataset_dwt_1005() -> CsrGraph<f64> {
 ///
 /// Requires the `dwt_2680` feature flag to be enabled.
 #[cfg(feature = "dwt_2680")]
+#[cfg_attr(docsrs, doc(cfg(feature = "dwt_2680")))]
 pub fn dataset_dwt_2680() -> CsrGraph<f64> {
     parse_embedded_csr(include_str!("data/dwt_2680.csv"))
 }
@@ -238,6 +244,7 @@ pub fn dataset_dwt_2680() -> CsrGraph<f64> {
 ///
 /// Requires the `poli` feature flag to be enabled.
 #[cfg(feature = "poli")]
+#[cfg_attr(docsrs, doc(cfg(feature = "poli")))]
 pub fn dataset_poli() -> CsrGraph<f64> {
     parse_embedded_csr(include_str!("data/poli.csv"))
 }
@@ -247,6 +254,7 @@ pub fn dataset_poli() -> CsrGraph<f64> {
 ///
 /// Requires the `qh882` feature flag to be enabled.
 #[cfg(feature = "qh882")]
+#[cfg_attr(docsrs, doc(cfg(feature = "qh882")))]
 pub fn dataset_qh882() -> CsrGraph<f64> {
     parse_embedded_csr(include_str!("data/qh882.csv"))
 }
@@ -256,6 +264,7 @@ pub fn dataset_qh882() -> CsrGraph<f64> {
 ///
 /// Requires the `USpowerGrid` feature flag to be enabled.
 #[cfg(feature = "USpowerGrid")]
+#[cfg_attr(docsrs, doc(cfg(feature = "USpowerGrid")))]
 pub fn dataset_uspower_grid() -> CsrGraph<f64> {
     parse_embedded_csr(include_str!("data/USpowerGrid.csv"))
 }
@@ -264,6 +273,7 @@ pub fn dataset_uspower_grid() -> CsrGraph<f64> {
 ///
 /// Requires the `karate` feature flag to be enabled.
 #[cfg(feature = "karate")]
+#[cfg_attr(docsrs, doc(cfg(feature = "karate")))]
 pub fn dataset_karate() -> CsrGraph<f64> {
     parse_embedded_csr(include_str!("data/karate.csv"))
 }
@@ -273,6 +283,7 @@ pub fn dataset_karate() -> CsrGraph<f64> {
 ///
 /// Requires the `lesmis` feature flag to be enabled.
 #[cfg(feature = "lesmis")]
+#[cfg_attr(docsrs, doc(cfg(feature = "lesmis")))]
 pub fn dataset_lesmis() -> CsrGraph<f64> {
     parse_embedded_csr(include_str!("data/lesmis.csv"))
 }

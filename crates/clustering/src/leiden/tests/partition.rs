@@ -2,8 +2,8 @@ use egraph_core::CsrGraph;
 
 use super::super::*;
 use super::fixtures::{
-    BUS_1138_CSV, KARATE_CSV, LESMIS_CSV, assert_canonical_and_connected, make_ring_of_cliques,
-    make_two_cliques_barbell, oracle_quality_and_modularity, parse_test_csv,
+    assert_canonical_and_connected, dataset_1138_bus, dataset_karate, dataset_lesmis,
+    make_ring_of_cliques, make_two_cliques_barbell, oracle_quality_and_modularity,
 };
 
 #[test]
@@ -103,9 +103,9 @@ fn test_leiden_barbell_ring_and_weighted_f32() {
 #[test]
 fn test_leiden_real_datasets_connectivity_and_oracle() {
     let datasets = [
-        ("karate", parse_test_csv(KARATE_CSV)),
-        ("lesmis", parse_test_csv(LESMIS_CSV)),
-        ("1138_bus", parse_test_csv(BUS_1138_CSV)),
+        ("karate", dataset_karate()),
+        ("lesmis", dataset_lesmis()),
+        ("1138_bus", dataset_1138_bus()),
     ];
 
     for (name, graph) in &datasets {
@@ -160,8 +160,8 @@ fn test_leiden_real_datasets_connectivity_and_oracle() {
 #[test]
 fn test_leiden_cpm_resolution_monotonicity() {
     let graphs = [
-        parse_test_csv(KARATE_CSV),
-        parse_test_csv(LESMIS_CSV),
+        dataset_karate(),
+        dataset_lesmis(),
         make_ring_of_cliques(8, 5),
     ];
     let gammas = [0.0, 0.05, 0.2, 0.5, 1.0];
@@ -192,9 +192,9 @@ fn test_leiden_cpm_resolution_monotonicity() {
 
 #[test]
 fn test_leiden_outer_restarts_convergence_and_max_passes_bound() {
-    let karate = parse_test_csv(KARATE_CSV);
-    let lesmis = parse_test_csv(LESMIS_CSV);
-    let bus = parse_test_csv(BUS_1138_CSV);
+    let karate = dataset_karate();
+    let lesmis = dataset_lesmis();
+    let bus = dataset_1138_bus();
 
     // Converged outer-restart Modularity matches igraph(n_iterations=-1) on karate and lesmis.
     for seed in 0..10u64 {
@@ -290,7 +290,7 @@ fn test_leiden_outer_restarts_convergence_and_max_passes_bound() {
 
 #[test]
 fn test_leiden_cpm_reports_standard_gamma_one_modularity() {
-    for graph in [parse_test_csv(KARATE_CSV), make_two_cliques_barbell(6)] {
+    for graph in [dataset_karate(), make_two_cliques_barbell(6)] {
         let res_cpm = leiden(
             &graph,
             &LeidenConfig {

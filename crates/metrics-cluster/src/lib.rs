@@ -10,6 +10,8 @@
 //!   baseline metrics unified across [`egraph_core::MetricSpace`],
 //!   [`egraph_core::EuclideanLayout`], and [`egraph_core::ManifoldLayout2d`].
 
+#![cfg_attr(docsrs, feature(doc_cfg))]
+
 mod cluster_area;
 #[cfg(feature = "eval-baselines")]
 mod cluster_baselines;
@@ -21,6 +23,7 @@ pub use cluster_area::{
     cluster_area_faithfulness_with_weights,
 };
 #[cfg(feature = "eval-baselines")]
+#[cfg_attr(docsrs, doc(cfg(feature = "eval-baselines")))]
 pub use cluster_baselines::{
     NorMetrics, PartitionAgreement, calinski_harabasz_score, class_density_measure, cq_hac,
     cq_kmeans, davies_bouldin_score, distance_consistency, distribution_consistency,

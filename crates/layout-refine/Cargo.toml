@@ -7,10 +7,11 @@ license.workspace = true
 repository.workspace = true
 description = "Single-threaded post-layout spatial and density-field refinement algorithms for egraph-rs"
 homepage.workspace = true
-readme.workspace = true
+readme = "README.md"
 documentation = "https://docs.rs/egraph-layout-refine"
 keywords = ["graph-drawing", "refinement", "poisson", "declutter", "layout"]
 categories = ["algorithms", "science"]
+include = ["Cargo.toml", "LICENSE", "README.md", "src/**/*.rs"]
 
 [package.metadata.docs.rs]
 all-features = true

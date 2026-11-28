@@ -7,10 +7,11 @@ license.workspace = true
 repository.workspace = true
 description = "Single-threaded sparse linear algebra, spectral diffusion, and shortest-path primitives for egraph-rs"
 homepage.workspace = true
-readme.workspace = true
+readme = "README.md"
 documentation = "https://docs.rs/egraph-linalg"
 keywords = ["linear-algebra", "sparse-matrix", "laplacian", "chebyshev", "dijkstra"]
 categories = ["algorithms", "mathematics", "science"]
+include = ["Cargo.toml", "LICENSE", "README.md", "src/**/*.rs"]
 
 [package.metadata.docs.rs]
 all-features = true

@@ -7,10 +7,11 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
-readme.workspace = true
+readme = "README.md"
 documentation = "https://docs.rs/egraph-spatial-crossings"
 keywords = ["graph", "crossings", "sweep-line", "geometry", "manifold"]
 categories = ["algorithms", "mathematics", "science"]
+include = ["Cargo.toml", "LICENSE", "README.md", "src/**/*.rs"]
 
 [package.metadata.docs.rs]
 all-features = true

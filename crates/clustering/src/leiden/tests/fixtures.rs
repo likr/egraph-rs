@@ -1,29 +1,9 @@
 use std::collections::VecDeque;
 
 use egraph_core::{CsrGraph, Scalar};
+pub(super) use egraph_dataset::{dataset_1138_bus, dataset_karate, dataset_lesmis};
 
 use super::super::*;
-
-pub(super) const KARATE_CSV: &str = include_str!("../../../../dataset/src/data/karate.csv");
-pub(super) const LESMIS_CSV: &str = include_str!("../../../../dataset/src/data/lesmis.csv");
-pub(super) const BUS_1138_CSV: &str = include_str!("../../../../dataset/src/data/1138_bus.csv");
-
-pub(super) fn parse_test_csv(input: &str) -> CsrGraph<f64> {
-    let mut tokens = input.split_ascii_whitespace();
-    let header = tokens.next().unwrap();
-    let mut hparts = header.split(',');
-    let n: usize = hparts.next().unwrap().parse().unwrap();
-    let m: usize = hparts.next().unwrap().parse().unwrap();
-    let mut edges = Vec::with_capacity(m);
-    for row in tokens {
-        let mut parts = row.split(',');
-        let u: u32 = parts.next().unwrap().parse().unwrap();
-        let v: u32 = parts.next().unwrap().parse().unwrap();
-        edges.push((u, v));
-    }
-    assert_eq!(edges.len(), m);
-    CsrGraph::from_edges(n, &edges, None, false, false).unwrap()
-}
 
 pub(super) fn make_two_cliques_barbell(clique_size: usize) -> CsrGraph<f64> {
     let n = clique_size * 2;

@@ -11,6 +11,7 @@ documentation = "https://docs.rs/egraph-rs"
 description = "Unified single-threaded pure-Rust graph drawing and layout facade crate."
 keywords = ["graph", "graph-drawing", "layout", "network", "tsnet"]
 categories = ["algorithms", "data-structures", "science"]
+include = ["Cargo.toml", "LICENSE", "README.md", "src/**/*.rs", "tests/**/*.rs"]
 
 [lib]
 name = "egraph"
@@ -30,7 +31,6 @@ default = [
     "clustering",
     "metrics",
     "dataset",
-    "dataset-embedded",
 ]
 spatial = ["dep:egraph-spatial-trees", "dep:egraph-spatial-fft", "dep:egraph-spatial-crossings"]
 edge-routing = ["dep:egraph-edge-routing"]
@@ -78,6 +78,7 @@ full = [
     "eval-baselines",
     "dataset",
     "dataset-embedded",
+    "serde",
 ]
 
 [dependencies]

@@ -6,6 +6,8 @@
 //! [`MetricConfig`], [`MetricInputs`], [`MetricReport`], [`ClusterBaselineConfig`],
 //! and [`ClusterBaselineReport`]).
 
+#![cfg_attr(docsrs, feature(doc_cfg))]
+
 mod dispatcher;
 
 pub use dispatcher::{
@@ -20,6 +22,7 @@ pub use egraph_metrics_cluster::{
     cluster_area_faithfulness_detail_with_weights, cluster_area_faithfulness_with_weights,
 };
 #[cfg(feature = "eval-baselines")]
+#[cfg_attr(docsrs, doc(cfg(feature = "eval-baselines")))]
 pub use egraph_metrics_cluster::{
     NorMetrics, PartitionAgreement, calinski_harabasz_score, class_density_measure, cq_hac,
     cq_kmeans, davies_bouldin_score, distance_consistency, distribution_consistency,

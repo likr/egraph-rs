@@ -8,29 +8,35 @@ pub use egraph_core::{
 };
 
 #[cfg(feature = "spatial")]
+#[cfg_attr(docsrs, doc(cfg(feature = "spatial")))]
 pub use crate::spatial::{
     ArenaOctree3d, ArenaQuadtree2d, NearestNeighborIndex, SpatialIndex, TorusView,
 };
 
 #[cfg(feature = "edge-routing")]
+#[cfg_attr(docsrs, doc(cfg(feature = "edge-routing")))]
 pub use egraph_edge_routing::{FdebConfig, FdebSolver};
 
 #[cfg(feature = "linalg")]
+#[cfg_attr(docsrs, doc(cfg(feature = "linalg")))]
 pub use crate::linalg::{
     AmgPcgConfig, AmgPcgSolver, ClassicalMds, ClassicalMdsConfig, Hde, HdeConfig, KorenSpectral,
     KorenSpectralConfig, LinearOperator, PivotMds, PivotMdsConfig, RdMds, RdMdsConfig,
 };
 
 #[cfg(feature = "neighborhood")]
+#[cfg_attr(docsrs, doc(cfg(feature = "neighborhood")))]
 pub use egraph_neighborhood::{KnnGraph, PerplexityConfig, Sparse12HopPairs, SparseProbabilities};
 
 #[cfg(feature = "clustering")]
+#[cfg_attr(docsrs, doc(cfg(feature = "clustering")))]
 pub use egraph_clustering::{
     ClusterResult, Clusterer, CommunityDetector, KMeansConfig, KMeansPlusPlus, Leiden,
     LeidenConfig, Louvain, LouvainConfig,
 };
 
 #[cfg(feature = "layout")]
+#[cfg_attr(docsrs, doc(cfg(feature = "layout")))]
 pub use crate::layout::{
     Auto2d, Auto3d, CoarseBackbone, CoarseBackboneConfig, ConstraintProjector, DefaultForceBackend,
     DefaultIbUmapBackend, DefaultStressStrategy, DefaultTFdpBackend, DefaultTsNetBackend,
@@ -49,6 +55,7 @@ pub use crate::layout::{
 };
 
 #[cfg(all(feature = "layout", feature = "baselines"))]
+#[cfg_attr(docsrs, doc(cfg(all(feature = "layout", feature = "baselines"))))]
 pub use crate::layout::{
     BackboneConfig, BackboneSolver, ClusterRefineConfig, ClusterRefineSolver, DefaultFrBackend,
     DefaultMaxentBackend, ForbidConfig, ForbidOverlapRemoval, FrBackend, FrRepulsion,
@@ -60,6 +67,7 @@ pub use crate::layout::{
 };
 
 #[cfg(feature = "metrics")]
+#[cfg_attr(docsrs, doc(cfg(feature = "metrics")))]
 pub use egraph_metrics::{
     ClusterBaselineConfig, ClusterBaselineReport, MetricConfig, MetricInputs, MetricReport,
     MetricTarget, evaluate_metrics, evaluate_metrics_with_communities,
@@ -67,4 +75,5 @@ pub use egraph_metrics::{
 };
 
 #[cfg(feature = "dataset")]
+#[cfg_attr(docsrs, doc(cfg(feature = "dataset")))]
 pub use egraph_dataset::{DatasetInfo, dataset_catalog, dataset_info, list_datasets};
