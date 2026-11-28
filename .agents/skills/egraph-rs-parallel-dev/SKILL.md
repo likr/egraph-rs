@@ -37,8 +37,8 @@ Use this skill whenever coordinating or executing concurrent work across multipl
 ## 2. Host Resource & Build Cache Discipline (12 Cores / 24 GiB RAM)
 
 - **Shared `sccache`**: `scripts/verify.sh` automatically sets `RUSTC_WRAPPER=sccache` when installed. Never override `RUSTC_WRAPPER` to empty during parallel runs; `sccache` shares compiled crate artifacts across all worktrees while each worktree keeps its own `target/` lock-free.
-- **Worktree-Local `.venv`**: Every worktree uses `$REPO_ROOT/.venv` (created via `scripts/setup_venv.sh` using `uv` hardlinks). **NEVER** install development wheels into `/Users/likr/diffusion-kernel-experiments/.venv` while working inside parallel `egraph-rs` worktrees; only install into `diffusion-kernel-experiments/.venv` from the integrated checkout when running paired benchmark switches.
-- **Immutable Wheel Handoff & SHA256 Manifest**: When exporting a built release wheel from a worktree to downstream `diffusion-kernel-experiments` benchmarks, archive the `.whl` in a dedicated immutable path, record both the `.whl` SHA256 and installed `_core.abi3.so` SHA256 in the handoff, and verify downstream `.venv` has not been overwritten by concurrent sessions before benchmarking.
+- **Worktree-Local `.venv`**: Every worktree uses `$REPO_ROOT/.venv` (created via `scripts/setup_venv.sh` using `uv` hardlinks). **NEVER** install development wheels into `/Users/likr/graph-drawing-experiments/.venv` while working inside parallel `egraph-rs` worktrees; only install into `graph-drawing-experiments/.venv` from the integrated checkout when running paired benchmark switches.
+- **Immutable Wheel Handoff & SHA256 Manifest**: When exporting a built release wheel from a worktree to downstream `graph-drawing-experiments` benchmarks, archive the `.whl` in a dedicated immutable path, record both the `.whl` SHA256 and installed `_core.abi3.so` SHA256 in the handoff, and verify downstream `.venv` has not been overwritten by concurrent sessions before benchmarking.
 - **CPU & RAM Throttling (`EGRAPH_PARALLEL_WORKERS`)**: Set `EGRAPH_PARALLEL_WORKERS` to the number of concurrent building agents so `scripts/verify.sh` caps `CARGO_BUILD_JOBS` cleanly:
 
 | `EGRAPH_PARALLEL_WORKERS` | `CARGO_BUILD_JOBS` per worker | Total peak Rust jobs | Recommended Use Case |
@@ -50,7 +50,7 @@ Use this skill whenever coordinating or executing concurrent work across multipl
 
 - **Single-Thread Runtime Enforcement**: `verify.sh` exports `OMP_NUM_THREADS=1`, `OPENBLAS_NUM_THREADS=1`, `MKL_NUM_THREADS=1`, `RAYON_NUM_THREADS=1`, `NUMEXPR_NUM_THREADS=1`, and `RUST_FONTCONFIG_DLOPEN=1`.
 - **Disk-Space Hygiene (`ENOSPC` Guard)**: Multi-worktree `--release` and WASM builds can consume 20–40+ GiB per active tree. Check `df -h .` (`>= 25 GiB` free recommended) before creating new parallel worktrees, clean merged `.worktrees/<slug>` immediately via `scripts/worktree.sh clean`, and never duplicate full workspace `target/` trees into temporary `CARGO_TARGET_DIR` paths during audits.
-- **Multi-Repo Scope Isolation**: When a task is scoped to `egraph-rs` only, leave sibling workspace repositories (`/Users/likr/diffusion-kernel-experiments`, `/Users/likr/papers`) untouched and verify empty `git status --short` on those repositories at handoff.
+- **Multi-Repo Scope Isolation**: When a task is scoped to `egraph-rs` only, leave sibling workspace repositories (`/Users/likr/graph-drawing-experiments`, `/Users/likr/papers`) untouched and verify empty `git status --short` on those repositories at handoff.
 
 ## 3. Rust-Core-First Two-Stage Sharding & File Ownership Rules
 

@@ -35,7 +35,7 @@
 | **D14** | **Python バインディング** | 全面刷新。非座標系 27 箇所の長大位置引数（`SpatialIntruderRefiner` 13 引数等）を `*` キーワード専用化、`.pyi` へ `Protocol`/`TypedDict`/`Literal` 導入、拡張余地の大きい位置 `tuple`（39 件）/非型付け `dict`（34 件）を Result クラス／`TypedDict` 化、`ValueError` サブクラスによる細分類例外階層、新構造体・クラス体系へ追従する。 |
 | **D15** | **WASM / TypeScript バインディング** | 全面刷新＋`camelCase` 統一。34 位置引数関数のオプションオブジェクト化、15 種超の文字列リテラルユニオンを `camelCase` 統一、`seed: number | bigint` 対応、`ErrorKind` 由来 `.code` 付き構造化エラー、TS `IterativeSolver`/`Layout`/`EdgePolylines`/`LayoutGenerator`/`LayoutTransform` interface・`Layout3d`・新クラス体系へ追従する。 |
 | **D16** | **WASM `CsrGraph` `weightDtype` 契約** | WASM は `f32` 専用契約として明確化し、`weightDtype` オプションを廃止（または `"float32"` 以外を明示エラーにして `weightDtype: "float64"` サイレント無視バグを根絶・`.wasm` 肥大を防止）する。 |
-| **D17** | **対象範囲と検証ゲート** | `egraph-rs` 内で完結（ゴールデンフィクスチャ更新、`docs/MIGRATION_V6.md` 全面改訂、CI へ `cargo semver-checks` 導入）。`diffusion-kernel-experiments` 側の追従は新 Python ホイール検証時の別タスクとする。 |
+| **D17** | **対象範囲と検証ゲート** | `egraph-rs` 内で完結（ゴールデンフィクスチャ更新、`docs/MIGRATION_V6.md` 全面改訂、CI へ `cargo semver-checks` 導入）。`graph-drawing-experiments` 側の追従は新 Python ホイール検証時の別タスクとする。 |
 | **D18** | **進め方** | 本仕様書を確定・レビュー可能な状態で保存した上で、Rust-core-first の 5 段階 Wave（`egraph-core` → 基盤 → ソルバ → メトリクス/データセット/ファサード → バインディング/CLI/CI）で段階的に実装する。 |
 | **D19** | **ワークスペース直下の階層配置** | 全クレートを現行通り `crates/` 配下に据え置き、`crates/python/netlify.toml`・`crates/wasm/package.json`（`"directory"`）・`notebooks/`（Colab URL）等の外部連携パスを不変維持する。 |
 | **D20** | **`crates/` 内フラット配置 & 1 対 1 命名** | `crates/<name>` のフラット配置を維持し、全クレートでディレクトリ名 `crates/<name>` とクレート名 `egraph-<name>` を 1 対 1 一致させる（`crates/cluster` → `crates/clustering` へ改名して `egraph-clustering` / `egraph::clustering` と統一）。 |
@@ -717,5 +717,5 @@ flowchart LR
 
 ### 7.2 スコープ外の明示的後続タスク
 
-- **`diffusion-kernel-experiments` の追従移行**: 本仕様書の実装・新 Python ホイールビルド確認後、別タスクとして同リポジトリ側の実験スクリプト群（`TsNetSolver`, `SgdSolver` 分離クラス、キーワード引数、`MetricReport` 等）を更新する。
+- **`graph-drawing-experiments` の追従移行**: 本仕様書の実装・新 Python ホイールビルド確認後、別タスクとして同リポジトリ側の実験スクリプト群（`TsNetSolver`, `SgdSolver` 分離クラス、キーワード引数、`MetricReport` 等）を更新する。
 - **`SurfaceLayout`（ポリゴン表面グラフ描画本体）の実装**: 本仕様書で整地したオープンな `RiemannianLayout` / `MetricSpace` / `RepulsionBackend<L>` 上に、`v6.0.0` GA 後も **破壊的変更ゼロ**（`crates/surface` = `egraph-surface` の純追記）で導入する。
