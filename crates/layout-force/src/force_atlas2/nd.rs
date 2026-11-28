@@ -1,5 +1,6 @@
 use egraph_core::{
-    CoreError, CoreResult, DeterministicRng, EuclideanLayout, EuclideanStorageMut, Scalar,
+    CoreError, CoreResult, DeterministicRng, EuclideanLayout, EuclideanStorageMut,
+    EuclideanStorageRef, Scalar,
 };
 
 use super::repulsion::{ForceRepulsion, ForceRepulsionParams};
@@ -38,9 +39,10 @@ pub(super) fn step_nd<L: EuclideanLayout, B: ForceRepulsion<L>>(
 ) -> CoreResult<()> {
     let n = state.num_nodes;
     let dims = scratch.dims;
+    let mut staged: Option<L> = None;
 
     if state.iter == 0
-        && let EuclideanStorageMut::FlatNd { coords, .. } = layout.as_euclidean_storage_mut()
+        && let EuclideanStorageRef::FlatNd { coords, .. } = layout.as_euclidean_storage()
     {
         scratch.min_axis.fill(f64::INFINITY);
         scratch.max_axis.fill(f64::NEG_INFINITY);
@@ -53,16 +55,24 @@ pub(super) fn step_nd<L: EuclideanLayout, B: ForceRepulsion<L>>(
             }
         }
         if (0..dims).all(|a| (scratch.max_axis[a] - scratch.min_axis[a]) < 1e-12) {
+            let mut copy = layout.zeros_like(n)?;
             let mut rng = DeterministicRng::from_seed_u64(state.config.seed);
-            for slot in coords.iter_mut() {
-                let next = L::Scalar::from_f64(slot.to_f64() + 1e-4 * (rng.next_f64() - 0.5));
-                if !next.is_finite() {
-                    return Err(CoreError::numerical_breakdown(
-                        "ForceAtlas2Solver N-D scatter coordinates became non-finite",
-                    ));
+            if let EuclideanStorageMut::FlatNd {
+                coords: staged_coords,
+                ..
+            } = copy.as_euclidean_storage_mut()
+            {
+                for (dst, &src) in staged_coords.iter_mut().zip(coords.iter()) {
+                    let next = L::Scalar::from_f64(src.to_f64() + 1e-4 * (rng.next_f64() - 0.5));
+                    if !next.is_finite() {
+                        return Err(CoreError::numerical_breakdown(
+                            "ForceAtlas2Solver N-D scatter coordinates became non-finite",
+                        ));
+                    }
+                    *dst = next;
                 }
-                *slot = next;
             }
+            staged = Some(copy);
         }
     }
 
@@ -76,9 +86,15 @@ pub(super) fn step_nd<L: EuclideanLayout, B: ForceRepulsion<L>>(
         state.config.seed,
         state.iter,
     );
-    backend.accumulate_repulsion(rep_state, layout, &params, &mut scratch.forces)?;
+    backend.accumulate_repulsion(
+        rep_state,
+        staged.as_ref().unwrap_or(layout),
+        &params,
+        &mut scratch.forces,
+    )?;
 
-    let EuclideanStorageMut::FlatNd { coords, .. } = layout.as_euclidean_storage_mut() else {
+    let dest_layout = staged.as_mut().unwrap_or(layout);
+    let EuclideanStorageMut::FlatNd { coords, .. } = dest_layout.as_euclidean_storage_mut() else {
         return Err(CoreError::numerical_breakdown(
             "ForceAtlas2Solver N-D storage mismatch",
         ));
@@ -232,6 +248,18 @@ pub(super) fn step_nd<L: EuclideanLayout, B: ForceRepulsion<L>>(
             coords[idx] = next_val;
             scratch.prev_forces[idx] = fi;
         }
+    }
+
+    if let Some(copy) = staged
+        && let (
+            EuclideanStorageRef::FlatNd { coords: sc, .. },
+            EuclideanStorageMut::FlatNd { coords: dc, .. },
+        ) = (
+            copy.as_euclidean_storage(),
+            layout.as_euclidean_storage_mut(),
+        )
+    {
+        dc.copy_from_slice(sc);
     }
 
     Ok(())

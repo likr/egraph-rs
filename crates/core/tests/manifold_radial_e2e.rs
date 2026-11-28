@@ -3,9 +3,7 @@
 
 use std::f64::consts::{PI, TAU};
 
-use egraph_core::{
-    CoreError, LayoutStorage, ManifoldKind, ManifoldLayout2d, MetricSpace, RiemannianLayout,
-};
+use egraph_core::{CoreError, ManifoldKind, ManifoldLayout2d, MetricSpace, RiemannianLayout};
 
 fn approx_eq(a: f64, b: f64, tol: f64) -> bool {
     (a - b).abs() <= tol

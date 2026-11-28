@@ -10,7 +10,7 @@ use crate::graph_edges::{
     extract_canonical_undirected_edges, extract_canonical_undirected_unweighted_edges,
 };
 
-use super::config::ForceAtlas2Config;
+use super::config::{ForceAtlas2Config, validate_node_radii};
 use super::dim3::{Fa2Buf3d, step_3d};
 use super::nd::{ForceAtlas2NdScratch, step_nd};
 use super::repulsion::ForceRepulsion;
@@ -230,6 +230,11 @@ where
             } else {
                 raw_w.powf(influence)
             };
+            if !w_pow.is_finite() {
+                return Err(CoreError::non_finite(
+                    "ForceAtlas2Solver::edge_weight_influence::powf",
+                ));
+            }
             let eff_w = if config.outbound_attraction_distribution {
                 let mu = masses[edges_u[idx] as usize];
                 let mv = masses[edges_v[idx] as usize];
@@ -237,6 +242,11 @@ where
             } else {
                 w_pow
             };
+            if !eff_w.is_finite() {
+                return Err(CoreError::non_finite(
+                    "ForceAtlas2Solver::outbound_attraction_distribution::eff_w",
+                ));
+            }
             edges_w.push(eff_w);
         }
 
@@ -433,7 +443,10 @@ where
         if let Err(err) = step_res {
             if matches!(
                 err,
-                CoreError::NumericalBreakdown(_) | CoreError::NonFiniteValue { .. }
+                CoreError::NumericalBreakdown(_)
+                    | CoreError::NonFiniteValue { .. }
+                    | CoreError::BackendUnavailable(_)
+                    | CoreError::DeviceLimitExceeded(_)
             ) {
                 self.state.status = SolverStatus::Failed;
             }
@@ -463,27 +476,4 @@ where
     fn total_iterations(&self) -> Option<usize> {
         Some(self.state.config.iterations)
     }
-}
-
-fn validate_node_radii(n_graph: usize, node_radii: &[f64]) -> CoreResult<()> {
-    if node_radii.len() != n_graph {
-        return Err(CoreError::dimension_mismatch(
-            n_graph,
-            node_radii.len(),
-            "ForceAtlas2Solver::with_node_radii::node_radii",
-        ));
-    }
-    for &r in node_radii {
-        if !r.is_finite() {
-            return Err(CoreError::non_finite(
-                "ForceAtlas2Solver::with_node_radii::node_radii",
-            ));
-        }
-        if r < 0.0 {
-            return Err(CoreError::invalid_input(
-                "node_radii must be finite and >= 0.0",
-            ));
-        }
-    }
-    Ok(())
 }

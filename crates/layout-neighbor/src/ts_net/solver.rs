@@ -362,7 +362,10 @@ where
         ) {
             if matches!(
                 err,
-                CoreError::NumericalBreakdown(_) | CoreError::NonFiniteValue { .. }
+                CoreError::NumericalBreakdown(_)
+                    | CoreError::NonFiniteValue { .. }
+                    | CoreError::BackendUnavailable(_)
+                    | CoreError::DeviceLimitExceeded(_)
             ) {
                 self.core.status = SolverStatus::Failed;
             }

@@ -152,9 +152,19 @@ where
             } else {
                 raw_w.powf(influence)
             };
+            if !w_eff.is_finite() {
+                return Err(CoreError::non_finite(
+                    "LinLogSolver::edge_weight_influence::powf",
+                ));
+            }
             edges_w.push(w_eff);
-            weighted_deg[edges_u[idx] as usize] += w_eff;
-            weighted_deg[edges_v[idx] as usize] += w_eff;
+            let u = edges_u[idx] as usize;
+            let v = edges_v[idx] as usize;
+            weighted_deg[u] += w_eff;
+            weighted_deg[v] += w_eff;
+            if !weighted_deg[u].is_finite() || !weighted_deg[v].is_finite() {
+                return Err(CoreError::non_finite("LinLogSolver::weighted_degree"));
+            }
         }
 
         let mut masses = Vec::with_capacity(n);
@@ -172,6 +182,9 @@ where
             };
             masses.push(m);
             total_mass += m;
+            if !total_mass.is_finite() {
+                return Err(CoreError::non_finite("LinLogSolver::total_mass"));
+            }
         }
 
         let status = if config.iterations == 0 {
@@ -345,7 +358,10 @@ where
         if let Err(err) = step_res {
             if matches!(
                 err,
-                CoreError::NumericalBreakdown(_) | CoreError::NonFiniteValue { .. }
+                CoreError::NumericalBreakdown(_)
+                    | CoreError::NonFiniteValue { .. }
+                    | CoreError::BackendUnavailable(_)
+                    | CoreError::DeviceLimitExceeded(_)
             ) {
                 self.state.status = SolverStatus::Failed;
             }

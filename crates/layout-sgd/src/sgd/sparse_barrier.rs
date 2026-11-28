@@ -215,10 +215,13 @@ pub(super) fn build_sparse_barrier_from_landmarks<W, S: Scalar>(
                 };
                 let d_s = S::from_f64(d);
                 let w_s = S::from_f64((omega * deg_factor) / (d * d));
-                if d_s.is_finite() && d_s > S::ZERO && w_s.is_finite() && w_s > S::ZERO {
-                    packed_pairs.push(PackedSymPair::new(u, v, false, d_s, w_s));
-                    n_pairs_two_sided += 1;
+                if !d_s.is_finite() || d_s <= S::ZERO || !w_s.is_finite() || w_s <= S::ZERO {
+                    return Err(CoreError::invalid_input(format!(
+                        "sparse_barrier pair ({u}, {v}) distance {d} produces non-finite or non-positive spring weight"
+                    )));
                 }
+                packed_pairs.push(PackedSymPair::new(u, v, false, d_s, w_s));
+                n_pairs_two_sided += 1;
             }
         }
     }
@@ -235,13 +238,16 @@ pub(super) fn build_sparse_barrier_from_landmarks<W, S: Scalar>(
         if gamma_eff > 0.0 {
             let d_s = S::from_f64(d3_bar);
             let w_s = S::from_f64(gamma_eff / (d3_bar * d3_bar));
-            if d_s.is_finite() && d_s > S::ZERO && w_s.is_finite() && w_s > S::ZERO {
-                packed_pairs.push(PackedSymPair::new(u, v, config.hinge_repulsion, d_s, w_s));
-                if config.hinge_repulsion {
-                    n_pairs_hinge += 1;
-                } else {
-                    n_pairs_two_sided += 1;
-                }
+            if !d_s.is_finite() || d_s <= S::ZERO || !w_s.is_finite() || w_s <= S::ZERO {
+                return Err(CoreError::invalid_input(format!(
+                    "sparse_barrier non-2hop pair ({u}, {v}) distance {d3_bar} produces non-finite or non-positive spring weight"
+                )));
+            }
+            packed_pairs.push(PackedSymPair::new(u, v, config.hinge_repulsion, d_s, w_s));
+            if config.hinge_repulsion {
+                n_pairs_hinge += 1;
+            } else {
+                n_pairs_two_sided += 1;
             }
         }
     }

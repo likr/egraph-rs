@@ -370,13 +370,27 @@ where
 
         let s_old = match self.prev_stress {
             Some(s) => s,
-            None => self.strategy.compute_stress(
+            None => match self.strategy.compute_stress(
                 &self.strategy_state,
                 self.num_nodes,
                 &self.dists,
                 &self.weights,
                 target,
-            )?,
+            ) {
+                Ok(s) => s,
+                Err(err) => {
+                    if matches!(
+                        err,
+                        CoreError::NumericalBreakdown(_)
+                            | CoreError::NonFiniteValue { .. }
+                            | CoreError::BackendUnavailable(_)
+                            | CoreError::DeviceLimitExceeded(_)
+                    ) {
+                        self.status = SolverStatus::Failed;
+                    }
+                    return Err(err);
+                }
+            },
         };
 
         match self.strategy.step(
@@ -413,7 +427,10 @@ where
             Err(err) => {
                 if matches!(
                     err,
-                    CoreError::NumericalBreakdown(_) | CoreError::NonFiniteValue { .. }
+                    CoreError::NumericalBreakdown(_)
+                        | CoreError::NonFiniteValue { .. }
+                        | CoreError::BackendUnavailable(_)
+                        | CoreError::DeviceLimitExceeded(_)
                 ) {
                     self.status = SolverStatus::Failed;
                 }

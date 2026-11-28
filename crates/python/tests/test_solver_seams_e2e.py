@@ -303,6 +303,35 @@ class TestSolverSeamsE2E(unittest.TestCase):
 
         self.assertEqual(len(results), 3)
 
+    def test_force_atlas2_and_linlog_reject_edge_weight_influence_overflow(
+        self,
+    ) -> None:
+        g = eg.CsrGraph.from_edges(
+            3,
+            [(0, 1), (1, 2)],
+            weights=np.array([1e200, 1e200], dtype=np.float64),
+            directed=False,
+            sanitize=True,
+        )
+        with self.assert_no_panic_raises((eg.NonFiniteValueError,)):
+            eg.ForceAtlas2Solver(g, edge_weight_influence=2.0)
+        with self.assert_no_panic_raises((eg.NonFiniteValueError,)):
+            eg.LinLogSolver(
+                g, edge_weight_influence=2.0, repulsion_model="edge_repulsion"
+            )
+
+        g_sum = eg.CsrGraph.from_edges(
+            3,
+            [(0, 1), (1, 2)],
+            weights=np.array([1e308, 1e308], dtype=np.float64),
+            directed=False,
+            sanitize=True,
+        )
+        with self.assert_no_panic_raises((eg.NonFiniteValueError,)):
+            eg.LinLogSolver(
+                g_sum, edge_weight_influence=1.0, repulsion_model="edge_repulsion"
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

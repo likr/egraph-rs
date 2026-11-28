@@ -1,4 +1,6 @@
-use egraph_core::{CoreError, CoreResult, Layout2d, LayoutNd, LayoutStorage, Scalar};
+use egraph_core::{
+    CoreError, CoreResult, EuclideanLayout, Layout2d, LayoutNd, LayoutStorage, Scalar,
+};
 
 use super::repulsion::{TFdpCore, TFdpRepulsion, TFdpSpaceKind, TFdpWorkspace};
 
@@ -120,20 +122,28 @@ pub(super) fn step_2d<S: Scalar, B: TFdpRepulsion<Layout2d<S>>>(
     };
 
     let n = core.num_nodes;
+    let mut staged: Option<Layout2d<S>> = None;
+    let mut next_rng = None;
     if core.iteration == 0 {
-        let (xs, ys) = layout.xy_mut();
+        let (xs, ys) = (layout.x(), layout.y());
         if xs.iter().all(|&v| v == S::ZERO) && ys.iter().all(|&v| v == S::ZERO) {
+            let mut copy = layout.zeros_like(n)?;
+            let mut rng_copy = core.rng.clone();
+            let (sx, sy) = copy.xy_mut();
             for idx in 0..n {
-                xs[idx] = S::from_f64(core.rng.next_f64() * 2.0 - 1.0);
-                ys[idx] = S::from_f64(core.rng.next_f64() * 2.0 - 1.0);
+                sx[idx] = S::from_f64(rng_copy.next_f64() * 2.0 - 1.0);
+                sy[idx] = S::from_f64(rng_copy.next_f64() * 2.0 - 1.0);
             }
+            staged = Some(copy);
+            next_rng = Some(rng_copy);
         }
     }
+    let src_layout = staged.as_ref().unwrap_or(layout);
 
     let inv_alpha_sq = 1.0 / (core.config.alpha * core.config.alpha);
     {
-        let xs = layout.x();
-        let ys = layout.y();
+        let xs = src_layout.x();
+        let ys = src_layout.y();
         for i in 0..n {
             let xi = xs[i].to_f64();
             let yi = ys[i].to_f64();
@@ -158,7 +168,10 @@ pub(super) fn step_2d<S: Scalar, B: TFdpRepulsion<Layout2d<S>>>(
         }
     }
 
-    backend.compute_repulsion(backend_state, layout, core.config.gamma, &mut ws.rep)?;
+    backend.compute_repulsion(backend_state, src_layout, core.config.gamma, &mut ws.rep)?;
+    if let Some(rng_copy) = next_rng {
+        core.rng = rng_copy;
+    }
 
     let rho = core.current_rho() * core.rep_scale;
     let step_lr = core.config.learning_rate
@@ -169,8 +182,8 @@ pub(super) fn step_2d<S: Scalar, B: TFdpRepulsion<Layout2d<S>>>(
     let mut mean_x = 0.0_f64;
     let mut mean_y = 0.0_f64;
     {
-        let xs = layout.x();
-        let ys = layout.y();
+        let xs = src_layout.x();
+        let ys = src_layout.y();
         for i in 0..n {
             let xi = xs[i].to_f64();
             let yi = ys[i].to_f64();
@@ -244,14 +257,18 @@ pub(super) fn step_nd<S: Scalar, B: TFdpRepulsion<LayoutNd<S>>>(
     let dims = layout.dims();
     ws.ensure_allocated(n, dims)?;
 
-    if core.iteration == 0 {
-        let coords = layout.coords_mut();
-        if coords.iter().all(|&v| v == S::ZERO) {
-            for v in coords.iter_mut() {
-                *v = S::from_f64(core.rng.next_f64() * 2.0 - 1.0);
-            }
+    let mut staged: Option<LayoutNd<S>> = None;
+    let mut next_rng = None;
+    if core.iteration == 0 && layout.coords().iter().all(|&v| v == S::ZERO) {
+        let mut copy = layout.zeros_like(n)?;
+        let mut rng_copy = core.rng.clone();
+        for v in copy.coords_mut().iter_mut() {
+            *v = S::from_f64(rng_copy.next_f64() * 2.0 - 1.0);
         }
+        staged = Some(copy);
+        next_rng = Some(rng_copy);
     }
+    let src_layout = staged.as_ref().unwrap_or(layout);
 
     let rho = core.current_rho() * core.rep_scale;
     let step_lr = core.config.learning_rate
@@ -261,7 +278,7 @@ pub(super) fn step_nd<S: Scalar, B: TFdpRepulsion<LayoutNd<S>>>(
     let inv_alpha_sq = 1.0 / (core.config.alpha * core.config.alpha);
 
     {
-        let coords = layout.coords();
+        let coords = src_layout.coords();
         for i in 0..n {
             let i_base = i * dims;
             ws.attr[i_base..i_base + dims].fill(0.0);
@@ -287,11 +304,14 @@ pub(super) fn step_nd<S: Scalar, B: TFdpRepulsion<LayoutNd<S>>>(
         }
     }
 
-    backend.compute_repulsion(backend_state, layout, core.config.gamma, &mut ws.rep)?;
+    backend.compute_repulsion(backend_state, src_layout, core.config.gamma, &mut ws.rep)?;
+    if let Some(rng_copy) = next_rng {
+        core.rng = rng_copy;
+    }
 
     ws.mean.fill(0.0);
     {
-        let coords = layout.coords();
+        let coords = src_layout.coords();
         for i in 0..n {
             let i_base = i * dims;
             let mut v_sq = 0.0_f64;

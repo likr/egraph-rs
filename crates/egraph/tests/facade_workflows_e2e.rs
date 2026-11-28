@@ -298,7 +298,7 @@ fn workflow_multi_solver_zero_copy_ir_and_custom_ib_umap_plugin() {
 #[cfg(all(feature = "layout", feature = "metrics"))]
 #[test]
 fn workflow_multi_dimension_permutation_layout_equivalence() {
-    use egraph::layout::force::{ForceAtlas2Config, ForceAtlas2Solver};
+    use egraph::layout::force::{Exact as ForceExact, ForceAtlas2Config, ForceAtlas2Solver};
     use egraph::layout::neighbor::{Exact, TFdpConfig, TFdpSolver};
     use egraph::layout::sgd::{SgdScheduleConfig, SgdSolver};
     use egraph::metrics::{neighborhood_preservation_2hop, scale_normalized_stress};
@@ -331,18 +331,18 @@ fn workflow_multi_dimension_permutation_layout_equivalence() {
     let l3_base = Layout3d::<f64>::init(n, 13, 2.0).unwrap();
     let mut l3 = l3_base.clone();
     let mut l3_p = l3_base.permute(&perm).unwrap();
-    ForceAtlas2Solver::<Layout3d<f64>, Exact>::with_backend(
+    ForceAtlas2Solver::<Layout3d<f64>, ForceExact>::with_backend(
         &g,
         ForceAtlas2Config::new().with_iterations(8),
-        Exact::new(),
+        ForceExact::new(),
     )
     .unwrap()
     .run(&mut l3)
     .unwrap();
-    ForceAtlas2Solver::<Layout3d<f64>, Exact>::with_backend(
+    ForceAtlas2Solver::<Layout3d<f64>, ForceExact>::with_backend(
         &gp,
         ForceAtlas2Config::new().with_iterations(8),
-        Exact::new(),
+        ForceExact::new(),
     )
     .unwrap()
     .run(&mut l3_p)

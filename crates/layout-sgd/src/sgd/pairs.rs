@@ -167,7 +167,15 @@ impl<S: Scalar> DirectedPairAccumulator<S> {
         }
     }
 
-    pub(super) fn push_s(&mut self, u: u32, v: u32, d_uv_s: S, d_vu_s: S, w_uv_s: S, w_vu_s: S) {
+    pub(super) fn push_s(
+        &mut self,
+        u: u32,
+        v: u32,
+        d_uv_s: S,
+        d_vu_s: S,
+        w_uv_s: S,
+        w_vu_s: S,
+    ) -> CoreResult<()> {
         if !d_uv_s.is_finite()
             || d_uv_s <= S::ZERO
             || !d_vu_s.is_finite()
@@ -178,7 +186,9 @@ impl<S: Scalar> DirectedPairAccumulator<S> {
             || w_vu_s < S::ZERO
             || (w_uv_s == S::ZERO && w_vu_s == S::ZERO)
         {
-            return;
+            return Err(CoreError::invalid_input(format!(
+                "pair ({u}, {v}) produces non-finite or non-positive spring parameters"
+            )));
         }
         if d_uv_s != d_vu_s || w_uv_s != w_vu_s {
             self.all_symmetric = false;
@@ -186,9 +196,18 @@ impl<S: Scalar> DirectedPairAccumulator<S> {
         self.pairs.push(PackedGenPair::new(
             u, v, false, d_uv_s, d_vu_s, w_uv_s, w_vu_s,
         ));
+        Ok(())
     }
 
-    pub(super) fn push_f64(&mut self, u: u32, v: u32, d_uv: f64, d_vu: f64, w_uv: f64, w_vu: f64) {
+    pub(super) fn push_f64(
+        &mut self,
+        u: u32,
+        v: u32,
+        d_uv: f64,
+        d_vu: f64,
+        w_uv: f64,
+        w_vu: f64,
+    ) -> CoreResult<()> {
         self.push_s(
             u,
             v,
@@ -196,7 +215,7 @@ impl<S: Scalar> DirectedPairAccumulator<S> {
             S::from_f64(d_vu),
             S::from_f64(w_uv),
             S::from_f64(w_vu),
-        );
+        )
     }
 
     pub(super) fn into_storage(self) -> PairStorage<S> {

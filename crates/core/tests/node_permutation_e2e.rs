@@ -20,13 +20,13 @@ fn csr_permute_nodes_undirected_weighted_and_unweighted_preserves_sorted_rows() 
     assert!(gw_p.is_weighted());
     assert!(!gu_p.is_weighted());
 
-    for u in 0..4 {
-        let pu = perm[u] as usize;
+    for (u, &pu_u32) in perm.iter().enumerate() {
+        let pu = pu_u32 as usize;
         let nbrs = gw_p.neighbors(pu);
         assert!(nbrs.windows(2).all(|w| w[0] < w[1]));
         assert_eq!(nbrs, gu_p.neighbors(pu));
-        for v in 0..4 {
-            let pv = perm[v] as usize;
+        for (v, &pv_u32) in perm.iter().enumerate() {
+            let pv = pv_u32 as usize;
             assert_eq!(gw_p.has_edge(pu, pv), gw.has_edge(u, v));
             assert_eq!(gw_p.edge_weight(pu, pv), gw.edge_weight(u, v));
             assert_eq!(gu_p.has_edge(pu, pv), gu.has_edge(u, v));

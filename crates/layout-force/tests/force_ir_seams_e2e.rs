@@ -296,9 +296,8 @@ fn force_atlas2_invalid_configs_radii_weights_and_targets_fail_fast() {
         ForceAtlas2Solver::<Layout2d<f64>>::new(&g_neg, ForceAtlas2Config::new()),
         Err(CoreError::InvalidInput(_))
     ));
-    let g_nan = CsrGraph::<f64>::from_edges(2, &[(0, 1)], Some(&[f64::NAN]), false, false).unwrap();
     assert!(matches!(
-        ForceAtlas2Solver::<Layout2d<f64>>::new(&g_nan, ForceAtlas2Config::new()),
+        CsrGraph::<f64>::from_edges(2, &[(0, 1)], Some(&[f64::NAN]), false, false),
         Err(CoreError::NonFiniteValue { .. })
     ));
 

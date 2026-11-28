@@ -265,15 +265,15 @@ fn pairwise_permutation_preserves_ir_correspondence_across_solvers() {
         IbUmapSolver::<Layout2d<f64>>::new(&g, IbUmapConfig::new().with_iterations(2)).unwrap();
     let ib_p =
         IbUmapSolver::<Layout2d<f64>>::new(&gp, IbUmapConfig::new().with_iterations(2)).unwrap();
-    for old_i in 0..6 {
-        let new_i = perm[old_i] as usize;
+    for (old_i, &new_u) in perm.iter().enumerate() {
+        let new_i = new_u as usize;
         assert!((ib.hub_eta()[old_i] - ib_p.hub_eta()[new_i]).abs() < 1e-12);
     }
 
     let fa = ForceAtlas2Solver::<Layout2d<f64>>::new(&g, ForceAtlas2Config::new()).unwrap();
     let fa_p = ForceAtlas2Solver::<Layout2d<f64>>::new(&gp, ForceAtlas2Config::new()).unwrap();
-    for old_i in 0..6 {
-        let new_i = perm[old_i] as usize;
+    for (old_i, &new_u) in perm.iter().enumerate() {
+        let new_i = new_u as usize;
         assert!((fa.masses()[old_i] - fa_p.masses()[new_i]).abs() < 1e-12);
     }
 

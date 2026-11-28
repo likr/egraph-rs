@@ -274,21 +274,24 @@ pub fn build_ortmann_sparse_problem<W: Scalar, S: Scalar>(
         Vec::with_capacity(positive_edges.len() + h.saturating_mul(h.saturating_sub(1)) / 2);
     let mut edges_1hop: Vec<(u32, u32)> = Vec::with_capacity(positive_edges.len());
     for &(u, v, d_uv) in &positive_edges {
-        edges_1hop.push((u, v));
         let d_s = S::from_f64(d_uv);
         let w_s = S::from_f64(1.0 / (d_uv * d_uv));
-        if d_s.is_finite() && d_s > S::ZERO && w_s.is_finite() && w_s > S::ZERO {
-            two_sided.push(SgdPairRecord::new(
-                u,
-                v,
-                SgdPairKind::Spring,
-                d_s,
-                d_s,
-                w_s,
-                w_s,
-            ));
-            record_positive_weight(w_s, &mut w_min_raw, &mut w_max_raw);
+        if !d_s.is_finite() || d_s <= S::ZERO || !w_s.is_finite() || w_s <= S::ZERO {
+            return Err(CoreError::invalid_input(format!(
+                "edge ({u}, {v}) distance {d_uv} produces non-finite or non-positive spring weight"
+            )));
         }
+        edges_1hop.push((u, v));
+        two_sided.push(SgdPairRecord::new(
+            u,
+            v,
+            SgdPairKind::Spring,
+            d_s,
+            d_s,
+            w_s,
+            w_s,
+        ));
+        record_positive_weight(w_s, &mut w_min_raw, &mut w_max_raw);
     }
     if !edges_1hop.windows(2).all(|w| w[0] < w[1]) {
         edges_1hop.sort_unstable();
@@ -346,18 +349,28 @@ pub fn build_ortmann_sparse_problem<W: Scalar, S: Scalar>(
             }
             let count_v = r_dists[kv].partition_point(|&dpj| dpj.is_finite() && 2.0 * dpj <= d);
             let count_u = r_dists[ku].partition_point(|&dpj| dpj.is_finite() && 2.0 * dpj <= d);
+            if count_v == 0 && count_u == 0 {
+                continue;
+            }
             let d_s = S::from_f64(d);
-            let w_uv_s = S::from_f64((count_v as f64) / (d * d));
-            let w_vu_s = S::from_f64((count_u as f64) / (d * d));
+            let w_uv_s = if count_v > 0 {
+                S::from_f64((count_v as f64) / (d * d))
+            } else {
+                S::ZERO
+            };
+            let w_vu_s = if count_u > 0 {
+                S::from_f64((count_u as f64) / (d * d))
+            } else {
+                S::ZERO
+            };
             if !d_s.is_finite()
                 || d_s <= S::ZERO
-                || !w_uv_s.is_finite()
-                || w_uv_s < S::ZERO
-                || !w_vu_s.is_finite()
-                || w_vu_s < S::ZERO
-                || (w_uv_s == S::ZERO && w_vu_s == S::ZERO)
+                || (count_v > 0 && (!w_uv_s.is_finite() || w_uv_s <= S::ZERO))
+                || (count_u > 0 && (!w_vu_s.is_finite() || w_vu_s <= S::ZERO))
             {
-                continue;
+                return Err(CoreError::invalid_input(format!(
+                    "pivot pair ({u}, {v}) distance {d} produces non-finite or non-positive spring weight"
+                )));
             }
             two_sided.push(SgdPairRecord::new(
                 u,
@@ -399,7 +412,9 @@ pub fn build_ortmann_sparse_problem<W: Scalar, S: Scalar>(
             let d_s = S::from_f64(dpi);
             let w_s = S::from_f64((count as f64) / (dpi * dpi));
             if !d_s.is_finite() || d_s <= S::ZERO || !w_s.is_finite() || w_s <= S::ZERO {
-                continue;
+                return Err(CoreError::invalid_input(format!(
+                    "pivot-node pair ({p_u32}, {i_u32}) distance {dpi} produces non-finite or non-positive spring weight"
+                )));
             }
             one_sided.push(SgdPairRecord::new(
                 p_u32,
@@ -433,12 +448,12 @@ pub fn build_ortmann_sparse_problem<W: Scalar, S: Scalar>(
 
 pub(super) fn ortmann_problem_into_storage<S: Scalar>(
     problem: &OrtmannSparseProblem<S>,
-) -> PairStorage<S> {
+) -> CoreResult<PairStorage<S>> {
     let mut acc = DirectedPairAccumulator::<S>::with_capacity(
         problem.two_sided.len() + problem.one_sided.len(),
     );
     for rec in problem.two_sided.iter().chain(problem.one_sided.iter()) {
-        acc.push_s(rec.u, rec.v, rec.d_uv, rec.d_vu, rec.w_uv, rec.w_vu);
+        acc.push_s(rec.u, rec.v, rec.d_uv, rec.d_vu, rec.w_uv, rec.w_vu)?;
     }
-    acc.into_storage()
+    Ok(acc.into_storage())
 }

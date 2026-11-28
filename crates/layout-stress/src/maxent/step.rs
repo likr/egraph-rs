@@ -102,13 +102,15 @@ fn euclid_norm_diff_flat(coords: &[f64], d: usize, u: usize, v: usize) -> f64 {
 fn run_maxent_step<L: EuclideanLayout, E: RepulsionBackend<L>>(
     core: &mut MaxentCoreState,
     evaluator: &mut E,
+    staged: Option<&L>,
     layout: &mut L,
 ) -> CoreResult<()> {
     let n = core.num_nodes;
-    let d = layout.dims();
+    let src_layout = staged.unwrap_or(&*layout);
+    let d = src_layout.dims();
     ensure_buffers(core, n, d)?;
 
-    match layout.as_euclidean_storage() {
+    match src_layout.as_euclidean_storage() {
         EuclideanStorageRef::Soa2d { x, y } => {
             for i in 0..n {
                 core.cur[i * 2] = x[i].to_f64();
@@ -150,7 +152,7 @@ fn run_maxent_step<L: EuclideanLayout, E: RepulsionBackend<L>>(
     // 2. Repulsive force b(x) over non-adjacent vertex pairs {i, j} \notin S.
     let mut rep_coeff = 0.0_f64;
     if core.alpha > 0.0 {
-        evaluator.accumulate_repulsion(layout, &mut core.rep)?;
+        evaluator.accumulate_repulsion(staged.unwrap_or(&*layout), &mut core.rep)?;
 
         let eps_sq = core.config.eps_sq;
         let q = core.effective_q;
@@ -328,15 +330,22 @@ pub(super) fn step_euclidean<L: EuclideanLayout, E: RepulsionBackend<L>>(
     target: &mut L,
 ) -> CoreResult<()> {
     let d = target.dims();
-    if core.locked_dims.is_none() {
-        core.locked_dims = Some(d);
-    }
     if core.num_nodes <= 1 {
+        if core.locked_dims.is_none() {
+            core.locked_dims = Some(d);
+        }
         core.status = SolverStatus::Converged;
         return Ok(());
     }
     if core.total_iter_executed == 0 && is_layout_collapsed_euclidean(target) {
-        initialize_collapsed_euclidean(core, target)?;
+        let mut staged = target.zeros_like(core.num_nodes)?;
+        initialize_collapsed_euclidean(core, &mut staged)?;
+        run_maxent_step(core, evaluator, Some(&staged), target)?;
+    } else {
+        run_maxent_step(core, evaluator, None, target)?;
     }
-    run_maxent_step(core, evaluator, target)
+    if core.locked_dims.is_none() {
+        core.locked_dims = Some(d);
+    }
+    Ok(())
 }

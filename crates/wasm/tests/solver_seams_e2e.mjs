@@ -270,4 +270,25 @@ function makeCircleCoords(n, radius = 1.0) {
   grid.free();
 }
 
+// 5. Verify ForceAtlas2Solver and LinLogSolver reject edgeWeightInfluence powf overflow at construction
+{
+  const gOverflow = eg.CsrGraph.fromEdgeList(
+    3,
+    new Uint32Array([0, 1, 1, 2]),
+    new Float32Array([1e20, 1e20]),
+    { directed: false, sanitize: true },
+  );
+  assertErrorWithCode(
+    () => new eg.ForceAtlas2Solver(gOverflow, { edgeWeightInfluence: 20.0 }),
+    "ForceAtlas2Solver edgeWeightInfluence overflow",
+    "NonFiniteValue",
+  );
+  assertErrorWithCode(
+    () => new eg.LinLogSolver(gOverflow, { edgeWeightInfluence: 20.0, repulsionModel: "edgeRepulsion" }),
+    "LinLogSolver edgeWeightInfluence overflow",
+    "NonFiniteValue",
+  );
+  gOverflow.free();
+}
+
 console.log("WASM_SOLVER_SEAMS_E2E_OK");

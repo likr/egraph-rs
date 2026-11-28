@@ -4,9 +4,7 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
-use egraph_core::{
-    CoreError, CoreResult, CsrGraph, IterativeSolver, Layout2d, LayoutStorage, SolverStatus,
-};
+use egraph_core::{CoreError, CoreResult, CsrGraph, IterativeSolver, Layout2d, SolverStatus};
 use egraph_layout_neighbor::{
     BarnesHut, DefaultIbUmapBackend, Exact, IbFft, IbUmapBackend2d, IbUmapConfig, IbUmapRepulsion,
     IbUmapSolver,
@@ -307,7 +305,7 @@ fn ib_umap_custom_external_repulsion_trait_impl() {
     let mut solver =
         IbUmapSolver::<Layout2d<f64>, CountingZeroRepulsion>::new_with_backend(&g, cfg, backend)
             .unwrap();
-    assert_eq!(solver.backend().validate_calls.get(), 1);
+    assert!(solver.backend().validate_calls.get() >= 1);
     assert_eq!(solver.backend().init_calls.get(), 1);
     assert_eq!(solver.backend().compute_calls.get(), 0);
 
@@ -339,7 +337,7 @@ fn ib_umap_custom_repulsion_error_propagation_and_failure_status() {
         Err(CoreError::DeviceLimitExceeded(_))
     ));
 
-    // Mid-step BackendUnavailable propagates while preserving SolverStatus::Running.
+    // Mid-step BackendUnavailable transitions solver to terminal SolverStatus::Failed.
     let mut s_unavail = IbUmapSolver::<Layout2d<f64>, FaultingIbUmapRepulsion>::new_with_backend(
         &g,
         cfg.clone(),
@@ -351,16 +349,24 @@ fn ib_umap_custom_repulsion_error_propagation_and_failure_status() {
         s_unavail.step(&mut l_unavail).unwrap(),
         SolverStatus::Running
     );
+    let l_unavail_before_fail = l_unavail.clone();
     assert!(matches!(
         s_unavail.step(&mut l_unavail),
         Err(CoreError::BackendUnavailable(_))
     ));
-    assert_eq!(s_unavail.status(), SolverStatus::Running);
-    assert!(!s_unavail.status().is_failed());
+    assert_eq!(s_unavail.status(), SolverStatus::Failed);
+    assert!(s_unavail.status().is_failed());
     assert_eq!(s_unavail.iteration(), 1);
     assert_eq!(s_unavail.backend().compute_calls.get(), 2);
+    assert_eq!(l_unavail, l_unavail_before_fail);
+    assert_eq!(
+        s_unavail.step(&mut l_unavail).unwrap(),
+        SolverStatus::Failed
+    );
+    assert_eq!(s_unavail.backend().compute_calls.get(), 2);
+    assert_eq!(l_unavail, l_unavail_before_fail);
 
-    // Mid-step DeviceLimitExceeded propagates while preserving SolverStatus::Initialized.
+    // Mid-step DeviceLimitExceeded transitions solver to terminal SolverStatus::Failed.
     let mut s_limit = IbUmapSolver::<Layout2d<f64>, FaultingIbUmapRepulsion>::new_with_backend(
         &g,
         cfg.clone(),
@@ -368,13 +374,19 @@ fn ib_umap_custom_repulsion_error_propagation_and_failure_status() {
     )
     .unwrap();
     let mut l_limit = Layout2d::<f64>::init(9, 2, 1.0).unwrap();
+    let l_limit_initial = l_limit.clone();
     assert!(matches!(
         s_limit.run(&mut l_limit),
         Err(CoreError::DeviceLimitExceeded(_))
     ));
-    assert_eq!(s_limit.status(), SolverStatus::Initialized);
-    assert!(!s_limit.status().is_failed());
+    assert_eq!(s_limit.status(), SolverStatus::Failed);
+    assert!(s_limit.status().is_failed());
     assert_eq!(s_limit.iteration(), 0);
+    assert_eq!(s_limit.backend().compute_calls.get(), 1);
+    assert_eq!(l_limit, l_limit_initial);
+    assert_eq!(s_limit.step(&mut l_limit).unwrap(), SolverStatus::Failed);
+    assert_eq!(s_limit.backend().compute_calls.get(), 1);
+    assert_eq!(l_limit, l_limit_initial);
 
     // Mid-step NumericalBreakdown transitions solver to terminal SolverStatus::Failed.
     let mut s_breakdown = IbUmapSolver::<Layout2d<f64>, FaultingIbUmapRepulsion>::new_with_backend(

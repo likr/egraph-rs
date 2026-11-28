@@ -1,4 +1,4 @@
-use egraph_core::{CoreError, CoreResult, Layout2d, LayoutStorage, Scalar};
+use egraph_core::{CoreError, CoreResult, EuclideanLayout, Layout2d, LayoutStorage, Scalar};
 
 use super::ib_umap_repulsion::{IbUmapCore, IbUmapRepulsion, IbUmapSpaceKind, IbUmapWorkspace};
 
@@ -46,22 +46,30 @@ pub(super) fn step_2d<S: Scalar, B: IbUmapRepulsion<Layout2d<S>>>(
     let IbUmapSpaceKind::Euclidean2d(ws) = &mut workspace.0;
 
     let n = core.num_nodes;
+    let mut staged: Option<Layout2d<S>> = None;
+    let mut next_rng = None;
     if core.iteration == 0 {
-        let (xs, ys) = layout.xy_mut();
+        let (xs, ys) = (layout.x(), layout.y());
         if xs.iter().all(|&v| v == S::ZERO) && ys.iter().all(|&v| v == S::ZERO) {
+            let mut copy = layout.zeros_like(n)?;
+            let mut rng_copy = core.rng.clone();
+            let (sx, sy) = copy.xy_mut();
             for idx in 0..n {
-                xs[idx] = S::from_f64(core.rng.next_f64() * 20.0 - 10.0);
-                ys[idx] = S::from_f64(core.rng.next_f64() * 20.0 - 10.0);
+                sx[idx] = S::from_f64(rng_copy.next_f64() * 20.0 - 10.0);
+                sy[idx] = S::from_f64(rng_copy.next_f64() * 20.0 - 10.0);
             }
+            staged = Some(copy);
+            next_rng = Some(rng_copy);
         }
     }
+    let src_layout = staged.as_ref().unwrap_or(layout);
 
     let two_ab = 2.0 * core.a * core.b;
     let a = core.a;
     let b = core.b;
     {
-        let xs = layout.x();
-        let ys = layout.y();
+        let xs = src_layout.x();
+        let ys = src_layout.y();
         for i in 0..n {
             let xi = xs[i].to_f64();
             let yi = ys[i].to_f64();
@@ -94,7 +102,17 @@ pub(super) fn step_2d<S: Scalar, B: IbUmapRepulsion<Layout2d<S>>>(
         }
     }
 
-    backend.compute_repulsion(backend_state, layout, a, b, core.config.c_k, &mut ws.rep)?;
+    backend.compute_repulsion(
+        backend_state,
+        src_layout,
+        a,
+        b,
+        core.config.c_k,
+        &mut ws.rep,
+    )?;
+    if let Some(rng_copy) = next_rng {
+        core.rng = rng_copy;
+    }
 
     let alpha_t = core.config.learning_rate
         * (1.0 - (core.iteration as f64) / (core.total_iterations as f64));
@@ -104,8 +122,8 @@ pub(super) fn step_2d<S: Scalar, B: IbUmapRepulsion<Layout2d<S>>>(
     let mut mean_x = 0.0_f64;
     let mut mean_y = 0.0_f64;
     {
-        let xs = layout.x();
-        let ys = layout.y();
+        let xs = src_layout.x();
+        let ys = src_layout.y();
         for i in 0..n {
             let xi = xs[i].to_f64();
             let yi = ys[i].to_f64();

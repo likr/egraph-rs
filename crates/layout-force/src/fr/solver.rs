@@ -412,7 +412,10 @@ where
         if let Err(err) = result {
             if matches!(
                 err,
-                CoreError::NumericalBreakdown(_) | CoreError::NonFiniteValue { .. }
+                CoreError::NumericalBreakdown(_)
+                    | CoreError::NonFiniteValue { .. }
+                    | CoreError::BackendUnavailable(_)
+                    | CoreError::DeviceLimitExceeded(_)
             ) {
                 self.state.status = SolverStatus::Failed;
             }

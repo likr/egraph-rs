@@ -397,9 +397,8 @@ fn ortmann_invalid_config_and_bad_graph_weights_fail_fast() {
         Err(CoreError::InvalidInput(_))
     ));
 
-    let g_nan = CsrGraph::<f64>::from_edges(2, &[(0, 1)], Some(&[f64::NAN]), false, false).unwrap();
     assert!(matches!(
-        build_ortmann_sparse_problem::<f64, f64>(&g_nan, OrtmannSparseStressConfig::new()),
+        CsrGraph::<f64>::from_edges(2, &[(0, 1)], Some(&[f64::NAN]), false, false),
         Err(CoreError::NonFiniteValue { .. })
     ));
 }

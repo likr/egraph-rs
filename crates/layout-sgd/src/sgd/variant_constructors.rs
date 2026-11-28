@@ -112,13 +112,16 @@ impl<L: RiemannianLayout> SgdSolver<L> {
             if edge_len.is_finite() && edge_len > 0.0 {
                 let d_s = L::Scalar::from_f64(edge_len);
                 let w_s = L::Scalar::from_f64(1.0 / (edge_len * edge_len));
-                if d_s.is_finite()
-                    && d_s > L::Scalar::ZERO
-                    && w_s.is_finite()
-                    && w_s > L::Scalar::ZERO
+                if !d_s.is_finite()
+                    || d_s <= L::Scalar::ZERO
+                    || !w_s.is_finite()
+                    || w_s <= L::Scalar::ZERO
                 {
-                    pairs.push(PackedSymPair::new(u, v, false, d_s, w_s));
+                    return Err(CoreError::invalid_input(format!(
+                        "edge ({u}, {v}) distance {edge_len} produces non-finite or non-positive spring weight"
+                    )));
                 }
+                pairs.push(PackedSymPair::new(u, v, false, d_s, w_s));
             }
         }
 
@@ -157,7 +160,7 @@ impl<L: RiemannianLayout> SgdSolver<L> {
         let eta_min_ovr = config.eta_min;
         let eps = config.eps;
         let problem = build_ortmann_sparse_problem::<W, L::Scalar>(graph, config)?;
-        let storage = ortmann_problem_into_storage(&problem);
+        let storage = ortmann_problem_into_storage(&problem)?;
         let n_springs = storage.len();
         let mut solver = Self::from_pair_storage(
             problem.num_nodes,

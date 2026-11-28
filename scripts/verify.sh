@@ -303,7 +303,7 @@ if [[ "$RUN_PYTHON" -eq 1 ]]; then
       test_maxent_stress_solver.py
       test_nd_and_manifold_solvers.py test_neighbor_and_sgd_solvers.py
       test_neighborhood_knn_and_landmarks.py test_rta_crosslessness_and_metric_errors.py
-      test_screened_poisson.py test_spatial_trees_dijkstra_and_datasets.py
+      test_screened_poisson.py test_solver_seams_e2e.py test_spatial_trees_dijkstra_and_datasets.py
       test_spectral_and_chebyshev_linalg.py test_tsnet_and_sgd_solvers.py
     )
     TYPED_PY_TESTS=()
@@ -331,6 +331,10 @@ if [[ "$RUN_WASM" -eq 1 ]]; then
     if [[ -f "$REPO_ROOT/crates/wasm/tests/node_esm_smoke.mjs" ]]; then
       [[ -x "$REPO_ROOT/crates/wasm/node_modules/.bin/tsc" ]] || npm ci --prefix "$REPO_ROOT/crates/wasm"
       run_step "wasm_node_esm_smoke" node "$REPO_ROOT/crates/wasm/tests/node_esm_smoke.mjs"
+    fi
+    if [[ -f "$REPO_ROOT/crates/wasm/tests/solver_seams_e2e.mjs" ]]; then
+      [[ -x "$REPO_ROOT/crates/wasm/node_modules/.bin/tsc" ]] || npm ci --prefix "$REPO_ROOT/crates/wasm"
+      run_step "wasm_solver_seams_e2e" node "$REPO_ROOT/crates/wasm/tests/solver_seams_e2e.mjs"
     fi
   fi
 fi

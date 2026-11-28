@@ -177,3 +177,26 @@ impl ForceAtlas2Config {
         Ok(())
     }
 }
+
+pub(super) fn validate_node_radii(n_graph: usize, node_radii: &[f64]) -> CoreResult<()> {
+    if node_radii.len() != n_graph {
+        return Err(CoreError::dimension_mismatch(
+            n_graph,
+            node_radii.len(),
+            "ForceAtlas2Solver::with_node_radii::node_radii",
+        ));
+    }
+    for &r in node_radii {
+        if !r.is_finite() {
+            return Err(CoreError::non_finite(
+                "ForceAtlas2Solver::with_node_radii::node_radii",
+            ));
+        }
+        if r < 0.0 {
+            return Err(CoreError::invalid_input(
+                "node_radii must be finite and >= 0.0",
+            ));
+        }
+    }
+    Ok(())
+}

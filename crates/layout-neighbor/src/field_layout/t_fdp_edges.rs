@@ -26,6 +26,11 @@ pub(super) fn extract_symmetric_csr_edges<W: Scalar>(
                 continue;
             }
             let w_f32 = w as f32;
+            if !w_f32.is_finite() {
+                return Err(CoreError::non_finite(
+                    "TFdpSolver::new_with_backend::edge_weights",
+                ));
+            }
             pairs.push((u_u32, v, w_f32));
             if graph.is_directed() {
                 pairs.push((v, u_u32, w_f32));

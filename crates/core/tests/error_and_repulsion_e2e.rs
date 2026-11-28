@@ -82,7 +82,7 @@ fn repulsion_backend_reference_and_box_adapters_work() {
     let layout = Layout2d::<f64>::zeros(3);
     let mut backend = ScalarTestRepulsion { z_value: 4.5 };
     let mut forces = vec![0.0; 6];
-    let mut ref_adapter: &mut ScalarTestRepulsion = &mut backend;
+    let ref_adapter: &mut ScalarTestRepulsion = &mut backend;
     let z1 = ref_adapter
         .accumulate_repulsion(&layout, &mut forces)
         .unwrap();
@@ -116,7 +116,7 @@ fn repulsion_backend_propagates_backend_and_device_errors_across_adapters() {
     let mut b_unavail = FailingRepulsion {
         mode: FailMode::BackendUnavailable("no gpu adapter"),
     };
-    let mut ref_unavail: &mut FailingRepulsion = &mut b_unavail;
+    let ref_unavail: &mut FailingRepulsion = &mut b_unavail;
     let err_b = ref_unavail.accumulate_repulsion(&l2, &mut f2).unwrap_err();
     assert!(matches!(
         err_b,

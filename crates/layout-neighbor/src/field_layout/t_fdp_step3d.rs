@@ -1,4 +1,4 @@
-use egraph_core::{CoreError, CoreResult, Layout3d, LayoutStorage, Scalar};
+use egraph_core::{CoreError, CoreResult, EuclideanLayout, Layout3d, LayoutStorage, Scalar};
 
 use super::repulsion::{TFdpCore, TFdpRepulsion, TFdpSpaceKind, TFdpWorkspace};
 
@@ -58,25 +58,33 @@ pub(super) fn step_3d<S: Scalar, B: TFdpRepulsion<Layout3d<S>>>(
     };
 
     let n = core.num_nodes;
+    let mut staged: Option<Layout3d<S>> = None;
+    let mut next_rng = None;
     if core.iteration == 0 {
-        let (xs, ys, zs) = layout.xyz_mut();
+        let (xs, ys, zs) = (layout.x(), layout.y(), layout.z());
         if xs.iter().all(|&v| v == S::ZERO)
             && ys.iter().all(|&v| v == S::ZERO)
             && zs.iter().all(|&v| v == S::ZERO)
         {
+            let mut copy = layout.zeros_like(n)?;
+            let mut rng_copy = core.rng.clone();
+            let (sx, sy, sz) = copy.xyz_mut();
             for idx in 0..n {
-                xs[idx] = S::from_f64(core.rng.next_f64() * 2.0 - 1.0);
-                ys[idx] = S::from_f64(core.rng.next_f64() * 2.0 - 1.0);
-                zs[idx] = S::from_f64(core.rng.next_f64() * 2.0 - 1.0);
+                sx[idx] = S::from_f64(rng_copy.next_f64() * 2.0 - 1.0);
+                sy[idx] = S::from_f64(rng_copy.next_f64() * 2.0 - 1.0);
+                sz[idx] = S::from_f64(rng_copy.next_f64() * 2.0 - 1.0);
             }
+            staged = Some(copy);
+            next_rng = Some(rng_copy);
         }
     }
+    let src_layout = staged.as_ref().unwrap_or(layout);
 
     let inv_alpha_sq = 1.0 / (core.config.alpha * core.config.alpha);
     {
-        let xs = layout.x();
-        let ys = layout.y();
-        let zs = layout.z();
+        let xs = src_layout.x();
+        let ys = src_layout.y();
+        let zs = src_layout.z();
         for i in 0..n {
             let xi = xs[i].to_f64();
             let yi = ys[i].to_f64();
@@ -106,7 +114,10 @@ pub(super) fn step_3d<S: Scalar, B: TFdpRepulsion<Layout3d<S>>>(
         }
     }
 
-    backend.compute_repulsion(backend_state, layout, core.config.gamma, &mut ws.rep)?;
+    backend.compute_repulsion(backend_state, src_layout, core.config.gamma, &mut ws.rep)?;
+    if let Some(rng_copy) = next_rng {
+        core.rng = rng_copy;
+    }
 
     let rho = core.current_rho() * core.rep_scale;
     let step_lr = core.config.learning_rate
@@ -118,9 +129,9 @@ pub(super) fn step_3d<S: Scalar, B: TFdpRepulsion<Layout3d<S>>>(
     let mut mean_y = 0.0_f64;
     let mut mean_z = 0.0_f64;
     {
-        let xs = layout.x();
-        let ys = layout.y();
-        let zs = layout.z();
+        let xs = src_layout.x();
+        let ys = src_layout.y();
+        let zs = src_layout.z();
         for i in 0..n {
             let xi = xs[i].to_f64();
             let yi = ys[i].to_f64();

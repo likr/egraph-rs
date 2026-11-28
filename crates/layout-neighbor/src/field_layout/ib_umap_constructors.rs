@@ -195,7 +195,16 @@ where
             ));
         }
         let (_n, indptr, indices, values) = probs.into_parts();
-        let edge_weights: Vec<f32> = values.into_iter().map(|w| w as f32).collect();
+        let mut edge_weights = Vec::with_capacity(values.len());
+        for w in values {
+            let wf = w as f32;
+            if !wf.is_finite() {
+                return Err(CoreError::non_finite(
+                    "IbUmapSolver::from_fuzzy_set_with_backend::edge_weights",
+                ));
+            }
+            edge_weights.push(wf);
+        }
         Self::build_inner(n, indptr, indices, edge_weights, degrees, config, backend)
     }
 
@@ -222,7 +231,16 @@ where
         }
         let indptr = probs.indptr().to_vec();
         let indices = probs.indices().to_vec();
-        let edge_weights: Vec<f32> = probs.values().iter().map(|&w| w as f32).collect();
+        let mut edge_weights = Vec::with_capacity(probs.values().len());
+        for &w in probs.values() {
+            let wf = w as f32;
+            if !wf.is_finite() {
+                return Err(CoreError::non_finite(
+                    "IbUmapSolver::from_fuzzy_set_ref_with_backend::edge_weights",
+                ));
+            }
+            edge_weights.push(wf);
+        }
         Self::build_inner(n, indptr, indices, edge_weights, degrees, config, backend)
     }
 

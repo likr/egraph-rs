@@ -33,9 +33,12 @@ pub(super) fn build_full_pair_storage<W: Scalar, S: Scalar>(
                 if d.is_finite() && d > 0.0 {
                     let d_s = S::from_f64(d);
                     let w_s = S::from_f64(1.0 / (d * d));
-                    if d_s.is_finite() && d_s > S::ZERO && w_s.is_finite() && w_s > S::ZERO {
-                        pairs.push(PackedSymPair::new(i as u32, j as u32, false, d_s, w_s));
+                    if !d_s.is_finite() || d_s <= S::ZERO || !w_s.is_finite() || w_s <= S::ZERO {
+                        return Err(CoreError::invalid_input(format!(
+                            "pair ({i}, {j}) distance {d} produces non-finite or non-positive spring weight"
+                        )));
                     }
+                    pairs.push(PackedSymPair::new(i as u32, j as u32, false, d_s, w_s));
                 }
             }
         }
@@ -62,7 +65,7 @@ pub(super) fn build_full_pair_storage<W: Scalar, S: Scalar>(
             if let Some((duv, dvu, wuv, wvu)) =
                 resolve_directed_pair_params(dists[i * n + j], dists[j * n + i])
             {
-                acc.push_f64(i as u32, j as u32, duv, dvu, wuv, wvu);
+                acc.push_f64(i as u32, j as u32, duv, dvu, wuv, wvu)?;
             }
         }
     }
@@ -101,9 +104,12 @@ pub(super) fn build_random_pair_storage<W: Scalar, S: Scalar>(
                 if d.is_finite() && d > 0.0 {
                     let d_s = S::from_f64(d);
                     let w_s = S::from_f64(1.0 / (d * d));
-                    if d_s.is_finite() && d_s > S::ZERO && w_s.is_finite() && w_s > S::ZERO {
-                        pairs.push(PackedSymPair::new(u, v, false, d_s, w_s));
+                    if !d_s.is_finite() || d_s <= S::ZERO || !w_s.is_finite() || w_s <= S::ZERO {
+                        return Err(CoreError::invalid_input(format!(
+                            "pair ({u}, {v}) distance {d} produces non-finite or non-positive spring weight"
+                        )));
                     }
+                    pairs.push(PackedSymPair::new(u, v, false, d_s, w_s));
                 }
                 idx += 1;
             }
@@ -145,7 +151,7 @@ pub(super) fn build_random_pair_storage<W: Scalar, S: Scalar>(
         if let Some((duv, dvu, wuv, wvu)) =
             resolve_directed_pair_params(d_uv_arr[slot], d_vu_arr[slot])
         {
-            acc.push_f64(u, v, duv, dvu, wuv, wvu);
+            acc.push_f64(u, v, duv, dvu, wuv, wvu)?;
         }
     }
     Ok(acc.into_storage())
@@ -429,10 +435,16 @@ impl<L: RiemannianLayout> SgdSolver<L> {
             let d = sq_sum.sqrt().max(min_dist);
             let d_s = L::Scalar::from_f64(d);
             let w_s = L::Scalar::from_f64(1.0 / (d * d));
-            if d_s.is_finite() && d_s > L::Scalar::ZERO && w_s.is_finite() && w_s > L::Scalar::ZERO
+            if !d_s.is_finite()
+                || d_s <= L::Scalar::ZERO
+                || !w_s.is_finite()
+                || w_s <= L::Scalar::ZERO
             {
-                pairs.push(PackedSymPair::new(u, v, false, d_s, w_s));
+                return Err(CoreError::invalid_input(format!(
+                    "omega pair ({u}, {v}) distance {d} produces non-finite or non-positive spring weight"
+                )));
             }
+            pairs.push(PackedSymPair::new(u, v, false, d_s, w_s));
         }
 
         let n_springs = pairs.len();

@@ -1,5 +1,6 @@
 use egraph_core::{
-    CoreError, CoreResult, DeterministicRng, EuclideanLayout, EuclideanStorageMut, Scalar,
+    CoreError, CoreResult, DeterministicRng, EuclideanLayout, EuclideanStorageMut,
+    EuclideanStorageRef, Scalar,
 };
 
 use super::repulsion::{ForceRepulsion, ForceRepulsionParams};
@@ -29,8 +30,9 @@ pub(super) fn step_3d<L: EuclideanLayout, B: ForceRepulsion<L>>(
     layout: &mut L,
 ) -> CoreResult<()> {
     let n = state.num_nodes;
+    let mut staged: Option<L> = None;
     if state.iter == 0
-        && let EuclideanStorageMut::Soa3d { x, y, z } = layout.as_euclidean_storage_mut()
+        && let EuclideanStorageRef::Soa3d { x, y, z } = layout.as_euclidean_storage()
     {
         let mut min_x = f64::INFINITY;
         let mut max_x = f64::NEG_INFINITY;
@@ -50,20 +52,29 @@ pub(super) fn step_3d<L: EuclideanLayout, B: ForceRepulsion<L>>(
             max_z = max_z.max(zf);
         }
         if (max_x - min_x) < 1e-12 && (max_y - min_y) < 1e-12 && (max_z - min_z) < 1e-12 {
+            let mut copy = layout.zeros_like(n)?;
             let mut rng = DeterministicRng::from_seed_u64(state.config.seed);
-            for i in 0..n {
-                let nx = L::Scalar::from_f64(x[i].to_f64() + 1e-4 * (rng.next_f64() - 0.5));
-                let ny = L::Scalar::from_f64(y[i].to_f64() + 1e-4 * (rng.next_f64() - 0.5));
-                let nz = L::Scalar::from_f64(z[i].to_f64() + 1e-4 * (rng.next_f64() - 0.5));
-                if !nx.is_finite() || !ny.is_finite() || !nz.is_finite() {
-                    return Err(CoreError::numerical_breakdown(
-                        "ForceAtlas2Solver 3D scatter coordinates became non-finite",
-                    ));
+            if let EuclideanStorageMut::Soa3d {
+                x: sx,
+                y: sy,
+                z: sz,
+            } = copy.as_euclidean_storage_mut()
+            {
+                for i in 0..n {
+                    let nx = L::Scalar::from_f64(x[i].to_f64() + 1e-4 * (rng.next_f64() - 0.5));
+                    let ny = L::Scalar::from_f64(y[i].to_f64() + 1e-4 * (rng.next_f64() - 0.5));
+                    let nz = L::Scalar::from_f64(z[i].to_f64() + 1e-4 * (rng.next_f64() - 0.5));
+                    if !nx.is_finite() || !ny.is_finite() || !nz.is_finite() {
+                        return Err(CoreError::numerical_breakdown(
+                            "ForceAtlas2Solver 3D scatter coordinates became non-finite",
+                        ));
+                    }
+                    sx[i] = nx;
+                    sy[i] = ny;
+                    sz[i] = nz;
                 }
-                x[i] = nx;
-                y[i] = ny;
-                z[i] = nz;
             }
+            staged = Some(copy);
         }
     }
 
@@ -77,13 +88,19 @@ pub(super) fn step_3d<L: EuclideanLayout, B: ForceRepulsion<L>>(
         state.config.seed,
         state.iter,
     );
-    backend.accumulate_repulsion(rep_state, layout, &params, &mut buf.forces)?;
+    backend.accumulate_repulsion(
+        rep_state,
+        staged.as_ref().unwrap_or(layout),
+        &params,
+        &mut buf.forces,
+    )?;
 
+    let dest_layout = staged.as_mut().unwrap_or(layout);
     let EuclideanStorageMut::Soa3d {
         x: xs_mut,
         y: ys_mut,
         z: zs_mut,
-    } = layout.as_euclidean_storage_mut()
+    } = dest_layout.as_euclidean_storage_mut()
     else {
         return Err(CoreError::numerical_breakdown(
             "ForceAtlas2Solver 3D storage mismatch",
@@ -250,6 +267,28 @@ pub(super) fn step_3d<L: EuclideanLayout, B: ForceRepulsion<L>>(
         buf.prev_forces[3 * i] = fxi;
         buf.prev_forces[3 * i + 1] = fyi;
         buf.prev_forces[3 * i + 2] = fzi;
+    }
+
+    if let Some(copy) = staged
+        && let (
+            EuclideanStorageRef::Soa3d {
+                x: sx,
+                y: sy,
+                z: sz,
+            },
+            EuclideanStorageMut::Soa3d {
+                x: dx,
+                y: dy,
+                z: dz,
+            },
+        ) = (
+            copy.as_euclidean_storage(),
+            layout.as_euclidean_storage_mut(),
+        )
+    {
+        dx.copy_from_slice(sx);
+        dy.copy_from_slice(sy);
+        dz.copy_from_slice(sz);
     }
 
     Ok(())
