@@ -42,7 +42,7 @@
 | **D21** | **細粒度維持 & 薄い純アンブレラ廃止** | 細粒度の並列コンパイル単位を維持しつつ、1 ファイル専業の純アンブレラ 2 クレート（`crates/spatial` 75 行・`crates/layout` 106 行）を廃止し、`egraph` ファサード（`egraph::spatial`, `egraph::layout`）へ直接統合する（`egraph::linalg` と対称化、`egraph-neighborhood` も `egraph-spatial-trees` へ直接依存へ整理）。 |
 | **D22** | **`layout-*` 依存ボトルネックの完全分解** | `layout-sgd`（16.8k 行）からサンプリング近傍埋め込み 5 手法を `crates/layout-embedding` へ分離・`coarse_backbone` を `crates/layout-multilevel` へ移管する。さらに 11 依存の `layout-multilevel` をリーフ系 `crates/layout-multilevel`・後処理 `crates/layout-refine`・多ソルバ合成 `crates/layout-composite` の 3 クレートへ分解し、全 7 主力レイアウトの 100% 並列ビルドを実現する。 |
 | **D23** | **エッジルーティング独立クレート** | `fdeb` を `layout-force` から分離して `crates/edge-routing`（`egraph-edge-routing` / `egraph::edge_routing`）を新設し、`EdgePolylines<L>` を中心に FDEB・将来の KDEEB/FFTEB/MINGLE/HEB・直交／曲線ルーティングを収容する。 |
-| **D24** | **非クレート周辺ディレクトリ・設定整理** | ルート `package.json` を現行 ESM/Vite 構成へ刷新（旧 v5 スクリプト撤去）、`js/` を `examples/web/` へ移動、旧計画書（`V6_RELEASE_PLAN.md`, `V6_ALPHA9_REMEDIATION_PLAN.md`）を `docs/archive/` へ整理、`PROJECT_SUMMARY.md` を新 28 クレート構成へ同期する（`notebooks/` と `crates/python/docs/` は据え置き）。 |
+| **D24** | **非クレート周辺ディレクトリ・設定整理** | ルート `package.json` を現行 ESM/Vite 構成へ刷新（旧 v5 スクリプト撤去）、`js/` を `examples/web/`（`examples/web/package.json` + `examples/web/dataset/` の深さ 2 フラット構成）へ移動、旧計画書（`V6_RELEASE_PLAN.md`, `V6_ALPHA9_REMEDIATION_PLAN.md`）を `docs/archive/` へ整理、`PROJECT_SUMMARY.md` を新 28 クレート構成へ同期する（`notebooks/` と `crates/python/docs/` は据え置き）。 |
 
 ---
 
@@ -317,7 +317,7 @@ pub trait LayoutTransform {
 ### 2.6 追加の周辺 5 Trait・抽象仕様（D10）
 
 1. **`SpatialIndex` / `NearestNeighborIndex` trait（`egraph-spatial-trees`）**:
-   - `StaticKdTree<const D, S>` と `DynamicKdTree<S>` を統一し、9 バリアントの `#[doc(hidden)] pub enum NdSpatialIndex`（[`nd_index.rs`](../crates/metrics-geometry/src/nd_index.rs#L12-L22)）を撤去する。将来の非ユークリッド空間木（Ball-Tree / VP-Tree / Cover Tree）も同一 trait で実装可能になる。
+   - `StaticKdTree<const D, S>` と `DynamicKdTree<S>` を統一し、9 バリアントの `#[doc(hidden)] pub enum NdSpatialIndex`（旧 `crates/metrics-geometry/src/nd_index.rs`）を撤去して [`NearestNeighborIndex`](../crates/spatial-trees/src/kdtree/index.rs#L10) へ統一する。将来の非ユークリッド空間木（Ball-Tree / VP-Tree / Cover Tree）も同一 trait で実装可能になる。
    ```rust
    pub trait NearestNeighborIndex {
        fn dims(&self) -> usize;
@@ -378,7 +378,7 @@ pub trait LayoutTransform {
 
 加えて、`layout-sgd/src/coarse_backbone` を `CoarseBackbone` 構造体（`LayoutGenerator`）として `layout-multilevel` へ移管し、`linalg-mds` の自由関数初期化群（`pivot_mds`, `classical_mds`, `hde`, `rd_mds`, `koren_spectral_init`）を `PivotMds`, `ClassicalMds`, `Hde`, `RdMds`, `KorenSpectral` 構造体（`LayoutGenerator<Output = L>`）へ統合する。
 
-### 3.2 6 ソルバの 2D/ND 混在状態破損バグの根治
+### 3.2 6 ソルバの 2D/ND 混在状態破損バグの根治と Option 1 型パラメータバックエンド設計
 
 現行コードでは 1 つのソルバ型に `Layout2d` と `LayoutNd` の 2 つの `IterativeSolver` 実装を持たせた結果、多レイアウト対応 12 ソルバ中 6 ソルバ（`MaxentStressSolver`, `LinLogSolver`, `ForceAtlas2Solver`, `YifanHuSolver`, `FdebSolver`, およびラップしている `ContinuousFdp`）において、**`Layout2d` と 2D `LayoutNd` を交互に渡すと `active_dims == 2` を共有して内部 scratch・力履歴・ポリライン状態が壊れるバグ**が発生していた。
 
@@ -387,22 +387,28 @@ pub trait LayoutTransform {
 - コンパイル時に異種レイアウト混用を **100% 防止**
 - 未使用の 2D / ND 双方の scratch フィールドを 1 つの構造体に抱えるメモリ無駄を **解消**
 
+さらに **Option 1（バックエンド型パラメータ `B` への昇格＋対応空間 `L` のみへの open trait 実装分離）** を採用し、`use_barnes_hut: bool` や共通実行時 `enum`・`TypeId::of::<L>()`・関数ポインタ・未使用バックエンドフィールドを撤去した：
+- **型パラメータ化 & 関連型デフォルト**: `TsNetSolver<L, B>`, `TFdpSolver<L, B>`, `ForceAtlas2Solver<L, B>`, `LinLogSolver<L, B>`, `YifanHuSolver<L, B>`, `FruchtermanReingoldSolver<L, B>`, `MaxentStressSolver<L, B>`, `StressMajorizationSolver<L, S>` はバックエンド／戦略型パラメータを保持し、`DefaultTsNetBackend` / `DefaultTFdpBackend` / `DefaultForceBackend` / `DefaultFrBackend` / `DefaultMaxentBackend` / `DefaultStressStrategy` により通常の `<L>` 指定だけで適切な既定バックエンドを選択する。
+- **空間限定 impl によるコンパイル時 Fail Fast**: 非対応組み合わせ（`ForceAtlas2Solver::<LayoutNd<f64>, BarnesHut>`, `TsNetSolver::<Layout3d<f64>, FitFft>`, `TFdpSolver::<Layout3d<f64>, IbFft>` 等）は trait impl を持たないためコンパイルエラーとなる（`TsNet` の $N$ 依存自動切替も `Auto2d` / `Auto3d` へ空間別に型分離）。
+- **バックエンド固有パラメータ分離と open trait 維持**: `theta` は `BarnesHut::new(theta)`、ibFFT 設定は `FitFft::new()` / `LinearFft::new()` / `IbFft::new()` へ閉じ込め、`Exact` 利用時の死んだ設定フィールドを排除しつつ、将来の `egraph-surface` 等から外部反発バックエンドを非破壊追加できる open trait 契約を維持する。
+- **二層構成（Rust 静的型安全 + バインディング動的ラッパ）**: Python / WASM / CLI 層では `(target, backend)` を構築時に検査し、`TsNetBackend2d` / `TsNetBackend3d` / `TFdpBackend2d` / `TFdpBackend3d` / `ForceBackend` / `FrBackend` 等の合法選択肢のみの動的ラッパ経由で即時 Fail Fast 検証を行う。
+
 ### 3.3 `ManifoldLayout2d` 4 ソルバの幾何学的正当性修正（D1）
 
 将来の `SurfaceLayout` と `ManifoldLayout2d` を共通の `RiemannianLayout` 実装へ統合するにあたり、既存 `ManifoldLayout2d` 実装に残存していた 4 箇所の非幾何的処理を `v6.0.0` GA 前に修正し、ゴールデンテストを更新する：
 
 1. **`KamadaKawaiSolver`（正定値ヘッセ行列ガード修正）**:
-   - 現行 [`kamada_kawai/manifold.rs`](../crates/layout-stress/src/kamada_kawai/manifold.rs#L129) の `det.abs() <= HESSIAN_DET_TOL || (det > 0.0 && (hxx + hyy) <= 0.0)` は `det < 0.0`（鞍点）を Newton ステップで通過させるバグがある。
-   - **修正**: 正定値判定 `det <= HESSIAN_DET_TOL || hxx <= 0.0`（および必要に応じて `hyy <= 0.0`）へ改め、鞍点では確実に最急降下フォールバックへ分岐させる。
+   - 現行 [`kamada_kawai/solver.rs`](../crates/layout-stress/src/kamada_kawai/solver.rs#L304) にて、従来の `det.abs() <= HESSIAN_DET_TOL || (det > 0.0 && (hxx + hyy) <= 0.0)` が `det < 0.0`（鞍点）を Newton ステップで通過させるバグを修正。
+   - **修正**: 正定値判定 `det <= HESSIAN_DET_TOL || hxx <= 0.0 || hyy <= 0.0` へ改め、鞍点では確実に最急降下フォールバックへ分岐させる。
 2. **`TsNetSolver`（速度ベクトルの Levi-Civita 平行移動）**:
-   - 現行 [`ts_net/manifold.rs`](../crates/layout-neighbor/src/ts_net/manifold.rs#L338-L352) では座標更新後に `(vel_x, vel_y)` を平行移動せず次のステップへ引き継いでいる。
-   - **修正**: `RiemannianLayout::exp_map` による移動後に `parallel_transport_into` で速度ベクトルを新しい接空間へ輸送する（`Euclidean` / `Torus2d` では恒等変換）。
+   - [`ts_net/riemannian.rs`](../crates/layout-neighbor/src/ts_net/riemannian.rs#L92)（および [`ts_net/manifold.rs`](../crates/layout-neighbor/src/ts_net/manifold.rs)）にて座標更新後に `(vel_x, vel_y)` が平行移動されず次ステップへ引き継がれていた問題を修正。
+   - **修正**: `RiemannianLayout::exp_map`（`exp_map_and_transport`）により移動と同時に `parallel_transport_into` で速度ベクトルを新しい接空間へ輸送する（`Euclidean` / `Torus2d` では恒等変換）。
 3. **`PacmapGraphSolver`（回転不変 Riemannian Adam＋平行移動）**:
-   - 現行 [`manifold_sampling_variants.rs`](../crates/layout-sgd/src/sgd/manifold_sampling_variants.rs#L110-L136) では軸別 2 次モーメント `(v_x, v_y)` と平行移動なしの `(m_x, m_y)` を用いており、接空間の正規直交基底選択に対して回転不変でない。
+   - [`pacmap.rs`](../crates/layout-embedding/src/pacmap.rs#L262) にて、従来の軸別 2 次モーメント `(v_x, v_y)` と平行移動なしの `(m_x, m_y)` が接空間正規直交基底の回転に対して不変でなかった問題を修正。
    - **修正**: スカラー勾配ノルム二乗を用いた Riemannian Adam（スカラー 2 次モーメント `v`）＋ 1 次モーメント `m` の `parallel_transport_into` へ統一する。
 4. **`Sgd2Solver`（SO(2) 不変対角前処理）**:
-   - 現行 [`manifold_variants.rs`](../crates/layout-sgd/src/sgd/manifold_variants.rs#L239-L241) の軸別曲率 `cx`, `cy` は接空間座標軸の回転に依存する。
-   - **修正**: SO(2) 不変な等方トレースまたは 2×2 接空間ヘッセ行列による前処理へ統一する。
+   - [`sgd2_kernels.rs`](../crates/layout-sgd/src/sgd/sgd2_kernels.rs#L43) にて、従来の軸別曲率 `cx`, `cy` が接空間座標軸の回転に依存していた問題を修正。
+   - **修正**: SO(2) 不変な等方トレース前処理へ統一する。
 
 ---
 
@@ -527,7 +533,7 @@ egraph-rs/
 │   └── (将来 v6.x) surface/      # egraph-surface (非破壊追記予定: ポリゴン表面メッシュ描画 SurfaceLayout)
 ├── docs/                         # 現行文書 (V6_API_FREEZE_SPEC.md, MIGRATION_V6.md)
 │   └── archive/                  # 履歴計画書 (V6_RELEASE_PLAN.md, V6_ALPHA9_REMEDIATION_PLAN.md)
-├── examples/web/                 # 旧 js/ 移動先 (examples/ + dataset/)
+├── examples/web/                 # 旧 js/ 移動先 (深さ2フラット: package.json + dataset/)
 ├── notebooks/                    # Google Colab チュートリアル 9 本（外部直リンク維持のためルート固定）
 ├── scripts/                      # verify.sh, verify_helpers.py, check_invariants.sh, parity_harness.py, worktree.sh
 ├── package.json                  # ルート JS workspace (ESM/Vite 向けへ刷新、旧 v5 スクリプト撤去)
@@ -676,8 +682,8 @@ flowchart TD
 
 | 対象 | 現行状態 | 整理内容 |
 |---|---|---|
-| `js/` | `js/examples/` + `js/dataset/` | **`examples/web/`**（`examples/web/examples/`, `examples/web/dataset/` または `examples/web/` 構成整理）へ移動し、CI・Playwright・`Makefile`・`README.md` 参照を追従 |
-| ルート `package.json` | v5 旧 `dist/{bundler,no-modules,nodejs,web}` スクリプト＋`prettier ^2.3.1` | 現行 pure ESM + Vite デモ構成へ刷新（`workspaces: ["crates/wasm", "examples/web/*"]` 等）、旧 v5 スクリプト撤去 |
+| `js/` | `js/examples/` + `js/dataset/` | **`examples/web/`**（`examples/web/package.json` + `examples/web/dataset/` の深さ 2 フラット構成；`file:../../crates/wasm` と `vite.config.js` `allow: ["../.."]` を不変維持）へ移動し、CI・Playwright・`Makefile`・`README.md` 参照を追従 |
+| ルート `package.json` | v5 旧 `dist/{bundler,no-modules,nodejs,web}` スクリプト＋`prettier ^2.3.1` | 現行 pure ESM + Vite デモ構成へ刷新（`workspaces: ["crates/wasm", "examples/web"]`）、旧 v5 スクリプト撤去 |
 | `docs/` | `V6_RELEASE_PLAN.md` と `V6_ALPHA9_REMEDIATION_PLAN.md` が混在 | 両履歴計画書を **`docs/archive/`** へ移動し、`docs/` 直下を現行仕様（`V6_API_FREEZE_SPEC.md`, `MIGRATION_V6.md`）に整理 |
 | `PROJECT_SUMMARY.md` | 旧 27 クレート構造と不正確なモジュール帰属記述 | 最終 28 クレート構成・実際のディレクトリ／ディレクトリ整理結果を反映して更新 |
 | `notebooks/`, `crates/python/docs/`, `crates/python/netlify.toml`, `crates/wasm/package.json` | 外部 Colab URL・Netlify Base directory・npm パスに結合 | パスは変更せず据え置き（`crates/wasm/package.json` の `"directory"` も維持） |

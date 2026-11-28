@@ -146,8 +146,8 @@ egraph-rs/
 │   ├── cli/                     # egraph-cli (`layout`, `metrics`, `cluster`, `bench`)
 │   ├── python/                  # PyO3 `abi3-py310` Python bindings & Sphinx docs
 │   └── wasm/                    # wasm-bindgen pure ESM WebAssembly bindings & TypeDoc
-├── docs/                        # Migration guide and architecture plans
-├── js/examples/                 # Browser/Vite demos and Playwright verification suite
+├── docs/                        # API freeze spec, migration guide, and archived plans
+├── examples/web/                # Browser/Vite demos and datasets
 ├── notebooks/                   # 9 Google Colab tutorial notebooks
 └── scripts/                     # Unified verification, invariants, parity, and worktree tooling
 ```
@@ -186,7 +186,7 @@ Equivalent `Makefile` shortcuts include `make verify-fast`, `make verify-all`, `
 - **Python Package README**: [crates/python/README.md](crates/python/README.md)
 - **WebAssembly Package README**: [crates/wasm/README.md](crates/wasm/README.md)
 - **Rust API Docs**: `cargo doc --workspace --no-deps --open`
-- **Browser Examples**: `npm --prefix js/examples run dev`
+- **Browser Examples**: `npm --prefix examples/web run dev`
 
 ## License
 

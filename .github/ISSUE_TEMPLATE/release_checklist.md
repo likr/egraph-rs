@@ -7,7 +7,7 @@ labels:
 ---
 
 ## Pre-Release Preparation
-- [ ] Update version across all 11 locations (`Cargo.toml`, `crates/python/Cargo.toml`, `crates/wasm/Cargo.toml`, `crates/wasm/package.json`, git-tracked `crates/wasm/package-lock.json` root & `packages[""]`, `js/examples/package.json`, `CHANGELOG.md`, `crates/python/README.md`, `crates/python/docs/source/getting_started/installation.rst`, `crates/python/docs/source/getting_started/migration_v6.rst`, `docs/MIGRATION_V6.md`).
+- [ ] Update version across all 11 locations (`Cargo.toml`, `crates/python/Cargo.toml`, `crates/wasm/Cargo.toml`, `crates/wasm/package.json`, git-tracked `crates/wasm/package-lock.json` root & `packages[""]`, `examples/web/package.json`, `CHANGELOG.md`, `crates/python/README.md`, `crates/python/docs/source/getting_started/installation.rst`, `crates/python/docs/source/getting_started/migration_v6.rst`, `docs/MIGRATION_V6.md`).
 - [ ] For `beta` / `rc` / GA releases, update classifiers in `crates/python/pyproject.toml` (remove `"Development Status :: 3 - Alpha"`).
 - [ ] Confirm `crates/wasm/package.json` `"repository"` block (`url`, `directory: "crates/wasm"`) for npm `--provenance`.
 - [ ] Simulate `.github/workflows/release.yml` `verify-tag-and-version` parser locally with `GITHUB_REF_NAME=v6.X.Y...`.

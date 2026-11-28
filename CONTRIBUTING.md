@@ -20,7 +20,7 @@ Thank you for contributing to `egraph-rs`. This project targets **Native Rust**,
 
 - **Branches**: Use descriptive topic branches (`feat/<slug>`, `fix/<slug>`, `perf/<slug>`, `docs/<slug>`, `chore/<slug>`). Parallel worktree development creates `wt/<slug>` branches under `.worktrees/<slug>` via `./scripts/worktree.sh create <slug>`.
 - **Commit Messages**: Follow **Conventional Commits** (`<type>(<scope>): <description>`, e.g. `feat(egraph-layout): ...`, `fix(egraph-python): ...`, `chore: ...`). Keep each commit focused on a single logical change.
-- **No Unwanted Files or Large Binaries**: Never commit secrets, virtual environments (`.venv/`), build artifacts (`target/`, `crates/wasm/pkg/`, `js/examples/dist/`), `Cargo.lock` (gitignored), or files exceeding 100 MB.
+- **No Unwanted Files or Large Binaries**: Never commit secrets, virtual environments (`.venv/`), build artifacts (`target/`, `crates/wasm/pkg/`, `examples/web/dist/`), `Cargo.lock` (gitignored), or files exceeding 100 MB.
 - **Immutable History & Release Tags**: Never force-push `master` (`git push --force`) and never force-move or delete pushed release tags (`v6.*`). If a release workflow fails before publishing, fix `master` and bump to the next prerelease/patch version.
 - **Verify Before Pushing**: Run [scripts/verify.sh](scripts/verify.sh) matching your scope before pushing or opening a PR.
 
@@ -41,11 +41,11 @@ Run `./scripts/setup_venv.sh` once to provision the isolated Python `.venv`, the
 # WASM check, Node tests (default / --no-default-features), and release bundle build
 ./scripts/verify.sh --wasm --build-wasm
 
-# Invariants, cross-target parity, and documentation (Sphinx + doctest + TypeDoc + js/examples)
+# Invariants, cross-target parity, and documentation (Sphinx + doctest + TypeDoc + examples/web)
 ./scripts/verify.sh --all --build-wasm --docs
 ```
 
-For architectural background and v6 API changes, see [docs/V6_RELEASE_PLAN.md](docs/V6_RELEASE_PLAN.md) and [docs/MIGRATION_V6.md](docs/MIGRATION_V6.md).
+For architectural background and v6 API changes, see [docs/V6_API_FREEZE_SPEC.md](docs/V6_API_FREEZE_SPEC.md), [docs/archive/V6_RELEASE_PLAN.md](docs/archive/V6_RELEASE_PLAN.md), and [docs/MIGRATION_V6.md](docs/MIGRATION_V6.md).
 
 ## Issues & Pull Requests
 

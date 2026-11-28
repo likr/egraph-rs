@@ -17,7 +17,7 @@
 ## Affected Targets
 - [ ] Native Rust (`egraph` / core crates)
 - [ ] Python (`crates/python`, `_core.pyi`, `egraph.interop`)
-- [ ] WebAssembly / TypeScript (`crates/wasm`, `pkg/`, `js/examples`)
+- [ ] WebAssembly / TypeScript (`crates/wasm`, `pkg/`, `examples/web`)
 - [ ] CLI (`crates/cli`)
 - [ ] CI / Release / Docs
 

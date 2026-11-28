@@ -2,7 +2,7 @@
 
 `egraph` v6 is a clean architectural redesign across Native Rust, Python (`egraph`), and WebAssembly/TypeScript (`egraph`), targeting strictly single-threaded, deterministic pure CPU execution with zero-copy CSR/SoA data buffers and 100% cross-target parity.
 
-For background on the v6 architecture, see [the v6 release plan](V6_RELEASE_PLAN.md).
+For background on the v6 architecture, see [the v6 release plan](archive/V6_RELEASE_PLAN.md).
 
 ---
 
@@ -454,4 +454,4 @@ Between `alpha.8` and `6.0.0-alpha.9` (`6.0.0a9`), all cross-target API inconsis
 
 - [Python README](../crates/python/README.md)
 - [WASM README](../crates/wasm/README.md)
-- [v6 Release Plan](V6_RELEASE_PLAN.md)
+- [v6 Release Plan](archive/V6_RELEASE_PLAN.md)
