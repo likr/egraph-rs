@@ -14,7 +14,7 @@ body:
     attributes:
       label: Affected Targets
       options:
-        - label: Native Rust (`egraph` / core crates)
+        - label: Native Rust (`egraph-rs` / core crates)
         - label: Python (`crates/python`)
         - label: WebAssembly / TypeScript (`crates/wasm`)
         - label: CLI (`crates/cli`)

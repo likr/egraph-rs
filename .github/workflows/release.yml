@@ -320,6 +320,57 @@ jobs:
           name: dist-npm-tgz
           path: crates/wasm/*.tgz
 
+  publish-crates:
+    name: Publish to crates.io (OIDC)
+    needs: [verify-tag-and-version, build-wheels, build-sdist, build-wasm]
+    runs-on: ubuntu-latest
+    environment:
+      name: crates-release
+      url: https://crates.io/crates/egraph-rs
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Authenticate with crates.io (OIDC)
+        id: auth
+        uses: rust-lang/crates-io-auth-action@v1
+
+      - name: Publish workspace crates in topological order
+        run: |
+          cargo generate-lockfile
+          python3 - <<'PY'
+          import os, subprocess, sys
+          sys.path.insert(0, "scripts")
+          import bootstrap_crates_io as bc
+
+          plan = bc.compute_publish_plan(".")
+          tag_ver = os.environ["TAG_VERSION"]
+          ua = f"egraph-rs-release/{tag_ver} (https://github.com/likr/egraph-rs)"
+          already = [u.name for u in plan if bc.query_crates_io_state(u, ua)[0]]
+          if len(already) == len(plan):
+              print(f"All {len(plan)} workspace crates are already published at {tag_ver}; skipping.")
+              sys.exit(0)
+          if not already:
+              subprocess.run(["cargo", "publish", "--workspace", "--locked"], check=True)
+          else:
+              print(f"Resuming partial crates.io publish ({len(already)}/{len(plan)} already present)...")
+              rc = bc.main(["--locked", "--existing-sleep-seconds", "65"])
+              sys.exit(rc)
+          PY
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+          TAG_VERSION: ${{ needs.verify-tag-and-version.outputs.tag_version }}
+
   publish-pypi:
     name: Publish to PyPI (OIDC)
     needs: [verify-tag-and-version, build-wheels, build-sdist, build-wasm]
@@ -411,6 +462,7 @@ jobs:
       - build-wheels
       - build-sdist
       - build-wasm
+      - publish-crates
       - publish-pypi
       - publish-npm
     runs-on: ubuntu-latest
@@ -439,6 +491,7 @@ jobs:
           body: |
             ## egraph `${{ github.ref_name }}`
 
+            - **crates.io (`egraph-rs`)**: `cargo add egraph-rs@${{ needs.verify-tag-and-version.outputs.tag_version }}`
             - **PyPI (`egraph`)**: `pip install --pre egraph==${{ needs.verify-tag-and-version.outputs.pypi_version }}`
             - **npm (`egraph`, tag `${{ needs.verify-tag-and-version.outputs.npm_tag }}`)**: `npm install egraph@${{ needs.verify-tag-and-version.outputs.tag_version }}`
             - **WASM bundle size (`egraph_wasm_bg.wasm`)**: `${{ needs.build-wasm.outputs.wasm_raw_bytes }}` bytes raw / `${{ needs.build-wasm.outputs.wasm_gzip_kib }} KiB` gzipped

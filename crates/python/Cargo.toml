@@ -1,6 +1,6 @@
 [package]
 name = "egraph-python"
-version = "6.0.0-beta.1"
+version = "6.0.0-beta.2"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -12,7 +12,7 @@ name = "_core"
 crate-type = ["cdylib"]
 
 [dependencies]
-egraph = { workspace = true, features = [
+egraph-rs = { workspace = true, features = [
     "spatial",
     "edge-routing",
     "linalg",

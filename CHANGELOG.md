@@ -5,6 +5,36 @@ All notable changes to `egraph-rs` (`egraph` on PyPI and npm) will be documented
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [6.0.0-beta.2] - 2026-11-28
+
+### Added
+
+- **Core Geometry, Permutation & Backend Error Seams (`egraph-core`, `egraph-ffi`, `egraph-python`, `egraph-wasm`)**:
+  - Added `RiemannianLayout::move_pair_radial` with zero-cost fast-path overrides on `Layout2d`, `Layout3d`, `LayoutNd`, and `ManifoldLayout2d`, delegating `move_pair_toward` consistently across Euclidean and non-Euclidean geometries.
+  - Added `CsrGraph<W>::permute_nodes` and `Layout{2d,3d,Nd}::{permute, unpermute}` with strict bijection validation.
+  - Added `CoreError::BackendUnavailable` and `CoreError::DeviceLimitExceeded` (`#[non_exhaustive]`) across `egraph-core`, `egraph-ffi`, Python `EgraphError` subclasses, and WASM `EgraphErrorCode`, alongside clarified `RepulsionBackend` documentation.
+- **SGD Problem IR & Encapsulation Seams (`egraph-layout-sgd`, `egraph-rs`)**:
+  - Added read-only `SgdPairBuffer::iter()`, `SgdPairRecord`, `SgdPairKind`, `SgdScheduleConfig::evaluate`, `OrtmannSparseProblem`, `build_ortmann_sparse_problem` (separating read-only `one_sided` pivot pairs from merged `two_sided` pairs), and `SgdSolver::{schedule_config, eta_bounds, iter_pairs}` while keeping `PackedSymPair` / `HINGE_BIT` strictly `pub(crate)`.
+- **Zero-Copy Solver IR Accessors (`egraph-layout-neighbor`, `egraph-layout-force`)**:
+  - Added zero-copy problem IR accessors (`TsNetSolver::probabilities_csr`, `TFdpSolver::edge_csr`, `IbUmapSolver::{edge_csr, hub_eta, ab_params}`, `ForceAtlas2Solver::{edges, masses}`, and `GuMapSolver::{edges, ab_params}`) across Rust, Python, and WASM.
+- **crates.io Packaging, CI & OIDC Release Automation**:
+  - Added `LICENSE` files, `homepage`, `documentation` (`docs.rs`), `readme` (`crates/egraph/README.md` + root `README.md`), curated `keywords`/`categories`, and `[package.metadata.docs.rs]` across all 24 publishable crates.
+  - Added `scripts/packaging_checks.py` (`--strict-metadata` validation), `scripts/bootstrap_crates_io.py` (idempotent rate-limit-aware 7-tier topological crates.io bootstrapper), `cargo publish --workspace --dry-run --locked` in `ci.yml`, and the OIDC `publish-crates` job (`crates-release` environment via `rust-lang/crates-io-auth-action@v1`) in `release.yml`.
+
+### Changed
+
+- **crates.io Facade Package Rename (`egraph` -> `egraph-rs`)**:
+  - Renamed the Rust facade package in `crates/egraph/Cargo.toml` from `egraph` to `egraph-rs` while preserving `[lib] name = "egraph"` so all `use egraph::prelude::*;` imports remain unchanged, and added a Rust Quick Start section to `README.md` and `crates/egraph/README.md`.
+- **Unified `IbUmapSolver<L, B>` Backends (`egraph-layout-neighbor`, `egraph-cli`, Python, WASM)**:
+  - Unified `IbUmapSolver` on compile-time typed repulsion backends (`IbUmapSolver<L, B>`, open `IbUmapRepulsion<L>`, `DefaultIbUmapBackend`, `IbUmapBackend2d`) with `SolverStatus::Failed` terminal handling and `target` / `backend` options across Python and WASM.
+
+### Fixed
+
+- **Cooperative Step-0 & Numerical Stability Hardening**:
+  - Enforced `run_steps(target, 0)` non-mutation contracts, terminal `SolverStatus::Failed` propagation on breakdown, and overflow guards across layout solvers, backed by opaque-box E2E suites across Rust, Python, and WASM.
+- **SemVer CI Rename Guard**:
+  - Updated `.github/workflows/ci.yml` `semver-checks` to map `egraph-rs -> crates/egraph` and verify matching baseline `[package].name` before invoking `cargo-semver-checks`.
+
 ## [6.0.0-beta.1] - 2026-11-28
 
 ### Added

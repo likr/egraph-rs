@@ -6,6 +6,15 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Single-threaded composite multi-solver graph layout algorithms for egraph-rs"
+homepage.workspace = true
+readme.workspace = true
+documentation = "https://docs.rs/egraph-layout-composite"
+keywords = ["graph-drawing", "backbone", "group-in-a-box", "composite", "layout"]
+categories = ["algorithms", "science"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
 default = []

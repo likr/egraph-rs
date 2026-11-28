@@ -127,12 +127,12 @@ if [[ -n "$TARGET_CRATE" ]]; then
       check_cargo_tree_crate "egraph-dataset (--no-default-features)" "hard" -p egraph-dataset --no-default-features
       check_cargo_tree_crate "egraph-dataset (--features embedded)" "hard" -p egraph-dataset --features embedded
       ;;
-    egraph)
-      check_cargo_tree_crate "egraph (default)" "hard" -p egraph
-      check_cargo_tree_crate "egraph (--all-features)" "hard" -p egraph --all-features
-      check_cargo_tree_crate "egraph (--no-default-features)" "hard" -p egraph --no-default-features
-      check_cargo_tree_crate "egraph (--no-default-features --features dataset)" "hard" -p egraph --no-default-features --features dataset
-      check_cargo_tree_crate "egraph (--no-default-features --features edge-routing)" "hard" -p egraph --no-default-features --features edge-routing
+    egraph-rs)
+      check_cargo_tree_crate "egraph-rs (default)" "hard" -p egraph-rs
+      check_cargo_tree_crate "egraph-rs (--all-features)" "hard" -p egraph-rs --all-features
+      check_cargo_tree_crate "egraph-rs (--no-default-features)" "hard" -p egraph-rs --no-default-features
+      check_cargo_tree_crate "egraph-rs (--no-default-features --features dataset)" "hard" -p egraph-rs --no-default-features --features dataset
+      check_cargo_tree_crate "egraph-rs (--no-default-features --features edge-routing)" "hard" -p egraph-rs --no-default-features --features edge-routing
       ;;
     egraph-layout-constraints|egraph-layout-multilevel|egraph-layout-stress|egraph-layout-force|egraph-layout-refine|egraph-layout-composite)
       check_cargo_tree_crate "$TARGET_CRATE (default)" "hard" -p "$TARGET_CRATE"
@@ -148,17 +148,17 @@ if [[ -n "$TARGET_CRATE" ]]; then
       ;;
   esac
 else
-  for strict_crate in egraph-core egraph-ffi egraph-dataset egraph-spatial-trees egraph-spatial-fft egraph-spatial-crossings egraph-edge-routing egraph-metrics egraph-metrics-geometry egraph-metrics-cluster egraph-linalg egraph-linalg-mds egraph-linalg-amg egraph-neighborhood egraph-clustering egraph-layout-constraints egraph-layout-stress egraph-layout-force egraph-layout-neighbor egraph-layout-sgd egraph-layout-embedding egraph-layout-multilevel egraph-layout-refine egraph-layout-composite egraph egraph-cli egraph-python; do
+  for strict_crate in egraph-core egraph-ffi egraph-dataset egraph-spatial-trees egraph-spatial-fft egraph-spatial-crossings egraph-edge-routing egraph-metrics egraph-metrics-geometry egraph-metrics-cluster egraph-linalg egraph-linalg-mds egraph-linalg-amg egraph-neighborhood egraph-clustering egraph-layout-constraints egraph-layout-stress egraph-layout-force egraph-layout-neighbor egraph-layout-sgd egraph-layout-embedding egraph-layout-multilevel egraph-layout-refine egraph-layout-composite egraph-rs egraph-cli egraph-python; do
     if has_workspace_pkg "$strict_crate"; then
       check_cargo_tree_crate "$strict_crate" "hard" -p "$strict_crate"
     fi
   done
-  for crate in egraph-dataset egraph-metrics egraph-metrics-cluster egraph egraph-edge-routing egraph-layout-constraints egraph-layout-stress egraph-layout-force egraph-layout-sgd egraph-layout-embedding egraph-layout-multilevel egraph-layout-refine egraph-layout-composite; do
+  for crate in egraph-dataset egraph-metrics egraph-metrics-cluster egraph-rs egraph-edge-routing egraph-layout-constraints egraph-layout-stress egraph-layout-force egraph-layout-sgd egraph-layout-embedding egraph-layout-multilevel egraph-layout-refine egraph-layout-composite; do
     if has_workspace_pkg "$crate"; then
       check_cargo_tree_crate "$crate (--all-features)" "hard" -p "$crate" --all-features
     fi
   done
-  for crate in egraph-metrics egraph-metrics-cluster egraph-dataset egraph egraph-edge-routing egraph-layout-constraints egraph-layout-stress egraph-layout-force egraph-layout-sgd egraph-layout-embedding egraph-layout-multilevel egraph-layout-refine egraph-layout-composite; do
+  for crate in egraph-metrics egraph-metrics-cluster egraph-dataset egraph-rs egraph-edge-routing egraph-layout-constraints egraph-layout-stress egraph-layout-force egraph-layout-sgd egraph-layout-embedding egraph-layout-multilevel egraph-layout-refine egraph-layout-composite; do
     if has_workspace_pkg "$crate"; then
       check_cargo_tree_crate "$crate (--no-default-features)" "hard" -p "$crate" --no-default-features
     fi
@@ -166,9 +166,9 @@ else
   if has_workspace_pkg "egraph-dataset"; then
     check_cargo_tree_crate "egraph-dataset (--features embedded)" "hard" -p egraph-dataset --features embedded
   fi
-  if has_workspace_pkg "egraph"; then
-    check_cargo_tree_crate "egraph (--no-default-features --features dataset)" "hard" -p egraph --no-default-features --features dataset
-    check_cargo_tree_crate "egraph (--no-default-features --features edge-routing)" "hard" -p egraph --no-default-features --features edge-routing
+  if has_workspace_pkg "egraph-rs"; then
+    check_cargo_tree_crate "egraph-rs (--no-default-features --features dataset)" "hard" -p egraph-rs --no-default-features --features dataset
+    check_cargo_tree_crate "egraph-rs (--no-default-features --features edge-routing)" "hard" -p egraph-rs --no-default-features --features edge-routing
   fi
   for crate in egraph-layout-constraints egraph-layout-stress egraph-layout-force egraph-layout-multilevel egraph-layout-refine egraph-layout-composite; do
     if has_workspace_pkg "$crate"; then
@@ -224,19 +224,19 @@ check_wasm32_target() {
   fi
   check_wasm32_variant "$crate" ""
   case "$crate" in
-    egraph|egraph-dataset|egraph-metrics-cluster|egraph-edge-routing|egraph-layout-constraints|egraph-layout-stress|egraph-layout-force|egraph-layout-sgd|egraph-layout-embedding|egraph-layout-multilevel|egraph-layout-refine|egraph-layout-composite)
+    egraph-rs|egraph-dataset|egraph-metrics-cluster|egraph-edge-routing|egraph-layout-constraints|egraph-layout-stress|egraph-layout-force|egraph-layout-sgd|egraph-layout-embedding|egraph-layout-multilevel|egraph-layout-refine|egraph-layout-composite)
       check_wasm32_variant "$crate" " (--no-default-features)" --no-default-features
       ;;
   esac
   case "$crate" in
-    egraph|egraph-dataset|egraph-metrics|egraph-metrics-cluster|egraph-edge-routing|egraph-layout-constraints|egraph-layout-stress|egraph-layout-force|egraph-layout-sgd|egraph-layout-embedding|egraph-layout-multilevel|egraph-layout-refine|egraph-layout-composite)
+    egraph-rs|egraph-dataset|egraph-metrics|egraph-metrics-cluster|egraph-edge-routing|egraph-layout-constraints|egraph-layout-stress|egraph-layout-force|egraph-layout-sgd|egraph-layout-embedding|egraph-layout-multilevel|egraph-layout-refine|egraph-layout-composite)
       check_wasm32_variant "$crate" " (--all-features)" --all-features
       ;;
   esac
   if [[ "$crate" == "egraph-dataset" ]]; then
     check_wasm32_variant "$crate" " (--features embedded)" --features embedded
   fi
-  if [[ "$crate" == "egraph" ]]; then
+  if [[ "$crate" == "egraph-rs" ]]; then
     check_wasm32_variant "$crate" " (--no-default-features --features dataset)" --no-default-features --features dataset
     check_wasm32_variant "$crate" " (--no-default-features --features edge-routing)" --no-default-features --features edge-routing
   fi
@@ -310,10 +310,10 @@ else
     egraph-layout-multilevel \
     egraph-layout-refine \
     egraph-layout-composite \
-    egraph \
+    egraph-rs \
     egraph-wasm
   check_wasm32_batch "--all-features" --all-features -- \
-    egraph \
+    egraph-rs \
     egraph-dataset \
     egraph-metrics \
     egraph-metrics-cluster \
@@ -327,7 +327,7 @@ else
     egraph-layout-refine \
     egraph-layout-composite
   check_wasm32_batch "--no-default-features" --no-default-features -- \
-    egraph \
+    egraph-rs \
     egraph-dataset \
     egraph-metrics-cluster \
     egraph-edge-routing \
@@ -347,8 +347,8 @@ else
     egraph-layout-refine \
     egraph-layout-composite
   check_wasm32_batch "egraph-dataset --features embedded" --features embedded -- egraph-dataset
-  check_wasm32_batch "egraph --no-default-features --features dataset" --no-default-features --features dataset -- egraph
-  check_wasm32_batch "egraph --no-default-features --features edge-routing" --no-default-features --features edge-routing -- egraph
+  check_wasm32_batch "egraph-rs --no-default-features --features dataset" --no-default-features --features dataset -- egraph-rs
+  check_wasm32_batch "egraph-rs --no-default-features --features edge-routing" --no-default-features --features edge-routing -- egraph-rs
 fi
 
 # 4. WASM artifact size report (informational; no gzip upper-bound enforced)

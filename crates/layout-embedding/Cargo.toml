@@ -6,6 +6,15 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Single-threaded sampling-based neighborhood graph embedding layouts for egraph-rs"
+homepage.workspace = true
+readme.workspace = true
+documentation = "https://docs.rs/egraph-layout-embedding"
+keywords = ["graph-embedding", "pacmap", "largevis", "drgraph", "layout"]
+categories = ["algorithms", "science"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 egraph-core.workspace = true

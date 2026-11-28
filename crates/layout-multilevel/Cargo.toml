@@ -6,6 +6,15 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Single-threaded multilevel coarse backbone, GRIP, and space-filling curve graph layouts for egraph-rs"
+homepage.workspace = true
+readme.workspace = true
+documentation = "https://docs.rs/egraph-layout-multilevel"
+keywords = ["graph-drawing", "multilevel", "grip", "backbone", "sfc"]
+categories = ["algorithms", "science"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
 default = []

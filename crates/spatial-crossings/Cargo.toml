@@ -6,6 +6,15 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+documentation = "https://docs.rs/egraph-spatial-crossings"
+keywords = ["graph", "crossings", "sweep-line", "geometry", "manifold"]
+categories = ["algorithms", "mathematics", "science"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 egraph-core.workspace = true

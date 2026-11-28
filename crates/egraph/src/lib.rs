@@ -1,12 +1,13 @@
-//! Unified single-threaded, pure-Rust facade for `egraph-rs`.
+//! Unified single-threaded, pure-Rust facade for `egraph-rs` (library crate `egraph`).
 //!
-//! `egraph` re-exports `egraph-core` unconditionally as [`core`] and exposes
+//! Install via Cargo as `egraph-rs` and import items via `use egraph::prelude::*;`.
+//! `egraph-rs` re-exports `egraph-core` unconditionally as [`core`] and exposes
 //! feature-gated domain modules ([`spatial`], [`edge_routing`], [`linalg`],
 //! [`neighborhood`], [`layout`], [`clustering`], [`metrics`], [`dataset`])
 //! alongside a curated [`prelude`] module for Native Rust, Python, and
 //! WebAssembly consumers.
 //!
-//! By default (`default` features), `egraph` enables pure-Rust spatial indexing,
+//! By default (`default` features), `egraph-rs` enables pure-Rust spatial indexing,
 //! edge routing, linear algebra, neighborhood construction, layout solvers,
 //! clustering, metrics, and embedded CSR benchmark datasets while remaining
 //! strictly single-threaded.

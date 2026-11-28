@@ -6,6 +6,15 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Single-threaded cluster-area faithfulness, community, and clustering baseline metrics for egraph-rs"
+homepage.workspace = true
+readme.workspace = true
+documentation = "https://docs.rs/egraph-metrics-cluster"
+keywords = ["graph-metrics", "clustering", "faithfulness", "community", "evaluation"]
+categories = ["algorithms", "science"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
 default = []

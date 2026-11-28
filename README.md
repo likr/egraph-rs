@@ -1,6 +1,6 @@
 # egraph
 
-A fast, strictly single-threaded pure-CPU graph drawing and layout library for **Native Rust**, **Python** (`abi3-py310`), **WebAssembly/TypeScript** (pure ESM), and the **`egraph` CLI** (`6.0.0-beta.1`).
+A fast, strictly single-threaded pure-CPU graph drawing and layout library for **Native Rust** (`egraph-rs`), **Python** (`abi3-py310`), **WebAssembly/TypeScript** (pure ESM), and the **`egraph` CLI** (`6.0.0-beta.2`).
 
 ## Highlights (v6)
 
@@ -15,12 +15,57 @@ A fast, strictly single-threaded pure-CPU graph drawing and layout library for *
 - **Linear Algebra, Datasets & Interop**: `CsrMatrix`, `AmgPcgSolver`, `compute_effective_resistances`, `resistance_curvature_flow`, `DijkstraWorkspace`, `classical_mds` / `pivot_mds` / `hde` / `rd_mds`, `list_datasets` + 7 synthetic generators, and `egraph.interop` (`from_scipy_csr`/`to_scipy_csr`, `from_networkx`/`to_networkx`, `from_igraph`/`to_igraph`).
 - **Strictly Single-Threaded & Deterministic**: Pure CPU Rust with explicit `seed=42` defaults, zero `rayon` / `std::thread` / Web Workers / `SharedArrayBuffer`, and cooperative `step()` / `run_steps()` / `run()` execution.
 
-## Quick Start (Python)
+## Quick Start (Rust / crates.io)
 
-**Version: `6.0.0-beta.1` (`6.0.0b1`)**
+**Package: `egraph-rs` (`6.0.0-beta.2`, library crate `egraph`)**
 
 ```bash
-pip install --pre "egraph[interop,viz]==6.0.0b1"
+cargo add egraph-rs@6.0.0-beta.2
+```
+
+```rust
+use egraph::prelude::*;
+
+fn main() -> Result<(), CoreError> {
+    let graph = CsrGraph::<f64>::from_unweighted_edges(
+        6,
+        &[(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 0)],
+        false,
+        false,
+    )?;
+
+    let mut layout: Layout2d<f64> = PivotMds::<Layout2d<f64>>::from_config(
+        &graph,
+        PivotMdsConfig::new().with_num_pivots(6).with_seed(42),
+    )
+    .generate()?;
+
+    TsNetSolver::<Layout2d<f64>>::from_graph_pure_2hop(&graph, TsNetConfig::pure_2hop())?
+        .run(&mut layout)?;
+
+    let report = evaluate_metrics(
+        &graph,
+        &layout,
+        &[
+            MetricTarget::ScaleNormalizedStress,
+            MetricTarget::NeighborhoodPreservation2Hop,
+            MetricTarget::CrossingNumber,
+        ],
+        &MetricConfig::default(),
+    )?;
+    println!("SNS={:?}, NP2={:?}", report.scale_normalized_stress, report.neighborhood_preservation_2hop);
+    Ok(())
+}
+```
+
+See [crates/egraph/README.md](crates/egraph/README.md) for Rust feature flags and `Layout3d` / `EdgePolylines` examples.
+
+## Quick Start (Python)
+
+**Version: `6.0.0-beta.2` (`6.0.0b2`)**
+
+```bash
+pip install --pre "egraph[interop,viz]==6.0.0b2"
 ```
 
 ```python
@@ -145,7 +190,7 @@ egraph-rs/
 │   ├── metrics-geometry/        # egraph-metrics-geometry: SNS, geodesic distortion, crossings, NP1/NP2, S_RNG/S_GG, PRISM, RTA
 │   ├── metrics-cluster/         # egraph-metrics-cluster: G-CAF, Adjusted Patch NIG, Sprawlter, NOR, separation baselines
 │   ├── metrics/                 # egraph-metrics: MetricReport & selective evaluate_metrics dispatcher
-│   ├── egraph/                  # egraph: Public Rust facade crate (re-exporting spatial, edge_routing, linalg, layout, etc.)
+│   ├── egraph/                  # egraph-rs ([lib] name = "egraph"): Public Rust facade crate (re-exporting spatial, edge_routing, linalg, layout, etc.)
 │   ├── ffi/                     # egraph-ffi (publish=false): ErrorKind/FfiError & zero-copy InterleavedLayout2d/3d/EdgePolylines ABI helpers
 │   ├── cli/                     # egraph-cli (publish=false): `layout`, `metrics`, `cluster`, `bench`
 │   ├── python/                  # egraph-python (publish=false): PyO3 `abi3-py310` bindings, `EgraphError` hierarchy, Sphinx docs
@@ -164,7 +209,7 @@ Provision the isolated Python environment once (`./scripts/setup_venv.sh` or `ma
 
 ```bash
 # Tier 0: Fast crate-level feedback (fmt, clippy -D warnings, nextest, thread scan)
-./scripts/verify.sh --fast --crate egraph-layout
+./scripts/verify.sh --fast --crate egraph-layout-neighbor
 
 # Tier 1: Full Rust release matrix, Python (wheel + unittest + mypy --strict + stubtest), and WASM
 ./scripts/verify.sh --rust

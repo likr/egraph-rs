@@ -15,7 +15,7 @@
 - [ ] `BREAKING CHANGE`: Public API or behavior breaking change (explain migration below)
 
 ## Affected Targets
-- [ ] Native Rust (`egraph` / core crates)
+- [ ] Native Rust (`egraph-rs` / core crates)
 - [ ] Python (`crates/python`, `_core.pyi`, `egraph.interop`)
 - [ ] WebAssembly / TypeScript (`crates/wasm`, `pkg/`, `examples/web`)
 - [ ] CLI (`crates/cli`)

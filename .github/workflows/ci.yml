@@ -47,7 +47,7 @@ jobs:
           cargo clippy --workspace --all-targets -- -D warnings
           NON_BINDING_PKGS=$(python3 scripts/verify_helpers.py list-packages --exclude egraph-python --exclude egraph-wasm --format clippy-args)
           cargo clippy --no-deps --all-targets --all-features $NON_BINDING_PKGS -- -D warnings
-          cargo clippy --no-deps --all-targets --no-default-features -p egraph-edge-routing -p egraph-layout-constraints -p egraph-layout-stress -p egraph-layout-force -p egraph-layout-sgd -p egraph-layout-embedding -p egraph-layout-multilevel -p egraph-layout-refine -p egraph-layout-composite -p egraph-metrics-cluster -p egraph-metrics -p egraph -p egraph-dataset -- -D warnings
+          cargo clippy --no-deps --all-targets --no-default-features -p egraph-edge-routing -p egraph-layout-constraints -p egraph-layout-stress -p egraph-layout-force -p egraph-layout-sgd -p egraph-layout-embedding -p egraph-layout-multilevel -p egraph-layout-refine -p egraph-layout-composite -p egraph-metrics-cluster -p egraph-metrics -p egraph-rs -p egraph-dataset -- -D warnings
           cargo clippy --no-deps --all-targets --no-default-features --features baselines -p egraph-layout-constraints -p egraph-layout-stress -p egraph-layout-force -p egraph-layout-multilevel -p egraph-layout-refine -p egraph-layout-composite -- -D warnings
           cargo clippy --no-deps --all-targets --features embedded -p egraph-dataset -- -D warnings
 
@@ -63,6 +63,12 @@ jobs:
           grep -q "std::thread::spawn" clippy.toml
           ./scripts/check_invariants.sh --mode strict
 
+      - name: Verify workspace crates.io packaging (dry-run)
+        run: |
+          rm -rf target/package
+          cargo generate-lockfile
+          cargo publish --workspace --dry-run --locked
+
   rust-feature-matrix:
     name: Rust Feature Matrix Tests
     runs-on: ubuntu-latest
@@ -77,9 +83,9 @@ jobs:
 
       - name: Run feature-combination release tests
         run: |
-          cargo nextest run --release --no-default-features -p egraph-edge-routing -p egraph-layout-constraints -p egraph-layout-stress -p egraph-layout-force -p egraph-layout-sgd -p egraph-layout-embedding -p egraph-layout-multilevel -p egraph-layout-refine -p egraph-layout-composite -p egraph-metrics-cluster -p egraph-metrics -p egraph -p egraph-dataset
+          cargo nextest run --release --no-default-features -p egraph-edge-routing -p egraph-layout-constraints -p egraph-layout-stress -p egraph-layout-force -p egraph-layout-sgd -p egraph-layout-embedding -p egraph-layout-multilevel -p egraph-layout-refine -p egraph-layout-composite -p egraph-metrics-cluster -p egraph-metrics -p egraph-rs -p egraph-dataset
           cargo nextest run --release --no-default-features --features baselines -p egraph-layout-constraints -p egraph-layout-stress -p egraph-layout-force -p egraph-layout-multilevel -p egraph-layout-refine -p egraph-layout-composite
-          cargo nextest run --release -p egraph -p egraph-cli -p egraph-dataset --features embedded
+          cargo nextest run --release -p egraph-rs -p egraph-cli -p egraph-dataset --features embedded
 
   semver-checks:
     name: SemVer Compatibility
@@ -110,9 +116,12 @@ jobs:
           EXISTING_PKGS=()
           for pkg in $(python3 scripts/verify_helpers.py list-packages --exclude egraph-ffi --exclude egraph-python --exclude egraph-wasm --exclude egraph-cli); do
             crate_dir="crates/${pkg#egraph-}"
-            if [[ "$pkg" == "egraph" ]]; then crate_dir="crates/egraph"; fi
+            if [[ "$pkg" == "egraph" || "$pkg" == "egraph-rs" ]]; then crate_dir="crates/egraph"; fi
             if git cat-file -e "${BASE_REV}:${crate_dir}/Cargo.toml" 2>/dev/null; then
-              EXISTING_PKGS+=(-p "$pkg")
+              base_pkg_name="$(git show "${BASE_REV}:${crate_dir}/Cargo.toml" 2>/dev/null | python3 -c 'import sys, tomllib; print(tomllib.loads(sys.stdin.read()).get("package", {}).get("name", ""))' || true)"
+              if [[ "$base_pkg_name" == "$pkg" ]]; then
+                EXISTING_PKGS+=(-p "$pkg")
+              fi
             fi
           done
           if [[ "${#EXISTING_PKGS[@]}" -gt 0 ]]; then
@@ -217,7 +226,7 @@ jobs:
             )
             mypy --strict crates/python/python/egraph "${TYPED_PY_TESTS[@]}"
             stubtest egraph
-            mypy --strict --ignore-missing-imports scripts/verify_helpers.py scripts/parity_harness.py scripts/parity/
+            mypy --strict --ignore-missing-imports scripts/verify_helpers.py scripts/packaging_checks.py scripts/bootstrap_crates_io.py scripts/parity_harness.py scripts/parity/
           fi
 
       - name: Upload Linux wheel for docs-check

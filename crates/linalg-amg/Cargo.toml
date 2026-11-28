@@ -6,6 +6,15 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Single-threaded algebraic multigrid PCG solvers and effective resistance curvature for egraph-rs"
+homepage.workspace = true
+readme.workspace = true
+documentation = "https://docs.rs/egraph-linalg-amg"
+keywords = ["amg", "pcg", "laplacian", "graph", "resistance"]
+categories = ["algorithms", "mathematics", "science"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 egraph-core.workspace = true

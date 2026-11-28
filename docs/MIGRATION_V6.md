@@ -1,6 +1,6 @@
-# Migrating to `egraph` v6 (`v6.0.0-beta.1`)
+# Migrating to `egraph` v6 (`v6.0.0-beta.2`)
 
-`egraph` v6 is a clean architectural redesign across Native Rust, Python (`egraph`), and WebAssembly/TypeScript (`egraph`), targeting strictly single-threaded, deterministic pure CPU execution with zero-copy CSR/SoA data buffers and 100% cross-target parity.
+`egraph` v6 is a clean architectural redesign across Native Rust (Cargo package `egraph-rs` with `[lib] name = "egraph"`), Python (`egraph`), and WebAssembly/TypeScript (`egraph`), targeting strictly single-threaded, deterministic pure CPU execution with zero-copy CSR/SoA data buffers and 100% cross-target parity.
 
 For background on the v6 architecture, see [the v6 release plan](archive/V6_RELEASE_PLAN.md).
 
@@ -8,7 +8,7 @@ For background on the v6 architecture, see [the v6 release plan](archive/V6_RELE
 
 ## Summary of Breaking Changes
 
-| Area | Legacy (`v5` / `v6-alpha.0..3`) | `egraph` v6 (`v6.0.0-beta.1`) |
+| Area | Legacy (`v5` / `v6-alpha.0..3`) | `egraph` v6 (`v6.0.0-beta.2`) |
 |---|---|---|
 | **Graph representation** | `Graph` / `DiGraph` storing `Py<PyAny>` or `JsValue` payloads | `CsrGraph` (`u32` CSR indices + numeric weights) + host-side metadata arrays + `egraph.interop` |
 | **Coordinate buffers** | `DrawingEuclidean2d` / `DrawingHyperbolic2d` / `DrawingSpherical2d` / `DrawingTorus2d` | `Layout2d`, `Layout3d`, `LayoutNd` (zero-copy `coords(copy=False)` / `coordsView()`), `ManifoldLayout2d`, `EdgePolylines` |

@@ -1,11 +1,24 @@
 [package]
-name = "egraph"
+name = "egraph-rs"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
+readme = "README.md"
+documentation = "https://docs.rs/egraph-rs"
 description = "Unified single-threaded pure-Rust graph drawing and layout facade crate."
+keywords = ["graph", "graph-drawing", "layout", "network", "tsnet"]
+categories = ["algorithms", "data-structures", "science"]
+
+[lib]
+name = "egraph"
+path = "src/lib.rs"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
 default = [

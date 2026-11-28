@@ -14,6 +14,6 @@ path = "src/main.rs"
 
 [dependencies]
 clap.workspace = true
-egraph = { workspace = true, features = ["layout", "metrics", "clustering", "baselines", "eval-baselines", "dataset", "dataset-embedded"] }
+egraph-rs = { workspace = true, features = ["layout", "metrics", "clustering", "baselines", "eval-baselines", "dataset", "dataset-embedded"] }
 serde.workspace = true
 serde_json.workspace = true

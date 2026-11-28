@@ -30,7 +30,7 @@ Run `./scripts/setup_venv.sh` once to provision the isolated Python `.venv`, the
 
 ```bash
 # Fast crate-level feedback (debug fmt, clippy -D warnings, nextest)
-./scripts/verify.sh --fast --crate egraph-layout
+./scripts/verify.sh --fast --crate egraph-layout-neighbor
 
 # Full Rust release checks (all feature matrices)
 ./scripts/verify.sh --rust

@@ -1,6 +1,6 @@
 [package]
 name = "egraph-wasm"
-version = "6.0.0-beta.1"
+version = "6.0.0-beta.2"
 authors = ["Yosuke Onoue <onoue@likr-lab.com>"]
 edition = "2024"
 rust-version.workspace = true
@@ -17,7 +17,7 @@ wasm-opt = false
 
 [dependencies]
 console_error_panic_hook = "0.1"
-egraph = { path = "../egraph", default-features = false, features = [
+egraph-rs = { path = "../egraph", default-features = false, features = [
     "spatial",
     "edge-routing",
     "linalg",

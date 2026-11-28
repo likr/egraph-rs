@@ -6,6 +6,15 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Single-threaded 2D FFT, interpolation-based FFT, and screened Poisson density-field kernels for egraph-rs"
+homepage.workspace = true
+readme.workspace = true
+documentation = "https://docs.rs/egraph-spatial-fft"
+keywords = ["fft", "poisson", "density-field", "graph-drawing", "spatial"]
+categories = ["algorithms", "mathematics", "science"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 egraph-core.workspace = true

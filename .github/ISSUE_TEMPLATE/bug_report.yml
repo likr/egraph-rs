@@ -26,8 +26,8 @@ body:
     id: version
     attributes:
       label: Version or Commit SHA
-      description: Package version or commit hash (e.g., `6.0.0-beta.1`, `6.0.0b1`, or `git rev-parse HEAD`).
-      placeholder: "6.0.0-beta.1"
+      description: Package version or commit hash (e.g., `6.0.0-beta.2`, `6.0.0b2`, or `git rev-parse HEAD`).
+      placeholder: "6.0.0-beta.2"
     validations:
       required: true
   - type: textarea

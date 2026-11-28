@@ -249,7 +249,7 @@ if [[ "$RUN_RUST" -eq 1 ]]; then
     fi
   }
 
-  ALL_FEAT_CRATES=(egraph-dataset egraph-metrics egraph-metrics-cluster egraph-edge-routing egraph-layout-constraints egraph-layout-stress egraph-layout-force egraph-layout-sgd egraph-layout-embedding egraph-layout-multilevel egraph-layout-refine egraph-layout-composite egraph)
+  ALL_FEAT_CRATES=(egraph-dataset egraph-metrics egraph-metrics-cluster egraph-edge-routing egraph-layout-constraints egraph-layout-stress egraph-layout-force egraph-layout-sgd egraph-layout-embedding egraph-layout-multilevel egraph-layout-refine egraph-layout-composite egraph-rs)
   NO_DEF_LAYOUT_CRATES=(egraph-edge-routing egraph-layout-constraints egraph-layout-stress egraph-layout-force egraph-layout-sgd egraph-layout-embedding egraph-layout-multilevel egraph-layout-refine egraph-layout-composite)
   NO_DEF_METRICS_CRATES=(egraph-metrics egraph-metrics-cluster)
   BASELINES_CRATES=(egraph-layout-constraints egraph-layout-stress egraph-layout-force egraph-layout-multilevel egraph-layout-refine egraph-layout-composite)
@@ -257,7 +257,7 @@ if [[ "$RUN_RUST" -eq 1 ]]; then
   run_batched_matrix clippy "all_features" "--all-features" "${ALL_FEAT_CRATES[@]}"
   run_batched_matrix clippy "no_default_layout" "--no-default-features" "${NO_DEF_LAYOUT_CRATES[@]}"
   run_batched_matrix clippy "no_default_metrics" "--no-default-features" "${NO_DEF_METRICS_CRATES[@]}"
-  run_batched_matrix clippy "no_default_egraph" "--no-default-features" egraph
+  run_batched_matrix clippy "no_default_egraph" "--no-default-features" egraph-rs
   run_batched_matrix clippy "no_default_dataset" "--no-default-features" egraph-dataset
   run_batched_matrix clippy "embedded_dataset" "--features embedded" egraph-dataset
   run_batched_matrix clippy "no_default_baselines" "--no-default-features --features baselines" "${BASELINES_CRATES[@]}"
@@ -268,7 +268,7 @@ if [[ "$RUN_RUST" -eq 1 ]]; then
   run_batched_matrix test "all_features" "${RUST_REL_FLAG:+$RUST_REL_FLAG }--all-features" "${ALL_FEAT_CRATES[@]}"
   run_batched_matrix test "no_default_layout" "${RUST_REL_FLAG:+$RUST_REL_FLAG }--no-default-features" "${NO_DEF_LAYOUT_CRATES[@]}"
   run_batched_matrix test "no_default_metrics" "${RUST_REL_FLAG:+$RUST_REL_FLAG }--no-default-features" "${NO_DEF_METRICS_CRATES[@]}"
-  run_batched_matrix test "no_default_egraph" "${RUST_REL_FLAG:+$RUST_REL_FLAG }--no-default-features" egraph
+  run_batched_matrix test "no_default_egraph" "${RUST_REL_FLAG:+$RUST_REL_FLAG }--no-default-features" egraph-rs
   run_batched_matrix test "no_default_dataset" "${RUST_REL_FLAG:+$RUST_REL_FLAG }--no-default-features" egraph-dataset
   run_batched_matrix test "embedded_dataset" "${RUST_REL_FLAG:+$RUST_REL_FLAG }--features embedded" egraph-dataset
   run_batched_matrix test "no_default_baselines" "${RUST_REL_FLAG:+$RUST_REL_FLAG }--no-default-features --features baselines" "${BASELINES_CRATES[@]}"
@@ -360,7 +360,7 @@ fi
 # --- Cross-target Parity ---
 if [[ "$RUN_PARITY" -eq 1 ]]; then
   run_step "python_venv_for_parity" ensure_venv
-  run_step "parity_mypy" "$VIRTUAL_ENV/bin/mypy" --strict --ignore-missing-imports "$REPO_ROOT/scripts/verify_helpers.py" "$REPO_ROOT/scripts/parity_harness.py" "$REPO_ROOT/scripts/parity/"
+  run_step "parity_mypy" "$VIRTUAL_ENV/bin/mypy" --strict --ignore-missing-imports "$REPO_ROOT/scripts/verify_helpers.py" "$REPO_ROOT/scripts/packaging_checks.py" "$REPO_ROOT/scripts/bootstrap_crates_io.py" "$REPO_ROOT/scripts/parity_harness.py" "$REPO_ROOT/scripts/parity/"
   PARITY_BIN="$(helper_path parity_harness.py)"
   PARITY_ARGS=()
   [[ -d "$REPO_ROOT/crates/wasm/pkg" ]] && PARITY_ARGS+=(--wasm-pkg "$REPO_ROOT/crates/wasm/pkg")

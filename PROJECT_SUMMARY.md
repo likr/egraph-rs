@@ -32,7 +32,7 @@ egraph-rs/
 │   ├── metrics-geometry/        # egraph-metrics-geometry: Generic MetricSpace/EuclideanLayout SNS, geodesic distortion, crossings, NP1/NP2, S_RNG/S_GG, PRISM, RTA
 │   ├── metrics-cluster/         # egraph-metrics-cluster: G-CAF, Adjusted Patch NIG, Sprawlter, NOR, and eval-baselines separation metrics
 │   ├── metrics/                 # egraph-metrics: Selective MetricReport / MetricConfig / MetricInputs / evaluate_metrics* dispatcher
-│   ├── egraph/                  # egraph: Unified public Rust facade crate (`core`, `spatial`, `edge_routing`, `linalg`, `neighborhood`, `clustering`, `layout`, `metrics`, `dataset`, `prelude`)
+│   ├── egraph/                  # egraph-rs ([lib] name = "egraph"): Unified public Rust facade crate (`core`, `spatial`, `edge_routing`, `linalg`, `neighborhood`, `clustering`, `layout`, `metrics`, `dataset`, `prelude`)
 │   ├── ffi/                     # egraph-ffi (publish=false): ErrorKind/FfiError, zero-copy InterleavedLayout2d/3d & EdgePolylines ABI helpers
 │   ├── cli/                     # egraph-cli (publish=false): Standalone CLI (`layout`, `metrics`, `cluster`, `bench`)
 │   ├── python/                  # egraph-python (publish=false): PyO3 `abi3-py310` bindings, NumPy zero-copy views, `EgraphError` hierarchy, `egraph.interop`, Sphinx docs
@@ -67,7 +67,7 @@ egraph-rs/
 
 ## Language Interfaces & Tooling
 
-- **Native Rust (`egraph`)**: Direct access to all 24 publishable crates via `egraph` and curated `egraph::prelude::*` (`MSRV 1.88`, `edition = "2024"`, opt-in `serde` and `baselines` / `eval-baselines`).
+- **Native Rust (`egraph-rs` / `use egraph::*`)**: Direct access to all 24 publishable crates via Cargo package `egraph-rs` (`[lib] name = "egraph"`) and curated `egraph::prelude::*` (`MSRV 1.88`, `edition = "2024"`, opt-in `serde` and `baselines` / `eval-baselines`).
 - **Command-Line Interface (`egraph-cli`)**: `layout`, `metrics`, `cluster`, and `bench` subcommands with 2D, 3D (`Layout3d`), `--dims`, and `--manifold` JSON I/O.
 - **Python (`crates/python`)**: PyO3 `abi3-py310` wheels with zero-copy NumPy buffers (`Layout2d`, `Layout3d`, `LayoutNd`, `ManifoldLayout2d`), UAF-safe `EdgePolylines`, `EgraphError` exception hierarchy, keyword-only `*` hyperparameters, `Protocol`/`TypedDict`/`Literal` `.pyi` stubs, `egraph.interop` (`scipy.sparse`, `networkx`, `igraph`), `mypy --strict`, `stubtest`, and Sphinx documentation.
 - **WebAssembly (`crates/wasm`)**: Pure ESM single-`.wasm` package with zero-copy `coordsView()` / `edgeOffsetsView()` / `pointsView()` / `labelsView()`, polymorphic `runProgressive()`, `camelCase` options, `number | bigint` 64-bit seeds, strict `"float32"` `CsrGraph`, `.code` structured errors, TypeScript `LayoutStorage` / `IterativeSolver` / `LayoutGenerator` / `LayoutTransform` interfaces, TypeDoc, and `examples/web/` Vite demos.
