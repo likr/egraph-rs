@@ -6,7 +6,6 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Separation constraints, hierarchical layering, and 2D node overlap removal solvers for egraph-rs"
-homepage.workspace = true
 readme = "README.md"
 documentation = "https://docs.rs/egraph-layout-constraints"
 keywords = ["graph-drawing", "overlap-removal", "vpsc", "dag", "constraints"]

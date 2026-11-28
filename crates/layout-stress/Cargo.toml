@@ -6,7 +6,6 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Kamada-Kawai, stress majorization, and maxent-stress graph layout solvers for egraph-rs"
-homepage.workspace = true
 readme = "README.md"
 documentation = "https://docs.rs/egraph-layout-stress"
 keywords = ["graph-drawing", "stress", "kamada-kawai", "maxent", "layout"]

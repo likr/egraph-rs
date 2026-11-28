@@ -6,7 +6,6 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Core zero-copy CSR graph, layout, and Riemannian geometry primitives for egraph-rs"
-homepage.workspace = true
 readme = "README.md"
 documentation = "https://docs.rs/egraph-core"
 keywords = ["graph", "csr", "layout", "manifold", "riemannian"]

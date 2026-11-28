@@ -191,10 +191,13 @@ def _check_publishable_crates_io_fields(
         issues.append(f"{rel_dir}/Cargo.toml ({pkg_name}) repository ({repo}) != {ws_repository}")
 
     homepage = resolve_workspace_field(pkg_dict, "homepage", ws_pkg_dict)
-    if not homepage or (repo and homepage != repo):
-        issues.append(
-            f"{rel_dir}/Cargo.toml ({pkg_name}) homepage ({homepage!r}) must match repository ({repo!r})"
-        )
+    if homepage is not None:
+        if not homepage.strip():
+            issues.append(f"{rel_dir}/Cargo.toml ({pkg_name}) homepage must not be empty")
+        elif repo and homepage == repo:
+            issues.append(
+                f"{rel_dir}/Cargo.toml ({pkg_name}) homepage ({homepage!r}) is redundant with repository ({repo!r})"
+            )
 
     expected_docs = f"https://docs.rs/{pkg_name}"
     if pkg_dict.get("documentation") != expected_docs:
@@ -404,9 +407,13 @@ def collect_packaging_issues(
     root_license_bytes = root_license_path.read_bytes() if root_license_path.exists() else None
 
     if strict_pub:
-        for req_key in ("rust-version", "repository", "homepage", "readme", "license"):
+        for req_key in ("rust-version", "repository", "readme", "license"):
             if not isinstance(ws_pkg_dict.get(req_key), str):
                 issues.append(f"Cargo.toml [workspace.package].{req_key} must be set")
+        ws_homepage = _ws_str(ws_pkg_dict, "homepage")
+        ws_repo = _ws_str(ws_pkg_dict, "repository")
+        if ws_homepage is not None and ws_repo is not None and ws_homepage == ws_repo:
+            issues.append("Cargo.toml [workspace.package].homepage is redundant with repository")
         if root_license_bytes is None:
             issues.append("Root LICENSE file is missing")
         ws_readme = _ws_str(ws_pkg_dict, "readme")

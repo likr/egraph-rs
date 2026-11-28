@@ -6,7 +6,6 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Single-threaded graph community detection, K-Means++ clustering, and multilevel coarsening for egraph-rs"
-homepage.workspace = true
 readme = "README.md"
 documentation = "https://docs.rs/egraph-clustering"
 keywords = ["clustering", "community", "louvain", "leiden", "coarsening"]

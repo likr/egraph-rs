@@ -6,7 +6,6 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Embedded benchmark datasets and synthetic graph generators for egraph-rs"
-homepage.workspace = true
 readme = "README.md"
 documentation = "https://docs.rs/egraph-dataset"
 keywords = ["graph", "dataset", "benchmark", "csr", "generator"]

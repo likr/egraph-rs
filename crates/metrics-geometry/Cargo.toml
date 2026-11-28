@@ -6,7 +6,6 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Single-threaded geometric, stress, neighborhood, proximity, and crossing graph layout metrics for egraph-rs"
-homepage.workspace = true
 readme = "README.md"
 documentation = "https://docs.rs/egraph-metrics-geometry"
 keywords = ["graph-metrics", "stress", "crossings", "neighborhood", "geometry"]

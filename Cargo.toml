@@ -37,7 +37,6 @@ edition = "2024"
 rust-version = "1.88"
 license = "MIT"
 repository = "https://github.com/likr/egraph-rs"
-homepage = "https://github.com/likr/egraph-rs"
 readme = "README.md"
 
 [workspace.dependencies]

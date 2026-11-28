@@ -6,7 +6,6 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Classical, Pivot, Landmark, Harel-Koren HDE, and Koren spectral multidimensional scaling for egraph-rs"
-homepage.workspace = true
 readme = "README.md"
 documentation = "https://docs.rs/egraph-linalg-mds"
 keywords = ["mds", "pivot-mds", "spectral", "embedding", "graph-drawing"]

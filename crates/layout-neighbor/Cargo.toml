@@ -6,7 +6,6 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Neighborhood-preserving tsNET, GuMap, t-FDP, and ibUMAP graph layout solvers for egraph-rs"
-homepage.workspace = true
 readme = "README.md"
 documentation = "https://docs.rs/egraph-layout-neighbor"
 keywords = ["graph-drawing", "tsnet", "gumap", "umap", "t-fdp"]

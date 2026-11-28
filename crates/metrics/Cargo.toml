@@ -6,7 +6,6 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Unified single-threaded graph layout evaluation metrics dispatcher for egraph-rs"
-homepage.workspace = true
 readme = "README.md"
 documentation = "https://docs.rs/egraph-metrics"
 keywords = ["graph-metrics", "evaluation", "layout", "stress", "neighborhood"]

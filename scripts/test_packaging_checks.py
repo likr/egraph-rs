@@ -31,9 +31,12 @@ def _write_minimal_workspace(
     core_features_block: str = "",
     core_lib_rs: str = "//! Core crate.\n",
     core_extra_dep: str = "",
+    ws_homepage_line: str = "",
+    core_homepage_line: str = "",
 ) -> None:
     (root / "LICENSE").write_text("MIT License\n", encoding="utf-8")
     (root / "README.md").write_text("# Root\n", encoding="utf-8")
+    ws_hp = f"{ws_homepage_line}\n" if ws_homepage_line else ""
     (root / "Cargo.toml").write_text(
         f"""[workspace]
 resolver = "2"
@@ -45,8 +48,7 @@ edition = "2024"
 rust-version = "1.88"
 license = "MIT"
 repository = "https://github.com/likr/egraph-rs"
-homepage = "https://github.com/likr/egraph-rs"
-readme = "README.md"
+{ws_hp}readme = "README.md"
 
 [workspace.dependencies]
 egraph-core = {{ path = "crates/core", version = "{core_dep_pin}" }}
@@ -60,6 +62,7 @@ egraph-rs = {{ path = "crates/egraph", version = "{facade_dep_pin}" }}
     (core_dir / "LICENSE").write_text("MIT License\n", encoding="utf-8")
     (core_dir / "README.md").write_text(core_readme_body, encoding="utf-8")
     (core_dir / "src" / "lib.rs").write_text(core_lib_rs, encoding="utf-8")
+    core_hp = f"{core_homepage_line}\n" if core_homepage_line else ""
     (core_dir / "Cargo.toml").write_text(
         f"""[package]
 name = "egraph-core"
@@ -68,8 +71,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-homepage.workspace = true
-{core_readme_field}
+{core_hp}{core_readme_field}
 documentation = "https://docs.rs/egraph-core"
 description = "Core crate"
 keywords = ["graph"]
@@ -102,7 +104,6 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-homepage.workspace = true
 readme = "README.md"
 documentation = "https://docs.rs/egraph-rs"
 description = "Facade crate"
@@ -236,6 +237,26 @@ class PackagingChecksTests(unittest.TestCase):
             )
             issues = pc.collect_packaging_issues(root, strict_all=True, strict_pub=True)
             self.assertTrue(any("removed 'doc_auto_cfg'" in i for i in issues), issues)
+
+    def test_redundant_homepage_rejected_and_distinct_homepage_allowed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            _write_minimal_workspace(
+                root,
+                ws_homepage_line='homepage = "https://github.com/likr/egraph-rs"',
+                core_homepage_line="homepage.workspace = true",
+            )
+            issues = pc.collect_packaging_issues(root, strict_all=True, strict_pub=True)
+            self.assertTrue(any("redundant with repository" in i for i in issues), issues)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            _write_minimal_workspace(
+                root,
+                core_homepage_line='homepage = "https://egraph-rs.example.com"',
+            )
+            issues = pc.collect_packaging_issues(root, strict_all=True, strict_pub=True)
+            self.assertEqual(issues, [])
 
 
 if __name__ == "__main__":

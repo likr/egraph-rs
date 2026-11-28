@@ -6,7 +6,6 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Single-threaded edge routing and edge bundling algorithms for egraph-rs"
-homepage.workspace = true
 readme = "README.md"
 documentation = "https://docs.rs/egraph-edge-routing"
 keywords = ["graph", "edge-bundling", "edge-routing", "fdeb", "polylines"]

@@ -6,7 +6,6 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Single-threaded spatial indexing trees, rectangle overlap sweep, and 2D Delaunay triangulation for egraph-rs"
-homepage.workspace = true
 readme = "README.md"
 documentation = "https://docs.rs/egraph-spatial-trees"
 keywords = ["spatial-index", "kdtree", "quadtree", "octree", "delaunay"]
