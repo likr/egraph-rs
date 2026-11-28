@@ -155,6 +155,19 @@ impl<S: Scalar> InterleavedLayout2d<S> {
         self.coords.iter().all(|v| v.is_finite())
     }
 
+    /// Validates that every coordinate scalar in the buffer is finite.
+    #[inline]
+    pub fn validate_finite(&self) -> FfiResult<()> {
+        if self.is_all_finite() {
+            Ok(())
+        } else {
+            Err(FfiError::new(
+                ErrorKind::NonFiniteValue,
+                "InterleavedLayout2d contains non-finite coordinate",
+            ))
+        }
+    }
+
     #[inline]
     fn check_index(&self, index: usize) -> FfiResult<()> {
         let n = self.len();
@@ -216,5 +229,9 @@ mod tests {
 
         buf.as_mut_slice()[3] = f64::INFINITY;
         assert!(!buf.is_all_finite());
+        assert_eq!(
+            buf.validate_finite().unwrap_err().kind,
+            ErrorKind::NonFiniteValue
+        );
     }
 }

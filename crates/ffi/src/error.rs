@@ -5,6 +5,7 @@ use std::fmt;
 use egraph_core::CoreError;
 
 /// Coarse error category suitable for mapping into Python exceptions or JS `Error`s.
+#[non_exhaustive]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 #[repr(u32)]
 pub enum ErrorKind {
@@ -29,6 +30,21 @@ impl ErrorKind {
             CoreError::NonFiniteValue { .. } => Self::NonFiniteValue,
             CoreError::UnsupportedOperation(_) => Self::UnsupportedOperation,
             CoreError::NumericalBreakdown(_) => Self::NumericalBreakdown,
+            _ => Self::InvalidInput,
+        }
+    }
+
+    /// Returns the stable PascalCase error code string matching this [`ErrorKind`] variant.
+    #[inline]
+    pub fn code_str(self) -> &'static str {
+        match self {
+            Self::InvalidInput => "InvalidInput",
+            Self::DimensionMismatch => "DimensionMismatch",
+            Self::IndexOutOfBounds => "IndexOutOfBounds",
+            Self::InvalidCsr => "InvalidCsr",
+            Self::NonFiniteValue => "NonFiniteValue",
+            Self::UnsupportedOperation => "UnsupportedOperation",
+            Self::NumericalBreakdown => "NumericalBreakdown",
         }
     }
 }
@@ -41,6 +57,7 @@ impl From<&CoreError> for ErrorKind {
 }
 
 /// Structured FFI error carrying an [`ErrorKind`] and human-readable diagnostic message.
+#[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FfiError {
     pub kind: ErrorKind,
@@ -93,32 +110,54 @@ mod tests {
     #[test]
     fn test_error_kind_mapping_covers_all_core_errors() {
         let cases = [
-            (CoreError::invalid_input("x"), ErrorKind::InvalidInput),
+            (
+                CoreError::invalid_input("x"),
+                ErrorKind::InvalidInput,
+                "InvalidInput",
+            ),
             (
                 CoreError::dimension_mismatch(2, 3, "test"),
                 ErrorKind::DimensionMismatch,
+                "DimensionMismatch",
             ),
             (
                 CoreError::index_out_of_bounds(5, 4, "test"),
                 ErrorKind::IndexOutOfBounds,
+                "IndexOutOfBounds",
             ),
-            (CoreError::invalid_csr("bad csr"), ErrorKind::InvalidCsr),
-            (CoreError::non_finite("test"), ErrorKind::NonFiniteValue),
+            (
+                CoreError::invalid_csr("bad csr"),
+                ErrorKind::InvalidCsr,
+                "InvalidCsr",
+            ),
+            (
+                CoreError::non_finite("test"),
+                ErrorKind::NonFiniteValue,
+                "NonFiniteValue",
+            ),
             (
                 CoreError::unsupported("directed"),
                 ErrorKind::UnsupportedOperation,
+                "UnsupportedOperation",
             ),
             (
                 CoreError::numerical_breakdown("singular"),
                 ErrorKind::NumericalBreakdown,
+                "NumericalBreakdown",
             ),
         ];
 
-        for (core_err, expected_kind) in cases {
+        for (core_err, expected_kind, expected_code) in cases {
             assert_eq!(ErrorKind::from(&core_err), expected_kind);
+            assert_eq!(expected_kind.code_str(), expected_code);
             let ffi_err = FfiError::from(core_err);
             assert_eq!(ffi_err.kind, expected_kind);
+            assert_eq!(ffi_err.kind.code_str(), expected_code);
             assert!(!ffi_err.to_string().is_empty());
         }
+
+        let manual = FfiError::new(ErrorKind::InvalidInput, "manual");
+        assert_eq!(manual.kind.code_str(), "InvalidInput");
+        assert_eq!(manual.to_string(), "manual");
     }
 }
