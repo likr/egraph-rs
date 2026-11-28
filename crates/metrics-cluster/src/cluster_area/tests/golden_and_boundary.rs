@@ -150,19 +150,13 @@ fn test_boundary_r95_contract() {
     let r_inf = cluster_area_faithfulness(
         &layout,
         &labels,
-        &ClusterAreaConfig {
-            boundary_r95: f64::INFINITY,
-            ..ClusterAreaConfig::default()
-        },
+        &ClusterAreaConfig::default().with_boundary_r95(f64::INFINITY),
     )
     .unwrap();
     let r_1e9 = cluster_area_faithfulness(
         &layout,
         &labels,
-        &ClusterAreaConfig {
-            boundary_r95: 1e9,
-            ..ClusterAreaConfig::default()
-        },
+        &ClusterAreaConfig::default().with_boundary_r95(1e9),
     )
     .unwrap();
     assert!((r_inf.in_frac - 1.0).abs() < 1e-12);
@@ -190,12 +184,10 @@ fn test_f1_gmax_2048_extreme_finite_and_inf_outlier_protection() {
     let mut labels = vec![0u32; n / 2];
     labels.extend(std::iter::repeat_n(1u32, n - n / 2));
     let layout_big = Layout2d::from_xy(xs, ys).unwrap();
-    let cfg_2048 = ClusterAreaConfig {
-        g_max: 2048,
-        sigma_cells: 3.0,
-        boundary_r95: 2.0,
-        ..ClusterAreaConfig::default()
-    };
+    let cfg_2048 = ClusterAreaConfig::default()
+        .with_g_max(2048)
+        .with_sigma_cells(3.0)
+        .with_boundary_r95(2.0);
     let rep_2048 = cluster_area_faithfulness(&layout_big, &labels, &cfg_2048).unwrap();
     // r_stencil = ceil(3.5 * 3.0) = 11, avail_h = 1012, floor(1012 / 2.0) = 506 < raw_g (688).
     assert_eq!(rep_2048.g_eff, 506);
@@ -209,10 +201,7 @@ fn test_f1_gmax_2048_extreme_finite_and_inf_outlier_protection() {
     let rep_b200 = cluster_area_faithfulness(
         &l_std,
         &labs_std,
-        &ClusterAreaConfig {
-            boundary_r95: 200.0,
-            ..ClusterAreaConfig::default()
-        },
+        &ClusterAreaConfig::default().with_boundary_r95(200.0),
     )
     .unwrap();
     assert_eq!(rep_b200.g_eff, 12);
@@ -229,10 +218,7 @@ fn test_f1_gmax_2048_extreme_finite_and_inf_outlier_protection() {
     let rep_out = cluster_area_faithfulness(
         &l_out,
         &olabs,
-        &ClusterAreaConfig {
-            boundary_r95: f64::INFINITY,
-            ..ClusterAreaConfig::default()
-        },
+        &ClusterAreaConfig::default().with_boundary_r95(f64::INFINITY),
     )
     .unwrap();
     assert!(
@@ -297,10 +283,7 @@ fn test_singleton_and_disjoint_stencil() {
     ys.push(0.0);
     labels.push(1);
     let layout_s = Layout2d::from_xy(xs, ys).unwrap();
-    let cfg_inf = ClusterAreaConfig {
-        boundary_r95: f64::INFINITY,
-        ..ClusterAreaConfig::default()
-    };
+    let cfg_inf = ClusterAreaConfig::default().with_boundary_r95(f64::INFINITY);
     let det_s = cluster_area_faithfulness_detail(&layout_s, &labels, &cfg_inf).unwrap();
     assert_eq!(det_s.res_deconv[1], 1.0);
     assert_eq!(det_s.purity[1], 0.0);
@@ -334,10 +317,7 @@ fn test_stevens_gamma_behavior() {
     let d07 = cluster_area_faithfulness_detail(
         &layout,
         &labels,
-        &ClusterAreaConfig {
-            stevens_gamma: 0.7,
-            ..ClusterAreaConfig::default()
-        },
+        &ClusterAreaConfig::default().with_stevens_gamma(0.7),
     )
     .unwrap();
 

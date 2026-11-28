@@ -11,68 +11,36 @@
 mod agreement;
 mod cluster_quality;
 mod consistency;
+mod density_measures;
+mod gong;
 mod internal_scores;
-mod manifold_centroid;
-mod manifold_quality;
-mod manifold_scores;
-mod manifold_sep;
-mod nd_consistency_scores;
-mod nd_proximity;
-mod nd_quality_sep;
+mod manifold_ops;
 mod nor;
 mod separation;
+mod space_dispatch;
 mod sprawlter;
 #[cfg(test)]
 mod tests;
 
-use egraph_core::{CoreError, CoreResult, Layout2d, LayoutNd, Scalar};
-
 pub use agreement::partition_agreement;
 pub use cluster_quality::{cq_hac, cq_kmeans};
-pub use consistency::{
-    class_density_measure, distance_consistency, distribution_consistency,
-    histogram_density_measure,
-};
+pub use consistency::{distance_consistency, distribution_consistency};
+pub use density_measures::{class_density_measure, histogram_density_measure};
+pub use gong::{sepme_gong, sepme_gong_with_index};
 pub use internal_scores::{
     calinski_harabasz_score, davies_bouldin_score, pairwise_distance_overlap_error,
     silhouette_score,
 };
-pub use manifold_quality::{cq_hac_manifold, cq_kmeans_manifold};
-pub use manifold_scores::{
-    calinski_harabasz_score_manifold, davies_bouldin_score_manifold, distance_consistency_manifold,
-    distribution_consistency_manifold, pairwise_distance_overlap_error_manifold,
-    silhouette_score_manifold,
-};
-pub use manifold_sep::{
-    neighborhood_hit_manifold, sepme_gab_manifold, sepme_gong_manifold, sepme_knng_manifold,
-    sepme_rng_manifold,
-};
-pub use nd_consistency_scores::{
-    calinski_harabasz_score_nd, davies_bouldin_score_nd, distance_consistency_nd,
-    distribution_consistency_nd, pairwise_distance_overlap_error_nd, silhouette_score_nd,
-};
-#[doc(hidden)]
-pub use nd_proximity::build_dynamic_kdtree_f64;
-pub use nd_quality_sep::{
-    cq_hac_nd, cq_kmeans_nd, neighborhood_hit_nd, sepme_gab_nd, sepme_gong_nd, sepme_knng_nd,
-    sepme_rng_nd,
-};
-#[doc(hidden)]
-pub use nd_quality_sep::{
-    neighborhood_hit_nd_with_tree, sepme_gab_nd_with_tree, sepme_gong_nd_with_tree,
-    sepme_knng_nd_with_tree, sepme_rng_nd_with_tree,
-};
 pub use nor::{nor_metrics, nor_metrics_without_graph};
-pub use separation::{neighborhood_hit, sepme_gab, sepme_gong, sepme_knng, sepme_rng};
-#[doc(hidden)]
 pub use separation::{
-    neighborhood_hit_with_tree, sepme_gab_with_tree, sepme_gong_with_tree, sepme_knng_with_tree,
-    sepme_rng_with_tree,
+    neighborhood_hit, neighborhood_hit_with_index, sepme_gab, sepme_gab_with_index, sepme_knng,
+    sepme_knng_with_index, sepme_rng, sepme_rng_with_index,
 };
 pub use sprawlter::{sprawlter_nn, sprawlter_nn_radii};
 
 /// Partition agreement metrics comparing two discrete node labelings.
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct PartitionAgreement {
     /// Adjusted Rand Index (`sklearn.metrics.adjusted_rand_score`).
     pub ari: f64,
@@ -89,7 +57,8 @@ pub struct PartitionAgreement {
 }
 
 /// Chen et al. (2020) Node Overlap Removal (NOR) 5-metric evaluation summary.
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct NorMetrics {
     /// Orthogonal Ordering: Normalized Number of Inversions in `[0.0, 1.0]` (lower is better).
     pub oo_nni: f64,
@@ -106,40 +75,6 @@ pub struct NorMetrics {
 #[inline]
 pub(super) fn canonical_zero(v: f64) -> f64 {
     if v == 0.0 { 0.0 } else { v }
-}
-
-#[inline]
-pub(super) fn validate_layout_labels<S: Scalar>(
-    layout: &Layout2d<S>,
-    labels: &[u32],
-    context: &'static str,
-) -> CoreResult<()> {
-    if layout.len() != labels.len() {
-        return Err(CoreError::dimension_mismatch(
-            layout.len(),
-            labels.len(),
-            context,
-        ));
-    }
-    layout.validate_finite()?;
-    Ok(())
-}
-
-#[inline]
-pub(super) fn validate_layout_nd_labels<S: Scalar>(
-    layout: &LayoutNd<S>,
-    labels: &[u32],
-    context: &'static str,
-) -> CoreResult<()> {
-    if layout.num_nodes() != labels.len() {
-        return Err(CoreError::dimension_mismatch(
-            layout.num_nodes(),
-            labels.len(),
-            context,
-        ));
-    }
-    layout.validate_finite()?;
-    Ok(())
 }
 
 /// Compacts arbitrary `u32` labels into canonical `0..num_clusters` in ascending order

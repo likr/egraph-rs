@@ -30,99 +30,43 @@ fn test_validation_and_degenerate() {
 
     // Config validation
     assert!(matches!(
-        cluster_area_faithfulness(&l, &[0, 1], &ClusterAreaConfig { g_max: 11, ..cfg }),
+        cluster_area_faithfulness(&l, &[0, 1], &cfg.clone().with_g_max(11)),
         Err(CoreError::InvalidInput(_))
     ));
     assert!(matches!(
-        cluster_area_faithfulness(
-            &l,
-            &[0, 1],
-            &ClusterAreaConfig {
-                sigma_cells: 0.0,
-                ..cfg
-            }
-        ),
+        cluster_area_faithfulness(&l, &[0, 1], &cfg.clone().with_sigma_cells(0.0)),
         Err(CoreError::InvalidInput(_))
     ));
     assert!(matches!(
-        cluster_area_faithfulness(
-            &l,
-            &[0, 1],
-            &ClusterAreaConfig {
-                sigma_cells: -1.0,
-                ..cfg
-            }
-        ),
+        cluster_area_faithfulness(&l, &[0, 1], &cfg.clone().with_sigma_cells(-1.0)),
         Err(CoreError::InvalidInput(_))
     ));
     assert!(matches!(
-        cluster_area_faithfulness(
-            &l,
-            &[0, 1],
-            &ClusterAreaConfig {
-                sigma_cells: f64::NAN,
-                ..cfg
-            }
-        ),
+        cluster_area_faithfulness(&l, &[0, 1], &cfg.clone().with_sigma_cells(f64::NAN)),
         Err(CoreError::NonFiniteValue { .. })
     ));
     assert!(matches!(
-        cluster_area_faithfulness(&l, &[0, 1], &ClusterAreaConfig { kappa: 0.0, ..cfg }),
+        cluster_area_faithfulness(&l, &[0, 1], &cfg.clone().with_kappa(0.0)),
         Err(CoreError::InvalidInput(_))
     ));
     assert!(matches!(
-        cluster_area_faithfulness(
-            &l,
-            &[0, 1],
-            &ClusterAreaConfig {
-                tau_frac: -0.1,
-                ..cfg
-            }
-        ),
+        cluster_area_faithfulness(&l, &[0, 1], &cfg.clone().with_tau_frac(-0.1)),
         Err(CoreError::InvalidInput(_))
     ));
     assert!(matches!(
-        cluster_area_faithfulness(
-            &l,
-            &[0, 1],
-            &ClusterAreaConfig {
-                boundary_r95: 0.0,
-                ..cfg
-            }
-        ),
+        cluster_area_faithfulness(&l, &[0, 1], &cfg.clone().with_boundary_r95(0.0)),
         Err(CoreError::InvalidInput(_))
     ));
     assert!(matches!(
-        cluster_area_faithfulness(
-            &l,
-            &[0, 1],
-            &ClusterAreaConfig {
-                boundary_r95: -1.0,
-                ..cfg
-            }
-        ),
+        cluster_area_faithfulness(&l, &[0, 1], &cfg.clone().with_boundary_r95(-1.0)),
         Err(CoreError::InvalidInput(_))
     ));
     assert!(matches!(
-        cluster_area_faithfulness(
-            &l,
-            &[0, 1],
-            &ClusterAreaConfig {
-                boundary_r95: f64::NAN,
-                ..cfg
-            }
-        ),
+        cluster_area_faithfulness(&l, &[0, 1], &cfg.clone().with_boundary_r95(f64::NAN)),
         Err(CoreError::NonFiniteValue { .. })
     ));
     assert!(matches!(
-        cluster_area_faithfulness(
-            &l,
-            &[0, 1],
-            &ClusterAreaConfig {
-                stevens_gamma: 0.0,
-                ..cfg
-            }
-        ),
+        cluster_area_faithfulness(&l, &[0, 1], &cfg.clone().with_stevens_gamma(0.0)),
         Err(CoreError::InvalidInput(_))
     ));
 

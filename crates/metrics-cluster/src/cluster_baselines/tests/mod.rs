@@ -1,4 +1,5 @@
 use super::*;
+use egraph_core::{CoreError, Layout2d};
 
 pub(super) fn assert_close(got: f64, expected: f64, tol: f64, name: &str) {
     assert!(
@@ -71,8 +72,9 @@ pub(super) fn brute_gong_edges(layout: &Layout2d<f64>, gamma: f64) -> Vec<(usize
     edges
 }
 
-mod manifold;
-mod nd;
 mod nor_sprawlter_and_stability;
 mod parity_and_agreement;
 mod separation_and_boundaries;
+mod spaces;
+mod spaces_manifold;
+mod spaces_nd;

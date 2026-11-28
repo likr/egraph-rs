@@ -68,10 +68,7 @@ fn test_small_n_mec_quantile_tie_stability() {
         let minus_l = Layout2d::from_xy(xs_m, ys_m).unwrap();
 
         for &b_r95 in &[2.0_f64, 1.0_f64] {
-            let cfg = ClusterAreaConfig {
-                boundary_r95: b_r95,
-                ..ClusterAreaConfig::default()
-            };
+            let cfg = ClusterAreaConfig::default().with_boundary_r95(b_r95);
             let r_base = cluster_area_faithfulness_detail(&base_l, &labels, &cfg).unwrap();
             let r_plus = cluster_area_faithfulness(&plus_l, &labels, &cfg).unwrap();
             let r_minus = cluster_area_faithfulness(&minus_l, &labels, &cfg).unwrap();
@@ -346,22 +343,15 @@ fn test_small_n_mec_quantile_tie_stability() {
     ];
     let n6_b1_labels: [u32; 6] = [3, 0, 5, 1, 3, 5];
 
-    let cfg_n30_custom = ClusterAreaConfig {
-        g_max: 12,
-        sigma_cells: 0.15,
-        boundary_r95: 0.8,
-        ..ClusterAreaConfig::default()
-    };
-    let cfg_n39_custom = ClusterAreaConfig {
-        g_max: 32,
-        sigma_cells: 1.8,
-        boundary_r95: 5.0,
-        ..ClusterAreaConfig::default()
-    };
-    let cfg_b1 = ClusterAreaConfig {
-        boundary_r95: 1.0,
-        ..ClusterAreaConfig::default()
-    };
+    let cfg_n30_custom = ClusterAreaConfig::default()
+        .with_g_max(12)
+        .with_sigma_cells(0.15)
+        .with_boundary_r95(0.8);
+    let cfg_n39_custom = ClusterAreaConfig::default()
+        .with_g_max(32)
+        .with_sigma_cells(1.8)
+        .with_boundary_r95(5.0);
+    let cfg_b1 = ClusterAreaConfig::default().with_boundary_r95(1.0);
 
     let cases: &[(&str, &[f32], &[u32], ClusterAreaConfig)] = &[
         (
@@ -388,11 +378,11 @@ fn test_small_n_mec_quantile_tie_stability() {
             &n39_k5_labels,
             cfg_n39_custom,
         ),
-        ("n40_b1", &n40_b1_coords, &n40_b1_labels, cfg_b1),
+        ("n40_b1", &n40_b1_coords, &n40_b1_labels, cfg_b1.clone()),
         ("n6_b1", &n6_b1_coords, &n6_b1_labels, cfg_b1),
     ];
 
-    for &(name, xy, labs, ref cfg) in cases {
+    for (name, xy, labs, cfg) in cases {
         let xs32: Vec<f32> = xy.iter().step_by(2).copied().collect();
         let ys32: Vec<f32> = xy.iter().skip(1).step_by(2).copied().collect();
         let l32 = Layout2d::from_xy(xs32.clone(), ys32.clone()).unwrap();

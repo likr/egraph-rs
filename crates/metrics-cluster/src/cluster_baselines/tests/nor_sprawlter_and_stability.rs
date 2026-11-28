@@ -1,7 +1,7 @@
-use super::super::internal_scores::euclidean_diameter_2d;
+use super::super::space_dispatch::metric_diameter;
 use super::super::sprawlter::rect_union_area;
 use super::*;
-use egraph_core::{CsrGraph, DeterministicRng};
+use egraph_core::{CsrGraph, DeterministicRng, NodeExtents2d, NodeShape2d};
 
 #[test]
 fn test_fixture_d_nor_and_sprawlter_nn_exact_parity() {
@@ -12,7 +12,8 @@ fn test_fixture_d_nor_and_sprawlter_nn_exact_parity() {
     let g_d = CsrGraph::<f64>::from_edges(4, &[(0, 1), (1, 2), (2, 3), (0, 2)], None, false, false)
         .unwrap();
 
-    let nor = nor_metrics(&g_d, &orig_d, &adj_d, &hw_d, &hh_d).unwrap();
+    let ext_d = NodeExtents2d::new(&hw_d, &hh_d).unwrap();
+    let nor = nor_metrics(&g_d, &orig_d, &adj_d, ext_d).unwrap();
     assert_close(nor.oo_nni, 0.0, 1e-10, "D.oo_nni");
     assert_close(nor.sp_ch_a, 1.455_089_820_359_281_7, 1e-10, "D.sp_ch_a");
     assert_close(nor.gs_bb_iar, 1.078_369_905_956_113, 1e-10, "D.gs_bb_iar");
@@ -24,7 +25,7 @@ fn test_fixture_d_nor_and_sprawlter_nn_exact_parity() {
     );
     assert_close(nor.el_rsd, 0.289_816_821_614_026_05, 1e-10, "D.el_rsd");
 
-    let nor_ng = nor_metrics_without_graph(&orig_d, &adj_d, &hw_d, &hh_d).unwrap();
+    let nor_ng = nor_metrics_without_graph(&orig_d, &adj_d, ext_d).unwrap();
     assert_close(nor_ng.oo_nni, nor.oo_nni, 1e-15, "D.ng.oo_nni");
     assert_close(nor_ng.sp_ch_a, nor.sp_ch_a, 1e-15, "D.ng.sp_ch_a");
     assert_close(nor_ng.gs_bb_iar, nor.gs_bb_iar, 1e-15, "D.ng.gs_bb_iar");
@@ -32,13 +33,13 @@ fn test_fixture_d_nor_and_sprawlter_nn_exact_parity() {
     assert_eq!(nor_ng.el_rsd, 0.0);
 
     assert_close(
-        sprawlter_nn(&orig_d, &hw_d, &hh_d).unwrap(),
+        sprawlter_nn(&orig_d, ext_d).unwrap(),
         1.8015717518758179,
         1e-10,
         "D.sprawlter.orig",
     );
     assert_close(
-        sprawlter_nn(&adj_d, &hw_d, &hh_d).unwrap(),
+        sprawlter_nn(&adj_d, ext_d).unwrap(),
         1.9498280099261789,
         1e-10,
         "D.sprawlter.adj",
@@ -50,9 +51,37 @@ fn test_fixture_d_nor_and_sprawlter_nn_exact_parity() {
         orig_d.y().iter().map(|&y| 3.5 * y - 7.0).collect(),
     )
     .unwrap();
-    let inv_nor = nor_metrics(&g_d, &orig_d, &scaled_translated, &hw_d, &hh_d).unwrap();
+    let inv_nor = nor_metrics(&g_d, &orig_d, &scaled_translated, ext_d).unwrap();
     assert!(inv_nor.nm_dm_imse < 1e-24);
     assert!(inv_nor.el_rsd < 1e-14);
+
+    // Verify NodeExtents2d::from_shapes and NodeExtents2d::uniform parity.
+    let shapes_d = [
+        NodeShape2d::rectangle(0.5, 0.4).unwrap(),
+        NodeShape2d::rectangle(0.5, 0.4).unwrap(),
+        NodeShape2d::rectangle(0.4, 0.3).unwrap(),
+        NodeShape2d::rectangle(0.6, 0.5).unwrap(),
+    ];
+    let ext_shapes = NodeExtents2d::from_shapes(&shapes_d).unwrap();
+    assert_eq!(nor_metrics(&g_d, &orig_d, &adj_d, ext_shapes).unwrap(), nor);
+    assert_close(
+        sprawlter_nn(&orig_d, ext_shapes).unwrap(),
+        sprawlter_nn(&orig_d, ext_d).unwrap(),
+        1e-15,
+        "D.sprawlter.shapes",
+    );
+    let ext_uni = NodeExtents2d::uniform(4, 0.3_f64, 0.3).unwrap();
+    let ext_rad = NodeExtents2d::from_radii(&[0.3_f64; 4]).unwrap();
+    assert_eq!(
+        nor_metrics_without_graph(&orig_d, &adj_d, ext_uni).unwrap(),
+        nor_metrics_without_graph(&orig_d, &adj_d, ext_rad).unwrap()
+    );
+    assert_close(
+        sprawlter_nn(&orig_d, ext_uni).unwrap(),
+        sprawlter_nn_radii(&orig_d, &[0.3_f64; 4]).unwrap(),
+        1e-15,
+        "D.sprawlter.uniform_vs_radii",
+    );
 }
 
 #[test]
@@ -104,7 +133,7 @@ fn test_klee_union_area_and_large_n_diameter_oracles() {
         llabels.push(c);
     }
     let big_layout = Layout2d::from_xy(lxs, lys).unwrap();
-    let got_diam = euclidean_diameter_2d(&big_layout);
+    let got_diam = metric_diameter(&big_layout);
     let mut max_sq = 0.0_f64;
     for i in 0..80 {
         for j in (i + 1)..80 {
@@ -173,24 +202,23 @@ fn test_pdoe_subnormal_scale_no_overflow() {
 fn test_nor_metrics_zero_extent() {
     let orig = layout_from_pairs(&[(0.0, 0.0), (2.0, 0.0), (0.0, 2.0), (2.0, 2.0)]);
     let adj = layout_from_pairs(&[(0.0, 0.0), (4.0, 0.0), (0.0, 4.0), (4.0, 4.0)]);
-    let zero_hw = [0.0_f64; 4];
-    let zero_hh = [0.0_f64; 4];
+    let zero_ext = NodeExtents2d::uniform(4, 0.0_f64, 0.0).unwrap();
     let g = CsrGraph::<f64>::from_edges(4, &[(0, 1), (0, 2), (1, 3)], None, false, false).unwrap();
 
-    let m = nor_metrics(&g, &orig, &adj, &zero_hw, &zero_hh).unwrap();
+    let m = nor_metrics(&g, &orig, &adj, zero_ext).unwrap();
     assert_close(m.oo_nni, 0.0, 1e-12, "zero_ext.oo_nni");
     assert_close(m.sp_ch_a, 4.0, 1e-12, "zero_ext.sp_ch_a");
     assert_close(m.gs_bb_iar, 1.0, 1e-12, "zero_ext.gs_bb_iar");
     assert_close(m.nm_dm_imse, 0.0, 1e-12, "zero_ext.nm_dm_imse");
     assert_close(m.el_rsd, 0.0, 1e-12, "zero_ext.el_rsd");
 
-    let m_ng = nor_metrics_without_graph(&orig, &adj, &zero_hw, &zero_hh).unwrap();
+    let m_ng = nor_metrics_without_graph(&orig, &adj, zero_ext).unwrap();
     assert_close(m_ng.sp_ch_a, 4.0, 1e-12, "zero_ext_ng.sp_ch_a");
     assert_eq!(m_ng.el_rsd, 0.0);
 
     // Collinear zero-extent layout falls back cleanly to 1.0 for sp_ch_a and gs_bb_iar.
     let col = layout_from_pairs(&[(0.0, 0.0), (1.0, 0.0), (2.0, 0.0), (3.0, 0.0)]);
-    let m_col = nor_metrics_without_graph(&col, &col, &zero_hw, &zero_hh).unwrap();
+    let m_col = nor_metrics_without_graph(&col, &col, zero_ext).unwrap();
     assert_close(m_col.oo_nni, 0.0, 1e-12, "zero_ext_col.oo_nni");
     assert_close(m_col.sp_ch_a, 1.0, 1e-12, "zero_ext_col.sp_ch_a");
     assert_close(m_col.gs_bb_iar, 1.0, 1e-12, "zero_ext_col.gs_bb_iar");

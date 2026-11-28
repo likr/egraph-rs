@@ -11,12 +11,10 @@ fn test_c3_near_collinear_slanted_collinear_and_8conn_diagonal_bridge() {
     // 3 vertex permutations of obtuse triangles ([0,0], [2,0], [1,eps])
     // straddling det.abs() <= 1e-15 * b2.max(d2), paired with a second cluster.
     let perms: [[usize; 3]; 3] = [[0, 1, 2], [1, 2, 0], [2, 0, 1]];
-    let cfg_tri = ClusterAreaConfig {
-        g_max: 16,
-        sigma_cells: 0.5,
-        boundary_r95: f64::INFINITY,
-        ..ClusterAreaConfig::default()
-    };
+    let cfg_tri = ClusterAreaConfig::default()
+        .with_g_max(16)
+        .with_sigma_cells(0.5)
+        .with_boundary_r95(f64::INFINITY);
     for &eps in &[0.0_f64, 4e-16, 1.2e-15, -1.2e-15, 1e-14] {
         let tri = [(0.0_f64, 0.0_f64), (2.0_f64, 0.0_f64), (1.0_f64, eps)];
         let mut base_rep: Option<ClusterAreaReport> = None;
@@ -90,12 +88,10 @@ fn test_c3_near_collinear_slanted_collinear_and_8conn_diagonal_bridge() {
     xs_diag.extend(std::iter::repeat_n(2.4_f64, 46));
     ys_diag.extend(std::iter::repeat_n(0.0_f64, 46));
     labs_diag.extend(std::iter::repeat_n(1u32, 94));
-    let cfg_diag = ClusterAreaConfig {
-        g_max: 12,
-        sigma_cells: 0.25,
-        boundary_r95: f64::INFINITY,
-        ..ClusterAreaConfig::default()
-    };
+    let cfg_diag = ClusterAreaConfig::default()
+        .with_g_max(12)
+        .with_sigma_cells(0.25)
+        .with_boundary_r95(f64::INFINITY);
     let det_diag = cluster_area_faithfulness_detail(
         &Layout2d::from_xy(xs_diag.clone(), ys_diag.clone()).unwrap(),
         &labs_diag,
@@ -169,10 +165,7 @@ fn test_tiny_sigma_cells_kronecker_stability() {
     .unwrap();
     let labels = [0u32, 0, 0, 1, 1, 1];
     for &sigma in &[0.012, 0.01, 0.005, 1e-10, 1e-160, 1e-200, f64::MIN_POSITIVE] {
-        let cfg = ClusterAreaConfig {
-            sigma_cells: sigma,
-            ..ClusterAreaConfig::default()
-        };
+        let cfg = ClusterAreaConfig::default().with_sigma_cells(sigma);
         let detail = cluster_area_faithfulness_detail(&layout, &labels, &cfg).unwrap();
         assert_detail_unit_interval(&detail, &format!("sigma_cells={sigma:e}"));
         let rep = cluster_area_faithfulness(&layout, &labels, &cfg).unwrap();
@@ -186,10 +179,7 @@ fn test_tiny_sigma_cells_kronecker_stability() {
         let det = cluster_area_faithfulness_detail(
             &l_big,
             &labs_big,
-            &ClusterAreaConfig {
-                boundary_r95: b,
-                ..ClusterAreaConfig::default()
-            },
+            &ClusterAreaConfig::default().with_boundary_r95(b),
         )
         .unwrap();
         assert_detail_unit_interval(&det, &format!("max_b_grid={b}"));
@@ -207,17 +197,11 @@ fn test_sigma_cells_grid_upper_bound_and_max_b_grid_clamp() {
     .unwrap();
     let labels_sep = [0u32, 0, 0, 0, 1, 1, 1, 1];
 
-    let ok_cfg = ClusterAreaConfig {
-        sigma_cells: 292.0,
-        ..ClusterAreaConfig::default()
-    };
+    let ok_cfg = ClusterAreaConfig::default().with_sigma_cells(292.0);
     let ok_det = cluster_area_faithfulness_detail(&layout_sep, &labels_sep, &ok_cfg).unwrap();
     assert_detail_unit_interval(&ok_det, "sigma_cells=292.0");
 
-    let bad_cfg = ClusterAreaConfig {
-        sigma_cells: 292.001,
-        ..ClusterAreaConfig::default()
-    };
+    let bad_cfg = ClusterAreaConfig::default().with_sigma_cells(292.001);
     assert!(matches!(
         cluster_area_faithfulness(&layout_sep, &labels_sep, &bad_cfg),
         Err(CoreError::InvalidInput(_))
@@ -226,12 +210,10 @@ fn test_sigma_cells_grid_upper_bound_and_max_b_grid_clamp() {
     // F1 grid-extent clamping: sigma_cells=100.0, boundary_r95=10.0, g_max=128
     // clamps g_eff to floor((1024 - 350 - 1) / 10.0) = 67 while preserving
     // effective_boundary_r95 = 10.0 and in_frac = 1.0.
-    let clamp_cfg = ClusterAreaConfig {
-        g_max: 128,
-        sigma_cells: 100.0,
-        boundary_r95: 10.0,
-        ..ClusterAreaConfig::default()
-    };
+    let clamp_cfg = ClusterAreaConfig::default()
+        .with_g_max(128)
+        .with_sigma_cells(100.0)
+        .with_boundary_r95(10.0);
     let clamp_det = cluster_area_faithfulness_detail(&layout_sep, &labels_sep, &clamp_cfg).unwrap();
     assert_detail_unit_interval(&clamp_det, "max_b_grid_clamp");
     assert_eq!(clamp_det.report.g_eff, 67);
@@ -258,10 +240,7 @@ fn test_stevens_gamma_numerical_extremes() {
     .unwrap();
     let labels = [0u32, 0, 0, 0, 1, 1, 1];
     for &gamma in &[1e-12_f64, 1e-300, 100.0, 1e4, 1e300] {
-        let cfg = ClusterAreaConfig {
-            stevens_gamma: gamma,
-            ..ClusterAreaConfig::default()
-        };
+        let cfg = ClusterAreaConfig::default().with_stevens_gamma(gamma);
         let rep = cluster_area_faithfulness(&layout, &labels, &cfg).unwrap();
         let det = cluster_area_faithfulness_detail(&layout, &labels, &cfg).unwrap();
         assert_eq!(rep, det.report);

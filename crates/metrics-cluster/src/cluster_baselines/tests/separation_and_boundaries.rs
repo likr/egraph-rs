@@ -1,6 +1,6 @@
 use super::super::separation::dir_cpt_from_degree_counts;
 use super::*;
-use egraph_core::{CsrGraph, DeterministicRng};
+use egraph_core::{CsrGraph, DeterministicRng, NodeExtents2d};
 
 #[test]
 fn test_dc_cdm_hdm_dsc_separation_and_properties() {
@@ -76,7 +76,9 @@ fn test_gong_and_oo_nni_brute_force_oracles() {
         let hw = vec![0.25_f64; n];
         let hh = vec![0.25_f64; n];
 
-        let nor = nor_metrics_without_graph(&orig, &adj, &hw, &hh).unwrap();
+        let ext = NodeExtents2d::new(&hw, &hh).unwrap();
+
+        let nor = nor_metrics_without_graph(&orig, &adj, ext).unwrap();
         assert_close(
             nor.oo_nni,
             brute_oo_nni(&orig, &adj),
@@ -106,7 +108,9 @@ fn test_gong_and_oo_nni_brute_force_oracles() {
     let tie_orig = layout_from_pairs(&[(-0.0, 0.0), (0.0, 1.0), (1.0, 1.0), (2.0, -0.0)]);
     let tie_adj = layout_from_pairs(&[(1.0, 0.0), (0.0, 1.0), (0.5, 1.0), (0.2, 0.0)]);
     let hw = [0.1; 4];
-    let nor_tie = nor_metrics_without_graph(&tie_orig, &tie_adj, &hw, &hw).unwrap();
+    let nor_tie =
+        nor_metrics_without_graph(&tie_orig, &tie_adj, NodeExtents2d::from_radii(&hw).unwrap())
+            .unwrap();
     assert_close(
         nor_tie.oo_nni,
         brute_oo_nni(&tie_orig, &tie_adj),
@@ -148,10 +152,19 @@ fn test_degenerate_f32_and_error_cases() {
         pairwise_distance_overlap_error(&empty, &empty_l, 10).unwrap(),
         0.0
     );
-    assert_eq!(sprawlter_nn(&empty, &empty_s, &empty_s).unwrap(), 0.0);
+    assert_eq!(
+        sprawlter_nn(&empty, NodeExtents2d::new(&empty_s, &empty_s).unwrap()).unwrap(),
+        0.0
+    );
     assert_eq!(sprawlter_nn_radii(&empty, &empty_s).unwrap(), 0.0);
     assert_eq!(
-        nor_metrics(&empty_g, &empty, &empty, &empty_s, &empty_s).unwrap(),
+        nor_metrics(
+            &empty_g,
+            &empty,
+            &empty,
+            NodeExtents2d::new(&empty_s, &empty_s).unwrap()
+        )
+        .unwrap(),
         NorMetrics::default()
     );
 
@@ -188,7 +201,12 @@ fn test_degenerate_f32_and_error_cases() {
         0.0
     );
     assert_eq!(sprawlter_nn_radii(&single, &single_r).unwrap(), 1.0);
-    let nor1 = nor_metrics_without_graph(&single, &single, &single_r, &single_r).unwrap();
+    let nor1 = nor_metrics_without_graph(
+        &single,
+        &single,
+        NodeExtents2d::from_radii(&single_r).unwrap(),
+    )
+    .unwrap();
     assert_eq!(nor1.sp_ch_a, 1.0);
     assert_eq!(nor1.gs_bb_iar, 1.0);
 
@@ -272,16 +290,19 @@ fn test_degenerate_f32_and_error_cases() {
         Err(CoreError::InvalidInput(_))
     ));
     assert!(matches!(
-        sprawlter_nn(&l2, &[0.0, 1.0], &[1.0, 1.0]),
+        sprawlter_nn(&l2, NodeExtents2d::new(&[0.0, 1.0], &[1.0, 1.0]).unwrap()),
         Err(CoreError::InvalidInput(_))
     ));
     assert!(matches!(
-        sprawlter_nn(&bad_nan, &[1.0, 1.0], &[1.0, 1.0]),
+        sprawlter_nn(
+            &bad_nan,
+            NodeExtents2d::new(&[1.0, 1.0], &[1.0, 1.0]).unwrap()
+        ),
         Err(CoreError::NonFiniteValue { .. })
     ));
     assert!(matches!(
-        nor_metrics_without_graph(&l2, &l2, &[-0.1, 1.0], &[1.0, 1.0]),
-        Err(CoreError::InvalidInput(_))
+        nor_metrics_without_graph(&l2, &l2, NodeExtents2d::uniform(1, 1.0, 1.0).unwrap()),
+        Err(CoreError::DimensionMismatch { .. })
     ));
     assert!(matches!(
         distance_consistency(&l2, &[0]),

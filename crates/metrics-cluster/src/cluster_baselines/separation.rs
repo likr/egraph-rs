@@ -1,12 +1,14 @@
-use egraph_core::{CoreError, CoreResult, Layout2d, Scalar};
+use egraph_core::{CoreError, CoreResult, EuclideanLayout, MetricSpace};
 use egraph_metrics_geometry::{
-    build_kdtree_f64,
-    proximity::{gabriel_graph_edges_with_tree, relative_neighborhood_edges_with_tree},
-    validate_tree_layout,
+    gabriel_graph_edges, gabriel_graph_edges_with_index, relative_neighborhood_edges,
+    relative_neighborhood_edges_with_index,
 };
-use egraph_spatial_trees::{KdQueryScratch, StaticKdTree};
+use egraph_spatial_trees::{KdQueryScratch, NearestNeighborIndex};
 
-use super::{compact_labels, validate_layout_labels};
+use super::compact_labels;
+use super::space_dispatch::{
+    try_build_spatial_index, validate_index_layout, validate_metric_labels,
+};
 
 pub(super) fn dir_cpt_from_degree_counts(
     comp: &[u32],
@@ -54,44 +56,39 @@ pub(super) fn dir_cpt_from_undirected_edges(
     dir_cpt_from_degree_counts(comp, class_sizes, k_classes, &deg, &same)
 }
 
-/// Computes Aupetit & Sedlmair (2016) `SepMe` $k$-Nearest Neighbor Graph (`KNNG DIR CPT`)
-/// in `[0.0, 1.0]`.
-pub fn sepme_knng<S: Scalar>(layout: &Layout2d<S>, labels: &[u32], k: usize) -> CoreResult<f64> {
-    if k == 0 {
-        return Err(CoreError::invalid_input("sepme_knng requires k >= 1"));
+fn k_nearest_metric_excluding_self_into<L: MetricSpace + ?Sized>(
+    layout: &L,
+    query: usize,
+    k: usize,
+    buf: &mut Vec<(usize, f64)>,
+) {
+    let n = layout.len();
+    buf.clear();
+    if k == 0 || n <= 1 {
+        return;
     }
-    validate_layout_labels(layout, labels, "sepme_knng")?;
-    if layout.is_empty() {
-        return Ok(0.0);
+    let k_eff = k.min(n - 1);
+    buf.reserve(n - 1);
+    for j in 0..n {
+        if j == query {
+            continue;
+        }
+        buf.push((j, layout.distance(query, j)));
     }
-    if layout.len() == 1 {
-        return Ok(1.0);
+    let cmp = |a: &(usize, f64), b: &(usize, f64)| a.1.total_cmp(&b.1).then_with(|| a.0.cmp(&b.0));
+    if k_eff < buf.len() {
+        buf.select_nth_unstable_by(k_eff - 1, cmp);
+        buf.truncate(k_eff);
     }
-    let tree = build_kdtree_f64(layout)?;
-    sepme_knng_with_tree(layout, labels, k, &tree)
+    buf.sort_unstable_by(cmp);
 }
 
-#[doc(hidden)]
-pub fn sepme_knng_with_tree<S: Scalar>(
-    layout: &Layout2d<S>,
+fn sepme_knng_with_index_inner<I: NearestNeighborIndex + ?Sized>(
     labels: &[u32],
     k: usize,
-    tree: &StaticKdTree<2, f64>,
+    index: &I,
 ) -> CoreResult<f64> {
-    if k == 0 {
-        return Err(CoreError::invalid_input("sepme_knng requires k >= 1"));
-    }
-    validate_layout_labels(layout, labels, "sepme_knng_with_tree")?;
-    validate_tree_layout(tree, layout, "sepme_knng_with_tree")?;
-
-    let n = layout.len();
-    if n == 0 {
-        return Ok(0.0);
-    }
-    if n == 1 {
-        return Ok(1.0);
-    }
-
+    let n = labels.len();
     let (comp, class_sizes, k_classes) = compact_labels(labels);
     let k_eff = k.min(n - 1);
     let mut scratch = KdQueryScratch::with_capacity(k_eff);
@@ -100,16 +97,10 @@ pub fn sepme_knng_with_tree<S: Scalar>(
     let mut same = vec![0usize; n];
 
     for i in 0..n {
-        tree.k_nearest_excluding_self_with_scratch(i, k_eff, &mut scratch, &mut nbrs)?;
+        index.query_knn_excluding_self_with_scratch(i, k_eff, &mut scratch, &mut nbrs)?;
         deg[i] = nbrs.len();
         let ci = comp[i];
-        let mut s = 0usize;
-        for &(j, _) in &nbrs {
-            if comp[j] == ci {
-                s += 1;
-            }
-        }
-        same[i] = s;
+        same[i] = nbrs.iter().filter(|&&(j, _)| comp[j] == ci).count();
     }
 
     Ok(dir_cpt_from_degree_counts(
@@ -121,164 +112,19 @@ pub fn sepme_knng_with_tree<S: Scalar>(
     ))
 }
 
-/// Computes Aupetit & Sedlmair (2016) `SepMe` Relative Neighborhood Graph (`RNG DIR CPT`)
-/// in `[0.0, 1.0]`.
-pub fn sepme_rng<S: Scalar>(layout: &Layout2d<S>, labels: &[u32]) -> CoreResult<f64> {
-    validate_layout_labels(layout, labels, "sepme_rng")?;
-    if layout.is_empty() {
-        return Ok(0.0);
-    }
-    if layout.len() == 1 {
-        return Ok(1.0);
-    }
-    let tree = build_kdtree_f64(layout)?;
-    sepme_rng_with_tree(layout, labels, &tree)
-}
-
-#[doc(hidden)]
-pub fn sepme_rng_with_tree<S: Scalar>(
-    layout: &Layout2d<S>,
-    labels: &[u32],
-    tree: &StaticKdTree<2, f64>,
-) -> CoreResult<f64> {
-    validate_layout_labels(layout, labels, "sepme_rng_with_tree")?;
-    validate_tree_layout(tree, layout, "sepme_rng_with_tree")?;
-    let n = layout.len();
-    if n == 0 {
-        return Ok(0.0);
-    }
-    if n == 1 {
-        return Ok(1.0);
-    }
-    let (comp, class_sizes, k_classes) = compact_labels(labels);
-    let edges = relative_neighborhood_edges_with_tree(layout, tree)?;
-    Ok(dir_cpt_from_undirected_edges(
-        n,
-        &comp,
-        &class_sizes,
-        k_classes,
-        &edges,
-    ))
-}
-
-/// Computes Aupetit & Sedlmair (2016) `SepMe` Gabriel Graph (`GAB DIR CPT`) in `[0.0, 1.0]`.
-pub fn sepme_gab<S: Scalar>(layout: &Layout2d<S>, labels: &[u32]) -> CoreResult<f64> {
-    validate_layout_labels(layout, labels, "sepme_gab")?;
-    if layout.is_empty() {
-        return Ok(0.0);
-    }
-    if layout.len() == 1 {
-        return Ok(1.0);
-    }
-    let tree = build_kdtree_f64(layout)?;
-    sepme_gab_with_tree(layout, labels, &tree)
-}
-
-#[doc(hidden)]
-pub fn sepme_gab_with_tree<S: Scalar>(
-    layout: &Layout2d<S>,
-    labels: &[u32],
-    tree: &StaticKdTree<2, f64>,
-) -> CoreResult<f64> {
-    validate_layout_labels(layout, labels, "sepme_gab_with_tree")?;
-    validate_tree_layout(tree, layout, "sepme_gab_with_tree")?;
-    let n = layout.len();
-    if n == 0 {
-        return Ok(0.0);
-    }
-    if n == 1 {
-        return Ok(1.0);
-    }
-    let (comp, class_sizes, k_classes) = compact_labels(labels);
-    let edges = gabriel_graph_edges_with_tree(layout, tree)?;
-    Ok(dir_cpt_from_undirected_edges(
-        n,
-        &comp,
-        &class_sizes,
-        k_classes,
-        &edges,
-    ))
-}
-
-#[inline]
-fn is_gong_directed_edge(
-    i: usize,
-    j: usize,
-    gamma: f64,
-    pts: &[[f64; 2]],
-    tree: &StaticKdTree<2, f64>,
-    witness_buf: &mut Vec<(usize, f64)>,
-) -> CoreResult<bool> {
-    let dx = pts[j][0] - pts[i][0];
-    let dy = pts[j][1] - pts[i][1];
-    let d_ij_sq = dx * dx + dy * dy;
-    if d_ij_sq <= 0.0 {
-        return Ok(false);
-    }
-    let one_minus_g = 1.0 - gamma;
-    let m = [
-        gamma * pts[j][0] + one_minus_g * pts[i][0],
-        gamma * pts[j][1] + one_minus_g * pts[i][1],
-    ];
-    let r_sq = one_minus_g * one_minus_g * d_ij_sq;
-    let query_r_sq = r_sq * (1.0 + 1e-11);
-    tree.within_radius_sq_into(&m, query_r_sq, witness_buf)?;
-
-    let block_thresh = r_sq * (1.0 + 1e-12);
-    for &(q, d_mq_sq) in witness_buf.iter() {
-        if q == i || q == j {
-            continue;
-        }
-        if d_mq_sq <= block_thresh {
-            return Ok(false);
-        }
-    }
-    Ok(true)
-}
-
-/// Computes Aupetit & Sedlmair (2016) `SepMe` $\gamma$-Observable Neighbor Graph (`GONG DIR CPT`,
-/// default `gamma = 0.35`) in `[0.0, 1.0]`.
+/// Computes Aupetit & Sedlmair (2016) `SepMe` $k$-Nearest Neighbor Graph (`KNNG DIR CPT`)
+/// in `[0.0, 1.0]` across any [`MetricSpace`].
 ///
-/// For `0.0 <= gamma <= 0.5`, prunes candidates via `gabriel_graph_edges_with_tree` since
-/// $\mathrm{GONG}_\gamma \subseteq \mathrm{GG}$ holds strictly on $[0, 0.5]$.
-pub fn sepme_gong<S: Scalar>(layout: &Layout2d<S>, labels: &[u32], gamma: f64) -> CoreResult<f64> {
-    if !gamma.is_finite() {
-        return Err(CoreError::non_finite("sepme_gong::gamma"));
-    }
-    if !(0.0..=1.0).contains(&gamma) {
-        return Err(CoreError::invalid_input(
-            "sepme_gong requires gamma in [0.0, 1.0]",
-        ));
-    }
-    validate_layout_labels(layout, labels, "sepme_gong")?;
-    if layout.is_empty() {
-        return Ok(0.0);
-    }
-    if layout.len() == 1 {
-        return Ok(1.0);
-    }
-    let tree = build_kdtree_f64(layout)?;
-    sepme_gong_with_tree(layout, labels, gamma, &tree)
-}
-
-#[doc(hidden)]
-pub fn sepme_gong_with_tree<S: Scalar>(
-    layout: &Layout2d<S>,
+/// Automatically accelerates [`EuclideanLayout`] inputs via [`NearestNeighborIndex`].
+pub fn sepme_knng<L: MetricSpace + 'static>(
+    layout: &L,
     labels: &[u32],
-    gamma: f64,
-    tree: &StaticKdTree<2, f64>,
+    k: usize,
 ) -> CoreResult<f64> {
-    if !gamma.is_finite() {
-        return Err(CoreError::non_finite("sepme_gong::gamma"));
+    if k == 0 {
+        return Err(CoreError::invalid_input("sepme_knng requires k >= 1"));
     }
-    if !(0.0..=1.0).contains(&gamma) {
-        return Err(CoreError::invalid_input(
-            "sepme_gong requires gamma in [0.0, 1.0]",
-        ));
-    }
-    validate_layout_labels(layout, labels, "sepme_gong_with_tree")?;
-    validate_tree_layout(tree, layout, "sepme_gong_with_tree")?;
-
+    validate_metric_labels(layout, labels, "sepme_knng")?;
     let n = layout.len();
     if n == 0 {
         return Ok(0.0);
@@ -286,109 +132,222 @@ pub fn sepme_gong_with_tree<S: Scalar>(
     if n == 1 {
         return Ok(1.0);
     }
+    if let Some(index) = try_build_spatial_index(layout)? {
+        return sepme_knng_with_index_inner(labels, k, index.as_ref());
+    }
 
     let (comp, class_sizes, k_classes) = compact_labels(labels);
-    let xs = layout.x();
-    let ys = layout.y();
-    let pts: Vec<[f64; 2]> = (0..n).map(|i| [xs[i].to_f64(), ys[i].to_f64()]).collect();
+    let k_eff = k.min(n - 1);
+    let mut nbrs = Vec::with_capacity(k_eff);
+    let mut deg = vec![0usize; n];
+    let mut same = vec![0usize; n];
 
-    let mut deg_out = vec![0usize; n];
-    let mut same_out = vec![0usize; n];
-    let mut witness_buf = Vec::new();
-
-    if gamma <= 0.5 {
-        let gg_edges = gabriel_graph_edges_with_tree(layout, tree)?;
-        for (u, v) in gg_edges {
-            let ui = u as usize;
-            let vi = v as usize;
-            let same_class = comp[ui] == comp[vi];
-            if is_gong_directed_edge(ui, vi, gamma, &pts, tree, &mut witness_buf)? {
-                deg_out[ui] += 1;
-                if same_class {
-                    same_out[ui] += 1;
-                }
-            }
-            if is_gong_directed_edge(vi, ui, gamma, &pts, tree, &mut witness_buf)? {
-                deg_out[vi] += 1;
-                if same_class {
-                    same_out[vi] += 1;
-                }
-            }
-        }
-    } else {
-        for i in 0..n {
-            for j in 0..n {
-                if i == j {
-                    continue;
-                }
-                if is_gong_directed_edge(i, j, gamma, &pts, tree, &mut witness_buf)? {
-                    deg_out[i] += 1;
-                    if comp[i] == comp[j] {
-                        same_out[i] += 1;
-                    }
-                }
-            }
-        }
+    for i in 0..n {
+        k_nearest_metric_excluding_self_into(layout, i, k_eff, &mut nbrs);
+        deg[i] = nbrs.len();
+        let ci = comp[i];
+        same[i] = nbrs.iter().filter(|&&(j, _)| comp[j] == ci).count();
     }
 
     Ok(dir_cpt_from_degree_counts(
         &comp,
         &class_sizes,
         k_classes,
-        &deg_out,
-        &same_out,
+        &deg,
+        &same,
     ))
 }
 
-/// Computes Paulovich et al. (2008) / Espadoto et al. (2021) Neighborhood Hit (`M_NH`, default
-/// `k = 7`) in `[0.0, 1.0]`, micro-averaged over all `N` vertices (`N < 2` returns `0.0`).
-pub fn neighborhood_hit<S: Scalar>(
-    layout: &Layout2d<S>,
+/// Computes [`sepme_knng`] reusing a prebuilt [`NearestNeighborIndex`].
+pub fn sepme_knng_with_index<L: EuclideanLayout + ?Sized, I: NearestNeighborIndex + ?Sized>(
+    layout: &L,
     labels: &[u32],
     k: usize,
+    index: &I,
 ) -> CoreResult<f64> {
     if k == 0 {
-        return Err(CoreError::invalid_input("neighborhood_hit requires k >= 1"));
+        return Err(CoreError::invalid_input("sepme_knng requires k >= 1"));
     }
-    validate_layout_labels(layout, labels, "neighborhood_hit")?;
-    if layout.len() < 2 {
-        return Ok(0.0);
-    }
-    let tree = build_kdtree_f64(layout)?;
-    neighborhood_hit_with_tree(layout, labels, k, &tree)
-}
-
-#[doc(hidden)]
-pub fn neighborhood_hit_with_tree<S: Scalar>(
-    layout: &Layout2d<S>,
-    labels: &[u32],
-    k: usize,
-    tree: &StaticKdTree<2, f64>,
-) -> CoreResult<f64> {
-    if k == 0 {
-        return Err(CoreError::invalid_input("neighborhood_hit requires k >= 1"));
-    }
-    validate_layout_labels(layout, labels, "neighborhood_hit_with_tree")?;
-    validate_tree_layout(tree, layout, "neighborhood_hit_with_tree")?;
+    validate_metric_labels(layout, labels, "sepme_knng_with_index")?;
+    validate_index_layout(index, layout, "sepme_knng_with_index")?;
 
     let n = layout.len();
-    if n < 2 {
+    if n == 0 {
         return Ok(0.0);
     }
+    if n == 1 {
+        return Ok(1.0);
+    }
+    sepme_knng_with_index_inner(labels, k, index)
+}
+
+/// Computes Aupetit & Sedlmair (2016) `SepMe` Relative Neighborhood Graph (`RNG DIR CPT`)
+/// in `[0.0, 1.0]` across any [`MetricSpace`].
+pub fn sepme_rng<L: MetricSpace + 'static>(layout: &L, labels: &[u32]) -> CoreResult<f64> {
+    validate_metric_labels(layout, labels, "sepme_rng")?;
+    let n = layout.len();
+    if n == 0 {
+        return Ok(0.0);
+    }
+    if n == 1 {
+        return Ok(1.0);
+    }
+    let (comp, class_sizes, k_classes) = compact_labels(labels);
+    let edges = relative_neighborhood_edges(layout)?;
+    Ok(dir_cpt_from_undirected_edges(
+        n,
+        &comp,
+        &class_sizes,
+        k_classes,
+        &edges,
+    ))
+}
+
+/// Computes [`sepme_rng`] reusing a prebuilt [`NearestNeighborIndex`].
+pub fn sepme_rng_with_index<L: EuclideanLayout + ?Sized, I: NearestNeighborIndex + ?Sized>(
+    layout: &L,
+    labels: &[u32],
+    index: &I,
+) -> CoreResult<f64> {
+    validate_metric_labels(layout, labels, "sepme_rng_with_index")?;
+    validate_index_layout(index, layout, "sepme_rng_with_index")?;
+    let n = layout.len();
+    if n == 0 {
+        return Ok(0.0);
+    }
+    if n == 1 {
+        return Ok(1.0);
+    }
+    let (comp, class_sizes, k_classes) = compact_labels(labels);
+    let edges = relative_neighborhood_edges_with_index(layout, index)?;
+    Ok(dir_cpt_from_undirected_edges(
+        n,
+        &comp,
+        &class_sizes,
+        k_classes,
+        &edges,
+    ))
+}
+
+/// Computes Aupetit & Sedlmair (2016) `SepMe` Gabriel Graph (`GAB DIR CPT`) in `[0.0, 1.0]`
+/// across any [`MetricSpace`].
+pub fn sepme_gab<L: MetricSpace + 'static>(layout: &L, labels: &[u32]) -> CoreResult<f64> {
+    validate_metric_labels(layout, labels, "sepme_gab")?;
+    let n = layout.len();
+    if n == 0 {
+        return Ok(0.0);
+    }
+    if n == 1 {
+        return Ok(1.0);
+    }
+    let (comp, class_sizes, k_classes) = compact_labels(labels);
+    let edges = gabriel_graph_edges(layout)?;
+    Ok(dir_cpt_from_undirected_edges(
+        n,
+        &comp,
+        &class_sizes,
+        k_classes,
+        &edges,
+    ))
+}
+
+/// Computes [`sepme_gab`] reusing a prebuilt [`NearestNeighborIndex`].
+pub fn sepme_gab_with_index<L: EuclideanLayout + ?Sized, I: NearestNeighborIndex + ?Sized>(
+    layout: &L,
+    labels: &[u32],
+    index: &I,
+) -> CoreResult<f64> {
+    validate_metric_labels(layout, labels, "sepme_gab_with_index")?;
+    validate_index_layout(index, layout, "sepme_gab_with_index")?;
+    let n = layout.len();
+    if n == 0 {
+        return Ok(0.0);
+    }
+    if n == 1 {
+        return Ok(1.0);
+    }
+    let (comp, class_sizes, k_classes) = compact_labels(labels);
+    let edges = gabriel_graph_edges_with_index(layout, index)?;
+    Ok(dir_cpt_from_undirected_edges(
+        n,
+        &comp,
+        &class_sizes,
+        k_classes,
+        &edges,
+    ))
+}
+
+fn neighborhood_hit_with_index_inner<I: NearestNeighborIndex + ?Sized>(
+    labels: &[u32],
+    k: usize,
+    index: &I,
+) -> CoreResult<f64> {
+    let n = labels.len();
     let k_eff = k.min(n - 1);
     let mut scratch = KdQueryScratch::with_capacity(k_eff);
     let mut nbrs = Vec::with_capacity(k_eff);
     let mut total_same = 0usize;
 
-    for i in 0..n {
-        tree.k_nearest_excluding_self_with_scratch(i, k_eff, &mut scratch, &mut nbrs)?;
-        let li = labels[i];
-        for &(j, _) in &nbrs {
-            if labels[j] == li {
-                total_same += 1;
-            }
-        }
+    for (i, &li) in labels.iter().enumerate() {
+        index.query_knn_excluding_self_with_scratch(i, k_eff, &mut scratch, &mut nbrs)?;
+        total_same += nbrs.iter().filter(|&&(j, _)| labels[j] == li).count();
     }
 
     Ok(total_same as f64 / (k_eff * n) as f64)
+}
+
+/// Computes Paulovich et al. (2008) / Espadoto et al. (2021) Neighborhood Hit (`M_NH`, default
+/// `k = 7`) in `[0.0, 1.0]`, micro-averaged over all `N` vertices (`N < 2` returns `0.0`) across
+/// any [`MetricSpace`].
+///
+/// Automatically accelerates [`EuclideanLayout`] inputs via [`NearestNeighborIndex`].
+pub fn neighborhood_hit<L: MetricSpace + 'static>(
+    layout: &L,
+    labels: &[u32],
+    k: usize,
+) -> CoreResult<f64> {
+    if k == 0 {
+        return Err(CoreError::invalid_input("neighborhood_hit requires k >= 1"));
+    }
+    validate_metric_labels(layout, labels, "neighborhood_hit")?;
+    let n = layout.len();
+    if n < 2 {
+        return Ok(0.0);
+    }
+    if let Some(index) = try_build_spatial_index(layout)? {
+        return neighborhood_hit_with_index_inner(labels, k, index.as_ref());
+    }
+
+    let k_eff = k.min(n - 1);
+    let mut nbrs = Vec::with_capacity(k_eff);
+    let mut total_same = 0usize;
+
+    for (i, &li) in labels.iter().enumerate() {
+        k_nearest_metric_excluding_self_into(layout, i, k_eff, &mut nbrs);
+        total_same += nbrs.iter().filter(|&&(j, _)| labels[j] == li).count();
+    }
+
+    Ok(total_same as f64 / (k_eff * n) as f64)
+}
+
+/// Computes [`neighborhood_hit`] reusing a prebuilt [`NearestNeighborIndex`].
+pub fn neighborhood_hit_with_index<
+    L: EuclideanLayout + ?Sized,
+    I: NearestNeighborIndex + ?Sized,
+>(
+    layout: &L,
+    labels: &[u32],
+    k: usize,
+    index: &I,
+) -> CoreResult<f64> {
+    if k == 0 {
+        return Err(CoreError::invalid_input("neighborhood_hit requires k >= 1"));
+    }
+    validate_metric_labels(layout, labels, "neighborhood_hit_with_index")?;
+    validate_index_layout(index, layout, "neighborhood_hit_with_index")?;
+
+    if layout.len() < 2 {
+        return Ok(0.0);
+    }
+    neighborhood_hit_with_index_inner(labels, k, index)
 }

@@ -82,7 +82,8 @@ pub(super) fn radix_sort_u64(keys: &mut Vec<u64>, scratch: &mut Vec<u64>) {
 }
 
 /// Detailed diagnostics returned by [`adjusted_patch_nig_detail`].
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct AdjustedPatchNigDetail {
     /// Adjusted Patch Normalized Information Gain `(h_null - h_obs) / h_null`
     /// (`0.0` when `is_degenerate` is `true`).

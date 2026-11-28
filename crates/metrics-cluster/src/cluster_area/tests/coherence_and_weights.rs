@@ -128,12 +128,10 @@ fn test_f2_coherence_shapes_saturation_and_barriers() {
     let det_sat = cluster_area_faithfulness_detail(
         &l_sat,
         &slabs,
-        &ClusterAreaConfig {
-            g_max: 12,
-            tau_frac: 5.0,
-            boundary_r95: f64::INFINITY,
-            ..ClusterAreaConfig::default()
-        },
+        &ClusterAreaConfig::default()
+            .with_g_max(12)
+            .with_tau_frac(5.0)
+            .with_boundary_r95(f64::INFINITY),
     )
     .unwrap();
     assert!((det_sat.report.in_frac - 1.0).abs() < 1e-12);
@@ -156,11 +154,9 @@ fn test_f2_coherence_shapes_saturation_and_barriers() {
     let det_gap = cluster_area_faithfulness_detail(
         &l_gap,
         &glabs,
-        &ClusterAreaConfig {
-            g_max: 20,
-            boundary_r95: f64::INFINITY,
-            ..ClusterAreaConfig::default()
-        },
+        &ClusterAreaConfig::default()
+            .with_g_max(20)
+            .with_boundary_r95(f64::INFINITY),
     )
     .unwrap();
     assert!(
@@ -188,11 +184,9 @@ fn test_f2_coherence_shapes_saturation_and_barriers() {
     let det_bar = cluster_area_faithfulness_detail(
         &l_bar,
         &blabs,
-        &ClusterAreaConfig {
-            g_max: 20,
-            boundary_r95: f64::INFINITY,
-            ..ClusterAreaConfig::default()
-        },
+        &ClusterAreaConfig::default()
+            .with_g_max(20)
+            .with_boundary_r95(f64::INFINITY),
     )
     .unwrap();
     assert!(
@@ -221,10 +215,7 @@ fn test_f4_stevens_gamma3_ideal_90_10_and_gamma1_zero_ulp() {
     let det_g3 = cluster_area_faithfulness_detail(
         &layout,
         &labels,
-        &ClusterAreaConfig {
-            stevens_gamma: 3.0,
-            ..ClusterAreaConfig::default()
-        },
+        &ClusterAreaConfig::default().with_stevens_gamma(3.0),
     )
     .unwrap();
     assert!(
@@ -299,10 +290,7 @@ fn test_g6_target_weights_and_validation() {
     assert_eq!(det_remap.cluster_ids[9], u32::MAX);
 
     // 3. Stevens gamma != 1.0 applied after weight normalization: p_k \propto (p_k^(w))^gamma.
-    let cfg_g2 = ClusterAreaConfig {
-        stevens_gamma: 2.0,
-        ..cfg
-    };
+    let cfg_g2 = cfg.clone().with_stevens_gamma(2.0);
     let det_g2 =
         cluster_area_faithfulness_detail_with_weights(&layout, &labels, &cfg_g2, None, Some(&cw))
             .unwrap();

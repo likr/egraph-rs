@@ -1,4 +1,4 @@
-use egraph_core::{CoreError, CoreResult, Layout2d, Scalar};
+use egraph_core::{CoreError, CoreResult, Layout2d, NodeExtents2d, Scalar};
 use egraph_spatial_trees::RectangleOverlapSweep;
 
 use super::canonical_zero;
@@ -92,33 +92,25 @@ pub(super) fn rect_union_area(rects: &[[f64; 4]]) -> f64 {
 /// for axis-aligned rectangles $[x_i - hw_i, x_i + hw_i] \times [y_i - hh_i, y_i + hh_i]$.
 ///
 /// Uses $\alpha = 0.20, \gamma = 0.7$, exact $O(N \log N)$ Klee sweep-line union area for $S(G)$,
-/// and [`RectangleOverlapSweep::find_layout_overlaps`] for strict interior overlaps (`ox > 0 && oy > 0`).
-/// Returns `0.0` for `N == 0` and `1.0` for `N == 1`. Requires strictly positive finite extents.
+/// and [`RectangleOverlapSweep::find_layout_extents_overlaps`] for strict interior overlaps
+/// (`ox > 0 && oy > 0`). Returns `0.0` for `N == 0` and `1.0` for `N == 1`. Requires strictly
+/// positive finite extents.
 pub fn sprawlter_nn<S: Scalar>(
     layout: &Layout2d<S>,
-    half_widths: &[S],
-    half_heights: &[S],
+    extents: NodeExtents2d<'_, S>,
 ) -> CoreResult<f64> {
     let n = layout.len();
-    if half_widths.len() != n {
+    if extents.len() != n {
         return Err(CoreError::dimension_mismatch(
             n,
-            half_widths.len(),
-            "sprawlter_nn::half_widths",
-        ));
-    }
-    if half_heights.len() != n {
-        return Err(CoreError::dimension_mismatch(
-            n,
-            half_heights.len(),
-            "sprawlter_nn::half_heights",
+            extents.len(),
+            "sprawlter_nn::extents",
         ));
     }
     layout.validate_finite()?;
-    for (&hw, &hh) in half_widths.iter().zip(half_heights.iter()) {
-        if !hw.is_finite() || !hh.is_finite() {
-            return Err(CoreError::non_finite("sprawlter_nn::extents"));
-        }
+    extents.validate()?;
+    for i in 0..n {
+        let (hw, hh) = extents.extents(i)?;
         if hw <= S::ZERO || hh <= S::ZERO {
             return Err(CoreError::invalid_input(
                 "sprawlter_nn requires strictly positive half_widths and half_heights",
@@ -146,8 +138,9 @@ pub fn sprawlter_nn<S: Scalar>(
     for i in 0..n {
         let cx = xs[i].to_f64();
         let cy = ys[i].to_f64();
-        let hw = half_widths[i].to_f64();
-        let hh = half_heights[i].to_f64();
+        let (hw_s, hh_s) = extents.extents(i)?;
+        let hw = hw_s.to_f64();
+        let hh = hh_s.to_f64();
         let x0 = cx - hw;
         let x1 = cx + hw;
         let y0 = cy - hh;
@@ -170,7 +163,7 @@ pub fn sprawlter_nn<S: Scalar>(
         (bbox_area / union_area).max(1.0)
     };
 
-    let overlaps = RectangleOverlapSweep::find_layout_overlaps(layout, half_widths, half_heights)?;
+    let overlaps = RectangleOverlapSweep::find_layout_extents_overlaps(layout, &extents)?;
     let mut a_nn = 0.0_f64;
     if a_min > 0.0 {
         for (i, j) in overlaps {
@@ -187,7 +180,8 @@ pub fn sprawlter_nn<S: Scalar>(
     Ok((sprawl * a_nn.max(1.0)).sqrt())
 }
 
-/// Uniform-radius square-box convenience wrapper calling [`sprawlter_nn`]`(layout, radii, radii)`.
+/// Uniform-radius square-box convenience wrapper calling
+/// [`sprawlter_nn`]`(layout, NodeExtents2d::from_radii(radii)?)`.
 pub fn sprawlter_nn_radii<S: Scalar>(layout: &Layout2d<S>, radii: &[S]) -> CoreResult<f64> {
-    sprawlter_nn(layout, radii, radii)
+    sprawlter_nn(layout, NodeExtents2d::from_radii(radii)?)
 }

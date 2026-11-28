@@ -1,8 +1,8 @@
 use std::cmp::Ordering;
 
-use egraph_core::{CoreError, CoreResult, CsrGraph, Layout2d, Scalar};
-use egraph_metrics_geometry::{extract_unique_edges, validate_graph_layout};
+use egraph_core::{CoreError, CoreResult, CsrGraph, Layout2d, NodeExtents2d, Scalar};
 
+use super::space_dispatch::{extract_unique_edges, validate_graph_layout};
 use super::{NorMetrics, canonical_zero, convex_hull_ccw};
 
 struct Fenwick {
@@ -20,7 +20,7 @@ impl Fenwick {
         idx += 1;
         while idx < self.tree.len() {
             self.tree[idx] += delta;
-            idx += idx.isolate_lowest_one();
+            idx += idx & idx.wrapping_neg();
         }
     }
 
@@ -29,7 +29,7 @@ impl Fenwick {
         idx += 1;
         while idx > 0 {
             sum += self.tree[idx];
-            idx -= idx.isolate_lowest_one();
+            idx -= idx & idx.wrapping_neg();
         }
         sum
     }
@@ -97,12 +97,11 @@ fn polygon_area(poly: &[[f64; 2]]) -> f64 {
 
 fn corners_convex_hull_area<S: Scalar>(
     layout: &Layout2d<S>,
-    half_widths: &[S],
-    half_heights: &[S],
-) -> f64 {
+    extents: NodeExtents2d<'_, S>,
+) -> CoreResult<f64> {
     let n = layout.len();
     if n == 0 {
-        return 0.0;
+        return Ok(0.0);
     }
     let xs = layout.x();
     let ys = layout.y();
@@ -110,22 +109,22 @@ fn corners_convex_hull_area<S: Scalar>(
     for i in 0..n {
         let x = xs[i].to_f64();
         let y = ys[i].to_f64();
-        let hw = half_widths[i].to_f64();
-        let hh = half_heights[i].to_f64();
+        let (hw_s, hh_s) = extents.extents(i)?;
+        let hw = hw_s.to_f64();
+        let hh = hh_s.to_f64();
         corners.push([x - hw, y - hh]);
         corners.push([x + hw, y - hh]);
         corners.push([x + hw, y + hh]);
         corners.push([x - hw, y + hh]);
     }
     let hull = convex_hull_ccw(corners);
-    polygon_area(&hull)
+    Ok(polygon_area(&hull))
 }
 
 fn box_inclusive_bbox<S: Scalar>(
     layout: &Layout2d<S>,
-    half_widths: &[S],
-    half_heights: &[S],
-) -> (f64, f64) {
+    extents: NodeExtents2d<'_, S>,
+) -> CoreResult<(f64, f64)> {
     let xs = layout.x();
     let ys = layout.y();
     let mut xmin = f64::INFINITY;
@@ -135,14 +134,15 @@ fn box_inclusive_bbox<S: Scalar>(
     for i in 0..layout.len() {
         let x = xs[i].to_f64();
         let y = ys[i].to_f64();
-        let hw = half_widths[i].to_f64();
-        let hh = half_heights[i].to_f64();
+        let (hw_s, hh_s) = extents.extents(i)?;
+        let hw = hw_s.to_f64();
+        let hh = hh_s.to_f64();
         xmin = xmin.min(x - hw);
         xmax = xmax.max(x + hw);
         ymin = ymin.min(y - hh);
         ymax = ymax.max(y + hh);
     }
-    (xmax - xmin, ymax - ymin)
+    Ok((xmax - xmin, ymax - ymin))
 }
 
 fn center_bbox(xs: &[f64], ys: &[f64]) -> (f64, f64, f64, f64) {
@@ -167,8 +167,7 @@ fn center_bbox(xs: &[f64], ys: &[f64]) -> (f64, f64, f64, f64) {
 fn nor_metrics_core<S: Scalar>(
     orig_layout: &Layout2d<S>,
     adjusted_layout: &Layout2d<S>,
-    half_widths: &[S],
-    half_heights: &[S],
+    extents: NodeExtents2d<'_, S>,
     edges: Option<&[(u32, u32)]>,
 ) -> CoreResult<NorMetrics> {
     let n = orig_layout.len();
@@ -179,32 +178,16 @@ fn nor_metrics_core<S: Scalar>(
             "nor_metrics::adjusted_layout",
         ));
     }
-    if half_widths.len() != n {
+    if extents.len() != n {
         return Err(CoreError::dimension_mismatch(
             n,
-            half_widths.len(),
-            "nor_metrics::half_widths",
-        ));
-    }
-    if half_heights.len() != n {
-        return Err(CoreError::dimension_mismatch(
-            n,
-            half_heights.len(),
-            "nor_metrics::half_heights",
+            extents.len(),
+            "nor_metrics::extents",
         ));
     }
     orig_layout.validate_finite()?;
     adjusted_layout.validate_finite()?;
-    for (&hw, &hh) in half_widths.iter().zip(half_heights.iter()) {
-        if !hw.is_finite() || !hh.is_finite() {
-            return Err(CoreError::non_finite("nor_metrics::extents"));
-        }
-        if hw < S::ZERO || hh < S::ZERO {
-            return Err(CoreError::invalid_input(
-                "nor_metrics requires non-negative half_widths and half_heights",
-            ));
-        }
-    }
+    extents.validate()?;
 
     if n == 0 {
         return Ok(NorMetrics::default());
@@ -228,16 +211,16 @@ fn nor_metrics_core<S: Scalar>(
     let inv_y = axis_inversions_f64(&orig_y, &adj_y);
     let oo_nni = (inv_x + inv_y) as f64 / (n * (n - 1)) as f64;
 
-    let orig_ch_area = corners_convex_hull_area(orig_layout, half_widths, half_heights);
-    let adj_ch_area = corners_convex_hull_area(adjusted_layout, half_widths, half_heights);
+    let orig_ch_area = corners_convex_hull_area(orig_layout, extents)?;
+    let adj_ch_area = corners_convex_hull_area(adjusted_layout, extents)?;
     let sp_ch_a = if orig_ch_area <= 1e-18 {
         1.0
     } else {
         adj_ch_area / orig_ch_area
     };
 
-    let (w_orig, h_orig) = box_inclusive_bbox(orig_layout, half_widths, half_heights);
-    let (w_adj, h_adj) = box_inclusive_bbox(adjusted_layout, half_widths, half_heights);
+    let (w_orig, h_orig) = box_inclusive_bbox(orig_layout, extents)?;
+    let (w_adj, h_adj) = box_inclusive_bbox(adjusted_layout, extents)?;
     let gs_bb_iar = if w_orig <= 1e-18 || h_orig <= 1e-18 || w_adj <= 1e-18 || h_adj <= 1e-18 {
         1.0
     } else {
@@ -311,19 +294,12 @@ pub fn nor_metrics<W, S: Scalar>(
     graph: &CsrGraph<W>,
     orig_layout: &Layout2d<S>,
     adjusted_layout: &Layout2d<S>,
-    half_widths: &[S],
-    half_heights: &[S],
+    extents: NodeExtents2d<'_, S>,
 ) -> CoreResult<NorMetrics> {
     validate_graph_layout(graph, orig_layout, "nor_metrics::orig_layout")?;
     validate_graph_layout(graph, adjusted_layout, "nor_metrics::adjusted_layout")?;
     let edges = extract_unique_edges(graph);
-    nor_metrics_core(
-        orig_layout,
-        adjusted_layout,
-        half_widths,
-        half_heights,
-        Some(&edges),
-    )
+    nor_metrics_core(orig_layout, adjusted_layout, extents, Some(&edges))
 }
 
 /// Computes Chen et al. (2020) 5-metric Node Overlap Removal (`NOR`) evaluation without a graph
@@ -331,14 +307,7 @@ pub fn nor_metrics<W, S: Scalar>(
 pub fn nor_metrics_without_graph<S: Scalar>(
     orig_layout: &Layout2d<S>,
     adjusted_layout: &Layout2d<S>,
-    half_widths: &[S],
-    half_heights: &[S],
+    extents: NodeExtents2d<'_, S>,
 ) -> CoreResult<NorMetrics> {
-    nor_metrics_core(
-        orig_layout,
-        adjusted_layout,
-        half_widths,
-        half_heights,
-        None,
-    )
+    nor_metrics_core(orig_layout, adjusted_layout, extents, None)
 }

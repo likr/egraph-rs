@@ -25,7 +25,8 @@ pub(super) const COH_DOMINANCE_MIN: f64 = 0.30;
 /// area proportion matching requires $p_k A_{\mathrm{disk}} \lesssim n_k \pi (2\sigma)^2$
 /// and $\rho_k / \rho_{\mathrm{canv}} \gtrsim \tau_{\mathrm{frac}}$, where
 /// $\rho_k = n_k / (p_k A_{\mathrm{disk}})$.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[non_exhaustive]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ClusterAreaConfig {
     /// Maximum grid resolution along the unit radius $R_{95}$ (must be `>= 12`; default `128`).
     pub g_max: usize,
@@ -63,6 +64,53 @@ impl Default for ClusterAreaConfig {
 }
 
 impl ClusterAreaConfig {
+    /// Creates a new [`ClusterAreaConfig`] initialized to [`Self::default`].
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets the maximum grid resolution along the unit radius $R_{95}$.
+    #[inline]
+    pub fn with_g_max(mut self, g_max: usize) -> Self {
+        self.g_max = g_max;
+        self
+    }
+
+    /// Sets the Gaussian splatting kernel standard deviation in grid cells.
+    #[inline]
+    pub fn with_sigma_cells(mut self, sigma_cells: f64) -> Self {
+        self.sigma_cells = sigma_cells;
+        self
+    }
+
+    /// Sets the over-compression / scatter-tolerance multiplier $\kappa$.
+    #[inline]
+    pub fn with_kappa(mut self, kappa: f64) -> Self {
+        self.kappa = kappa;
+        self
+    }
+
+    /// Sets the physical visibility saturation threshold fraction $\tau_{\mathrm{frac}}$.
+    #[inline]
+    pub fn with_tau_frac(mut self, tau_frac: f64) -> Self {
+        self.tau_frac = tau_frac;
+        self
+    }
+
+    /// Sets the radial inclusion boundary in units of $R_{95}$.
+    #[inline]
+    pub fn with_boundary_r95(mut self, boundary_r95: f64) -> Self {
+        self.boundary_r95 = boundary_r95;
+        self
+    }
+
+    /// Sets the Stevens power-law exponent $\gamma$ for target cluster weights.
+    #[inline]
+    pub fn with_stevens_gamma(mut self, stevens_gamma: f64) -> Self {
+        self.stevens_gamma = stevens_gamma;
+        self
+    }
+
     /// Validates all configuration parameters.
     pub fn validate(&self) -> CoreResult<()> {
         if self.g_max < 12 {
@@ -121,7 +169,8 @@ impl ClusterAreaConfig {
 }
 
 /// Summary report returned by [`super::cluster_area_faithfulness`].
-#[derive(Clone, Copy, Debug, PartialEq, Default)]
+#[non_exhaustive]
+#[derive(Clone, Debug, PartialEq, Default)]
 pub struct ClusterAreaReport {
     /// Overall Cluster Area Faithfulness score in `[0.0, 1.0]`.
     pub caf: f64,
@@ -151,6 +200,7 @@ pub struct ClusterAreaReport {
 
 /// Detailed report including per-cluster diagnostics returned by
 /// [`super::cluster_area_faithfulness_detail`].
+#[non_exhaustive]
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct ClusterAreaDetail {
     /// Aggregate summary metrics.

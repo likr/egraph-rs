@@ -31,13 +31,11 @@ fn test_pair_purity_cancellation_regression() {
         -1.8822963,
     ];
     let idx445_labels: [u32; 9] = [1, 4, 4, 0, 3, 3, 3, 3, 4];
-    let idx445_cfg = ClusterAreaConfig {
-        g_max: 12,
-        sigma_cells: 0.15,
-        boundary_r95: 1.0,
-        stevens_gamma: 0.3,
-        ..ClusterAreaConfig::default()
-    };
+    let idx445_cfg = ClusterAreaConfig::default()
+        .with_g_max(12)
+        .with_sigma_cells(0.15)
+        .with_boundary_r95(1.0)
+        .with_stevens_gamma(0.3);
 
     let idx451_coords: [f32; 60] = [
         -0.2518732,
@@ -104,13 +102,11 @@ fn test_pair_purity_cancellation_regression() {
     let idx451_labels: [u32; 30] = [
         0, 0, 0, 0, 1, 0, 1, 0, 1, 1, 0, 0, 1, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 1, 0, 1, 1, 1, 0, 1,
     ];
-    let idx451_cfg = ClusterAreaConfig {
-        g_max: 32,
-        sigma_cells: 0.15,
-        boundary_r95: f64::INFINITY,
-        stevens_gamma: 0.3,
-        ..ClusterAreaConfig::default()
-    };
+    let idx451_cfg = ClusterAreaConfig::default()
+        .with_g_max(32)
+        .with_sigma_cells(0.15)
+        .with_boundary_r95(f64::INFINITY)
+        .with_stevens_gamma(0.3);
 
     // idx=445: Cluster 4 (index 3) shares zero grid cells with any other cluster -> exact 1.0.
     let xs445: Vec<f32> = idx445_coords.iter().step_by(2).copied().collect();
@@ -216,13 +212,11 @@ fn test_pair_purity_cancellation_regression() {
         3, 5, 3, 4, 4, 0, 5, 1, 5, 1, 2, 0, 1, 0, 0, 4, 2, 0, 2, 3, 1, 4, 4, 1, 5, 5, 0, 2, 3, 5,
         5, 0, 4, 4, 5, 4, 5,
     ];
-    let s500_292_cfg = ClusterAreaConfig {
-        g_max: 12,
-        sigma_cells: 0.15,
-        boundary_r95: f64::INFINITY,
-        stevens_gamma: 2.5,
-        ..ClusterAreaConfig::default()
-    };
+    let s500_292_cfg = ClusterAreaConfig::default()
+        .with_g_max(12)
+        .with_sigma_cells(0.15)
+        .with_boundary_r95(f64::INFINITY)
+        .with_stevens_gamma(2.5);
     let xs292: Vec<f32> = s500_292_coords.iter().step_by(2).copied().collect();
     let ys292: Vec<f32> = s500_292_coords.iter().skip(1).step_by(2).copied().collect();
     let l292 = Layout2d::from_xy(xs292.clone(), ys292.clone()).unwrap();
@@ -317,12 +311,10 @@ fn test_phi_all_tiny_wt_tau_no_nan() {
     let labels = [0_u32, 0, 0, 1, 1, 1];
     let layout = Layout2d::from_xy(xs, ys).unwrap();
     for &tau_frac in &[1e-200_f64, 1e-320_f64] {
-        let cfg = ClusterAreaConfig {
-            g_max: 24,
-            sigma_cells: 0.04,
-            tau_frac,
-            ..ClusterAreaConfig::default()
-        };
+        let cfg = ClusterAreaConfig::default()
+            .with_g_max(24)
+            .with_sigma_cells(0.04)
+            .with_tau_frac(tau_frac);
         let rep = cluster_area_faithfulness(&layout, &labels, &cfg).unwrap();
         let det = cluster_area_faithfulness_detail(&layout, &labels, &cfg).unwrap();
         assert_eq!(
@@ -350,15 +342,9 @@ fn test_unit_interval_clamping_adversarial() {
     assert_detail_unit_interval(&det_s, "K=N singletons (N=100)");
 
     // Also test a_tot <= 1e-15 early-return path with K = N singletons.
-    let det_s_empty = cluster_area_faithfulness_detail(
-        &l_s,
-        &labs_s,
-        &ClusterAreaConfig {
-            boundary_r95: 1e-6,
-            ..cfg
-        },
-    )
-    .unwrap();
+    let det_s_empty =
+        cluster_area_faithfulness_detail(&l_s, &labs_s, &cfg.clone().with_boundary_r95(1e-6))
+            .unwrap();
     assert_eq!(det_s_empty.report.in_frac, 0.0);
     assert_detail_unit_interval(&det_s_empty, "K=N singletons a_tot<=1e-15");
 
@@ -405,10 +391,7 @@ fn test_unit_interval_clamping_adversarial() {
     let det_g3 = cluster_area_faithfulness_detail(
         &base_layout,
         &base_labels,
-        &ClusterAreaConfig {
-            stevens_gamma: 3.0,
-            ..cfg
-        },
+        &cfg.clone().with_stevens_gamma(3.0),
     )
     .unwrap();
     assert_detail_unit_interval(&det_g3, "stevens_gamma=3.0");
